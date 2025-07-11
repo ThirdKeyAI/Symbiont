@@ -15,12 +15,14 @@
 5. [Resource Management](#resource-management)
 6. [Communication System](#communication-system)
 7. [Security Integration](#security-integration)
-8. [Data Flow](#data-flow)
-9. [Configuration & Metadata](#configuration--metadata)
-10. [Error Handling & Recovery](#error-handling--recovery)
-11. [Performance Considerations](#performance-considerations)
-12. [Integration Points](#integration-points)
-13. [Implementation Roadmap](#implementation-roadmap)
+8. [Context Management & Knowledge Systems](#context-management--knowledge-systems)
+9. [MCP Integration](#mcp-integration)
+10. [Data Flow](#data-flow)
+11. [Configuration & Metadata](#configuration--metadata)
+12. [Error Handling & Recovery](#error-handling--recovery)
+13. [Performance Considerations](#performance-considerations)
+14. [Integration Points](#integration-points)
+15. [Implementation Roadmap](#implementation-roadmap)
 
 ---
 
@@ -36,6 +38,9 @@ The Agent Runtime System is the core orchestration layer of the Symbiont platfor
 - **Hybrid Communication**: Direct messaging and publish-subscribe patterns with encryption
 - **Policy Enforcement**: Runtime integration with the Policy Enforcement Engine
 - **Cryptographic Audit**: Complete operation logging with Ed25519 signatures
+- **Context Management**: Agent memory persistence and knowledge management
+- **RAG Integration**: Vector database and retrieval-augmented generation capabilities
+- **MCP Support**: Model Context Protocol integration for external tool access
 
 ---
 
@@ -49,6 +54,9 @@ graph TB
         ARM[Agent Resource Manager]
         ACB[Agent Communication Bus]
         AEH[Agent Error Handler]
+        ACM[Agent Context Manager]
+        ARAG[Agent RAG Engine]
+        AMCP[Agent MCP Client]
     end
     
     subgraph "Scheduling Subsystem"
@@ -77,6 +85,8 @@ graph TB
         SO[Sandbox Orchestrator]
         CAT[Cryptographic Audit Trail]
         DSL[DSL Parser & AST]
+        VDB[Vector Database]
+        MCP[MCP Servers]
     end
     
     subgraph "Security Tiers"
@@ -110,11 +120,20 @@ graph TB
     ACB --> CAT
     ALC --> CAT
     AEH --> CAT
+    ACM --> CAT
+    ARAG --> CAT
+    AMCP --> CAT
     
     ALC --> DSL
+    ACM --> VDB
+    ARAG --> VDB
+    AMCP --> MCP
+    
     PE -.-> ARS
     PE -.-> ACB
     PE -.-> ALC
+    PE -.-> ACM
+    PE -.-> AMCP
 ```
 
 ### Architecture Principles
@@ -399,6 +418,317 @@ pub struct MessageRouter {
 - **Key Management**: Per-agent encryption keys with rotation
 - **Authentication**: Ed25519 signatures for message integrity
 - **Authorization**: Policy-based message routing controls
+---
+
+## Context Management & Knowledge Systems
+
+### 8.1 Agent Context Manager
+
+The Agent Context Manager provides persistent memory and knowledge management capabilities for agents, enabling them to maintain state across sessions and access relevant information.
+
+#### Responsibilities
+- **Context Persistence**: Store and retrieve agent memory and state
+- **Knowledge Management**: Manage agent-specific knowledge bases
+- **Session Continuity**: Maintain context across agent restarts
+- **Cross-Agent Knowledge**: Enable knowledge sharing between agents
+
+#### Key Interfaces
+```rust
+pub trait ContextManager {
+    async fn store_context(&self, agent_id: AgentId, context: AgentContext) -> Result<ContextId, ContextError>;
+    async fn retrieve_context(&self, agent_id: AgentId, query: ContextQuery) -> Result<Vec<ContextItem>, ContextError>;
+    async fn update_knowledge(&self, agent_id: AgentId, knowledge: Knowledge) -> Result<(), ContextError>;
+    async fn search_knowledge(&self, agent_id: AgentId, query: &str) -> Result<Vec<KnowledgeItem>, ContextError>;
+    async fn share_knowledge(&self, from_agent: AgentId, to_agent: AgentId, knowledge_id: KnowledgeId) -> Result<(), ContextError>;
+}
+
+pub struct AgentContext {
+    pub agent_id: AgentId,
+    pub session_id: SessionId,
+    pub memory: AgentMemory,
+    pub knowledge_base: KnowledgeBase,
+    pub conversation_history: Vec<ConversationItem>,
+    pub metadata: HashMap<String, String>,
+    pub created_at: SystemTime,
+    pub updated_at: SystemTime,
+}
+
+pub struct ContextQuery {
+    pub query_type: QueryType,
+    pub search_terms: Vec<String>,
+    pub time_range: Option<TimeRange>,
+    pub relevance_threshold: f32,
+    pub max_results: usize,
+}
+
+pub enum QueryType {
+    Semantic,
+    Keyword,
+    Temporal,
+    Similarity,
+}
+```
+
+### 8.2 RAG Engine Integration
+
+The RAG (Retrieval-Augmented Generation) Engine enhances agent capabilities by providing access to external knowledge and enabling context-aware responses.
+
+#### Responsibilities
+- **Document Retrieval**: Find relevant documents for agent queries
+- **Context Augmentation**: Enhance agent inputs with retrieved information
+- **Knowledge Synthesis**: Combine multiple sources of information
+- **Response Generation**: Generate contextually relevant responses
+
+#### RAG Pipeline
+```mermaid
+flowchart TD
+    A[Agent Query] --> B[Query Analysis]
+    B --> C[Vector Search]
+    C --> D[Document Retrieval]
+    D --> E[Context Ranking]
+    E --> F[Context Augmentation]
+    F --> G[Response Generation]
+    G --> H[Agent Response]
+    
+    I[Knowledge Base] --> C
+    J[Vector Database] --> C
+    K[External Sources] --> D
+```
+
+#### Implementation Interface
+```rust
+pub trait RAGEngine {
+    async fn augment_query(&self, query: &str, context: AgentContext) -> Result<AugmentedQuery, RAGError>;
+    async fn retrieve_documents(&self, query: &AugmentedQuery) -> Result<Vec<Document>, RAGError>;
+    async fn rank_documents(&self, documents: Vec<Document>, query: &str) -> Result<Vec<RankedDocument>, RAGError>;
+    async fn generate_response(&self, query: &AugmentedQuery, documents: Vec<RankedDocument>) -> Result<Response, RAGError>;
+}
+
+pub struct AugmentedQuery {
+    pub original_query: String,
+    pub expanded_terms: Vec<String>,
+    pub context_keywords: Vec<String>,
+    pub intent: QueryIntent,
+    pub embeddings: Vec<f32>,
+}
+
+pub struct Document {
+    pub id: DocumentId,
+    pub content: String,
+    pub metadata: DocumentMetadata,
+    pub embeddings: Vec<f32>,
+    pub relevance_score: f32,
+}
+
+pub enum QueryIntent {
+    Factual,
+    Procedural,
+    Analytical,
+    Creative,
+}
+```
+
+### 8.3 Vector Database Integration
+
+The Vector Database provides semantic search capabilities and efficient storage of embeddings for knowledge retrieval.
+
+#### Responsibilities
+- **Embedding Storage**: Store and index vector embeddings
+- **Semantic Search**: Perform similarity-based searches
+- **Indexing**: Maintain efficient search indices
+- **Metadata Management**: Associate metadata with vectors
+
+#### Vector Operations
+```rust
+pub trait VectorDatabase {
+    async fn embed_and_store(&self, content: &str, metadata: Metadata) -> Result<VectorId, VectorError>;
+    async fn store_embedding(&self, embedding: Vec<f32>, metadata: Metadata) -> Result<VectorId, VectorError>;
+    async fn semantic_search(&self, query: &str, limit: usize) -> Result<Vec<SearchResult>, VectorError>;
+    async fn similarity_search(&self, vector: Vec<f32>, threshold: f32) -> Result<Vec<SearchResult>, VectorError>;
+    async fn batch_search(&self, queries: Vec<String>) -> Result<Vec<Vec<SearchResult>>, VectorError>;
+    async fn update_metadata(&self, vector_id: VectorId, metadata: Metadata) -> Result<(), VectorError>;
+    async fn delete_vector(&self, vector_id: VectorId) -> Result<(), VectorError>;
+}
+
+pub struct SearchResult {
+    pub vector_id: VectorId,
+    pub content: String,
+    pub metadata: Metadata,
+    pub similarity_score: f32,
+    pub embedding: Option<Vec<f32>>,
+}
+
+pub struct VectorConfig {
+    pub dimension: usize,
+    pub distance_metric: DistanceMetric,
+    pub index_type: IndexType,
+    pub embedding_model: EmbeddingModel,
+}
+
+pub enum DistanceMetric {
+    Cosine,
+    Euclidean,
+    DotProduct,
+}
+
+pub enum IndexType {
+    HNSW,
+    IVF,
+    Flat,
+}
+```
+
+---
+
+## MCP Integration
+
+### 9.1 Model Context Protocol Client
+
+The MCP Client enables agents to access external tools and resources through the Model Context Protocol, extending agent capabilities beyond the runtime environment.
+
+#### Responsibilities
+- **Server Discovery**: Find and connect to MCP servers
+- **Tool Management**: Discover and invoke external tools
+- **Resource Access**: Access external data sources and APIs
+- **Protocol Handling**: Manage MCP communication protocol
+
+#### Key Interfaces
+```rust
+pub trait MCPClient {
+    async fn discover_servers(&self) -> Result<Vec<MCPServerInfo>, MCPError>;
+    async fn connect_to_server(&self, server_uri: &str) -> Result<MCPConnection, MCPError>;
+    async fn list_tools(&self, connection: &MCPConnection) -> Result<Vec<MCPTool>, MCPError>;
+    async fn invoke_tool(&self, connection: &MCPConnection, tool: &str, args: Value) -> Result<Value, MCPError>;
+    async fn list_resources(&self, connection: &MCPConnection) -> Result<Vec<MCPResource>, MCPError>;
+    async fn read_resource(&self, connection: &MCPConnection, uri: &str) -> Result<ResourceContent, MCPError>;
+    async fn subscribe_to_notifications(&self, connection: &MCPConnection) -> Result<NotificationStream, MCPError>;
+}
+
+pub struct MCPServerInfo {
+    pub name: String,
+    pub uri: String,
+    pub version: String,
+    pub capabilities: Vec<MCPCapability>,
+    pub description: Option<String>,
+}
+
+pub struct MCPConnection {
+    pub server_info: MCPServerInfo,
+    pub connection_id: ConnectionId,
+    pub transport: MCPTransport,
+    pub session_state: SessionState,
+}
+
+pub struct MCPTool {
+    pub name: String,
+    pub description: String,
+    pub input_schema: JsonSchema,
+    pub output_schema: JsonSchema,
+    pub capabilities: Vec<ToolCapability>,
+}
+```
+
+### 9.2 Tool Discovery and Invocation
+
+#### Tool Discovery Process
+```mermaid
+sequenceDiagram
+    participant Agent
+    participant MCP as MCP Client
+    participant Server as MCP Server
+    
+    Agent->>MCP: Request Available Tools
+    MCP->>Server: Connect & Authenticate
+    Server-->>MCP: Connection Established
+    MCP->>Server: List Tools
+    Server-->>MCP: Tool Definitions
+    MCP->>Server: List Resources
+    Server-->>MCP: Resource Definitions
+    MCP-->>Agent: Available Tools & Resources
+    
+    Agent->>MCP: Invoke Tool
+    MCP->>Server: Tool Invocation Request
+    Server-->>MCP: Tool Response
+    MCP-->>Agent: Tool Result
+```
+
+#### Tool Invocation Interface
+```rust
+pub trait ToolInvoker {
+    async fn prepare_invocation(&self, tool: &MCPTool, args: Value) -> Result<ToolInvocation, ToolError>;
+    async fn execute_tool(&self, invocation: ToolInvocation) -> Result<ToolResult, ToolError>;
+    async fn handle_tool_error(&self, error: ToolError) -> Result<ErrorRecovery, ToolError>;
+}
+
+pub struct ToolInvocation {
+    pub tool_name: String,
+    pub arguments: Value,
+    pub context: InvocationContext,
+    pub timeout: Duration,
+    pub retry_policy: RetryPolicy,
+}
+
+pub struct ToolResult {
+    pub success: bool,
+    pub result: Value,
+    pub metadata: ToolMetadata,
+    pub execution_time: Duration,
+    pub resource_usage: ResourceUsage,
+}
+```
+
+### 9.3 Resource Access Management
+
+#### Resource Types
+```rust
+pub enum MCPResource {
+    File {
+        uri: String,
+        mime_type: String,
+        size: Option<u64>,
+    },
+    Database {
+        connection_string: String,
+        schema: Option<String>,
+    },
+    API {
+        endpoint: String,
+        authentication: AuthMethod,
+        rate_limits: RateLimits,
+    },
+    Stream {
+        uri: String,
+        protocol: StreamProtocol,
+    },
+}
+
+pub trait ResourceAccess {
+    async fn access_resource(&self, resource: &MCPResource) -> Result<ResourceHandle, ResourceError>;
+    async fn read_resource(&self, handle: &ResourceHandle) -> Result<ResourceContent, ResourceError>;
+    async fn write_resource(&self, handle: &ResourceHandle, content: &[u8]) -> Result<(), ResourceError>;
+    async fn stream_resource(&self, handle: &ResourceHandle) -> Result<ResourceStream, ResourceError>;
+}
+```
+
+### 9.4 Security and Policy Integration
+
+#### MCP Security Framework
+```rust
+pub struct MCPSecurityConfig {
+    pub allowed_servers: Vec<String>,
+    pub tool_permissions: HashMap<String, Vec<Permission>>,
+    pub resource_access_rules: Vec<AccessRule>,
+    pub authentication_required: bool,
+    pub encryption_required: bool,
+}
+
+pub trait MCPPolicyEnforcement {
+    async fn validate_server_connection(&self, server_uri: &str) -> Result<bool, PolicyError>;
+    async fn validate_tool_invocation(&self, tool: &MCPTool, agent_id: AgentId) -> Result<bool, PolicyError>;
+    async fn validate_resource_access(&self, resource: &MCPResource, agent_id: AgentId) -> Result<bool, PolicyError>;
+}
+```
+
 
 #### Security Configuration
 ```rust
@@ -663,50 +993,98 @@ pub trait AuditTrail {
 
 ## Implementation Roadmap
 
-### 13.1 Phase 1: Core Infrastructure (Months 1-2)
+### 13.1 Phase 1: Core Infrastructure (Months 1-2) ✅ COMPLETED
 
 #### Deliverables
-- [ ] Agent Runtime Scheduler implementation
-- [ ] Basic Agent Lifecycle Controller
-- [ ] Resource Manager with Docker integration
-- [ ] Simple direct messaging system
-- [ ] Basic policy enforcement hooks
+- [x] Agent Runtime Scheduler implementation
+- [x] Basic Agent Lifecycle Controller
+- [x] Resource Manager with Docker integration
+- [x] Simple direct messaging system
+- [x] Basic policy enforcement hooks
 
 #### Success Criteria
-- Support for 100 concurrent agents
-- Basic agent lifecycle management
-- Docker-based sandboxing
-- Simple inter-agent communication
+- [x] Support for 100 concurrent agents
+- [x] Basic agent lifecycle management
+- [x] Docker-based sandboxing
+- [x] Simple inter-agent communication
 
-### 13.2 Phase 2: Advanced Features (Months 3-4)
+### 13.2 Phase 2: Advanced Features (Months 3-4) ✅ COMPLETED
 
 #### Deliverables
-- [ ] Hybrid communication system (direct + pub/sub)
-- [ ] gVisor and Firecracker integration
-- [ ] Advanced resource management
-- [ ] Comprehensive error handling
-- [ ] Performance optimization
+- [x] Hybrid communication system (direct + pub/sub)
+- [x] gVisor and Firecracker integration
+- [x] Advanced resource management
+- [x] Comprehensive error handling
+- [x] Performance optimization
 
 #### Success Criteria
-- Support for 1,000+ concurrent agents
-- Multi-tier security implementation
-- Advanced communication patterns
-- Robust error recovery
+- [x] Support for 1,000+ concurrent agents
+- [x] Multi-tier security implementation
+- [x] Advanced communication patterns
+- [x] Robust error recovery
 
-### 13.3 Phase 3: Production Readiness (Months 5-6)
+### 13.3 Phase 3: Production Readiness (Months 5-6) ✅ COMPLETED
 
 #### Deliverables
-- [ ] Complete audit trail integration
-- [ ] Advanced monitoring and metrics
-- [ ] Performance optimization
-- [ ] Security hardening
-- [ ] Comprehensive testing
+- [x] Complete audit trail integration
+- [x] Advanced monitoring and metrics
+- [x] Performance optimization
+- [x] Security hardening
+- [x] Comprehensive testing
 
 #### Success Criteria
-- Support for 10,000+ concurrent agents
-- Production-grade security
-- Complete audit capabilities
-- Performance targets met
+- [x] Support for 10,000+ concurrent agents
+- [x] Production-grade security
+- [x] Complete audit capabilities
+- [x] Performance targets met
+
+### 13.4 Phase 4: Context & Knowledge Systems (Months 7-8)
+
+#### Deliverables
+- [ ] Agent Context Manager implementation
+- [ ] Vector Database integration (ChromaDB/Qdrant)
+- [ ] RAG Engine with document retrieval
+- [ ] Knowledge persistence and sharing
+- [ ] Semantic search capabilities
+
+#### Success Criteria
+- Agent memory persistence across sessions
+- Semantic search with <100ms latency
+- Knowledge sharing between agents
+- Context-aware agent responses
+- Support for 1M+ document embeddings
+
+### 13.5 Phase 5: MCP Integration (Months 9-10)
+
+#### Deliverables
+- [ ] MCP Client implementation
+- [ ] Tool discovery and invocation system
+- [ ] Resource access management
+- [ ] MCP security and policy integration
+- [ ] External service connectors
+
+#### Success Criteria
+- Connect to 10+ MCP servers simultaneously
+- Tool invocation with <500ms latency
+- Secure external resource access
+- Policy-enforced MCP operations
+- Support for streaming resources
+
+### 13.6 Phase 6: Advanced Intelligence (Months 11-12)
+
+#### Deliverables
+- [ ] Advanced RAG with multi-modal support
+- [ ] Cross-agent knowledge synthesis
+- [ ] Intelligent context management
+- [ ] Adaptive learning capabilities
+- [ ] Performance optimization for knowledge systems
+
+#### Success Criteria
+- Multi-modal document processing
+- Real-time knowledge updates
+- Intelligent context pruning
+- Adaptive agent behavior
+- Sub-50ms context retrieval
 
 ---
 
@@ -716,4 +1094,8 @@ The Agent Runtime System provides a robust, secure, and scalable foundation for 
 
 The design emphasizes security-first principles, policy enforcement, and comprehensive auditability, ensuring that all agent operations are traceable, compliant, and secure. The modular architecture allows for incremental implementation and future extensibility as the platform evolves.
 
-This design document serves as the blueprint for implementing the first major component of the Symbiont platform, establishing the foundation for the policy enforcement engine, multi-tier sandboxing, and cryptographic audit trail components that will follow.
+**Phase 1-3 Implementation Status**: The core runtime system has been successfully implemented and tested, providing a solid foundation for agent execution, resource management, and secure communication.
+
+**Future Enhancements**: The addition of Context Management, RAG capabilities, and MCP integration will transform the runtime from a basic execution environment into an intelligent, knowledge-aware platform capable of sophisticated agent interactions and external tool integration.
+
+This design document serves as the blueprint for implementing the complete Agent Runtime System, establishing the foundation for advanced AI agent capabilities within the Symbiont platform.

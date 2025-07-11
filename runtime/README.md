@@ -353,4 +353,69 @@ Licensed under the MIT License. See `LICENSE` file for details.
 For issues and questions:
 - GitHub Issues: [symbiont-runtime/issues](https://github.com/symbiont/runtime/issues)
 - Documentation: [docs.symbiont.dev](https://docs.symbiont.dev)
+
+## Roadmap
+
+### Phase 1: Core Infrastructure ✅ COMPLETED
+- [x] Agent Runtime Scheduler
+- [x] Agent Lifecycle Controller  
+- [x] Resource Manager
+- [x] Communication Bus
+- [x] Error Handler
+
+### Phase 2: Advanced Features ✅ COMPLETED
+- [x] Multi-tier security integration
+- [x] Policy enforcement hooks
+- [x] Comprehensive testing
+- [x] Performance optimization
+
+### Phase 3: Production Readiness ✅ COMPLETED
+- [x] Complete audit trail integration
+- [x] Advanced monitoring
+- [x] Security hardening
+- [x] Documentation
+
+### Phase 4: Context & Knowledge Systems 🚧 PLANNED
+- [ ] Agent Context Manager
+- [ ] Vector Database integration (ChromaDB/Qdrant)
+- [ ] RAG Engine implementation
+- [ ] Knowledge persistence and sharing
+- [ ] Semantic search capabilities
+
+### Phase 5: MCP Integration 🚧 PLANNED
+- [ ] MCP Client implementation
+- [ ] Tool discovery and invocation
+- [ ] Resource access management
+- [ ] External service connectors
+- [ ] Security policy integration
+
+### Phase 6: Advanced Intelligence 🚧 PLANNED
+- [ ] Multi-modal RAG support
+- [ ] Cross-agent knowledge synthesis
+- [ ] Intelligent context management
+- [ ] Adaptive learning capabilities
+
+## Future Features
+
+### Context Management & Knowledge Systems
+
+The next major enhancement will add intelligent context management and knowledge capabilities:
+
+- **Agent Memory**: Persistent context across sessions
+- **Vector Database**: Semantic search and document storage
+- **RAG Engine**: Retrieval-augmented generation for enhanced responses
+- **Knowledge Sharing**: Cross-agent knowledge exchange
+- **Semantic Search**: Natural language query capabilities
+
+### MCP (Model Context Protocol) Integration
+
+External tool and resource access through standardized protocol:
+
+- **Tool Discovery**: Automatic discovery of available MCP servers
+- **Resource Access**: Secure access to external data sources
+- **Tool Invocation**: Execute external tools and services
+- **Policy Integration**: Enforce security policies for external access
+- **Streaming Support**: Real-time data streaming from external sources
+
+These enhancements will transform the runtime from a basic execution environment into an intelligent, knowledge-aware platform capable of sophisticated agent interactions and external tool integration.
 - Community: [discord.gg/symbiont](https://discord.gg/symbiont)
