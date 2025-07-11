@@ -1,0 +1,46 @@
+[package]
+name = "symbiont-runtime"
+version = "0.1.0"
+edition = "2021"
+authors = ["Symbiont Team"]
+description = "Agent Runtime System for the Symbiont platform"
+license = "MIT"
+
+
+[[example]]
+name = "basic_agent"
+path = "examples/basic_agent.rs"
+
+[[example]]
+name = "full_system"
+path = "examples/full_system.rs"
+[dependencies]
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+thiserror = "1.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+async-trait = "0.1"
+dashmap = "5.0"
+parking_lot = "0.12"
+crossbeam = "0.8"
+ed25519-dalek = { version = "2.0", features = ["serde"] }
+aes-gcm = "0.10"
+rand = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+futures = "0.3"
+bytes = { version = "1.0", features = ["serde"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3.0"
+criterion = "0.5"
+
+
+
+[lib]
+name = "symbiont_runtime"
+path = "src/lib.rs"
