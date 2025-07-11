@@ -322,3 +322,6 @@ dist
 .yarn/install-state.gz
 .pnp.*
 
+# Roo
+.roomodes
+.roo
