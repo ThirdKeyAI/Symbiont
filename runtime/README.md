@@ -418,4 +418,3 @@ External tool and resource access through standardized protocol:
 - **Streaming Support**: Real-time data streaming from external sources
 
 These enhancements will transform the runtime from a basic execution environment into an intelligent, knowledge-aware platform capable of sophisticated agent interactions and external tool integration.
-- Community: [discord.gg/symbiont](https://discord.gg/symbiont)
