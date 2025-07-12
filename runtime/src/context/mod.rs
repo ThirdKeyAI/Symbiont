@@ -47,18 +47,21 @@ pub mod vector_db;
 // Re-export commonly used types and traits
 pub use types::{
     AgentContext, HierarchicalMemory, KnowledgeBase, ContextQuery, ContextError,
-    MemoryItem, MemoryType, Knowledge, KnowledgeItem, KnowledgeType,
+    MemoryItem, MemoryType, Knowledge, KnowledgeItem, KnowledgeType, KnowledgeSource,
     SessionId, ContextId, KnowledgeId, VectorId,
     AccessLevel, RetentionPolicy, QueryType,
+    ContextPersistence, StorageStats, FilePersistenceConfig,
+    VectorBatchOperation, VectorOperationType, VectorBatchItem, VectorMetadata, VectorContentType,
+    VectorSearchResult,
 };
 
 pub use manager::{
-    ContextManager, StandardContextManager, ContextManagerConfig,
+    ContextManager, StandardContextManager, ContextManagerConfig, FilePersistence,
 };
 
 pub use vector_db::{
     VectorDatabase, QdrantClientWrapper, QdrantConfig, QdrantDistance,
-    VectorDatabaseStats, MockEmbeddingService,
+    VectorDatabaseStats, EmbeddingService, MockEmbeddingService, TfIdfEmbeddingService,
 };
 
 #[cfg(test)]
@@ -103,7 +106,7 @@ mod tests {
             types::MemoryUpdate {
                 target: types::MemoryTarget::Working("test_key".to_string()),
                 operation: types::UpdateOperation::Add,
-                data: "test_value".to_string(),
+                data: serde_json::Value::String("test_value".to_string()),
             }
         ];
 
@@ -126,9 +129,10 @@ mod tests {
             predicate: "is".to_string(),
             object: "example".to_string(),
             confidence: 0.9,
-            source: types::KnowledgeSource::User,
+            source: types::KnowledgeSource::UserProvided,
             created_at: SystemTime::now(),
-            metadata: std::collections::HashMap::new(),
+            verified: true,
+            
         };
 
         let knowledge_id = manager.add_knowledge(agent_id, Knowledge::Fact(fact)).await.unwrap();
@@ -153,10 +157,9 @@ mod tests {
             search_terms: vec!["test".to_string()],
             max_results: 10,
             time_range: None,
-            memory_types: None,
-            knowledge_types: None,
-            min_confidence: None,
-            include_metadata: true,
+            memory_types: vec![],
+            relevance_threshold: 0.7,
+            include_embeddings: false,
         };
 
         let results = manager.query_context(agent_id, query).await.unwrap();

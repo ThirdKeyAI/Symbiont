@@ -2,9 +2,11 @@
 
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
+use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
+use async_trait::async_trait;
 
 use crate::types::AgentId;
 
@@ -87,6 +89,12 @@ impl VectorId {
 impl Default for VectorId {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl std::fmt::Display for VectorId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
@@ -465,6 +473,85 @@ pub struct RetentionStatus {
     pub next_cleanup: SystemTime,
 }
 
+/// Vector database search result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VectorSearchResult {
+    pub id: VectorId,
+    pub content: String,
+    pub score: f32,
+    pub metadata: HashMap<String, String>,
+    pub embedding: Option<Vec<f32>>,
+}
+
+/// Vector database metadata for embeddings
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VectorMetadata {
+    pub agent_id: AgentId,
+    pub content_type: VectorContentType,
+    pub source_id: String,
+    pub created_at: SystemTime,
+    pub updated_at: SystemTime,
+    pub tags: Vec<String>,
+    pub custom_fields: HashMap<String, String>,
+}
+
+/// Types of content stored in vector database
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum VectorContentType {
+    Memory(MemoryType),
+    Knowledge(KnowledgeType),
+    Conversation,
+    Document,
+    Custom(String),
+}
+
+/// Batch operation for vector database
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VectorBatchOperation {
+    pub operation_type: VectorOperationType,
+    pub items: Vec<VectorBatchItem>,
+}
+
+/// Types of vector operations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum VectorOperationType {
+    Insert,
+    Update,
+    Delete,
+    Search,
+}
+
+/// Individual item in batch operation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VectorBatchItem {
+    pub id: Option<VectorId>,
+    pub content: String,
+    pub embedding: Option<Vec<f32>>,
+    pub metadata: VectorMetadata,
+}
+
+/// Vector database configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VectorDatabaseConfig {
+    pub provider: VectorDatabaseProvider,
+    pub connection_string: String,
+    pub collection_name: String,
+    pub vector_dimension: usize,
+    pub distance_metric: String,
+    pub batch_size: usize,
+    pub max_connections: usize,
+    pub timeout_seconds: u64,
+}
+
+/// Supported vector database providers
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum VectorDatabaseProvider {
+    Qdrant,
+    ChromaDB,
+    Pinecone,
+    Weaviate,
+}
+
 /// Context-related errors
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum ContextError {
@@ -497,6 +584,18 @@ pub enum ContextError {
     
     #[error("System error: {reason}")]
     SystemError { reason: String },
+    
+    #[error("Vector database error: {reason}")]
+    VectorDatabaseError { reason: String },
+    
+    #[error("Embedding generation error: {reason}")]
+    EmbeddingError { reason: String },
+    
+    #[error("Batch operation error: {reason}")]
+    BatchOperationError { reason: String },
+    
+    #[error("Vector not found: {id}")]
+    VectorNotFound { id: VectorId },
 }
 
 impl Default for HierarchicalMemory {
@@ -544,6 +643,67 @@ impl Default for ContextQuery {
             relevance_threshold: 0.7,
             max_results: 10,
             include_embeddings: false,
+        }
+    }
+}
+
+/// Trait for persistent storage of agent contexts
+#[async_trait]
+pub trait ContextPersistence: Send + Sync {
+    /// Save agent context to persistent storage
+    async fn save_context(&self, agent_id: AgentId, context: &AgentContext) -> Result<(), ContextError>;
+    
+    /// Load agent context from persistent storage
+    async fn load_context(&self, agent_id: AgentId) -> Result<Option<AgentContext>, ContextError>;
+    
+    /// Delete agent context from persistent storage
+    async fn delete_context(&self, agent_id: AgentId) -> Result<(), ContextError>;
+    
+    /// List all agent IDs with stored contexts
+    async fn list_agent_contexts(&self) -> Result<Vec<AgentId>, ContextError>;
+    
+    /// Check if context exists for agent
+    async fn context_exists(&self, agent_id: AgentId) -> Result<bool, ContextError>;
+    
+    /// Get storage statistics
+    async fn get_storage_stats(&self) -> Result<StorageStats, ContextError>;
+    
+    /// Enable downcasting for concrete implementations
+    fn as_any(&self) -> &dyn std::any::Any;
+}
+
+/// Storage statistics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StorageStats {
+    pub total_contexts: usize,
+    pub total_size_bytes: u64,
+    pub last_cleanup: SystemTime,
+    pub storage_path: PathBuf,
+}
+
+/// Configuration for file-based persistence
+#[derive(Debug, Clone)]
+pub struct FilePersistenceConfig {
+    /// Base directory for storing context files
+    pub storage_path: PathBuf,
+    /// Enable compression for stored files
+    pub enable_compression: bool,
+    /// Enable encryption for stored files
+    pub enable_encryption: bool,
+    /// Backup retention count
+    pub backup_count: usize,
+    /// Auto-save interval in seconds
+    pub auto_save_interval: u64,
+}
+
+impl Default for FilePersistenceConfig {
+    fn default() -> Self {
+        Self {
+            storage_path: PathBuf::from("./data/contexts"),
+            enable_compression: true,
+            enable_encryption: false, // Disabled by default for simplicity
+            backup_count: 3,
+            auto_save_interval: 300, // 5 minutes
         }
     }
 }

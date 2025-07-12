@@ -4,10 +4,13 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::SystemTime;
+use std::path::PathBuf;
 use tokio::sync::RwLock;
+use tokio::fs;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::types::*;
-use super::vector_db::{VectorDatabase, QdrantClientWrapper, QdrantConfig, MockEmbeddingService};
+use super::vector_db::{VectorDatabase, QdrantClientWrapper, QdrantConfig, MockEmbeddingService, EmbeddingService};
 use crate::types::AgentId;
 
 /// Context Manager trait for agent memory and knowledge management
@@ -46,7 +49,7 @@ pub trait ContextManager: Send + Sync {
 
 /// Standard implementation of ContextManager
 pub struct StandardContextManager {
-    /// In-memory storage for contexts (placeholder for database integration)
+    /// In-memory storage for contexts (cache layer)
     contexts: Arc<RwLock<HashMap<AgentId, AgentContext>>>,
     /// Configuration for the context manager
     config: ContextManagerConfig,
@@ -56,6 +59,8 @@ pub struct StandardContextManager {
     vector_db: Arc<dyn VectorDatabase>,
     /// Embedding service for generating vector embeddings
     embedding_service: Arc<MockEmbeddingService>,
+    /// Persistent storage for contexts
+    persistence: Arc<dyn ContextPersistence>,
 }
 
 /// Configuration for the Context Manager
@@ -77,6 +82,10 @@ pub struct ContextManagerConfig {
     pub qdrant_config: QdrantConfig,
     /// Enable vector database integration
     pub enable_vector_db: bool,
+    /// File persistence configuration
+    pub persistence_config: FilePersistenceConfig,
+    /// Enable persistent storage
+    pub enable_persistence: bool,
 }
 
 impl Default for ContextManagerConfig {
@@ -90,6 +99,8 @@ impl Default for ContextManagerConfig {
             max_knowledge_items_per_agent: 5000,
             qdrant_config: QdrantConfig::default(),
             enable_vector_db: true,
+            persistence_config: FilePersistenceConfig::default(),
+            enable_persistence: true,
         }
     }
 }
@@ -104,6 +115,282 @@ struct SharedKnowledgeItem {
     access_count: u32,
 }
 
+/// File-based persistence implementation
+pub struct FilePersistence {
+    config: FilePersistenceConfig,
+}
+
+impl FilePersistence {
+    /// Create a new FilePersistence instance
+    pub fn new(config: FilePersistenceConfig) -> Self {
+        Self { config }
+    }
+
+    /// Initialize storage directory
+    pub async fn initialize(&self) -> Result<(), ContextError> {
+        fs::create_dir_all(&self.config.storage_path).await
+            .map_err(|e| ContextError::StorageError {
+                reason: format!("Failed to create storage directory: {}", e)
+            })?;
+        Ok(())
+    }
+
+    /// Get file path for agent context
+    fn get_context_path(&self, agent_id: AgentId) -> PathBuf {
+        let filename = if self.config.enable_compression {
+            format!("{}.json.gz", agent_id)
+        } else {
+            format!("{}.json", agent_id)
+        };
+        self.config.storage_path.join(filename)
+    }
+
+    /// Serialize context to bytes
+    async fn serialize_context(&self, context: &AgentContext) -> Result<Vec<u8>, ContextError> {
+        let json_data = serde_json::to_vec_pretty(context)
+            .map_err(|e| ContextError::SerializationError {
+                reason: format!("Failed to serialize context: {}", e)
+            })?;
+
+        if self.config.enable_compression {
+            use flate2::write::GzEncoder;
+            use flate2::Compression;
+            use std::io::Write;
+
+            let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+            encoder.write_all(&json_data)
+                .map_err(|e| ContextError::SerializationError {
+                    reason: format!("Failed to compress context: {}", e)
+                })?;
+            encoder.finish()
+                .map_err(|e| ContextError::SerializationError {
+                    reason: format!("Failed to finalize compression: {}", e)
+                })
+        } else {
+            Ok(json_data)
+        }
+    }
+
+    /// Deserialize context from bytes
+    async fn deserialize_context(&self, data: Vec<u8>) -> Result<AgentContext, ContextError> {
+        let json_data = if self.config.enable_compression {
+            use flate2::read::GzDecoder;
+            use std::io::Read;
+
+            let mut decoder = GzDecoder::new(&data[..]);
+            let mut decompressed = Vec::new();
+            decoder.read_to_end(&mut decompressed)
+                .map_err(|e| ContextError::SerializationError {
+                    reason: format!("Failed to decompress context: {}", e)
+                })?;
+            decompressed
+        } else {
+            data
+        };
+
+        serde_json::from_slice(&json_data)
+            .map_err(|e| ContextError::SerializationError {
+                reason: format!("Failed to deserialize context: {}", e)
+            })
+    }
+
+    /// Create backup of existing context file
+    async fn create_backup(&self, agent_id: AgentId) -> Result<(), ContextError> {
+        let context_path = self.get_context_path(agent_id);
+        if !context_path.exists() {
+            return Ok(());
+        }
+
+        let backup_path = context_path.with_extension(
+            format!("backup.{}.json", SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs())
+        );
+
+        fs::copy(&context_path, &backup_path).await
+            .map_err(|e| ContextError::StorageError {
+                reason: format!("Failed to create backup: {}", e)
+            })?;
+
+        // Clean up old backups
+        self.cleanup_old_backups(agent_id).await?;
+        Ok(())
+    }
+
+    /// Clean up old backup files
+    async fn cleanup_old_backups(&self, agent_id: AgentId) -> Result<(), ContextError> {
+        let mut backup_files = Vec::new();
+        let mut dir = fs::read_dir(&self.config.storage_path).await
+            .map_err(|e| ContextError::StorageError {
+                reason: format!("Failed to read storage directory: {}", e)
+            })?;
+
+        while let Some(entry) = dir.next_entry().await
+            .map_err(|e| ContextError::StorageError {
+                reason: format!("Failed to read directory entry: {}", e)
+            })? {
+            let path = entry.path();
+            if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+                if filename.starts_with(&format!("{}.backup.", agent_id)) {
+                    if let Ok(metadata) = entry.metadata().await {
+                        if let Ok(modified) = metadata.modified() {
+                            backup_files.push((path, modified));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Sort by modification time (newest first)
+        backup_files.sort_by(|a, b| b.1.cmp(&a.1));
+
+        // Remove excess backups
+        for (path, _) in backup_files.into_iter().skip(self.config.backup_count) {
+            if let Err(e) = fs::remove_file(&path).await {
+                eprintln!("Warning: Failed to remove old backup {}: {}", path.display(), e);
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl ContextPersistence for FilePersistence {
+    async fn save_context(&self, agent_id: AgentId, context: &AgentContext) -> Result<(), ContextError> {
+        // Create backup of existing context
+        self.create_backup(agent_id).await?;
+
+        // Serialize context
+        let data = self.serialize_context(context).await?;
+
+        // Write to file
+        let context_path = self.get_context_path(agent_id);
+        let mut file = fs::File::create(&context_path).await
+            .map_err(|e| ContextError::StorageError {
+                reason: format!("Failed to create context file: {}", e)
+            })?;
+
+        file.write_all(&data).await
+            .map_err(|e| ContextError::StorageError {
+                reason: format!("Failed to write context data: {}", e)
+            })?;
+
+        file.sync_all().await
+            .map_err(|e| ContextError::StorageError {
+                reason: format!("Failed to sync context file: {}", e)
+            })?;
+
+        Ok(())
+    }
+
+    async fn load_context(&self, agent_id: AgentId) -> Result<Option<AgentContext>, ContextError> {
+        let context_path = self.get_context_path(agent_id);
+        
+        if !context_path.exists() {
+            return Ok(None);
+        }
+
+        let mut file = fs::File::open(&context_path).await
+            .map_err(|e| ContextError::StorageError {
+                reason: format!("Failed to open context file: {}", e)
+            })?;
+
+        let mut data = Vec::new();
+        file.read_to_end(&mut data).await
+            .map_err(|e| ContextError::StorageError {
+                reason: format!("Failed to read context file: {}", e)
+            })?;
+
+        let context = self.deserialize_context(data).await?;
+        Ok(Some(context))
+    }
+
+    async fn delete_context(&self, agent_id: AgentId) -> Result<(), ContextError> {
+        let context_path = self.get_context_path(agent_id);
+        
+        if context_path.exists() {
+            fs::remove_file(&context_path).await
+                .map_err(|e| ContextError::StorageError {
+                    reason: format!("Failed to delete context file: {}", e)
+                })?;
+        }
+
+        Ok(())
+    }
+
+    async fn list_agent_contexts(&self) -> Result<Vec<AgentId>, ContextError> {
+        let mut agent_ids = Vec::new();
+        let mut dir = fs::read_dir(&self.config.storage_path).await
+            .map_err(|e| ContextError::StorageError {
+                reason: format!("Failed to read storage directory: {}", e)
+            })?;
+
+        while let Some(entry) = dir.next_entry().await
+            .map_err(|e| ContextError::StorageError {
+                reason: format!("Failed to read directory entry: {}", e)
+            })? {
+            let path = entry.path();
+            if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+                if filename.ends_with(".json") || filename.ends_with(".json.gz") {
+                    let agent_id_str = filename
+                        .strip_suffix(".json.gz")
+                        .or_else(|| filename.strip_suffix(".json"))
+                        .unwrap_or(filename);
+                    
+                    if let Ok(uuid) = uuid::Uuid::parse_str(agent_id_str) {
+                        agent_ids.push(AgentId(uuid));
+                    }
+                }
+            }
+        }
+
+        Ok(agent_ids)
+    }
+
+    async fn context_exists(&self, agent_id: AgentId) -> Result<bool, ContextError> {
+        let context_path = self.get_context_path(agent_id);
+        Ok(context_path.exists())
+    }
+
+    async fn get_storage_stats(&self) -> Result<StorageStats, ContextError> {
+        let mut total_contexts = 0;
+        let mut total_size_bytes = 0;
+
+        let mut dir = fs::read_dir(&self.config.storage_path).await
+            .map_err(|e| ContextError::StorageError {
+                reason: format!("Failed to read storage directory: {}", e)
+            })?;
+
+        while let Some(entry) = dir.next_entry().await
+            .map_err(|e| ContextError::StorageError {
+                reason: format!("Failed to read directory entry: {}", e)
+            })? {
+            let path = entry.path();
+            if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+                if filename.ends_with(".json") || filename.ends_with(".json.gz") {
+                    total_contexts += 1;
+                    if let Ok(metadata) = entry.metadata().await {
+                        total_size_bytes += metadata.len();
+                    }
+                }
+            }
+        }
+
+        Ok(StorageStats {
+            total_contexts,
+            total_size_bytes,
+            last_cleanup: SystemTime::now(),
+            storage_path: self.config.storage_path.clone(),
+        })
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
 impl StandardContextManager {
     /// Create a new StandardContextManager
     pub fn new(config: ContextManagerConfig) -> Self {
@@ -116,12 +403,20 @@ impl StandardContextManager {
         
         let embedding_service = Arc::new(MockEmbeddingService::new(config.qdrant_config.vector_dimension));
         
+        let persistence: Arc<dyn ContextPersistence> = if config.enable_persistence {
+            Arc::new(FilePersistence::new(config.persistence_config.clone()))
+        } else {
+            // Could use a no-op implementation for testing
+            Arc::new(FilePersistence::new(config.persistence_config.clone()))
+        };
+        
         Self {
             contexts: Arc::new(RwLock::new(HashMap::new())),
             config,
             shared_knowledge: Arc::new(RwLock::new(HashMap::new())),
             vector_db,
             embedding_service,
+            persistence,
         }
     }
 
@@ -132,8 +427,31 @@ impl StandardContextManager {
             self.vector_db.initialize().await?;
         }
         
+        // Initialize persistence layer
+        if self.config.enable_persistence {
+            if let Some(file_persistence) = self.persistence.as_any().downcast_ref::<FilePersistence>() {
+                file_persistence.initialize().await?;
+            }
+            
+            // Load existing contexts from persistent storage
+            self.load_existing_contexts().await?;
+        }
+        
         // TODO: Set up retention policy scheduler
-        // TODO: Load existing contexts from persistent storage
+        
+        Ok(())
+    }
+
+    /// Load existing contexts from persistent storage
+    async fn load_existing_contexts(&self) -> Result<(), ContextError> {
+        let agent_ids = self.persistence.list_agent_contexts().await?;
+        let mut contexts = self.contexts.write().await;
+        
+        for agent_id in agent_ids {
+            if let Some(context) = self.persistence.load_context(agent_id).await? {
+                contexts.insert(agent_id, context);
+            }
+        }
         
         Ok(())
     }
@@ -166,7 +484,7 @@ impl StandardContextManager {
             retention_policy: self.config.default_retention_policy.clone(),
         };
 
-        self.store_context(agent_id, context).await?;
+        ContextManager::store_context(self, agent_id, context).await?;
         Ok(session_id)
     }
 
@@ -284,7 +602,12 @@ impl ContextManager for StandardContextManager {
         context.updated_at = SystemTime::now();
         let context_id = ContextId::new();
         
-        // Store in memory (placeholder for database storage)
+        // Store in persistent storage if enabled
+        if self.config.enable_persistence {
+            self.persistence.save_context(agent_id, &context).await?;
+        }
+        
+        // Store in memory cache
         let mut contexts = self.contexts.write().await;
         contexts.insert(agent_id, context);
         
@@ -294,21 +617,40 @@ impl ContextManager for StandardContextManager {
     async fn retrieve_context(&self, agent_id: AgentId, session_id: Option<SessionId>) -> Result<Option<AgentContext>, ContextError> {
         self.validate_access(agent_id, "retrieve_context").await?;
         
-        let contexts = self.contexts.read().await;
-        if let Some(context) = contexts.get(&agent_id) {
-            // If session_id is specified, check if it matches
-            if let Some(sid) = session_id {
-                if context.session_id == sid {
-                    Ok(Some(context.clone()))
+        // First check memory cache
+        {
+            let contexts = self.contexts.read().await;
+            if let Some(context) = contexts.get(&agent_id) {
+                // If session_id is specified, check if it matches
+                if let Some(sid) = session_id {
+                    if context.session_id == sid {
+                        return Ok(Some(context.clone()));
+                    }
                 } else {
-                    Ok(None)
+                    return Ok(Some(context.clone()));
                 }
-            } else {
-                Ok(Some(context.clone()))
             }
-        } else {
-            Ok(None)
         }
+        
+        // If not in memory and persistence is enabled, try loading from storage
+        if self.config.enable_persistence {
+            if let Some(context) = self.persistence.load_context(agent_id).await? {
+                // Check session_id if specified
+                if let Some(sid) = session_id {
+                    if context.session_id != sid {
+                        return Ok(None);
+                    }
+                }
+                
+                // Cache the loaded context
+                let mut contexts = self.contexts.write().await;
+                contexts.insert(agent_id, context.clone());
+                
+                return Ok(Some(context));
+            }
+        }
+        
+        Ok(None)
     }
 
     async fn query_context(&self, agent_id: AgentId, query: ContextQuery) -> Result<Vec<ContextItem>, ContextError> {

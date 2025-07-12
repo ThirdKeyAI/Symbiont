@@ -6,7 +6,8 @@ use qdrant_client::config::QdrantConfig as ClientConfig;
 use qdrant_client::qdrant::{
     CreateCollection, Distance, PointStruct, SearchPoints, UpsertPoints, VectorParams,
     VectorsConfig, DeletePoints, PointId, Filter, Condition, FieldCondition, Match, 
-    Value as QdrantValue, WithPayloadSelector, PointsSelector, PointsIdsList
+    Value as QdrantValue, WithPayloadSelector, PointsSelector, PointsIdsList,
+    WithVectorsSelector
 };
 use serde_json::Value;
 use std::collections::HashMap;
@@ -74,7 +75,7 @@ pub struct QdrantConfig {
 impl Default for QdrantConfig {
     fn default() -> Self {
         Self {
-            url: "http://localhost:6334".to_string(),
+            url: "http://localhost:6333".to_string(),
             api_key: None,
             collection_name: "symbiont_context".to_string(),
             vector_dimension: 384, // Common embedding dimension
@@ -112,20 +113,38 @@ pub trait VectorDatabase: Send + Sync {
     /// Store a knowledge item with its embedding
     async fn store_knowledge_item(&self, item: &KnowledgeItem, embedding: Vec<f32>) -> Result<VectorId, ContextError>;
     
+    /// Store memory item with embedding
+    async fn store_memory_item(&self, agent_id: AgentId, memory: &MemoryItem, embedding: Vec<f32>) -> Result<VectorId, ContextError>;
+    
+    /// Batch store multiple items for performance
+    async fn batch_store(&self, batch: VectorBatchOperation) -> Result<Vec<VectorId>, ContextError>;
+    
     /// Search for similar knowledge items
     async fn search_knowledge_base(&self, agent_id: AgentId, query_embedding: Vec<f32>, limit: usize) -> Result<Vec<KnowledgeItem>, ContextError>;
     
     /// Perform semantic search with text query
     async fn semantic_search(&self, agent_id: AgentId, query_embedding: Vec<f32>, limit: usize, threshold: f32) -> Result<Vec<ContextItem>, ContextError>;
     
+    /// Advanced search with filters and metadata
+    async fn advanced_search(&self, agent_id: AgentId, query_embedding: Vec<f32>, filters: HashMap<String, String>, limit: usize, threshold: f32) -> Result<Vec<VectorSearchResult>, ContextError>;
+    
     /// Delete knowledge item by ID
     async fn delete_knowledge_item(&self, vector_id: VectorId) -> Result<(), ContextError>;
+    
+    /// Batch delete multiple items
+    async fn batch_delete(&self, vector_ids: Vec<VectorId>) -> Result<(), ContextError>;
     
     /// Update knowledge item metadata
     async fn update_metadata(&self, vector_id: VectorId, metadata: HashMap<String, Value>) -> Result<(), ContextError>;
     
     /// Get collection statistics
     async fn get_stats(&self) -> Result<VectorDatabaseStats, ContextError>;
+    
+    /// Create index for better performance
+    async fn create_index(&self, field_name: &str) -> Result<(), ContextError>;
+    
+    /// Optimize collection for better search performance
+    async fn optimize_collection(&self) -> Result<(), ContextError>;
 }
 
 /// Statistics for vector database operations
@@ -356,6 +375,114 @@ impl VectorDatabase for QdrantClientWrapper {
         Ok(vector_id)
     }
 
+    async fn store_memory_item(&self, agent_id: AgentId, memory: &MemoryItem, embedding: Vec<f32>) -> Result<VectorId, ContextError> {
+        let client = self.get_client().await?;
+        let vector_id = VectorId::new();
+        
+        // Create metadata for memory item
+        let mut metadata = HashMap::new();
+        metadata.insert("agent_id".to_string(), QdrantValue::from(agent_id.to_string()));
+        metadata.insert("memory_id".to_string(), QdrantValue::from(memory.id.to_string()));
+        metadata.insert("content".to_string(), QdrantValue::from(memory.content.clone()));
+        metadata.insert("memory_type".to_string(), QdrantValue::from(format!("{:?}", memory.memory_type)));
+        metadata.insert("importance".to_string(), QdrantValue::from(memory.importance as f64));
+        metadata.insert("access_count".to_string(), QdrantValue::from(memory.access_count as i64));
+        metadata.insert("created_at".to_string(), QdrantValue::from(
+            memory.created_at.duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default().as_secs() as i64
+        ));
+        metadata.insert("last_accessed".to_string(), QdrantValue::from(
+            memory.last_accessed.duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default().as_secs() as i64
+        ));
+        
+        // Add custom metadata
+        for (key, value) in &memory.metadata {
+            metadata.insert(format!("meta_{}", key), QdrantValue::from(value.clone()));
+        }
+        
+        let point = PointStruct::new(
+            vector_id.0.to_string(),
+            embedding,
+            metadata,
+        );
+
+        let upsert_points = UpsertPoints {
+            collection_name: self.config.collection_name.clone(),
+            wait: Some(true),
+            points: vec![point],
+            ordering: None,
+            shard_key_selector: None,
+        };
+
+        client.upsert_points(upsert_points).await
+            .map_err(map_qdrant_error)?;
+
+        Ok(vector_id)
+    }
+
+    async fn batch_store(&self, batch: VectorBatchOperation) -> Result<Vec<VectorId>, ContextError> {
+        let client = self.get_client().await?;
+        let mut points = Vec::new();
+        let mut vector_ids = Vec::new();
+        
+        for item in &batch.items {
+            let vector_id = item.id.unwrap_or_else(VectorId::new);
+            vector_ids.push(vector_id);
+            
+            // Create metadata from VectorMetadata
+            let mut metadata = HashMap::new();
+            metadata.insert("agent_id".to_string(), QdrantValue::from(item.metadata.agent_id.to_string()));
+            metadata.insert("content_type".to_string(), QdrantValue::from(format!("{:?}", item.metadata.content_type)));
+            metadata.insert("source_id".to_string(), QdrantValue::from(item.metadata.source_id.clone()));
+            metadata.insert("created_at".to_string(), QdrantValue::from(
+                item.metadata.created_at.duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default().as_secs() as i64
+            ));
+            metadata.insert("updated_at".to_string(), QdrantValue::from(
+                item.metadata.updated_at.duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default().as_secs() as i64
+            ));
+            
+            // Add tags
+            for (i, tag) in item.metadata.tags.iter().enumerate() {
+                metadata.insert(format!("tag_{}", i), QdrantValue::from(tag.clone()));
+            }
+            
+            // Add custom fields
+            for (key, value) in &item.metadata.custom_fields {
+                metadata.insert(format!("custom_{}", key), QdrantValue::from(value.clone()));
+            }
+            
+            let embedding = item.embedding.clone().unwrap_or_else(|| vec![0.0; self.config.vector_dimension]);
+            
+            let point = PointStruct::new(
+                vector_id.0.to_string(),
+                embedding,
+                metadata,
+            );
+            
+            points.push(point);
+        }
+        
+        // Process in batches to avoid overwhelming the server
+        let batch_size = self.config.batch_size;
+        for chunk in points.chunks(batch_size) {
+            let upsert_points = UpsertPoints {
+                collection_name: self.config.collection_name.clone(),
+                wait: Some(true),
+                points: chunk.to_vec(),
+                ordering: None,
+                shard_key_selector: None,
+            };
+
+            client.upsert_points(upsert_points).await
+                .map_err(map_qdrant_error)?;
+        }
+
+        Ok(vector_ids)
+    }
+
     async fn search_knowledge_base(&self, agent_id: AgentId, query_embedding: Vec<f32>, limit: usize) -> Result<Vec<KnowledgeItem>, ContextError> {
         let client = self.get_client().await?;
 
@@ -542,12 +669,198 @@ impl VectorDatabase for QdrantClientWrapper {
         Ok(())
     }
 
+    async fn advanced_search(&self, agent_id: AgentId, query_embedding: Vec<f32>, filters: HashMap<String, String>, limit: usize, threshold: f32) -> Result<Vec<VectorSearchResult>, ContextError> {
+        let client = self.get_client().await?;
+
+        // Build complex filter with agent_id and additional filters
+        let mut conditions = vec![Condition {
+            condition_one_of: Some(qdrant_client::qdrant::condition::ConditionOneOf::Field(
+                FieldCondition {
+                    key: "agent_id".to_string(),
+                    r#match: Some(Match {
+                        match_value: Some(qdrant_client::qdrant::r#match::MatchValue::Keyword(
+                            agent_id.to_string()
+                        )),
+                    }),
+                    range: None,
+                    geo_bounding_box: None,
+                    geo_radius: None,
+                    values_count: None,
+                    geo_polygon: None,
+                    datetime_range: None,
+                    is_empty: None,
+                    is_null: None,
+                }
+            )),
+        }];
+
+        // Add additional filters
+        for (key, value) in filters {
+            conditions.push(Condition {
+                condition_one_of: Some(qdrant_client::qdrant::condition::ConditionOneOf::Field(
+                    FieldCondition {
+                        key,
+                        r#match: Some(Match {
+                            match_value: Some(qdrant_client::qdrant::r#match::MatchValue::Keyword(value)),
+                        }),
+                        range: None,
+                        geo_bounding_box: None,
+                        geo_radius: None,
+                        values_count: None,
+                        geo_polygon: None,
+                        datetime_range: None,
+                        is_empty: None,
+                        is_null: None,
+                    }
+                )),
+            });
+        }
+
+        let filter = Filter {
+            should: vec![],
+            min_should: None,
+            must: conditions,
+            must_not: vec![],
+        };
+
+        let search_points = SearchPoints {
+            collection_name: self.config.collection_name.clone(),
+            vector: query_embedding,
+            vector_name: None,
+            filter: Some(filter),
+            limit: limit as u64,
+            with_payload: Some(WithPayloadSelector {
+                selector_options: Some(qdrant_client::qdrant::with_payload_selector::SelectorOptions::Enable(true)),
+            }),
+            params: None,
+            score_threshold: Some(threshold),
+            offset: None,
+            with_vectors: Some(WithVectorsSelector {
+                selector_options: Some(qdrant_client::qdrant::with_vectors_selector::SelectorOptions::Enable(true)),
+            }),
+            read_consistency: None,
+            shard_key_selector: None,
+            sparse_indices: None,
+            timeout: None,
+        };
+
+        let search_result = client.search_points(search_points).await
+            .map_err(map_qdrant_error)?;
+
+        let mut results = Vec::new();
+        for point in search_result.result {
+            let payload = &point.payload;
+            let vector_id_str = point.id.map(|id| match id.point_id_options {
+                Some(qdrant_client::qdrant::point_id::PointIdOptions::Uuid(uuid)) => uuid,
+                Some(qdrant_client::qdrant::point_id::PointIdOptions::Num(num)) => num.to_string(),
+                None => uuid::Uuid::new_v4().to_string(),
+            }).unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
+            let vector_id = VectorId(uuid::Uuid::parse_str(&vector_id_str)
+                .unwrap_or_else(|_| uuid::Uuid::new_v4()));
+
+            let content = payload.get("content")
+                .and_then(|v| self.extract_string_value(v))
+                .unwrap_or_default();
+
+            // Extract metadata
+            let mut metadata = HashMap::new();
+            for (key, value) in payload {
+                if let Some(str_value) = self.extract_string_value(value) {
+                    metadata.insert(key.clone(), str_value);
+                }
+            }
+
+            // Extract embedding if available
+            let embedding = point.vectors.and_then(|vectors| {
+                match vectors.vectors_options {
+                    Some(qdrant_client::qdrant::vectors_output::VectorsOptions::Vector(vector)) => Some(vector.data),
+                    _ => None,
+                }
+            });
+
+            results.push(VectorSearchResult {
+                id: vector_id,
+                content,
+                score: point.score,
+                metadata,
+                embedding,
+            });
+        }
+
+        Ok(results)
+    }
+
+    async fn batch_delete(&self, vector_ids: Vec<VectorId>) -> Result<(), ContextError> {
+        let client = self.get_client().await?;
+
+        // Process in batches to avoid overwhelming the server
+        let batch_size = self.config.batch_size;
+        for chunk in vector_ids.chunks(batch_size) {
+            let ids: Vec<PointId> = chunk.iter()
+                .map(|id| PointId::from(id.0.to_string()))
+                .collect();
+
+            let delete_points = DeletePoints {
+                collection_name: self.config.collection_name.clone(),
+                wait: Some(true),
+                points: Some(PointsSelector {
+                    points_selector_one_of: Some(qdrant_client::qdrant::points_selector::PointsSelectorOneOf::Points(
+                        PointsIdsList { ids }
+                    )),
+                }),
+                ordering: None,
+                shard_key_selector: None,
+            };
+
+            client.delete_points(delete_points).await
+                .map_err(map_qdrant_error)?;
+        }
+
+        Ok(())
+    }
+
     async fn update_metadata(&self, _vector_id: VectorId, _metadata: HashMap<String, Value>) -> Result<(), ContextError> {
         // Qdrant doesn't support direct metadata updates, would need to re-upsert the point
         // For now, return an error indicating this operation is not supported
         Err(ContextError::InvalidOperation {
             reason: "Direct metadata updates not supported, use store_knowledge_item to update".to_string()
         })
+    }
+
+    async fn create_index(&self, field_name: &str) -> Result<(), ContextError> {
+        let client = self.get_client().await?;
+        
+        // Create payload index for better filtering performance
+        let create_index = qdrant_client::qdrant::CreateFieldIndexCollection {
+            collection_name: self.config.collection_name.clone(),
+            wait: Some(true),
+            field_name: field_name.to_string(),
+            field_type: Some(qdrant_client::qdrant::FieldType::Keyword as i32),
+            field_index_params: None,
+            ordering: None,
+        };
+
+        client.create_field_index(create_index).await
+            .map_err(map_qdrant_error)?;
+
+        Ok(())
+    }
+
+    async fn optimize_collection(&self) -> Result<(), ContextError> {
+        let client = self.get_client().await?;
+        
+        // For now, just return success as collection optimization
+        // can be done through Qdrant's admin interface or specific optimization calls
+        // The collection is already optimized during creation with appropriate settings
+        
+        // In a production environment, you might want to:
+        // 1. Call collection optimization endpoints
+        // 2. Adjust HNSW parameters
+        // 3. Configure memory mapping settings
+        // 4. Set up proper indexing strategies
+        
+        Ok(())
     }
 
     async fn get_stats(&self) -> Result<VectorDatabaseStats, ContextError> {
@@ -564,7 +877,23 @@ impl VectorDatabase for QdrantClientWrapper {
     }
 }
 
-/// Mock embedding service for testing
+/// Embedding service trait for generating vector embeddings
+#[async_trait]
+pub trait EmbeddingService: Send + Sync {
+    /// Generate embedding for text content
+    async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>, ContextError>;
+    
+    /// Generate embeddings for multiple texts in batch
+    async fn generate_batch_embeddings(&self, texts: Vec<&str>) -> Result<Vec<Vec<f32>>, ContextError>;
+    
+    /// Get the dimension of embeddings produced by this service
+    fn embedding_dimension(&self) -> usize;
+    
+    /// Get the maximum text length supported
+    fn max_text_length(&self) -> usize;
+}
+
+/// Mock embedding service for testing and development
 pub struct MockEmbeddingService {
     dimension: usize,
 }
@@ -573,14 +902,166 @@ impl MockEmbeddingService {
     pub fn new(dimension: usize) -> Self {
         Self { dimension }
     }
+}
 
-    /// Generate mock embeddings for text
-    pub async fn generate_embedding(&self, _text: &str) -> Result<Vec<f32>, ContextError> {
-        // Generate a simple mock embedding
+#[async_trait]
+impl EmbeddingService for MockEmbeddingService {
+    async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>, ContextError> {
+        // Generate a deterministic mock embedding based on text content
         let mut embedding = vec![0.0; self.dimension];
+        let text_bytes = text.as_bytes();
+        
         for (i, val) in embedding.iter_mut().enumerate() {
-            *val = (i as f32 * 0.1) % 1.0;
+            let byte_index = i % text_bytes.len();
+            let byte_val = text_bytes.get(byte_index).unwrap_or(&0);
+            *val = (*byte_val as f32 / 255.0) * 2.0 - 1.0; // Normalize to [-1, 1]
         }
+        
+        // Normalize the vector
+        let magnitude: f32 = embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
+        if magnitude > 0.0 {
+            for val in &mut embedding {
+                *val /= magnitude;
+            }
+        }
+        
         Ok(embedding)
+    }
+    
+    async fn generate_batch_embeddings(&self, texts: Vec<&str>) -> Result<Vec<Vec<f32>>, ContextError> {
+        let mut embeddings = Vec::new();
+        for text in texts {
+            embeddings.push(self.generate_embedding(text).await?);
+        }
+        Ok(embeddings)
+    }
+    
+    fn embedding_dimension(&self) -> usize {
+        self.dimension
+    }
+    
+    fn max_text_length(&self) -> usize {
+        8192 // Reasonable default for most embedding models
+    }
+}
+
+/// Simple TF-IDF based embedding service for basic semantic similarity
+pub struct TfIdfEmbeddingService {
+    dimension: usize,
+    vocabulary: Arc<RwLock<HashMap<String, usize>>>,
+    idf_scores: Arc<RwLock<HashMap<String, f32>>>,
+}
+
+impl TfIdfEmbeddingService {
+    pub fn new(dimension: usize) -> Self {
+        Self {
+            dimension,
+            vocabulary: Arc::new(RwLock::new(HashMap::new())),
+            idf_scores: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+    
+    /// Build vocabulary from a corpus of documents
+    pub async fn build_vocabulary(&self, documents: Vec<&str>) -> Result<(), ContextError> {
+        let mut vocab = self.vocabulary.write().await;
+        let mut doc_frequencies = HashMap::new();
+        let total_docs = documents.len() as f32;
+        
+        // Build vocabulary and count document frequencies
+        for doc in &documents {
+            let words: std::collections::HashSet<String> = doc
+                .to_lowercase()
+                .split_whitespace()
+                .map(|s| s.trim_matches(|c: char| !c.is_alphanumeric()))
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+                .collect();
+            
+            for word in words {
+                let vocab_len = vocab.len();
+                vocab.entry(word.clone()).or_insert(vocab_len);
+                *doc_frequencies.entry(word).or_insert(0) += 1;
+            }
+        }
+        
+        // Calculate IDF scores
+        let mut idf_scores = self.idf_scores.write().await;
+        for (word, doc_freq) in doc_frequencies {
+            let idf = (total_docs / doc_freq as f32).ln();
+            idf_scores.insert(word, idf);
+        }
+        
+        Ok(())
+    }
+    
+    fn tokenize(&self, text: &str) -> Vec<String> {
+        text.to_lowercase()
+            .split_whitespace()
+            .map(|s| s.trim_matches(|c: char| !c.is_alphanumeric()))
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .collect()
+    }
+}
+
+#[async_trait]
+impl EmbeddingService for TfIdfEmbeddingService {
+    async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>, ContextError> {
+        let vocab = self.vocabulary.read().await;
+        let idf_scores = self.idf_scores.read().await;
+        
+        let mut embedding = vec![0.0; self.dimension];
+        let tokens = self.tokenize(text);
+        let total_tokens = tokens.len() as f32;
+        
+        if total_tokens == 0.0 {
+            return Ok(embedding);
+        }
+        
+        // Count term frequencies
+        let mut tf_counts = HashMap::new();
+        for token in &tokens {
+            *tf_counts.entry(token.clone()).or_insert(0) += 1;
+        }
+        
+        // Calculate TF-IDF and populate embedding
+        for (token, count) in tf_counts {
+            if let Some(&vocab_index) = vocab.get(&token) {
+                if let Some(&idf) = idf_scores.get(&token) {
+                    let tf = count as f32 / total_tokens;
+                    let tfidf = tf * idf;
+                    
+                    // Map to embedding dimension using hash
+                    let embedding_index = vocab_index % self.dimension;
+                    embedding[embedding_index] += tfidf;
+                }
+            }
+        }
+        
+        // Normalize the vector
+        let magnitude: f32 = embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
+        if magnitude > 0.0 {
+            for val in &mut embedding {
+                *val /= magnitude;
+            }
+        }
+        
+        Ok(embedding)
+    }
+    
+    async fn generate_batch_embeddings(&self, texts: Vec<&str>) -> Result<Vec<Vec<f32>>, ContextError> {
+        let mut embeddings = Vec::new();
+        for text in texts {
+            embeddings.push(self.generate_embedding(text).await?);
+        }
+        Ok(embeddings)
+    }
+    
+    fn embedding_dimension(&self) -> usize {
+        self.dimension
+    }
+    
+    fn max_text_length(&self) -> usize {
+        16384 // Larger limit for TF-IDF
     }
 }
