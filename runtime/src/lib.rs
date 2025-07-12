@@ -10,6 +10,8 @@ pub mod resource;
 pub mod communication;
 pub mod error_handler;
 pub mod integrations;
+pub mod context;
+pub mod rag;
 
 // Re-export commonly used types
 pub use types::*;
