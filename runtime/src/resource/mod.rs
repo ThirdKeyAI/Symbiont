@@ -425,18 +425,24 @@ impl ResourceManager for DefaultResourceManager {
         let usage_map = self.usage_tracker.read();
         let allocations_map = self.allocations.read();
         
-        if let (Some(usage), Some(allocation)) = (usage_map.get(&agent_id), allocations_map.get(&agent_id)) {
-            // Create limits from allocation for violation checking
-            let limits = ResourceLimits {
-                memory_mb: allocation.allocated_memory / (1024 * 1024),
-                cpu_cores: allocation.allocated_cpu_cores,
-                disk_io_mbps: allocation.allocated_disk_io / (1024 * 1024),
-                network_io_mbps: allocation.allocated_network_io / (1024 * 1024),
-                execution_timeout: Duration::from_secs(3600),
-                idle_timeout: Duration::from_secs(300),
-            };
-            let violations = Self::check_resource_violations(usage, &limits);
-            Ok(violations.is_empty())
+        // Agent must have allocation to check limits
+        if let Some(allocation) = allocations_map.get(&agent_id) {
+            // If there's usage data, check for violations
+            if let Some(usage) = usage_map.get(&agent_id) {
+                let limits = ResourceLimits {
+                    memory_mb: allocation.allocated_memory / (1024 * 1024),
+                    cpu_cores: allocation.allocated_cpu_cores,
+                    disk_io_mbps: allocation.allocated_disk_io / (1024 * 1024),
+                    network_io_mbps: allocation.allocated_network_io / (1024 * 1024),
+                    execution_timeout: Duration::from_secs(3600),
+                    idle_timeout: Duration::from_secs(300),
+                };
+                let violations = Self::check_resource_violations(usage, &limits);
+                Ok(violations.is_empty())
+            } else {
+                // No usage data yet - assume within limits since no actual usage recorded
+                Ok(true)
+            }
         } else {
             Err(ResourceError::AgentNotFound { agent_id })
         }
@@ -498,13 +504,21 @@ impl SystemResources {
     fn new(config: &ResourceManagerConfig) -> Self {
         let reservation_factor = config.resource_reservation_percentage;
         
+        // Use ceiling operation to ensure we always reserve at least 1 CPU when factor > 0
+        let reserved_cpu = if reservation_factor > 0.0 {
+            ((config.total_cpu_cores as f32 * reservation_factor).ceil() as u32).max(1)
+        } else {
+            0
+        };
+        let available_cpu = config.total_cpu_cores.saturating_sub(reserved_cpu);
+        
         Self {
             available_memory: config.total_memory - (config.total_memory as f32 * reservation_factor) as usize,
-            available_cpu_cores: config.total_cpu_cores - (config.total_cpu_cores as f32 * reservation_factor) as u32,
+            available_cpu_cores: available_cpu,
             available_disk_space: config.total_disk_space - (config.total_disk_space as f32 * reservation_factor) as usize,
             available_network_bandwidth: config.total_network_bandwidth - (config.total_network_bandwidth as f32 * reservation_factor) as usize,
             reserved_memory: (config.total_memory as f32 * reservation_factor) as usize,
-            reserved_cpu_cores: (config.total_cpu_cores as f32 * reservation_factor) as u32,
+            reserved_cpu_cores: reserved_cpu,
             reserved_disk_space: (config.total_disk_space as f32 * reservation_factor) as usize,
             reserved_network_bandwidth: (config.total_network_bandwidth as f32 * reservation_factor) as usize,
         }

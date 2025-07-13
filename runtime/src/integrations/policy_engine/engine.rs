@@ -474,10 +474,10 @@ impl PolicyEnforcementPoint for DefaultPolicyEnforcementPoint {
         _agent_id: AgentId,
         allocation: &ResourceAllocationRequest
     ) -> Result<AllocationDecision, PolicyError> {
-        // Simplified allocation validation
-        let decision = if allocation.requirements.max_memory_mb > 4096 {
+        // Simplified allocation validation with updated thresholds
+        let decision = if allocation.requirements.max_memory_mb > 16384 {
             AllocationResult::Escalate
-        } else if allocation.requirements.max_memory_mb > 2048 {
+        } else if allocation.requirements.max_memory_mb > 4096 {
             AllocationResult::Modified
         } else {
             AllocationResult::Approve
