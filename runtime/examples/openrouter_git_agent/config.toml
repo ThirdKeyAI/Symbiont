@@ -1,0 +1,105 @@
+# OpenRouter Git Agent Configuration
+# This file contains all configuration options for the agent
+
+[openrouter]
+# Your OpenRouter API key (required)
+# Get one from: https://openrouter.ai/keys
+api_key = "your_openrouter_api_key_here"
+
+# Base URL for OpenRouter API
+base_url = "https://openrouter.ai/api/v1"
+
+# Default model to use for requests
+model = "anthropic/claude-3.5-sonnet"
+
+# Request timeout in seconds
+timeout = 60
+
+# Maximum tokens for responses
+max_tokens = 4000
+
+[git]
+# Directory where repositories will be cloned
+clone_directory = "./temp_repos"
+
+# Maximum file size to analyze (in bytes)
+max_file_size = 1048576  # 1MB
+
+# File extensions to include in analysis
+include_extensions = [
+    "rs", "py", "js", "ts", "go", "java", "cpp", "c", "h", "hpp",
+    "rb", "php", "swift", "kt", "scala", "clj", "hs", "ml", "elm",
+    "md", "txt", "json", "yaml", "yml", "toml", "xml", "html", "css"
+]
+
+# Directories to exclude from analysis
+exclude_directories = [
+    ".git", "node_modules", "target", "build", "dist", "vendor",
+    "__pycache__", ".pytest_cache", ".cargo", ".next", ".nuxt"
+]
+
+[symbiont]
+# Path where agent context and knowledge will be stored
+context_storage_path = "./agent_storage"
+
+# Qdrant vector database configuration
+qdrant_url = "http://localhost:6333"
+collection_name = "agent_knowledge"
+vector_dimension = 1536
+
+# Context management settings
+enable_compression = true
+max_context_size_mb = 100
+
+[security]
+# Enable SchemaPin cryptographic verification
+enable_schemapin = false
+
+# Path to SchemaPin CLI binary (optional, will use system PATH if not specified)
+# schemapin_binary_path = "/usr/local/bin/schemapin-cli"
+
+# Security policy file path (optional)
+# policy_file = "./security_policies.yaml"
+
+[logging]
+# Log level: error, warn, info, debug, trace
+level = "info"
+
+# Log to file (optional)
+# file = "./agent.log"
+
+# Enable structured JSON logging
+json = false
+
+[examples]
+# Default repository for testing
+test_repository = "https://github.com/rust-lang/mdBook"
+
+# Custom analysis queries for code analysis
+code_analysis_queries = [
+    "What is the main purpose and functionality of this codebase?",
+    "What are the key architectural patterns and design decisions?", 
+    "How is error handling implemented throughout the project?",
+    "What are the main entry points and core modules?",
+    "Are there any potential performance bottlenecks or optimization opportunities?"
+]
+
+# Security checks for security review
+security_checks = [
+    "Scan for hardcoded secrets, API keys, or credentials",
+    "Identify potential SQL injection vulnerabilities",
+    "Look for unsafe deserialization or eval() usage",
+    "Check for proper input validation and sanitization",
+    "Review authentication and authorization implementations",
+    "Identify potential XSS or CSRF vulnerabilities",
+    "Check for insecure cryptographic practices"
+]
+
+# Documentation requests for documentation generation
+documentation_requests = [
+    "Generate a comprehensive README with project overview and setup instructions",
+    "Create API documentation for all public interfaces and functions",
+    "Document the project architecture and key design patterns",
+    "Generate installation and development setup guides",
+    "Create usage examples and code tutorials"
+]
