@@ -87,6 +87,18 @@ pub enum ResourceError {
     
     #[error("Insufficient resources for requirements: {requirements:?}")]
     InsufficientResources { requirements: String },
+    
+    #[error("Policy error: {0}")]
+    PolicyError(String),
+    
+    #[error("Policy violation: {reason}")]
+    PolicyViolation { reason: String },
+    
+    #[error("Resource allocation queued: {reason}")]
+    AllocationQueued { reason: String },
+    
+    #[error("Escalation required: {reason}")]
+    EscalationRequired { reason: String },
 }
 
 /// Security-related errors
@@ -171,6 +183,9 @@ pub enum PolicyError {
     
     #[error("Policy engine unavailable: {0}")]
     EngineUnavailable(String),
+    
+    #[error("Invalid policy: {reason}")]
+    InvalidPolicy { reason: String },
 }
 
 /// Sandbox orchestration errors

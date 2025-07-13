@@ -11,6 +11,10 @@ use tokio::sync::{mpsc, Notify};
 use tokio::time::interval;
 
 use crate::types::*;
+use crate::integrations::policy_engine::{
+    PolicyEnforcementPoint, PolicyEnforcementFactory, ResourceAccessConfig,
+    ResourceAllocationRequest
+};
 
 /// Resource manager trait
 #[async_trait]
@@ -36,6 +40,9 @@ pub trait ResourceManager {
     /// Check if agent is within resource limits
     async fn check_limits(&self, agent_id: AgentId) -> Result<bool, ResourceError>;
     
+    /// Check resource access violations for an agent
+    async fn check_resource_violations(&self, agent_id: AgentId) -> Result<Vec<ResourceViolation>, ResourceError>;
+    
     /// Shutdown the resource manager
     async fn shutdown(&self) -> Result<(), ResourceError>;
 }
@@ -51,6 +58,7 @@ pub struct ResourceManagerConfig {
     pub enforcement_enabled: bool,
     pub auto_scaling_enabled: bool,
     pub resource_reservation_percentage: f32,
+    pub policy_enforcement_config: ResourceAccessConfig,
 }
 
 impl Default for ResourceManagerConfig {
@@ -64,6 +72,7 @@ impl Default for ResourceManagerConfig {
             enforcement_enabled: true,
             auto_scaling_enabled: false,
             resource_reservation_percentage: 0.1, // 10% reserved
+            policy_enforcement_config: ResourceAccessConfig::default(),
         }
     }
 }
@@ -77,6 +86,7 @@ pub struct DefaultResourceManager {
     monitoring_sender: mpsc::UnboundedSender<MonitoringEvent>,
     shutdown_notify: Arc<Notify>,
     is_running: Arc<RwLock<bool>>,
+    policy_enforcement: Arc<dyn PolicyEnforcementPoint>,
 }
 
 impl DefaultResourceManager {
@@ -89,6 +99,11 @@ impl DefaultResourceManager {
         let shutdown_notify = Arc::new(Notify::new());
         let is_running = Arc::new(RwLock::new(true));
 
+        // Create policy enforcement point
+        let policy_enforcement = PolicyEnforcementFactory::create_enforcement_point(
+            config.policy_enforcement_config.clone()
+        ).await.map_err(|e| ResourceError::PolicyError(format!("Failed to create policy enforcement: {}", e)))?;
+
         let manager = Self {
             config,
             allocations,
@@ -97,6 +112,7 @@ impl DefaultResourceManager {
             monitoring_sender,
             shutdown_notify,
             is_running,
+            policy_enforcement,
         };
 
         // Start background tasks
@@ -296,10 +312,50 @@ impl ResourceManager for DefaultResourceManager {
             return Err(ResourceError::AllocationExists { agent_id });
         }
 
+        // Check policy for resource allocation
+        let allocation_request = ResourceAllocationRequest {
+            agent_id,
+            requirements: requirements.clone(),
+            priority: Priority::Normal,
+            justification: None,
+            max_duration: None,
+            timestamp: SystemTime::now(),
+        };
+
+        let policy_decision = self.policy_enforcement
+            .validate_resource_allocation(agent_id, &allocation_request)
+            .await
+            .map_err(|e| ResourceError::PolicyError(format!("Policy validation failed: {}", e)))?;
+
+        let final_requirements = match policy_decision.decision {
+            crate::integrations::policy_engine::AllocationResult::Approve => {
+                requirements
+            },
+            crate::integrations::policy_engine::AllocationResult::Deny => {
+                return Err(ResourceError::PolicyViolation {
+                    reason: policy_decision.reason
+                });
+            },
+            crate::integrations::policy_engine::AllocationResult::Modified => {
+                // Use modified requirements if provided
+                policy_decision.modified_requirements.unwrap_or(requirements)
+            },
+            crate::integrations::policy_engine::AllocationResult::Queued => {
+                return Err(ResourceError::AllocationQueued {
+                    reason: policy_decision.reason
+                });
+            },
+            crate::integrations::policy_engine::AllocationResult::Escalate => {
+                return Err(ResourceError::EscalationRequired {
+                    reason: policy_decision.reason
+                });
+            },
+        };
+
         // Send allocation request
         self.send_monitoring_event(MonitoringEvent::AllocationRequest {
             agent_id,
-            requirements: requirements.clone(),
+            requirements: final_requirements.clone(),
         })?;
 
         // Give the monitoring loop time to process
@@ -308,8 +364,8 @@ impl ResourceManager for DefaultResourceManager {
         // Check if allocation was successful
         self.allocations.read().get(&agent_id)
             .cloned()
-            .ok_or(ResourceError::InsufficientResources { 
-                requirements: "Insufficient system resources".to_string() 
+            .ok_or(ResourceError::InsufficientResources {
+                requirements: "Insufficient system resources".to_string()
             })
     }
 
@@ -381,6 +437,26 @@ impl ResourceManager for DefaultResourceManager {
             };
             let violations = Self::check_resource_violations(usage, &limits);
             Ok(violations.is_empty())
+        } else {
+            Err(ResourceError::AgentNotFound { agent_id })
+        }
+    }
+
+    async fn check_resource_violations(&self, agent_id: AgentId) -> Result<Vec<ResourceViolation>, ResourceError> {
+        let usage_map = self.usage_tracker.read();
+        let allocations_map = self.allocations.read();
+        
+        if let (Some(usage), Some(allocation)) = (usage_map.get(&agent_id), allocations_map.get(&agent_id)) {
+            // Create limits from allocation for violation checking
+            let limits = ResourceLimits {
+                memory_mb: allocation.allocated_memory / (1024 * 1024),
+                cpu_cores: allocation.allocated_cpu_cores,
+                disk_io_mbps: allocation.allocated_disk_io / (1024 * 1024),
+                network_io_mbps: allocation.allocated_network_io / (1024 * 1024),
+                execution_timeout: Duration::from_secs(3600),
+                idle_timeout: Duration::from_secs(300),
+            };
+            Ok(Self::check_resource_violations(usage, &limits))
         } else {
             Err(ResourceError::AgentNotFound { agent_id })
         }
