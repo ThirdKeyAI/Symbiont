@@ -14,6 +14,12 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ReviewId(pub Uuid);
 
+impl Default for ReviewId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ReviewId {
     pub fn new() -> Self {
         Self(Uuid::new_v4())
@@ -23,6 +29,12 @@ impl ReviewId {
 /// Unique identifier for security analyses
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct AnalysisId(pub Uuid);
+
+impl Default for AnalysisId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl AnalysisId {
     pub fn new() -> Self {

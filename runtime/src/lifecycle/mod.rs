@@ -425,6 +425,12 @@ pub struct AgentStateMachine {
     valid_transitions: HashMap<AgentState, Vec<AgentState>>,
 }
 
+impl Default for AgentStateMachine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AgentStateMachine {
     pub fn new() -> Self {
         let mut valid_transitions = HashMap::new();

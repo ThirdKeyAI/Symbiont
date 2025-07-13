@@ -151,10 +151,12 @@ pub struct ResourceUtilization {
 
 /// Resource allocation strategies
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum AllocationStrategy {
     /// First available resource slot
     FirstFit,
     /// Optimal resource utilization
+    #[default]
     BestFit,
     /// Load balancing across resources
     WorstFit,
@@ -162,11 +164,6 @@ pub enum AllocationStrategy {
     Priority,
 }
 
-impl Default for AllocationStrategy {
-    fn default() -> Self {
-        AllocationStrategy::BestFit
-    }
-}
 
 /// Resource request from an agent
 #[derive(Debug, Clone, Serialize, Deserialize)]

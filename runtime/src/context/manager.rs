@@ -821,11 +821,7 @@ impl ContextManager for StandardContextManager {
                 Some(Knowledge::Fact(fact.clone()))
             } else if let Some(procedure) = from_context.knowledge_base.procedures.iter().find(|p| p.id == knowledge_id) {
                 Some(Knowledge::Procedure(procedure.clone()))
-            } else if let Some(pattern) = from_context.knowledge_base.learned_patterns.iter().find(|p| p.id == knowledge_id) {
-                Some(Knowledge::Pattern(pattern.clone()))
-            } else {
-                None
-            };
+            } else { from_context.knowledge_base.learned_patterns.iter().find(|p| p.id == knowledge_id).map(|pattern| Knowledge::Pattern(pattern.clone())) };
             
             if let Some(knowledge) = knowledge {
                 // Store in shared knowledge

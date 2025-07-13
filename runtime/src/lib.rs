@@ -91,11 +91,11 @@ impl AgentRuntime {
     /// Shutdown the runtime system gracefully
     pub async fn shutdown(&self) -> Result<(), RuntimeError> {
         // Shutdown components in reverse order of initialization
-        self.lifecycle.shutdown().await.map_err(|e| RuntimeError::Lifecycle(e))?;
-        self.communication.shutdown().await.map_err(|e| RuntimeError::Communication(e))?;
-        self.resource_manager.shutdown().await.map_err(|e| RuntimeError::Resource(e))?;
-        self.scheduler.shutdown().await.map_err(|e| RuntimeError::Scheduler(e))?;
-        self.error_handler.shutdown().await.map_err(|e| RuntimeError::ErrorHandler(e))?;
+        self.lifecycle.shutdown().await.map_err(RuntimeError::Lifecycle)?;
+        self.communication.shutdown().await.map_err(RuntimeError::Communication)?;
+        self.resource_manager.shutdown().await.map_err(RuntimeError::Resource)?;
+        self.scheduler.shutdown().await.map_err(RuntimeError::Scheduler)?;
+        self.error_handler.shutdown().await.map_err(RuntimeError::ErrorHandler)?;
         
         Ok(())
     }
@@ -108,6 +108,7 @@ impl AgentRuntime {
 
 /// Runtime configuration
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct RuntimeConfig {
     pub scheduler: scheduler::SchedulerConfig,
     pub resource_manager: resource::ResourceManagerConfig,
@@ -117,15 +118,3 @@ pub struct RuntimeConfig {
     pub error_handler: error_handler::ErrorHandlerConfig,
 }
 
-impl Default for RuntimeConfig {
-    fn default() -> Self {
-        Self {
-            scheduler: scheduler::SchedulerConfig::default(),
-            resource_manager: resource::ResourceManagerConfig::default(),
-            communication: communication::CommunicationConfig::default(),
-            security: SecurityConfig::default(),
-            audit: AuditConfig::default(),
-            error_handler: error_handler::ErrorHandlerConfig::default(),
-        }
-    }
-}

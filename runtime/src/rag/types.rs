@@ -52,6 +52,12 @@ pub enum RAGError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DocumentId(pub Uuid);
 
+impl Default for DocumentId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DocumentId {
     pub fn new() -> Self {
         Self(Uuid::new_v4())

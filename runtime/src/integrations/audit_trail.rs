@@ -510,7 +510,7 @@ impl AuditTrail for MockAuditTrail {
 
         // Apply sorting
         if let Some(sort_field) = query.sort_by {
-            let ascending = query.sort_order.as_ref().map_or(true, |o| matches!(o, SortOrder::Ascending));
+            let ascending = query.sort_order.as_ref().is_none_or(|o| matches!(o, SortOrder::Ascending));
             match sort_field {
                 SortField::Timestamp => {
                     filtered_records.sort_by(|a, b| {

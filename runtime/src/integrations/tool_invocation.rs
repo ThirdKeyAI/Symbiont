@@ -42,8 +42,10 @@ pub enum ToolInvocationError {
 
 /// Tool invocation enforcement policies
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Default)]
 pub enum EnforcementPolicy {
     /// Strict mode - only verified tools can be executed
+    #[default]
     Strict,
     /// Permissive mode - unverified tools are allowed with warnings
     Permissive,
@@ -53,11 +55,6 @@ pub enum EnforcementPolicy {
     Disabled,
 }
 
-impl Default for EnforcementPolicy {
-    fn default() -> Self {
-        EnforcementPolicy::Strict
-    }
-}
 
 /// Configuration for tool invocation enforcement
 #[derive(Debug, Clone, Serialize, Deserialize)]

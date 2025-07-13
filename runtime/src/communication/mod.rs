@@ -364,7 +364,7 @@ impl CommunicationBus for DefaultCommunicationBus {
 
     async fn subscribe(&self, agent_id: AgentId, topic: String) -> Result<(), CommunicationError> {
         let mut subscriptions = self.subscriptions.write();
-        subscriptions.entry(topic.clone()).or_insert_with(Vec::new).push(agent_id);
+        subscriptions.entry(topic.clone()).or_default().push(agent_id);
         
         tracing::info!("Agent {} subscribed to topic {}", agent_id, topic);
         Ok(())

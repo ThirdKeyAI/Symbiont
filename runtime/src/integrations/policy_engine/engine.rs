@@ -517,6 +517,12 @@ pub struct MockPolicyEnforcementPoint {
     stats: Arc<RwLock<EnforcementStatistics>>,
 }
 
+impl Default for MockPolicyEnforcementPoint {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MockPolicyEnforcementPoint {
     pub fn new() -> Self {
         Self {

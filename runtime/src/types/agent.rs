@@ -25,10 +25,12 @@ pub struct AgentConfig {
 
 /// Agent execution modes
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum ExecutionMode {
     /// Long-lived agent that persists across tasks
     Persistent,
     /// Task-based execution that terminates after completion
+    #[default]
     Ephemeral,
     /// Cron-like scheduling with periodic execution
     Scheduled { interval: Duration },
@@ -36,15 +38,12 @@ pub enum ExecutionMode {
     EventDriven,
 }
 
-impl Default for ExecutionMode {
-    fn default() -> Self {
-        ExecutionMode::Ephemeral
-    }
-}
 
 /// Agent state in the lifecycle
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(Default)]
 pub enum AgentState {
+    #[default]
     Created,
     Initializing,
     Ready,
@@ -57,11 +56,6 @@ pub enum AgentState {
     Terminated,
 }
 
-impl Default for AgentState {
-    fn default() -> Self {
-        AgentState::Created
-    }
-}
 
 /// Agent metadata structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
