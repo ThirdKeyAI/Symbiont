@@ -1,5 +1,4 @@
-# Symbiont
-*by ThirdKey*
+<img src="logo-hz.png" alt="Symbiont">
 
 Symbiont is a next-generation programming language and agent framework designed for AI-native, privacy-first software development. It empowers developers to build autonomous, policy-aware agents that can safely collaborate with humans, other agents, and large language models while enforcing zero-trust security, data privacy, and provable behavior through homomorphic encryption and zero-knowledge proofs.
 
