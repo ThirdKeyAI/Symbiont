@@ -7,8 +7,10 @@ use super::{AgentId, PolicyId};
 
 /// Security tiers for sandboxing
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum SecurityTier {
     /// Docker-based isolation
+    #[default]
     Tier1,
     /// gVisor-based isolation
     Tier2,
@@ -16,11 +18,6 @@ pub enum SecurityTier {
     Tier3,
 }
 
-impl Default for SecurityTier {
-    fn default() -> Self {
-        SecurityTier::Tier1
-    }
-}
 
 impl std::fmt::Display for SecurityTier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -34,18 +31,15 @@ impl std::fmt::Display for SecurityTier {
 
 /// Risk assessment levels
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum RiskLevel {
     Low,
+    #[default]
     Medium,
     High,
     Critical,
 }
 
-impl Default for RiskLevel {
-    fn default() -> Self {
-        RiskLevel::Medium
-    }
-}
 
 /// Security configuration for the runtime
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,19 +67,16 @@ impl Default for SecurityConfig {
 
 /// Isolation levels for sandboxing
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum IsolationLevel {
     None,
     Low,
     Medium,
+    #[default]
     High,
     Maximum,
 }
 
-impl Default for IsolationLevel {
-    fn default() -> Self {
-        IsolationLevel::High
-    }
-}
 
 /// Policy context for enforcement decisions
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -168,18 +159,15 @@ pub struct PolicyViolation {
 
 /// Severity levels for policy violations
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum ViolationSeverity {
     Info,
+    #[default]
     Warning,
     Error,
     Critical,
 }
 
-impl Default for ViolationSeverity {
-    fn default() -> Self {
-        ViolationSeverity::Warning
-    }
-}
 
 /// Audit event types for the cryptographic audit trail
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -291,7 +279,9 @@ pub struct SandboxStatus {
 
 /// Sandbox state
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum SandboxState {
+    #[default]
     Creating,
     Ready,
     Running,
@@ -301,8 +291,3 @@ pub enum SandboxState {
     Failed,
 }
 
-impl Default for SandboxState {
-    fn default() -> Self {
-        SandboxState::Creating
-    }
-}

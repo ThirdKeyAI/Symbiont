@@ -94,7 +94,7 @@ impl StandardRAGEngine {
         
         for word in words {
             // Check for capitalized words (potential proper nouns)
-            if word.chars().next().map_or(false, |c| c.is_uppercase()) && word.len() > 2 {
+            if word.chars().next().is_some_and(|c| c.is_uppercase()) && word.len() > 2 {
                 entities.push(Entity {
                     text: word.to_string(),
                     entity_type: EntityType::Concept,

@@ -45,6 +45,18 @@ ignore_patterns = [
 # Maximum number of files to analyze per repository
 max_files_per_repo = 1000
 
+# GitHub token for authenticated operations (set via GITHUB_TOKEN environment variable)
+# github_token = "${GITHUB_TOKEN}"
+
+# Enable fork-based workflow for public repositories (requires GitHub token)
+enable_fork_workflow = false
+
+# GitHub username for fork operations (set via GITHUB_USERNAME environment variable)
+# fork_owner = "${GITHUB_USERNAME}"
+
+# Default branch to use for new repositories
+default_branch = "main"
+
 [symbiont]
 # Path where agent context and knowledge will be stored
 context_storage_path = "./agent_storage"

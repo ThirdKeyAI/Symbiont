@@ -47,7 +47,7 @@ where
 
     /// Remove a specific item by agent ID
     pub fn remove(&mut self, agent_id: &AgentId) -> Option<T> {
-        if let Some(_) = self.index.remove(agent_id) {
+        if self.index.remove(agent_id).is_some() {
             // Convert heap to vector, remove item, and rebuild heap
             let mut items: Vec<T> = self.heap.drain().collect();
             let mut removed_item = None;

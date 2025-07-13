@@ -41,17 +41,14 @@ pub struct EncryptedPayload {
 
 /// Supported encryption algorithms
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum EncryptionAlgorithm {
+    #[default]
     Aes256Gcm,
     ChaCha20Poly1305,
     None, // For testing or non-sensitive data
 }
 
-impl Default for EncryptionAlgorithm {
-    fn default() -> Self {
-        EncryptionAlgorithm::Aes256Gcm
-    }
-}
 
 /// Message signature for integrity verification
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,17 +60,14 @@ pub struct MessageSignature {
 
 /// Supported signature algorithms
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum SignatureAlgorithm {
+    #[default]
     Ed25519,
     EcdsaP256,
     None, // For testing or non-critical messages
 }
 
-impl Default for SignatureAlgorithm {
-    fn default() -> Self {
-        SignatureAlgorithm::Ed25519
-    }
-}
 
 /// Communication channel handle
 #[derive(Debug, Clone)]
@@ -155,20 +149,17 @@ pub enum DeadLetterReason {
 
 /// Message delivery guarantees
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum DeliveryGuarantee {
     /// Best effort delivery, no guarantees
     AtMostOnce,
     /// Guaranteed delivery with possible duplicates
+    #[default]
     AtLeastOnce,
     /// Guaranteed single delivery (for critical messages)
     ExactlyOnce,
 }
 
-impl Default for DeliveryGuarantee {
-    fn default() -> Self {
-        DeliveryGuarantee::AtLeastOnce
-    }
-}
 
 /// Rate limiting configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -236,18 +227,10 @@ impl Default for CommunicationConfig {
 
 /// Communication channels for an execution context
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct CommunicationChannels {
     pub direct_channel: Option<ChannelHandle>,
     pub broadcast_channel: Option<ChannelHandle>,
     pub subscribed_topics: Vec<String>,
 }
 
-impl Default for CommunicationChannels {
-    fn default() -> Self {
-        Self {
-            direct_channel: None,
-            broadcast_channel: None,
-            subscribed_topics: Vec::new(),
-        }
-    }
-}

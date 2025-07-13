@@ -322,7 +322,8 @@ impl GitRepository {
 
     /// Create a new feature branch
     pub async fn create_feature_branch(&self, branch_name: &str) -> Result<String> {
-        let repo = Repository::open(&self.local_path)?;
+        // Ensure repository is cloned/accessible first
+        let repo = self.clone_or_update().await?;
         
         // Get current HEAD
         let head = repo.head()?;
@@ -352,7 +353,8 @@ impl GitRepository {
 
     /// Commit changes to the repository
     pub async fn commit_changes(&self, message: &str, files: &[String]) -> Result<String> {
-        let repo = Repository::open(&self.local_path)?;
+        // Ensure repository is cloned/accessible first
+        let repo = self.clone_or_update().await?;
         let mut index = repo.index()?;
         
         // Add files to index

@@ -141,7 +141,7 @@ impl AISecurityAnalyzer {
                 
                 // Check for unvalidated input patterns
                 if let Some(param_type) = param_def.get("type").and_then(|t| t.as_str()) {
-                    if param_type == "string" && !param_def.get("pattern").is_some() && !param_def.get("enum").is_some() {
+                    if param_type == "string" && param_def.get("pattern").is_none() && param_def.get("enum").is_none() {
                         patterns.push("unvalidated_string_input".to_string());
                     }
                 }
@@ -248,22 +248,19 @@ impl AISecurityAnalyzer {
         
         // Add pattern-based findings
         for pattern in patterns {
-            match pattern.as_str() {
-                "unvalidated_string_input" => {
-                    finding_counter += 1;
-                    findings.push(SecurityFinding {
-                        finding_id: format!("UNVALIDATED_{}", finding_counter),
-                        severity: SecuritySeverity::Medium,
-                        category: SecurityCategory::UnvalidatedInput,
-                        title: "Unvalidated Input Parameters".to_string(),
-                        description: "Tool accepts string parameters without validation constraints".to_string(),
-                        location: Some("Schema parameter analysis".to_string()),
-                        confidence: 0.7,
-                        remediation_suggestion: Some("Add input validation patterns or enums to string parameters".to_string()),
-                        cve_references: vec![],
-                    });
-                }
-                _ => {}
+            if pattern.as_str() == "unvalidated_string_input" {
+                finding_counter += 1;
+                findings.push(SecurityFinding {
+                    finding_id: format!("UNVALIDATED_{}", finding_counter),
+                    severity: SecuritySeverity::Medium,
+                    category: SecurityCategory::UnvalidatedInput,
+                    title: "Unvalidated Input Parameters".to_string(),
+                    description: "Tool accepts string parameters without validation constraints".to_string(),
+                    location: Some("Schema parameter analysis".to_string()),
+                    confidence: 0.7,
+                    remediation_suggestion: Some("Add input validation patterns or enums to string parameters".to_string()),
+                    cve_references: vec![],
+                });
             }
         }
         

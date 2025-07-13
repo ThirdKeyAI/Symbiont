@@ -40,6 +40,10 @@ pub struct GitConfig {
     pub allowed_extensions: Vec<String>,
     pub ignore_patterns: Vec<String>,
     pub max_files_per_repo: usize,
+    pub github_token: Option<String>,
+    pub enable_fork_workflow: bool,
+    pub fork_owner: Option<String>,
+    pub default_branch: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -147,6 +151,10 @@ impl AgentConfig {
                     "*.log".to_string(),
                 ],
                 max_files_per_repo: 1000,
+                github_token: std::env::var("GITHUB_TOKEN").ok(),
+                enable_fork_workflow: false,
+                fork_owner: std::env::var("GITHUB_USERNAME").ok(),
+                default_branch: "main".to_string(),
             },
             security: SecurityConfig {
                 enable_schemapin: false,  // Disabled by default for simpler setup

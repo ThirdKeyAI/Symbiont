@@ -140,6 +140,12 @@ pub struct PatternStats {
     pub false_positive_rates: HashMap<String, f32>,
 }
 
+impl Default for SecurityKnowledgeBase {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SecurityKnowledgeBase {
     /// Create a new security knowledge base
     pub fn new() -> Self {
@@ -184,7 +190,7 @@ impl SecurityKnowledgeBase {
         // Add to category index
         self.vulnerability_patterns
             .entry(pattern.category.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(pattern);
 
         self.update_stats();
@@ -350,12 +356,9 @@ impl SecurityKnowledgeBase {
                 for (_, prop) in props {
                     if let serde_json::Value::Object(prop_obj) = prop {
                         // Check if string properties have no format, pattern, or enum constraints
-                        if prop_obj.get("type") == Some(&serde_json::Value::String("string".to_string())) {
-                            if !prop_obj.contains_key("format") 
-                                && !prop_obj.contains_key("pattern") 
-                                && !prop_obj.contains_key("enum") {
-                                return true;
-                            }
+                        if prop_obj.get("type") == Some(&serde_json::Value::String("string".to_string())) && !prop_obj.contains_key("format") 
+                                && !prop_obj.contains_key("pattern") && !prop_obj.contains_key("enum") {
+                            return true;
                         }
                     }
                 }

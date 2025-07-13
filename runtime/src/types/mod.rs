@@ -117,18 +117,15 @@ impl Default for AuditId {
 
 /// Priority levels for agent scheduling
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum Priority {
     Low = 0,
+    #[default]
     Normal = 1,
     High = 2,
     Critical = 3,
 }
 
-impl Default for Priority {
-    fn default() -> Self {
-        Priority::Normal
-    }
-}
 
 /// System status information
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -162,31 +159,25 @@ pub struct Dependency {
 
 /// Scheduling algorithms
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum SchedulingAlgorithm {
     FirstComeFirstServe,
+    #[default]
     PriorityBased,
     RoundRobin,
     ShortestJobFirst,
     WeightedFairQueuing,
 }
 
-impl Default for SchedulingAlgorithm {
-    fn default() -> Self {
-        SchedulingAlgorithm::PriorityBased
-    }
-}
 
 /// Load balancing strategies
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum LoadBalancingStrategy {
     RoundRobin,
     LeastConnections,
+    #[default]
     ResourceBased,
     WeightedRoundRobin,
 }
 
-impl Default for LoadBalancingStrategy {
-    fn default() -> Self {
-        LoadBalancingStrategy::ResourceBased
-    }
-}

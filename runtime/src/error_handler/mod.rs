@@ -215,7 +215,7 @@ impl DefaultErrorHandler {
             ErrorEvent::ErrorOccurred { agent_id, error } => {
                 // Record the error
                 let error_record = ErrorRecord::new(error.clone());
-                error_history.write().entry(agent_id).or_insert_with(Vec::new).push(error_record);
+                error_history.write().entry(agent_id).or_default().push(error_record);
                 
                 // Check circuit breaker
                 let mut breakers = circuit_breakers.write();

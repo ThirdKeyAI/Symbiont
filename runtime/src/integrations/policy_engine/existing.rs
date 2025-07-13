@@ -430,8 +430,8 @@ impl PolicyEngine for MockPolicyEngine {
         policy.updated_at = SystemTime::now();
 
         let mut policies = self.policies.write().unwrap();
-        if policies.contains_key(&policy_id) {
-            policies.insert(policy_id, policy);
+        if let std::collections::hash_map::Entry::Occupied(mut e) = policies.entry(policy_id) {
+            e.insert(policy);
             Ok(())
         } else {
             Err(PolicyError::PolicyNotFound { id: policy_id })

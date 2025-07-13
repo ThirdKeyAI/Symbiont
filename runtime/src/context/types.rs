@@ -114,6 +114,7 @@ pub struct AgentContext {
 
 /// Hierarchical memory structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct HierarchicalMemory {
     pub working_memory: WorkingMemory,
     pub short_term: Vec<MemoryItem>,
@@ -124,6 +125,7 @@ pub struct HierarchicalMemory {
 
 /// Working memory for immediate processing
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct WorkingMemory {
     pub variables: HashMap<String, Value>,
     pub active_goals: Vec<String>,
@@ -214,6 +216,7 @@ pub struct EpisodeEvent {
 
 /// Agent knowledge base
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct KnowledgeBase {
     pub facts: Vec<KnowledgeFact>,
     pub procedures: Vec<Procedure>,
@@ -598,40 +601,8 @@ pub enum ContextError {
     VectorNotFound { id: VectorId },
 }
 
-impl Default for HierarchicalMemory {
-    fn default() -> Self {
-        Self {
-            working_memory: WorkingMemory::default(),
-            short_term: Vec::new(),
-            long_term: Vec::new(),
-            episodic_memory: Vec::new(),
-            semantic_memory: Vec::new(),
-        }
-    }
-}
 
-impl Default for WorkingMemory {
-    fn default() -> Self {
-        Self {
-            variables: HashMap::new(),
-            active_goals: Vec::new(),
-            current_context: None,
-            attention_focus: Vec::new(),
-        }
-    }
-}
 
-impl Default for KnowledgeBase {
-    fn default() -> Self {
-        Self {
-            facts: Vec::new(),
-            procedures: Vec::new(),
-            learned_patterns: Vec::new(),
-            shared_knowledge: Vec::new(),
-            domain_expertise: HashMap::new(),
-        }
-    }
-}
 
 impl Default for ContextQuery {
     fn default() -> Self {
