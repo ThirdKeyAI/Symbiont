@@ -8,6 +8,9 @@ pub struct AgentConfig {
     pub symbiont: SymbiontConfig,
     pub git: GitConfig,
     pub security: SecurityConfig,
+    pub workflow: WorkflowConfig,
+    pub validation: ValidationConfig,
+    pub safety: SafetyConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -47,6 +50,33 @@ pub struct SecurityConfig {
     pub enable_sandbox: bool,
     pub sandbox_tier: String,
     pub trusted_domains: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct WorkflowConfig {
+    pub default_autonomy_level: String,
+    pub enable_backups: bool,
+    pub backup_directory: PathBuf,
+    pub confirmation_timeout_seconds: u64,
+    pub max_retry_attempts: u32,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ValidationConfig {
+    pub enable_syntax_checks: bool,
+    pub enable_dependency_checks: bool,
+    pub enable_impact_analysis: bool,
+    pub validation_timeout_seconds: u64,
+    pub strict_mode: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct SafetyConfig {
+    pub enable_safety_checks: bool,
+    pub risk_threshold: String,
+    pub protected_patterns: Vec<String>,
+    pub dangerous_operations: Vec<String>,
+    pub require_confirmation_for_high_risk: bool,
 }
 
 impl AgentConfig {
@@ -128,6 +158,37 @@ impl AgentConfig {
                     "github.com".to_string(),
                     "gitlab.com".to_string(),
                 ],
+            },
+            workflow: WorkflowConfig {
+                default_autonomy_level: "auto-backup".to_string(),
+                enable_backups: true,
+                backup_directory: PathBuf::from("./backups"),
+                confirmation_timeout_seconds: 30,
+                max_retry_attempts: 3,
+            },
+            validation: ValidationConfig {
+                enable_syntax_checks: true,
+                enable_dependency_checks: true,
+                enable_impact_analysis: true,
+                validation_timeout_seconds: 60,
+                strict_mode: false,
+            },
+            safety: SafetyConfig {
+                enable_safety_checks: true,
+                risk_threshold: "medium".to_string(),
+                protected_patterns: vec![
+                    "*.env".to_string(),
+                    "*.key".to_string(),
+                    "*.pem".to_string(),
+                    "password".to_string(),
+                    "secret".to_string(),
+                ],
+                dangerous_operations: vec![
+                    "rm -rf".to_string(),
+                    "format".to_string(),
+                    "delete".to_string(),
+                ],
+                require_confirmation_for_high_risk: true,
             },
         }
     }

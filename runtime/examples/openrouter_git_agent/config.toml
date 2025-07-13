@@ -13,30 +13,37 @@ base_url = "https://openrouter.ai/api/v1"
 model = "anthropic/claude-3.5-sonnet"
 
 # Request timeout in seconds
-timeout = 60
+timeout_seconds = 60
 
 # Maximum tokens for responses
 max_tokens = 4000
 
+# Temperature for response generation (0.0-1.0)
+temperature = 0.1
+
 [git]
 # Directory where repositories will be cloned
-clone_directory = "./temp_repos"
+clone_base_path = "./temp_repos"
 
-# Maximum file size to analyze (in bytes)
-max_file_size = 1048576  # 1MB
+# Maximum file size to analyze (in MB)
+max_file_size_mb = 1
 
 # File extensions to include in analysis
-include_extensions = [
+allowed_extensions = [
     "rs", "py", "js", "ts", "go", "java", "cpp", "c", "h", "hpp",
     "rb", "php", "swift", "kt", "scala", "clj", "hs", "ml", "elm",
     "md", "txt", "json", "yaml", "yml", "toml", "xml", "html", "css"
 ]
 
-# Directories to exclude from analysis
-exclude_directories = [
-    ".git", "node_modules", "target", "build", "dist", "vendor",
-    "__pycache__", ".pytest_cache", ".cargo", ".next", ".nuxt"
+# Patterns to ignore during analysis
+ignore_patterns = [
+    ".git/", "node_modules/", "target/", "build/", "dist/", "vendor/",
+    "__pycache__/", ".pytest_cache/", ".cargo/", ".next/", ".nuxt/",
+    "*.lock", "*.log"
 ]
+
+# Maximum number of files to analyze per repository
+max_files_per_repo = 1000
 
 [symbiont]
 # Path where agent context and knowledge will be stored
@@ -60,6 +67,18 @@ enable_schemapin = false
 
 # Security policy file path (optional)
 # policy_file = "./security_policies.yaml"
+
+# Enable sandbox execution environment
+enable_sandbox = false
+
+# Sandbox security tier: "Tier1", "Tier2", "Tier3"
+sandbox_tier = "Tier2"
+
+# Trusted domains for repository operations
+trusted_domains = [
+    "github.com",
+    "gitlab.com"
+]
 
 [logging]
 # Log level: error, warn, info, debug, trace
@@ -103,3 +122,55 @@ documentation_requests = [
     "Generate installation and development setup guides",
     "Create usage examples and code tutorials"
 ]
+
+[workflow]
+# Default autonomy level: "manual", "auto-backup", "autonomous"
+default_autonomy_level = "auto-backup"
+
+# Enable automatic backups before making changes
+enable_backups = true
+
+# Directory where backups will be stored
+backup_directory = "./backups"
+
+# Timeout for user confirmations in seconds
+confirmation_timeout_seconds = 30
+
+# Maximum retry attempts for failed operations
+max_retry_attempts = 3
+
+[validation]
+# Enable syntax checking of code changes
+enable_syntax_checks = true
+
+# Enable dependency impact analysis
+enable_dependency_checks = true
+
+# Enable broader impact analysis
+enable_impact_analysis = true
+
+# Timeout for validation operations in seconds
+validation_timeout_seconds = 60
+
+# Strict mode - fail on any validation issues
+strict_mode = false
+
+[safety]
+# Enable safety checks for dangerous operations
+enable_safety_checks = true
+
+# Risk threshold: "low", "medium", "high"
+risk_threshold = "medium"
+
+# Patterns that should be protected from modification
+protected_patterns = [
+    "*.env", "*.key", "*.pem", "password", "secret"
+]
+
+# Operations considered dangerous
+dangerous_operations = [
+    "rm -rf", "format", "delete"
+]
+
+# Require confirmation for high-risk operations
+require_confirmation_for_high_risk = true

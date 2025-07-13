@@ -178,7 +178,7 @@ impl OpenRouterClient {
 
         let response = self
             .client
-            .post(&format!("{}/chat/completions", self.config.base_url))
+            .post(format!("{}/chat/completions", self.config.base_url))
             .header("Authorization", format!("Bearer {}", self.config.api_key))
             .header("Content-Type", "application/json")
             .json(&request_body)
@@ -206,8 +206,202 @@ impl OpenRouterClient {
     }
 }
 
+/// Represents an interpreted instruction from natural language
+pub struct Interpretation {
+    pub intent: Intent,
+    pub scope: Scope,
+    pub complexity: Complexity,
+    pub files_affected: Vec<String>,
+    pub dependencies: Vec<String>,
+    pub risks: Vec<String>,
+}
+
+/// The primary intent category of the instruction
+#[derive(Debug, Clone)]
+pub enum Intent {
+    Create,
+    Modify,
+    Delete,
+    Refactor,
+    Debug,
+    Test,
+    Document,
+    Optimize,
+}
+
+/// Scope of changes required
+#[derive(Debug, Clone)]
+pub enum Scope {
+    File,
+    Module,
+    Package,
+    Repository,
+}
+
+/// Complexity assessment of the task
+#[derive(Debug, Clone)]
+pub enum Complexity {
+    Simple,
+    Medium,
+    Complex,
+    Unsafe,
+}
+
 // Helper functions for different types of analysis
 impl OpenRouterClient {
+    pub async fn generate_execution_plan(&self, user_prompt: &str, repo_context: &str) -> Result<crate::planner::ExecutionPlan> {
+        info!("Generating execution plan using OpenRouter");
+        
+        let system_prompt = r#"You are an expert software engineer tasked with converting natural language requests into structured execution plans.
+
+Your job is to analyze the user's request in the context of the provided repository information and generate a JSON object that represents a detailed execution plan.
+
+The JSON should match this exact structure:
+{
+  "steps": [
+    {
+      "description": "Human readable description of what this step does",
+      "action_type": "CreateFile" | "ModifyFile" | "DeleteFile" | "RunCommand" | "Validate",
+      "files": ["array", "of", "file", "paths"],
+      "requires_confirmation": true | false
+    }
+  ],
+  "estimated_duration": "PT5M", // ISO 8601 duration format
+  "risk_level": "Low" | "Medium" | "High" | "Critical"
+}
+
+Guidelines:
+- Break down the request into logical, sequential steps
+- Be specific about which files need to be modified
+- Set requires_confirmation to true for potentially dangerous operations
+- Estimate realistic durations (use ISO 8601 format like PT5M for 5 minutes)
+- Assess risk appropriately based on the scope of changes
+- Include validation steps where appropriate
+- Be conservative with risk assessment - err on the side of caution
+
+Return ONLY the JSON object, no additional text or formatting."#;
+
+        let user_message = format!(
+            "User Request: {}\n\nRepository Context:\n{}\n\nPlease generate an execution plan for this request.",
+            user_prompt, repo_context
+        );
+
+        let messages = vec![
+            Message {
+                role: "system".to_string(),
+                content: system_prompt.to_string(),
+            },
+            Message {
+                role: "user".to_string(),
+                content: user_message,
+            }
+        ];
+
+        let response = self.make_request(messages).await?;
+        
+        // Parse the JSON response into an ExecutionPlan
+        self.parse_execution_plan(&response).await
+    }
+
+    async fn parse_execution_plan(&self, json_response: &str) -> Result<crate::planner::ExecutionPlan> {
+        use crate::planner::{ExecutionPlan, ExecutionStep, ActionType, RiskLevel};
+        use std::time::Duration;
+        
+        // Clean the response - remove any markdown formatting
+        let cleaned_response = json_response
+            .trim()
+            .trim_start_matches("```json")
+            .trim_start_matches("```")
+            .trim_end_matches("```")
+            .trim();
+        
+        #[derive(serde::Deserialize)]
+        struct JsonExecutionPlan {
+            steps: Vec<JsonExecutionStep>,
+            estimated_duration: String,
+            risk_level: String,
+        }
+        
+        #[derive(serde::Deserialize)]
+        struct JsonExecutionStep {
+            description: String,
+            action_type: String,
+            files: Vec<String>,
+            requires_confirmation: bool,
+        }
+        
+        let json_plan: JsonExecutionPlan = serde_json::from_str(cleaned_response)
+            .map_err(|e| anyhow::anyhow!("Failed to parse execution plan JSON: {}. Response was: {}", e, cleaned_response))?;
+        
+        // Convert JSON to our internal types
+        let steps = json_plan.steps.into_iter().map(|step| {
+            let action_type = match step.action_type.as_str() {
+                "CreateFile" => ActionType::CreateFile,
+                "ModifyFile" => ActionType::ModifyFile,
+                "DeleteFile" => ActionType::DeleteFile,
+                "RunCommand" => ActionType::RunCommand,
+                "Validate" => ActionType::Validate,
+                _ => ActionType::ModifyFile, // Default fallback
+            };
+            
+            ExecutionStep {
+                description: step.description,
+                action_type,
+                files: step.files,
+                requires_confirmation: step.requires_confirmation,
+            }
+        }).collect();
+        
+        let risk_level = match json_plan.risk_level.as_str() {
+            "Low" => RiskLevel::Low,
+            "Medium" => RiskLevel::Medium,
+            "High" => RiskLevel::High,
+            "Critical" => RiskLevel::Critical,
+            _ => RiskLevel::Medium, // Default fallback
+        };
+        
+        // Parse ISO 8601 duration or use a default
+        let estimated_duration = parse_iso8601_duration(&json_plan.estimated_duration)
+            .unwrap_or_else(|_| Duration::from_secs(300)); // 5 minutes default
+        
+        Ok(ExecutionPlan {
+            steps,
+            estimated_duration,
+            risk_level,
+        })
+    }
+
+    pub async fn interpret_prompt(&self, _prompt: &str, _repo_context: &str) -> Result<Interpretation> {
+        // This could be implemented to provide more detailed analysis
+        Ok(Interpretation {
+            intent: Intent::Modify,
+            scope: Scope::File,
+            complexity: Complexity::Medium,
+            files_affected: vec![],
+            dependencies: vec![],
+            risks: vec![],
+        })
+    }
+
+    pub async fn generate_code_changes(&self, _interpretation: &Interpretation, _context: &str) -> Result<String> {
+        // Placeholder for future implementation
+        Ok("Code changes would be generated here".to_string())
+    }
+
+    pub async fn validate_proposed_changes(&self, _changes: &str, _context: &str) -> Result<String> {
+        // Placeholder for future implementation
+        Ok("Validation results would be here".to_string())
+    }
+
+    pub async fn explain_changes(&self, _changes: &str, _rationale: &str) -> Result<String> {
+        // Placeholder for future implementation
+        Ok("Change explanation would be here".to_string())
+    }
+
+    pub async fn assess_risk(&self, _changes: &str, _context: &str) -> Result<String> {
+        // Placeholder for future implementation
+        Ok("Risk assessment would be here".to_string())
+    }
     pub async fn analyze_architecture(&self, repository_content: &str) -> Result<String> {
         self.analyze_code(
             repository_content,
@@ -294,4 +488,36 @@ mod tests {
         // but we can test that the client is properly constructed
         assert!(!client.config.api_key.is_empty());
     }
+}
+
+/// Parse ISO 8601 duration string into std::time::Duration
+fn parse_iso8601_duration(duration_str: &str) -> Result<std::time::Duration> {
+    // Simple parser for basic ISO 8601 durations like PT5M, PT1H30M, PT45S
+    if !duration_str.starts_with("PT") {
+        return Err(anyhow::anyhow!("Invalid ISO 8601 duration format: {}", duration_str));
+    }
+    
+    let duration_part = &duration_str[2..]; // Remove "PT" prefix
+    let mut total_seconds = 0u64;
+    let mut current_number = String::new();
+    
+    for ch in duration_part.chars() {
+        if ch.is_ascii_digit() {
+            current_number.push(ch);
+        } else if !current_number.is_empty() {
+            let number: u64 = current_number.parse()
+                .map_err(|_| anyhow::anyhow!("Invalid number in duration: {}", current_number))?;
+            
+            match ch {
+                'H' => total_seconds += number * 3600, // hours
+                'M' => total_seconds += number * 60,   // minutes
+                'S' => total_seconds += number,        // seconds
+                _ => return Err(anyhow::anyhow!("Unsupported duration unit: {}", ch)),
+            }
+            
+            current_number.clear();
+        }
+    }
+    
+    Ok(std::time::Duration::from_secs(total_seconds))
 }

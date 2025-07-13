@@ -1,418 +1,340 @@
-# OpenRouter Git Agent Example
+# OpenRouter Git Agent
 
-A comprehensive example demonstrating how to build intelligent AI agents using the Symbiont Agent Runtime System with OpenRouter API integration and Git repository analysis capabilities.
+An AI-powered Git repository modification agent that understands natural language instructions and autonomously applies changes to code repositories.
 
 ## Overview
 
-This example showcases the integration of multiple Symbiont runtime components to create a sophisticated AI agent capable of:
+The OpenRouter Git Agent is a sophisticated AI agent that bridges the gap between natural language instructions and precise code modifications. Simply tell it what you want to accomplish, and the agent will analyze your repository, create an execution plan, and apply the changes safely.
 
-- **Repository Analysis**: Clone and analyze Git repositories with intelligent code understanding
-- **AI-Powered Insights**: Use OpenRouter's language models for code analysis, security review, and documentation generation
-- **Persistent Context**: Maintain agent memory and knowledge across sessions
-- **Vector Search**: Leverage Qdrant for semantic search and retrieval-augmented generation (RAG)
-- **Security**: Implement cryptographic verification and policy-based access control
-- **Multiple Scenarios**: Run different types of analysis workflows
+**Key Capabilities:**
+- 🗣️ **Natural Language Interface** - Describe what you want in plain English
+- 🧠 **Intelligent Planning** - Converts prompts into structured execution plans  
+- 🔄 **Autonomous Execution** - Applies changes with configurable autonomy levels
+- 🛡️ **Safety-First** - Automatic backups, validation, and risk assessment
+- 📋 **Dry Run Mode** - Preview changes before applying them
+- 🔍 **Smart Analysis** - Understands repository context and dependencies
 
 ## Features
 
-### Core Capabilities
-- 🧠 **Intelligent Code Analysis** - Deep understanding of codebases using AI
-- 🔍 **Semantic Search** - Vector-based knowledge retrieval with <500ms performance
-- 🛡️ **Security Review** - Automated vulnerability detection and policy enforcement
-- 📚 **Documentation Generation** - AI-powered documentation creation
-- 💾 **Persistent Context** - Agent memory that survives restarts
-- 🔐 **Cryptographic Security** - SchemaPin verification and TOFU protection
+### Natural Language Processing
+- **Free-form Prompts**: No rigid command syntax - just describe what you want
+- **Context-Aware**: Understands your repository structure and existing code
+- **Intent Classification**: Automatically categorizes requests (create, modify, refactor, etc.)
+- **Ambiguity Resolution**: Asks clarifying questions when needed
 
-### Test Scenarios
-1. **Code Analysis Scenario** - Comprehensive codebase analysis and quality assessment
-2. **Security Review Scenario** - Automated security vulnerability scanning
-3. **Documentation Scenario** - Generate comprehensive project documentation
+### Autonomous Operation Modes
+- **Ask Mode** (`--autonomy ask`): Requests confirmation before each change
+- **Auto-Backup Mode** (`--autonomy auto-backup`): Creates backups and applies changes automatically
+- **Auto-Commit Mode** (`--autonomy auto-commit`): Fully autonomous operation with automatic commits
 
-## Architecture
+### Safety & Validation
+- **Automatic Backups**: Creates Git branches before making changes
+- **Syntax Validation**: Checks code syntax before applying modifications
+- **Impact Analysis**: Assesses the scope and risk of proposed changes
+- **Safety Checks**: Prevents dangerous operations and protects sensitive files
 
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   OpenRouter    │    │   Git Tools     │    │  Symbiont       │
-│   API Client    │    │   Integration   │    │  Runtime        │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-        │                       │                       │
-        └───────────────────────┼───────────────────────┘
-                                │
-                    ┌─────────────────┐
-                    │  Agent Core     │
-                    │  - Context Mgr  │
-                    │  - RAG Engine   │
-                    │  - Vector DB    │
-                    │  - Security     │
-                    └─────────────────┘
-```
+## Quick Start
 
-## Prerequisites
-
-### Required Services
-1. **OpenRouter API Key** - Get from [openrouter.ai](https://openrouter.ai/keys)
-2. **Qdrant Vector Database** - For semantic search capabilities
-3. **Git** - For repository cloning and analysis
-
-### Optional Security Components
-1. **SchemaPin CLI** - For cryptographic tool verification
-2. **Security Policies** - YAML-based access control
-
-## Setup
-
-### 1. Install Dependencies
+### 1. Setup
 
 ```bash
-# Navigate to the example directory
+# Navigate to the agent directory
 cd runtime/examples/openrouter_git_agent
 
-# Build the project
+# Build the agent
 cargo build --release
 ```
 
-### 2. Start Qdrant Vector Database
+### 2. Configure
 
-#### Using Docker:
-```bash
-docker run -p 6333:6333 qdrant/qdrant
-```
-
-#### Using Docker Compose:
-```bash
-# Create docker-compose.yml
-cat > docker-compose.yml << EOF
-version: '3.8'
-services:
-  qdrant:
-    image: qdrant/qdrant
-    ports:
-      - "6333:6333"
-    volumes:
-      - ./qdrant_storage:/qdrant/storage
-EOF
-
-docker-compose up -d
-```
-
-### 3. Configure the Agent
-
-Copy and customize the configuration file:
+Copy the configuration template and add your OpenRouter API key:
 
 ```bash
-cp config.toml config.local.toml
+cp config.toml config.toml.local
 ```
 
-Edit `config.local.toml` and set your OpenRouter API key:
+Edit [`config.toml.local`](config.toml:7) and set your API key:
 
 ```toml
 [openrouter]
 api_key = "your_actual_openrouter_api_key_here"
 ```
 
-### 4. Optional: Enable Security Features
+**Get an API key from [OpenRouter](https://openrouter.ai/keys)**
 
-If you want to use SchemaPin cryptographic verification:
+### 3. Use the Agent
 
 ```bash
-# Install SchemaPin CLI (example for Linux)
-wget https://github.com/your-org/schemapin/releases/latest/download/schemapin-cli-linux
-sudo mv schemapin-cli-linux /usr/local/bin/schemapin-cli
-sudo chmod +x /usr/local/bin/schemapin-cli
-
-# Enable in config
-[security]
-enable_schemapin = true
-policy_file = "./security_policies.yaml"
+./target/release/openrouter_git_agent --repo https://github.com/user/repo "Add error handling to the main function"
 ```
 
 ## Usage
 
-### Command Line Interface
-
-The agent provides several subcommands for different operations:
+### Basic Command Structure
 
 ```bash
-# Analyze a repository with all scenarios
-./target/release/openrouter_git_agent analyze-repo \
-  --repo https://github.com/rust-lang/mdBook \
-  --config config.local.toml
-
-# Run individual scenarios
-./target/release/openrouter_git_agent code-analysis \
-  --repo https://github.com/rust-lang/mdBook \
-  --config config.local.toml
-
-./target/release/openrouter_git_agent security-review \
-  --repo https://github.com/rust-lang/mdBook \
-  --config config.local.toml
-
-./target/release/openrouter_git_agent generate-docs \
-  --repo https://github.com/rust-lang/mdBook \
-  --config config.local.toml
-
-# Interactive query mode
-./target/release/openrouter_git_agent query \
-  --repo https://github.com/rust-lang/mdBook \
-  --config config.local.toml \
-  --query "How does the routing system work?"
-
-# Show agent status and capabilities
-./target/release/openrouter_git_agent status \
-  --config config.local.toml
+openrouter_git_agent --repo <REPOSITORY_URL> "<NATURAL_LANGUAGE_PROMPT>"
 ```
 
-### Configuration Options
+### Command Line Options
 
-#### OpenRouter Settings
+| Option | Description | Default |
+|--------|-------------|---------|
+| [`--repo`](src/main.rs:22) | Repository URL or local path | *Required* |
+| [`--autonomy`](src/main.rs:29) | Autonomy level: `ask`, `auto-backup`, `auto-commit` | `auto-backup` |
+| [`--dry-run`](src/main.rs:33) | Generate plan only, don't apply changes | `false` |
+| [`--config`](src/main.rs:37) | Configuration file path | `config.toml` |
+| [`--skip-clarification`](src/main.rs:41) | Skip clarification questions | `false` |
+
+### Examples
+
+#### Refactoring Code
+```bash
+openrouter_git_agent --repo https://github.com/user/project \
+  "Refactor the authentication module to use async/await instead of callbacks"
+```
+
+#### Adding Features
+```bash
+openrouter_git_agent --repo ./my-project \
+  "Add input validation to all user-facing functions and return proper error messages"
+```
+
+#### Bug Fixes
+```bash
+openrouter_git_agent --repo https://github.com/user/project \
+  "Fix the memory leak in the connection pool by properly closing unused connections"
+```
+
+#### Testing
+```bash
+openrouter_git_agent --repo ./my-project \
+  "Add comprehensive unit tests for the user service module"
+```
+
+#### Documentation
+```bash
+openrouter_git_agent --repo https://github.com/user/project \
+  "Update the README with installation instructions and usage examples"
+```
+
+#### Dry Run (Preview Only)
+```bash
+openrouter_git_agent --repo ./my-project --dry-run \
+  "Optimize database queries in the analytics module"
+```
+
+#### Full Autonomy
+```bash
+openrouter_git_agent --repo ./my-project --autonomy auto-commit \
+  "Remove unused imports and dead code throughout the project"
+```
+
+#### Manual Confirmation
+```bash
+openrouter_git_agent --repo ./my-project --autonomy ask \
+  "Migrate the database schema to add user preferences table"
+```
+
+## How It Works
+
+The agent follows a **prompt-to-plan-to-execution** workflow:
+
+```
+Natural Language → Planner → Execution Plan → Modifier → Git Changes
+                      ↓           ↓              ↓
+                  Repository   Validator    Backup Branch
+                   Context      
+```
+
+### Architecture Components
+
+1. **[Prompt Planner](src/planner.rs)**: Analyzes natural language prompts and repository context to generate structured execution plans
+2. **[File Modifier](src/modifier.rs)**: Safely applies changes to files with backup and validation support
+3. **[Change Validator](src/validator.rs)**: Validates changes for syntax, safety, and impact
+4. **[Workflow Orchestrator](src/workflow.rs)**: Coordinates the entire process and handles user interaction
+
+### Execution Flow
+
+1. **Context Gathering**: Analyzes repository structure and existing code
+2. **Plan Generation**: Uses AI to create step-by-step execution plan
+3. **Risk Assessment**: Evaluates potential impact and safety concerns
+4. **User Confirmation**: Requests approval based on autonomy level
+5. **Backup Creation**: Creates Git branch for safety
+6. **Change Application**: Applies modifications with validation
+7. **Commit & Summary**: Commits changes and provides results summary
+
+## Configuration
+
+### OpenRouter Settings
+
 ```toml
 [openrouter]
-api_key = "your_key"                    # Required: Your OpenRouter API key
-model = "anthropic/claude-3.5-sonnet"   # AI model to use
-max_tokens = 4000                       # Maximum response tokens
-timeout = 60                            # Request timeout in seconds
+api_key = "your_key"                    # Required: Get from openrouter.ai
+model = "anthropic/claude-3.5-sonnet"   # AI model for processing
+max_tokens = 4000                       # Maximum response length
+temperature = 0.1                       # Response creativity (0.0-1.0)
+timeout_seconds = 60                    # Request timeout
 ```
 
-#### Git Repository Settings
+### Git Repository Settings
+
 ```toml
 [git]
-clone_directory = "./temp_repos"        # Where to clone repositories
-max_file_size = 1048576                 # Max file size to analyze (1MB)
-include_extensions = ["rs", "py", "js"] # File types to include
-exclude_directories = [".git", "node_modules"] # Dirs to exclude
+clone_base_path = "./temp_repos"        # Where to clone remote repos
+max_file_size_mb = 1                    # Max file size to analyze
+allowed_extensions = ["rs", "py", "js"] # File types to process
+ignore_patterns = [".git", "node_modules"] # Directories to skip
+max_files_per_repo = 1000              # Limit files per repository
 ```
 
-#### Symbiont Runtime Settings
+### Workflow Settings
+
 ```toml
-[symbiont]
-context_storage_path = "./agent_storage" # Agent persistent storage
-qdrant_url = "http://localhost:6333"     # Vector database URL
-collection_name = "agent_knowledge"      # Vector collection name
-vector_dimension = 1536                  # Embedding dimensions
-enable_compression = true                # Compress stored context
-max_context_size_mb = 100               # Max context size
+[workflow]
+default_autonomy_level = "auto-backup"  # Default autonomy mode
+enable_backups = true                   # Create automatic backups
+backup_directory = "./backups"          # Backup storage location
+confirmation_timeout_seconds = 30       # User confirmation timeout
+max_retry_attempts = 3                  # Retry failed operations
 ```
 
-#### Security Settings
+### Safety Settings
+
+```toml
+[safety]
+enable_safety_checks = true            # Enable safety validation
+risk_threshold = "medium"               # Risk tolerance level
+protected_patterns = ["*.env", "*.key"] # Files to protect
+dangerous_operations = ["rm -rf"]       # Operations to restrict
+require_confirmation_for_high_risk = true # Confirm risky changes
+```
+
+### Security Settings (Optional)
+
 ```toml
 [security]
-enable_schemapin = true                  # Enable cryptographic verification
-policy_file = "./security_policies.yaml" # Security policy configuration
+enable_schemapin = false               # Cryptographic verification
+enable_sandbox = false                 # Sandbox execution
+trusted_domains = ["github.com"]       # Allowed repository sources
 ```
 
-## Example Scenarios
+## Advanced Usage
 
-### 1. Code Analysis Scenario
+### Custom Configuration
 
-Performs comprehensive analysis of a repository:
+Create environment-specific configurations:
 
 ```bash
-./target/release/openrouter_git_agent code-analysis \
-  --repo https://github.com/tokio-rs/tokio \
-  --config config.local.toml
+# Development
+openrouter_git_agent --config dev.toml --repo ./project "Add debug logging"
+
+# Production
+openrouter_git_agent --config prod.toml --repo ./project "Optimize performance"
 ```
 
-**What it does:**
-- Clones the repository and ingests all code files
-- Runs predefined analysis queries about architecture, patterns, and design
-- Performs code quality assessment on key files
-- Generates metrics on analysis performance
+### Error Handling
 
-**Sample Output:**
+The agent provides detailed error information and recovery options:
+
 ```
-Code Analysis Results for: https://github.com/tokio-rs/tokio
-
-Query 1: What is the main purpose and functionality of this codebase?
-Answer: Tokio is an asynchronous runtime for Rust, providing the building blocks for writing 
-reliable, asynchronous, and performant applications...
-
-Code Quality Analysis:
-File: src/lib.rs
-Analysis: The main library file shows excellent modular organization with clear separation 
-of concerns. The public API is well-structured and follows Rust naming conventions...
-
-Metrics:
-- Total queries: 5
-- Successful queries: 5
-- Average query time: 1,234ms
-- Code files analyzed: 156
+❌ Error in file modification: syntax error in main.rs:42
+How would you like to proceed?
+1. Retry
+2. Skip this step  
+3. Abort
+4. Manual intervention required
 ```
 
-### 2. Security Review Scenario
+### Backup Management
 
-Automated security analysis:
+Automatic backups are created as Git branches:
 
 ```bash
-./target/release/openrouter_git_agent security-review \
-  --repo https://github.com/actix/actix-web \
-  --config config.local.toml
+# List backup branches
+git branch -a | grep backup-
+
+# Restore from backup
+git checkout backup-1704067200
+git checkout -b recovery-branch
 ```
-
-**What it does:**
-- Scans for common security vulnerabilities
-- Checks for hardcoded secrets and credentials
-- Reviews authentication and authorization patterns
-- Validates against security policies
-- Generates security score and recommendations
-
-### 3. Documentation Generation
-
-AI-powered documentation creation:
-
-```bash
-./target/release/openrouter_git_agent generate-docs \
-  --repo https://github.com/serde-rs/serde \
-  --config config.local.toml
-```
-
-**What it does:**
-- Analyzes codebase to understand structure and functionality
-- Generates comprehensive README documentation
-- Creates API documentation for public interfaces
-- Documents architecture and design patterns
-- Provides installation and usage instructions
-
-### 4. Interactive Query Mode
-
-Ask specific questions about a repository:
-
-```bash
-./target/release/openrouter_git_agent query \
-  --repo https://github.com/clap-rs/clap \
-  --config config.local.toml \
-  --query "How does command-line argument parsing work in this library?"
-```
-
-## Performance Metrics
-
-The agent tracks various performance metrics:
-
-- **Query Response Time**: Average time for AI-powered queries
-- **Repository Ingestion**: Time to clone and process repositories
-- **Vector Search**: Semantic search performance (<500ms target)
-- **Context Management**: Memory usage and persistence efficiency
-- **Security Verification**: Cryptographic verification overhead
-
-## Security Features
-
-### Policy-Based Access Control
-
-The `security_policies.yaml` file defines comprehensive access control:
-
-```yaml
-network:
-  allowed_domains:
-    - "github.com"
-    - "gitlab.com"
-    - "openrouter.ai"
-    
-filesystem:
-  allowed_base_paths:
-    - "./temp_repos"
-    - "./agent_storage"
-    
-repository:
-  max_repo_size: 104857600  # 100MB
-  trusted_sources:
-    - pattern: "https://github.com/*"
-```
-
-### Cryptographic Verification
-
-When SchemaPin is enabled:
-- All external tool schemas are cryptographically verified
-- Trust-On-First-Use (TOFU) prevents man-in-the-middle attacks
-- Local key store maintains verification state
-- AI-driven tool review workflow for new schemas
 
 ## Troubleshooting
 
 ### Common Issues
 
-**Qdrant Connection Failed**
-```bash
-# Check if Qdrant is running
-curl http://localhost:6333/collections
+**OpenRouter API Connection Failed**
+- Verify your API key is correct in [`config.toml`](config.toml:7)
+- Check your internet connection
+- Ensure you have sufficient API credits
 
-# Start Qdrant if needed
-docker run -p 6333:6333 qdrant/qdrant
-```
+**Repository Access Denied**
+- Verify the repository URL is correct and accessible
+- For private repositories, ensure proper authentication
+- Check that the repository domain is in [`trusted_domains`](config.toml:78)
 
-**OpenRouter API Errors**
-- Verify your API key is correct
-- Check your account has sufficient credits
-- Ensure the selected model is available
+**File Modification Failed**
+- Ensure you have write permissions to the repository
+- Check that target files are not locked or read-only
+- Verify the repository is not in a conflicted state
 
-**Repository Clone Failures**
-- Check internet connectivity
-- Verify repository URL is correct and accessible
-- Ensure sufficient disk space in clone directory
-
-**Permission Errors**
-- Check security policies allow access to the repository
-- Verify file system permissions for storage directories
-- Review audit logs for policy violations
+**Validation Errors**
+- Review the execution plan in dry-run mode first
+- Check that your prompt is clear and specific
+- Ensure the target files exist and are in a valid state
 
 ### Debug Mode
 
-Enable detailed logging:
+Enable detailed logging for troubleshooting:
 
 ```bash
-RUST_LOG=debug ./target/release/openrouter_git_agent analyze-repo \
-  --repo https://github.com/rust-lang/mdBook \
-  --config config.local.toml
+RUST_LOG=debug ./target/release/openrouter_git_agent \
+  --repo ./project "Your prompt here"
 ```
 
+### Support
+
+For additional help:
+1. Check the [configuration examples](config.toml) 
+2. Run with [`--dry-run`](src/main.rs:33) to preview changes
+3. Use [`--autonomy ask`](src/main.rs:29) for step-by-step control
+4. Review the generated execution plans for insights
+
 ## Development
+
+### Building from Source
+
+```bash
+git clone <repository-url>
+cd runtime/examples/openrouter_git_agent
+cargo build --release
+```
 
 ### Running Tests
 
 ```bash
-# Run unit tests
 cargo test
-
-# Run integration tests (requires Qdrant running)
 cargo test --test integration_tests
-
-# Run with coverage
-cargo tarpaulin --out html
 ```
 
-### Adding New Scenarios
+### Architecture Overview
 
-1. Implement the `TestScenario` trait in `src/scenarios.rs`
-2. Add the scenario to the CLI in `src/main.rs`
-3. Update configuration options if needed
-4. Add tests and documentation
+The codebase is organized into focused modules:
 
-### Extending Security Policies
-
-1. Modify `security_policies.yaml` with new rules
-2. Update the policy engine implementation
-3. Test policy enforcement with various scenarios
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new functionality
-4. Ensure all tests pass
-5. Submit a pull request
+- [`main.rs`](src/main.rs) - CLI interface and application entry point
+- [`planner.rs`](src/planner.rs) - Natural language to execution plan conversion
+- [`modifier.rs`](src/modifier.rs) - File modification and backup handling  
+- [`validator.rs`](src/validator.rs) - Change validation and safety checks
+- [`workflow.rs`](src/workflow.rs) - End-to-end workflow orchestration
+- [`git_tools.rs`](src/git_tools.rs) - Git repository operations
+- [`config.rs`](src/config.rs) - Configuration management
 
 ## License
 
-This example is part of the Symbiont Agent Runtime System and follows the same license terms.
+This project is part of the Symbiont Agent Runtime System. See the main repository for license information.
 
 ## Related Documentation
 
-- [Symbiont Runtime README](../../README.md) - Main runtime documentation
-- [Context Management Guide](../../docs/context_management.md) - Agent memory and persistence
-- [Vector Database Integration](../../docs/vector_database.md) - Semantic search setup
-- [Security Architecture](../../docs/security.md) - SchemaPin and policy enforcement
-- [RAG Engine Documentation](../../docs/rag_engine.md) - Retrieval-augmented generation
-
-## Support
-
-For questions and support:
-- Create an issue in the main repository
-- Check the troubleshooting section above
-- Review the comprehensive documentation in the parent project
+- [Symbiont Runtime](../../README.md) - Main runtime documentation
+- [API Reference](../../API_REFERENCE.md) - Core runtime APIs
+- [Sandbox Communication](../../SANDBOX_COMMUNICATION.md) - Security architecture
