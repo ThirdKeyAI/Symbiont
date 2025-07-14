@@ -86,7 +86,8 @@ pub struct SafetyConfig {
 impl AgentConfig {
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let content = std::fs::read_to_string(path)?;
-        let config: AgentConfig = toml::from_str(&content)?;
+        let mut config: AgentConfig = toml::from_str(&content)?;
+        config.apply_env_overrides();
         config.validate()?;
         Ok(config)
     }
@@ -201,6 +202,26 @@ impl AgentConfig {
         }
     }
     
+    /// Apply environment variable overrides to the configuration
+    fn apply_env_overrides(&mut self) {
+        use std::env;
+        
+        // Override OpenRouter API key from environment
+        if let Ok(api_key) = env::var("OPENROUTER_API_KEY") {
+            self.openrouter.api_key = api_key;
+        }
+        
+        // Override OpenAI API key from environment
+        if let Ok(api_key) = env::var("OPENAI_API_KEY") {
+            self.git.github_token = Some(api_key);
+        }
+        
+        // Override OpenAI API base URL from environment
+        if let Ok(base_url) = env::var("OPENAI_API_BASE_URL") {
+            // Store for future use if needed
+        }
+    }
+
     fn validate(&self) -> Result<()> {
         // Skip validation for default values to allow easier setup
         if self.openrouter.api_key.is_empty() {

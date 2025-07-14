@@ -19,6 +19,7 @@ git2 = "0.18"
 serde_yaml = "0.9"
 toml = "0.8"
 tempfile = "3.0"
+dotenv = "0.15"
 
 [[bin]]
 name = "openrouter_git_agent"
