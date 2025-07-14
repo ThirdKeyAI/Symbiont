@@ -81,14 +81,14 @@ async fn main() -> Result<()> {
         std::process::exit(1);
     }
     
-    // Initialize planner with OpenRouter client
-    let planner = planner::PromptPlanner::new(openrouter_client);
-    
     // Create GitRepository for the target repo
     let git_repo = git_tools::GitRepository::new(cli.repo.clone(), config.git.clone())?;
     
-    // Initialize modifier and validator
-    let modifier = modifier::FileModifier::new(true, true, git_repo);
+    // Initialize planner with OpenRouter client
+    let planner = planner::PromptPlanner::new(openrouter_client.clone());
+    
+    // Initialize modifier and validator with OpenRouter client
+    let modifier = modifier::FileModifier::new(true, true, git_repo).with_openrouter(openrouter_client);
     let validator = validator::ChangeValidator::new(true, true, true);
     
     // Convert CLI autonomy level to workflow autonomy level

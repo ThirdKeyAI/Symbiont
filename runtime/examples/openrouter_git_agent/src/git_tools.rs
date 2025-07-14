@@ -231,6 +231,11 @@ impl GitRepository {
         }
         Ok(())
     }
+
+    /// Get the repository path for command execution
+    pub fn get_repo_path(&self) -> &Path {
+        &self.local_path
+    }
 }
 
 /// Represents a file change operation

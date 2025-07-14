@@ -40,6 +40,7 @@ struct Usage {
     total_tokens: u32,
 }
 
+#[derive(Clone)]
 pub struct OpenRouterClient {
     client: Client,
     config: OpenRouterConfig,
@@ -162,6 +163,18 @@ impl OpenRouterClient {
         let messages = vec![Message {
             role: "user".to_string(),
             content: prompt,
+        }];
+
+        self.make_request(messages).await
+    }
+
+    /// Generate a response for a general prompt
+    pub async fn generate_response(&self, prompt: &str) -> Result<String> {
+        info!("Generating response with OpenRouter");
+        
+        let messages = vec![Message {
+            role: "user".to_string(),
+            content: prompt.to_string(),
         }];
 
         self.make_request(messages).await
