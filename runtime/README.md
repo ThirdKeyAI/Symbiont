@@ -19,6 +19,7 @@ The Symbiont Agent Runtime System provides a complete infrastructure for executi
 - **SchemaPin Security**: Tool verification with Trust-On-First-Use (TOFU)
 - **AI Tool Review**: Automated security analysis and signing workflow
 - **Policy Engine**: Resource access control with YAML-based policies
+- **Optional HTTP API**: RESTful API interface for external system integration (feature-gated)
 
 ## Architecture
 
@@ -34,6 +35,9 @@ The Symbiont Agent Runtime System provides a complete infrastructure for executi
 ├─────────────────┼─────────────────┼─────────────────┼─────────────────────────┤
 │  MCP Client     │ SchemaPin       │ Tool Review     │   Policy Engine         │
 │                 │ Integration     │ Workflow        │                         │
+├─────────────────┼─────────────────┼─────────────────┼─────────────────────────┤
+│ HTTP API Server │                 │                 │     (Optional)          │
+│   (Optional)    │                 │                 │                         │
 └─────────────────┴─────────────────┴─────────────────┴─────────────────────────┘
 ```
 
@@ -361,6 +365,65 @@ match decision.decision {
 }
 ```
 
+### 9. Optional HTTP API
+
+When enabled with the `http-api` feature, the runtime exposes a RESTful API:
+
+```rust
+#[cfg(feature = "http-api")]
+use symbiont_runtime::api::{HttpApiServer, HttpApiConfig};
+
+// Configure HTTP API server
+let api_config = HttpApiConfig {
+    bind_address: "127.0.0.1".to_string(),
+    port: 8080,
+    enable_cors: true,
+    enable_tracing: true,
+};
+
+// Create and start API server
+let api_server = HttpApiServer::new(api_config);
+api_server.start().await?;
+```
+
+#### Available Endpoints
+
+- `GET /api/v1/health` - System health check
+- `GET /api/v1/agents` - List all active agents
+- `GET /api/v1/agents/{id}/status` - Get specific agent status
+- `POST /api/v1/workflows/execute` - Execute workflows
+- `GET /api/v1/metrics` - System performance metrics
+
+#### Example Usage
+
+```bash
+# Check system health
+curl http://localhost:8080/api/v1/health
+
+# List all agents
+curl http://localhost:8080/api/v1/agents
+
+# Execute a workflow
+curl -X POST http://localhost:8080/api/v1/workflows/execute \
+  -H "Content-Type: application/json" \
+  -d '{"workflow_id": "example", "parameters": {}}'
+```
+
+#### Enable HTTP API
+
+Add to your `Cargo.toml`:
+
+```toml
+[dependencies]
+symbiont-runtime = { version = "0.1.0", features = ["http-api"] }
+```
+
+Or build with feature flag:
+
+```bash
+cargo build --features http-api
+```
+
 ## Security Features
 
 ### Multi-tier Sandboxing
@@ -472,6 +535,13 @@ max_message_size = 1048576  # 1MB
 [error_handler]
 enable_auto_recovery = true
 max_recovery_attempts = 3
+
+# Optional HTTP API configuration (only used if http-api feature is enabled)
+[http_api]
+bind_address = "127.0.0.1"
+port = 8080
+enable_cors = true
+enable_tracing = true
 ```
 
 Create `access_policies.yaml`:

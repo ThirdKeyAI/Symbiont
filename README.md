@@ -32,7 +32,32 @@ cargo run --example basic_agent
 cargo run --example full_system
 cargo run --example context_example
 cargo run --example rag_example
+
+# Enable HTTP API (optional)
+cargo run --features http-api --example full_system
 ```
+
+### Optional HTTP API
+
+The Symbiont runtime includes an optional RESTful HTTP API for external integration:
+
+```bash
+# Enable the HTTP API feature
+cargo build --features http-api
+
+# Or include in your Cargo.toml
+[dependencies]
+symbiont-runtime = { version = "0.1.0", features = ["http-api"] }
+```
+
+**Key API Endpoints:**
+- `GET /api/v1/health` - Health check and system status
+- `GET /api/v1/agents` - List all active agents
+- `GET /api/v1/agents/{id}/status` - Get agent status
+- `POST /api/v1/workflows/execute` - Execute workflows
+- `GET /api/v1/metrics` - System metrics
+
+The HTTP API is disabled by default and requires explicit feature activation for security.
 
 ## 📁 Project Structure
 
@@ -92,6 +117,7 @@ symbiont/
 - **Error Handling**: Circuit breakers, retry strategies, and automatic recovery
 - **Security Integration**: Multi-tier sandboxing hooks and policy enforcement
 - **Audit Trail**: Cryptographic audit logging for compliance
+- **Optional HTTP API**: RESTful API interface with Axum (feature-gated)
 - **Docker Environment**: Secure, reproducible development environment
 - **Testing Framework**: Comprehensive test suite with 100+ tests
 - **API Documentation**: Complete API reference with examples
@@ -218,6 +244,7 @@ graph TB
 - **SchemaPin Security**: Cryptographic tool verification and Trust-On-First-Use
 - **MCP Integration**: Secure external tool access with policy enforcement
 - **AI Tool Review**: Automated security analysis and signing workflow
+- **Optional HTTP API**: RESTful API with Axum for external system integration
 
 ## 🧠 Context & Knowledge Systems
 
@@ -386,6 +413,7 @@ Symbiont is currently in active development. The project follows these principle
 - Automated testing and refactoring with policy compliance
 - Policy-compliant AI agent deployment with tool verification
 - Knowledge management across development teams with semantic search
+- RESTful API integration for external systems and workflows
 
 ### Research & Development
 - Autonomous software development experiments with safe tool integration

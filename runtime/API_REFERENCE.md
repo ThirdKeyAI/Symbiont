@@ -606,4 +606,242 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-This API reference provides complete type definitions and interface specifications for all components of the Symbiont Agent Runtime System.
+This API reference provides complete type definitions and interface specifications for all components of the Symbiont Agent Runtime System, including the optional HTTP API.
+
+## HTTP API Reference
+
+### Overview
+
+The HTTP API provides RESTful endpoints for external system integration. This API is optional and requires the `http-api` feature flag to be enabled.
+
+#### Feature Activation
+
+```toml
+[dependencies]
+symbiont-runtime = { version = "0.1.0", features = ["http-api"] }
+```
+
+#### Configuration
+
+```rust
+#[cfg(feature = "http-api")]
+use symbiont_runtime::api::{HttpApiServer, HttpApiConfig};
+
+let config = HttpApiConfig {
+    bind_address: "127.0.0.1".to_string(),
+    port: 8080,
+    enable_cors: true,
+    enable_tracing: true,
+};
+
+let server = HttpApiServer::new(config);
+server.start().await?;
+```
+
+### HTTP API Types
+
+#### Request/Response Types
+
+```rust
+#[cfg(feature = "http-api")]
+pub struct WorkflowExecutionRequest {
+    pub workflow_id: String,
+    pub parameters: serde_json::Value,
+    pub agent_id: Option<AgentId>,
+}
+
+#[cfg(feature = "http-api")]
+pub struct AgentStatusResponse {
+    pub agent_id: AgentId,
+    pub state: AgentState,
+    pub last_activity: chrono::DateTime<chrono::Utc>,
+    pub resource_usage: ResourceUsage,
+}
+
+#[cfg(feature = "http-api")]
+pub struct HealthResponse {
+    pub status: String,
+    pub uptime_seconds: u64,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub version: String,
+}
+
+#[cfg(feature = "http-api")]
+pub struct ErrorResponse {
+    pub error: String,
+    pub code: String,
+    pub details: Option<serde_json::Value>,
+}
+
+#[cfg(feature = "http-api")]
+pub struct ResourceUsage {
+    pub memory_bytes: u64,
+    pub cpu_percent: f64,
+    pub active_tasks: u32,
+}
+```
+
+### Endpoints
+
+#### Health Check
+
+**Endpoint:** `GET /api/v1/health`
+**Description:** Returns system health status and version information.
+
+**Response:**
+```json
+{
+  "status": "healthy",
+  "uptime_seconds": 3600,
+  "timestamp": "2025-07-18T06:45:00Z",
+  "version": "0.1.0"
+}
+```
+
+**Example:**
+```bash
+curl http://localhost:8080/api/v1/health
+```
+
+#### List Agents
+
+**Endpoint:** `GET /api/v1/agents`
+**Description:** Returns a list of all active agent IDs.
+
+**Response:**
+```json
+[
+  "agent-id-1",
+  "agent-id-2",
+  "agent-id-3"
+]
+```
+
+**Example:**
+```bash
+curl http://localhost:8080/api/v1/agents
+```
+
+#### Get Agent Status
+
+**Endpoint:** `GET /api/v1/agents/{id}/status`
+**Description:** Returns detailed status information for a specific agent.
+
+**Parameters:**
+- `id` (path): Agent ID
+
+**Response:**
+```json
+{
+  "agent_id": "agent-id-1",
+  "state": "Running",
+  "last_activity": "2025-07-18T06:45:00Z",
+  "resource_usage": {
+    "memory_bytes": 104857600,
+    "cpu_percent": 15.5,
+    "active_tasks": 3
+  }
+}
+```
+
+**Example:**
+```bash
+curl http://localhost:8080/api/v1/agents/agent-id-1/status
+```
+
+#### Execute Workflow
+
+**Endpoint:** `POST /api/v1/workflows/execute`
+**Description:** Executes a workflow with specified parameters.
+
+**Request Body:**
+```json
+{
+  "workflow_id": "data-processing",
+  "parameters": {
+    "input_file": "/data/input.csv",
+    "output_format": "json"
+  },
+  "agent_id": "agent-id-1"
+}
+```
+
+**Response:**
+```json
+{
+  "result": "success",
+  "output": {
+    "processed_records": 1000,
+    "output_file": "/data/output.json"
+  }
+}
+```
+
+**Example:**
+```bash
+curl -X POST http://localhost:8080/api/v1/workflows/execute \
+  -H "Content-Type: application/json" \
+  -d '{"workflow_id": "example", "parameters": {}}'
+```
+
+#### Get System Metrics
+
+**Endpoint:** `GET /api/v1/metrics`
+**Description:** Returns system performance metrics and statistics.
+
+**Response:**
+```json
+{
+  "agents": {
+    "total": 10,
+    "running": 8,
+    "stopped": 2
+  },
+  "system": {
+    "memory_usage": 85.5,
+    "cpu_usage": 45.2,
+    "uptime_seconds": 7200
+  },
+  "performance": {
+    "messages_per_second": 1250,
+    "avg_response_time_ms": 15
+  }
+}
+```
+
+**Example:**
+```bash
+curl http://localhost:8080/api/v1/metrics
+```
+
+### Error Handling
+
+All endpoints return consistent error responses:
+
+```json
+{
+  "error": "Agent not found",
+  "code": "AGENT_NOT_FOUND",
+  "details": {
+    "agent_id": "invalid-agent-id"
+  }
+}
+```
+
+**HTTP Status Codes:**
+- `200 OK` - Successful operation
+- `400 Bad Request` - Invalid request parameters
+- `404 Not Found` - Resource not found
+- `500 Internal Server Error` - Server error
+
+### Authentication & Security
+
+The HTTP API includes middleware for:
+- CORS handling (configurable)
+- Request tracing and logging
+- Rate limiting (planned)
+- Authentication (planned)
+
+Current implementation uses placeholder middleware that can be extended for production use.
+
+This API reference provides complete type definitions and interface specifications for all components of the Symbiont Agent Runtime System, including the optional HTTP API.
