@@ -1,6 +1,6 @@
 <img src="logo-hz.png" alt="Symbiont">
 
-Symbiont is a next-generation programming language and agent framework designed for AI-native, privacy-first software development. It empowers developers to build autonomous, policy-aware agents that can safely collaborate with humans, other agents, and large language models while enforcing zero-trust security, data privacy, and provable behavior through homomorphic encryption and zero-knowledge proofs.
+Symbiont is a next-generation programming language and agent framework for AI-native, privacy-first software development. It enables developers to build autonomous, policy-aware agents that can safely collaborate with humans, other agents, and large language models—enforcing zero-trust security, data privacy, and verifiable behavior through cryptographic audit trails, homomorphic encryption, and zero-knowledge proofs.
 
 With Symbiont, you're not just writing code — you're deploying intelligent, verifiable systems that explain, justify, and protect every decision they make.
 
