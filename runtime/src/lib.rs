@@ -13,6 +13,9 @@ pub mod integrations;
 pub mod context;
 pub mod rag;
 
+#[cfg(feature = "http-api")]
+pub mod api;
+
 // Re-export commonly used types
 pub use types::*;
 pub use scheduler::{AgentScheduler, DefaultAgentScheduler, SchedulerConfig};
