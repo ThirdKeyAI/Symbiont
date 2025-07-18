@@ -56,6 +56,12 @@ toml = "0.8"
 url = "2.4"
 base64 = "0.21"
 
+# HTTP API dependencies (optional)
+axum = { version = "0.7", optional = true }
+tower = { version = "0.4", optional = true }
+tower-http = { version = "0.5", features = ["cors", "trace"], optional = true }
+tokio-tungstenite = { version = "0.21", optional = true }
+
 [dev-dependencies]
 tokio-test = "0.4"
 tempfile = "3.0"
@@ -65,7 +71,8 @@ criterion = "0.5"
 default = ["vector-db"]
 vector-db = []
 embedding-models = ["candle-core", "candle-nn", "candle-transformers", "tokenizers", "hf-hub"]
-full = ["vector-db", "embedding-models"]
+http-api = ["axum", "tower", "tower-http", "tokio-tungstenite"]
+full = ["vector-db", "embedding-models", "http-api"]
 
 
 

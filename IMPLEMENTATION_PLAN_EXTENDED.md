@@ -1,8 +1,8 @@
 # Extended Implementation Plan: Context Management & MCP Integration
 
-**Version:** 1.2  
-**Date:** December 2025  
-**Status:** Phases 4-5 Completed ✅  
+**Version:** 1.2
+**Date:** July 2025
+**Status:** Phases 4-5 Completed ✅
 **Previous Phases:** 1-3 Completed ✅
 
 ---
@@ -40,7 +40,7 @@ This document tracks the implementation of Context Management, RAG/VectorDB capa
 
 ## ✅ Phase 4: Context Management & Knowledge Systems (COMPLETED)
 
-**Timeline:** Completed December 2025  
+**Timeline:** Completed July 2025
 **Focus:** Agent memory, knowledge persistence, and semantic capabilities
 
 ### 4.1 Agent Context Manager ✅
@@ -139,7 +139,7 @@ pub trait RAGEngine {
 
 ## ✅ Phase 5: Secure MCP Integration with SchemaPin (COMPLETED)
 
-**Timeline:** Completed December 2025  
+**Timeline:** Completed July 2025
 **Focus:** Cryptographically secure external tool access
 
 ### 5.1 SchemaPin Integration ✅
@@ -261,6 +261,13 @@ pub enum AccessDecision {
 
 ```mermaid
 graph TB
+    subgraph "External Interfaces 🚧"
+        API[HTTP API Gateway - Axum]
+        WH[Webhook Service]
+        METRICS[Metrics Endpoint]
+        ADMIN[Admin Interface]
+    end
+    
     subgraph "Agent Runtime System Core"
         ARS[Agent Runtime Scheduler]
         ALC[Agent Lifecycle Controller]
@@ -292,6 +299,13 @@ graph TB
         MCP[MCP Servers]
         ES[External Services]
     end
+    
+    API --> ARS
+    API --> ALC
+    API --> ARM
+    API --> ACM
+    METRICS --> ARS
+    ADMIN --> ARS
     
     ACM --> VDB
     ARAG --> VDB
@@ -413,6 +427,81 @@ sequenceDiagram
 
 ---
 
+## 🔗 Phase 7: External Interfaces (IN DEVELOPMENT)
+
+**Timeline:** Current Development
+**Focus:** Optional HTTP API and external service integration
+
+### 7.1 Optional HTTP API (Axum)
+
+#### 🚧 Implementation in Progress
+- **API Server Module** - Axum-based HTTP server with async handlers
+- **Route Management** - RESTful endpoints for agent operations
+- **Security Middleware** - Authentication, authorization, and rate limiting
+- **Configuration System** - Feature-flag based activation (`http-api`)
+- **Documentation** - OpenAPI specification generation
+
+#### Technical Implementation
+```rust
+// Optional HTTP API traits and structures
+#[cfg(feature = "http-api")]
+pub mod http_api {
+    pub trait ApiServer {
+        async fn start(&self, config: HttpApiConfig) -> Result<(), ApiError>;
+        async fn shutdown(&self) -> Result<(), ApiError>;
+        async fn health_check(&self) -> Result<HealthStatus, ApiError>;
+    }
+    
+    pub trait RouteHandler {
+        async fn handle_agent_create(&self, request: CreateAgentRequest) -> Result<AgentResponse, ApiError>;
+        async fn handle_agent_execute(&self, request: ExecuteRequest) -> Result<ExecutionResponse, ApiError>;
+        async fn handle_agent_status(&self, agent_id: AgentId) -> Result<StatusResponse, ApiError>;
+    }
+    
+    pub struct HttpApiConfig {
+        pub bind_address: String,
+        pub port: u16,
+        pub tls_config: Option<TlsConfig>,
+        pub auth_config: AuthConfig,
+        pub rate_limits: RateLimitConfig,
+        pub cors_config: CorsConfig,
+    }
+}
+```
+
+#### Purpose and Architecture
+- **Modular Design**: Optional feature activated via `http-api` Cargo feature flag
+- **Secure by Default**: Built-in authentication, authorization, and rate limiting
+- **Agent Integration**: Direct integration with existing Agent Runtime System
+- **Performance Focused**: Async operations with configurable connection pooling
+- **Standards Compliant**: RESTful API design with OpenAPI documentation
+
+#### Key Deliverables
+- **Core API Server**: Axum-based HTTP server with middleware stack
+- **Route Handlers**: Complete CRUD operations for agent management
+- **Security Layer**: JWT authentication, role-based authorization, rate limiting
+- **Configuration Management**: Environment-based configuration with validation
+- **API Documentation**: Auto-generated OpenAPI specs with interactive documentation
+- **Client Libraries**: Optional SDK generation for common languages
+
+#### 🎯 Success Criteria
+- [ ] RESTful API endpoints for all agent operations
+- [ ] Sub-100ms response times for standard operations
+- [ ] Secure authentication and authorization mechanisms
+- [ ] Zero performance impact when feature is disabled
+- [ ] OpenAPI 3.0 specification compliance
+- [ ] Comprehensive API documentation and examples
+
+### 7.2 External Service Integration
+
+#### 🚧 Planned Implementation
+- **Webhook Support** - Outbound webhook notifications for agent events
+- **Health Monitoring** - Comprehensive health check endpoints
+- **Metrics Exposure** - Prometheus-compatible metrics endpoint
+- **Admin Interface** - Optional web-based administration panel
+
+---
+
 ## Dependencies and Infrastructure
 
 ### Production Dependencies
@@ -436,6 +525,13 @@ flate2 = "1.0"
 # Async and Networking
 tokio = { version = "1.0", features = ["full"] }
 reqwest = { version = "0.11", features = ["json"] }
+
+# HTTP API (Optional - feature gated)
+axum = { version = "0.7", optional = true }
+tower = { version = "0.4", optional = true }
+tower-http = { version = "0.5", features = ["cors", "trace"], optional = true }
+jsonwebtoken = { version = "9.0", optional = true }
+utoipa = { version = "4.0", features = ["axum_extras"], optional = true }
 
 # Additional utilities
 uuid = { version = "1.0", features = ["v4"] }
