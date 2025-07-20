@@ -290,12 +290,22 @@ impl DefaultCommunicationBus {
         let now = SystemTime::now();
         let mut expired_messages = Vec::new();
         
-        // Find expired messages in queues
+        // Find expired messages in queues and check for stale queues
         {
             let mut queues = message_queues.write();
+            let mut stale_queues = 0;
             for queue in queues.values_mut() {
                 let expired = queue.remove_expired_messages(now, message_ttl);
                 expired_messages.extend(expired);
+                
+                // Check if queue itself is stale (no activity for extended period)
+                if queue.is_stale(message_ttl * 3) {
+                    stale_queues += 1;
+                }
+            }
+            
+            if stale_queues > 0 {
+                tracing::debug!("Found {} stale message queues", stale_queues);
             }
         }
         
@@ -313,12 +323,33 @@ impl DefaultCommunicationBus {
             }
         }
         
-        // Cleanup old message trackers
+        // Cleanup old message trackers and check for retry candidates
         {
             let mut tracker = message_tracker.write();
-            tracker.retain(|_, t| {
-                now.duration_since(t.created_at).unwrap_or_default() < message_ttl * 2
+            let mut retry_candidates = Vec::new();
+            
+            tracker.retain(|message_id, t| {
+                let age = t.get_age();
+                if age < message_ttl * 2 {
+                    // Check if message should be retried
+                    if t.should_retry(message_ttl) {
+                        retry_candidates.push(*message_id);
+                        
+                        // Log details about the retry candidate
+                        let msg = t.get_message();
+                        tracing::debug!("Message {} eligible for retry: size={} bytes, age={:?}s, sender={}",
+                                      message_id, t.get_message_size(), t.get_age().as_secs(), msg.sender);
+                    }
+                    true
+                } else {
+                    false
+                }
             });
+            
+            // Log retry candidates for monitoring
+            if !retry_candidates.is_empty() {
+                tracing::debug!("Found {} messages eligible for retry", retry_candidates.len());
+            }
         }
     }
 
@@ -469,6 +500,14 @@ impl MessageQueue {
         
         expired
     }
+
+    fn get_queue_age(&self) -> Duration {
+        SystemTime::now().duration_since(self.created_at).unwrap_or_default()
+    }
+
+    fn is_stale(&self, max_age: Duration) -> bool {
+        self.get_queue_age() > max_age
+    }
 }
 
 /// Message tracker for delivery status
@@ -490,6 +529,26 @@ impl MessageTracker {
             delivered_at: None,
             failure_reason: None,
         }
+    }
+
+    /// Get the tracked message
+    fn get_message(&self) -> &SecureMessage {
+        &self.message
+    }
+
+    /// Get message size in bytes
+    fn get_message_size(&self) -> usize {
+        self.message.payload.data.len()
+    }
+
+    /// Get age of the tracking record
+    fn get_age(&self) -> Duration {
+        SystemTime::now().duration_since(self.created_at).unwrap_or_default()
+    }
+
+    /// Check if message should be retried
+    fn should_retry(&self, max_age: Duration) -> bool {
+        matches!(self.status, DeliveryStatus::Failed) && self.get_age() < max_age
     }
 }
 

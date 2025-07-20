@@ -110,6 +110,9 @@ impl DefaultLifecycleController {
             loop {
                 tokio::select! {
                     event = event_receiver.recv() => {
+                        if !*is_running.read() {
+                            break;
+                        }
                         if let Some(event) = event {
                             Self::process_lifecycle_event(event, &agents, &state_machine).await;
                         } else {
@@ -173,22 +176,32 @@ impl DefaultLifecycleController {
                     }
                 }
             }
-            LifecycleEvent::AgentError { agent_id, error } => {
-                tracing::error!("Agent {} encountered error: {}", agent_id, error);
+            LifecycleEvent::AgentError { agent_id, error, timestamp } => {
+                tracing::error!("Agent {} encountered error: {} at {:?}", agent_id, error, timestamp);
                 
                 if let Some(agent) = agents.write().get_mut(&agent_id) {
                     agent.error_count += 1;
                     agent.last_error = Some(error);
-                    agent.state = AgentState::Failed;
-                    agent.last_state_change = SystemTime::now();
+                    // Validate the transition to Failed state
+                    if state_machine.is_valid_transition(&agent.state, &AgentState::Failed) {
+                        agent.state = AgentState::Failed;
+                        agent.last_state_change = timestamp;
+                    } else {
+                        tracing::warn!("Cannot transition agent {} to Failed state from {:?}", agent_id, agent.state);
+                    }
                 }
             }
-            LifecycleEvent::ResourceExhausted { agent_id } => {
-                tracing::warn!("Agent {} exhausted resources", agent_id);
+            LifecycleEvent::ResourceExhausted { agent_id, resource_type, timestamp } => {
+                tracing::warn!("Agent {} exhausted resource {} at {:?}", agent_id, resource_type, timestamp);
                 
                 if let Some(agent) = agents.write().get_mut(&agent_id) {
-                    agent.state = AgentState::Suspended;
-                    agent.last_state_change = SystemTime::now();
+                    // Validate the transition to Suspended state
+                    if state_machine.is_valid_transition(&agent.state, &AgentState::Suspended) {
+                        agent.state = AgentState::Suspended;
+                        agent.last_state_change = timestamp;
+                    } else {
+                        tracing::warn!("Cannot transition agent {} to Suspended state from {:?}", agent_id, agent.state);
+                    }
                 }
             }
         }
@@ -202,6 +215,8 @@ impl DefaultLifecycleController {
         max_restart_attempts: u32,
     ) {
         let mut agents_to_restart = Vec::new();
+        let mut error_events = Vec::new();
+        let mut resource_events = Vec::new();
         
         {
             let agents_read = agents.read();
@@ -222,9 +237,24 @@ impl DefaultLifecycleController {
                     match agent.state {
                         AgentState::Initializing | AgentState::Terminating => {
                             tracing::warn!("Agent {} stuck in {:?} state for {:?}", agent_id, agent.state, time_in_state);
+                            // Generate error event for stuck agents
+                            error_events.push(LifecycleEvent::AgentError {
+                                agent_id: *agent_id,
+                                error: format!("Agent stuck in {:?} state for {:?}", agent.state, time_in_state),
+                                timestamp: SystemTime::now(),
+                            });
                         }
                         _ => {}
                     }
+                }
+                
+                // Check for resource exhaustion (simulate by high error count)
+                if agent.error_count > 5 && agent.state == AgentState::Running {
+                    resource_events.push(LifecycleEvent::ResourceExhausted {
+                        agent_id: *agent_id,
+                        resource_type: "error_threshold".to_string(),
+                        timestamp: SystemTime::now(),
+                    });
                 }
             }
         }
@@ -232,12 +262,25 @@ impl DefaultLifecycleController {
         // Restart failed agents
         for agent_id in agents_to_restart {
             if let Some(agent) = agents.write().get_mut(&agent_id) {
-                agent.restart_count += 1;
-                agent.state = AgentState::Initializing;
-                agent.last_state_change = SystemTime::now();
-                
-                tracing::info!("Auto-restarting failed agent {} (attempt {})", agent_id, agent.restart_count);
+                // Validate state transition before restarting
+                if state_machine.is_valid_transition(&agent.state, &AgentState::Initializing) {
+                    agent.restart_count += 1;
+                    agent.state = AgentState::Initializing;
+                    agent.last_state_change = SystemTime::now();
+                    
+                    tracing::info!("Auto-restarting failed agent {} (attempt {})", agent_id, agent.restart_count);
+                } else {
+                    tracing::warn!("Cannot restart agent {} from state {:?}", agent_id, agent.state);
+                }
             }
+        }
+        
+        // Process error and resource exhaustion events
+        for event in error_events {
+            Self::process_lifecycle_event(event, agents, state_machine).await;
+        }
+        for event in resource_events {
+            Self::process_lifecycle_event(event, agents, state_machine).await;
         }
     }
 
@@ -468,9 +511,12 @@ enum LifecycleEvent {
     AgentError {
         agent_id: AgentId,
         error: String,
+        timestamp: SystemTime,
     },
     ResourceExhausted {
         agent_id: AgentId,
+        resource_type: String,
+        timestamp: SystemTime,
     },
 }
 

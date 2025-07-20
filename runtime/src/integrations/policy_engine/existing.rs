@@ -79,10 +79,10 @@ pub enum AgentAction {
 /// Network protocol types
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum NetworkProtocol {
-    TCP,
-    UDP,
-    HTTP,
-    HTTPS,
+    Tcp,
+    Udp,
+    Http,
+    Https,
     WebSocket,
 }
 
@@ -316,8 +316,14 @@ pub struct MockPolicyEngine {
 
 impl MockPolicyEngine {
     pub fn new() -> Self {
+        let default_policy = Self::create_default_policy();
+        let mut policies = HashMap::new();
+        if let Some(id) = default_policy.id {
+            policies.insert(id, default_policy);
+        }
+        
         Self {
-            policies: std::sync::RwLock::new(HashMap::new()),
+            policies: std::sync::RwLock::new(policies),
             stats: std::sync::RwLock::new(PolicyStatistics {
                 total_evaluations: 0,
                 decisions: HashMap::new(),
@@ -387,12 +393,8 @@ impl PolicyEngine for MockPolicyEngine {
                     Decision::Allow
                 }
             }
-            AgentAction::FileAccess { operation, .. } => {
-                match operation {
-                    FileOperation::Delete => Decision::Conditional,
-                    _ => Decision::Allow,
-                }
-            }
+            AgentAction::FileAccess { operation: FileOperation::Delete, .. } => Decision::Conditional,
+            AgentAction::FileAccess { .. } => Decision::Allow,
             _ => Decision::Allow,
         };
 

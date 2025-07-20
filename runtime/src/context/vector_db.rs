@@ -848,7 +848,7 @@ impl VectorDatabase for QdrantClientWrapper {
     }
 
     async fn optimize_collection(&self) -> Result<(), ContextError> {
-        let client = self.get_client().await?;
+        let _client = self.get_client().await?;
         
         // For now, just return success as collection optimization
         // can be done through Qdrant's admin interface or specific optimization calls

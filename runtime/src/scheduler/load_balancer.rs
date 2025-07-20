@@ -30,6 +30,7 @@ impl LoadBalancer {
     /// Allocate resources for an agent
     pub async fn allocate_resources(&self, requirements: &ResourceRequirements) -> Result<ResourceAllocation, ResourceError> {
         let agent_id = AgentId::new(); // This would normally come from the task
+        let start_time = std::time::Instant::now();
         
         // Convert requirements to limits
         let limits = ResourceLimits {
@@ -43,7 +44,7 @@ impl LoadBalancer {
 
         let mut pool = self.resource_pool.write();
         
-        match self.strategy {
+        let result = match self.strategy {
             LoadBalancingStrategy::RoundRobin => {
                 self.allocate_round_robin(&mut pool, agent_id, &limits)
             }
@@ -56,7 +57,21 @@ impl LoadBalancer {
             LoadBalancingStrategy::WeightedRoundRobin => {
                 self.allocate_weighted_round_robin(&mut pool, agent_id, &limits)
             }
+        };
+        
+        // Record allocation metrics
+        let mut history = self.allocation_history.write();
+        match &result {
+            Ok(_) => {
+                let duration = start_time.elapsed();
+                history.record_allocation(agent_id, duration);
+            }
+            Err(_) => {
+                history.record_failure();
+            }
         }
+        
+        result
     }
 
     /// Deallocate resources for an agent

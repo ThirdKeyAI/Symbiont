@@ -45,7 +45,7 @@ pub enum VerificationStatus {
     /// Tool has been verified successfully
     Verified {
         /// Verification result details
-        result: VerificationResult,
+        result: Box<VerificationResult>,
         /// Timestamp of verification
         verified_at: String,
     },

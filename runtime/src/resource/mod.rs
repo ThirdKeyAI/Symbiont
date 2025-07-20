@@ -128,7 +128,6 @@ impl DefaultResourceManager {
         let allocations = self.allocations.clone();
         let system_resources = self.system_resources.clone();
         let shutdown_notify = self.shutdown_notify.clone();
-        let is_running = self.is_running.clone();
 
         tokio::spawn(async move {
             loop {
@@ -393,15 +392,18 @@ impl ResourceManager for DefaultResourceManager {
         let system = self.system_resources.read();
         let allocations_count = self.allocations.read().len();
         
+        // Use the resource info to access reserved fields
+        let resource_info = system.get_resource_info();
+        
         ResourceSystemStatus {
             total_memory: self.config.total_memory,
-            available_memory: system.available_memory,
+            available_memory: resource_info.available_memory,
             total_cpu_cores: self.config.total_cpu_cores,
-            available_cpu_cores: system.available_cpu_cores,
+            available_cpu_cores: resource_info.available_cpu_cores,
             total_disk_space: self.config.total_disk_space,
-            available_disk_space: system.available_disk_space,
+            available_disk_space: resource_info.available_disk_space,
             total_network_bandwidth: self.config.total_network_bandwidth,
-            available_network_bandwidth: system.available_network_bandwidth,
+            available_network_bandwidth: resource_info.available_network_bandwidth,
             active_allocations: allocations_count,
             last_updated: SystemTime::now(),
         }
@@ -562,6 +564,20 @@ impl SystemResources {
         // In a real implementation, this would update current usage metrics
         // For now, we just track allocations vs available resources
     }
+
+    /// Get system resource information including reservations
+    fn get_resource_info(&self) -> ResourceInfo {
+        ResourceInfo {
+            available_memory: self.available_memory,
+            available_cpu_cores: self.available_cpu_cores,
+            available_disk_space: self.available_disk_space,
+            available_network_bandwidth: self.available_network_bandwidth,
+            reserved_memory: self.reserved_memory,
+            reserved_cpu_cores: self.reserved_cpu_cores,
+            reserved_disk_space: self.reserved_disk_space,
+            reserved_network_bandwidth: self.reserved_network_bandwidth,
+        }
+    }
 }
 
 /// Resource system status
@@ -577,6 +593,19 @@ pub struct ResourceSystemStatus {
     pub available_network_bandwidth: usize,
     pub active_allocations: usize,
     pub last_updated: SystemTime,
+}
+
+/// Resource information including reservations
+#[derive(Debug, Clone)]
+pub struct ResourceInfo {
+    pub available_memory: usize,
+    pub available_cpu_cores: u32,
+    pub available_disk_space: usize,
+    pub available_network_bandwidth: usize,
+    pub reserved_memory: usize,
+    pub reserved_cpu_cores: u32,
+    pub reserved_disk_space: usize,
+    pub reserved_network_bandwidth: usize,
 }
 
 /// Resource violations

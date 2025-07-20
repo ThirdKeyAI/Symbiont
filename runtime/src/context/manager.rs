@@ -519,11 +519,15 @@ impl StandardContextManager {
                 
                 for memory_item in &context.memory.short_term {
                     if memory_item.content.to_lowercase().contains(&query.to_lowercase()) {
+                        // Calculate relevance score based on importance and keyword match
+                        let importance_score = self.calculate_importance(memory_item);
+                        let relevance_score = (importance_score + 0.8) / 2.0; // Blend importance with match score
+                        
                         results.push(ContextItem {
                             id: memory_item.id,
                             content: memory_item.content.clone(),
                             item_type: ContextItemType::Memory(memory_item.memory_type.clone()),
-                            relevance_score: 0.8, // Placeholder score
+                            relevance_score,
                             timestamp: memory_item.created_at,
                             metadata: memory_item.metadata.clone(),
                         });
@@ -552,6 +556,27 @@ impl StandardContextManager {
         let recency_factor = 1.0; // Would calculate based on time since creation
         
         base_importance * access_factor * recency_factor
+    }
+
+    /// Calculate trust score for shared knowledge based on usage patterns
+    fn calculate_trust_score(&self, shared_item: &SharedKnowledgeItem) -> f32 {
+        // Base trust score starts at 0.5
+        let mut trust_score = 0.5;
+        
+        // Increase trust based on access count (more usage = more trusted)
+        let access_factor = (shared_item.access_count as f32 + 1.0).ln() / 10.0;
+        trust_score += access_factor;
+        
+        // Consider the type of knowledge (facts might be more trusted than patterns)
+        let knowledge_factor = match &shared_item.knowledge {
+            Knowledge::Fact(_) => 0.2,
+            Knowledge::Procedure(_) => 0.1,
+            Knowledge::Pattern(_) => 0.05,
+        };
+        trust_score += knowledge_factor;
+        
+        // Clamp between 0.0 and 1.0
+        trust_score.clamp(0.0, 1.0)
     }
 
     /// Convert Knowledge to KnowledgeItem for vector storage
@@ -855,12 +880,18 @@ impl ContextManager for StandardContextManager {
             // Check if agent has access to this knowledge
             match shared_item.access_level {
                 AccessLevel::Public => {
+                    // Calculate trust score based on access count and knowledge type
+                    let trust_score = self.calculate_trust_score(shared_item);
+                    
+                    tracing::debug!("Shared knowledge {} accessed {} times, trust score: {}",
+                                  knowledge_id, shared_item.access_count, trust_score);
+                    
                     results.push(SharedKnowledgeRef {
                         knowledge_id: *knowledge_id,
                         source_agent: shared_item.source_agent,
                         shared_at: shared_item.created_at,
                         access_level: shared_item.access_level.clone(),
-                        trust_score: 0.8, // Placeholder trust calculation
+                        trust_score,
                     });
                 }
                 _ => {
