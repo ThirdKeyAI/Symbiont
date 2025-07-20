@@ -62,6 +62,9 @@ tower = { version = "0.4", optional = true }
 tower-http = { version = "0.5", features = ["cors", "trace"], optional = true }
 tokio-tungstenite = { version = "0.21", optional = true }
 
+# Enterprise features (optional)
+symbiont-enterprise = { path = "../enterprise", optional = true }
+
 [dev-dependencies]
 tokio-test = "0.4"
 tempfile = "3.0"
@@ -72,6 +75,7 @@ default = ["vector-db"]
 vector-db = []
 embedding-models = ["candle-core", "candle-nn", "candle-transformers", "tokenizers", "hf-hub"]
 http-api = ["axum", "tower", "tower-http", "tokio-tungstenite"]
+enterprise = ["dep:symbiont-enterprise"]
 full = ["vector-db", "embedding-models", "http-api"]
 
 

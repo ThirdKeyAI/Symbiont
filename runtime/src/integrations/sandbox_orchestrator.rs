@@ -80,12 +80,14 @@ pub enum SandboxType {
         image: String,
         tag: String,
     },
-    /// gVisor sandbox for enhanced security
+    /// gVisor sandbox for enhanced security (Enterprise only)
+    #[cfg(feature = "enterprise")]
     GVisor {
         runtime: String,
         platform: String,
     },
-    /// Firecracker microVM sandbox
+    /// Firecracker microVM sandbox (Enterprise only)
+    #[cfg(feature = "enterprise")]
     Firecracker {
         kernel_image: String,
         rootfs_image: String,
