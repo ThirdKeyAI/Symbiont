@@ -377,23 +377,26 @@ Test coverage includes:
 
 ## 📚 Documentation
 
-### Core Documentation
+### Community Documentation
+- **[Getting Started](docs/getting-started.md)** - Quick start guide and installation
+- **[DSL Guide](docs/dsl-guide.md)** - Complete Symbiont DSL reference
+- **[Runtime Architecture](docs/runtime-architecture.md)** - System architecture and components
+- **[Security Model](docs/security-model.md)** - Security implementation and best practices
+- **[Contributing](docs/contributing.md)** - How to contribute to the project
+
+### Technical Specifications
 - [`SPECIFICATION.md`](SPECIFICATION.md) - Complete technical specification
 - [`CONTEXT_KNOWLEDGE_SYSTEMS_DESIGN.md`](CONTEXT_KNOWLEDGE_SYSTEMS_DESIGN.md) - Context & knowledge systems design
 - [`DESIGN_AGENT_RUNTIME.md`](DESIGN_AGENT_RUNTIME.md) - Runtime system architecture
-- [`IMPLEMENTATION_PLAN_EXTENDED.md`](IMPLEMENTATION_PLAN_EXTENDED.md) - Extended implementation plan
 - [`MVP.md`](MVP.md) - Minimum Viable Product definition
 
-### Runtime Documentation
+### Runtime Documentation (Technical)
 - [`runtime/README.md`](runtime/README.md) - Runtime-specific documentation
 - [`runtime/API_REFERENCE.md`](runtime/API_REFERENCE.md) - Complete API reference
-- [`runtime/docs/tool_review_workflow.md`](runtime/docs/tool_review_workflow.md) - AI tool review workflow
-- [`runtime/docs/tool_invocation_enforcement.md`](runtime/docs/tool_invocation_enforcement.md) - Security enforcement guide
-- [`runtime/docs/api/`](runtime/docs/api/) - Comprehensive API documentation
+- [`runtime/docs/`](runtime/docs/) - Technical implementation documentation
 
 ### Module Documentation
 - [`dsl/README.md`](dsl/README.md) - DSL-specific documentation
-- [Architecting Autonomy PDF](Architecting%20Autonomy_%20A%20Strategic%20Blueprint%20for%20an%20AI-Powered%20Research%20and%20Development%20Engine.pdf) - Strategic blueprint
 
 ## 🤝 Contributing
 
