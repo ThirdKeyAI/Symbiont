@@ -62,7 +62,6 @@ symbiont/
 │   ├── src/               # Core runtime components
 │   ├── examples/          # Usage examples
 │   └── tests/             # Integration tests
-├── enterprise/            # Enterprise-only features
 └── docs/                  # Documentation
 ```
 
@@ -85,6 +84,7 @@ symbiont/
 - **Cryptographic Audit**: Complete audit trails with Ed25519 signatures **(Enterprise)**
 - **Multi-Agent Communication**: Encrypted inter-agent messaging **(Enterprise)**
 - **Real-time Monitoring**: SLA metrics and performance dashboards **(Enterprise)**
+- **Professional Services and Support**: Custom development and support **(Enterprise)**
 
 ## 📐 Symbiont DSL
 
