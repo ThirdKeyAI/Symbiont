@@ -325,3 +325,13 @@ dist
 # Roo
 .roomodes
 .roo
+
+# Never Enterprise in OSS
+enterprise/
+
+# Internal sync and security scripts (private only)
+.gitea/
+scripts/sync_oss_to_github.sh
+scripts/install-hooks.sh
+scripts/pre-commit
+docs/OSS_SYNC_SETUP.md
