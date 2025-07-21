@@ -10,7 +10,7 @@ use symbiont_runtime::integrations::{
     ToolInvocationEnforcer, DefaultToolInvocationEnforcer, ToolInvocationError,
     EnforcementPolicy, InvocationEnforcementConfig, InvocationContext,
     McpTool, ToolProvider, VerificationStatus, McpClient, MockMcpClient,
-    SecureMcpClient, MockSchemaPinCli, LocalKeyStore,
+    SecureMcpClient, MockNativeSchemaPinClient, LocalKeyStore,
 };
 use symbiont_runtime::integrations::schemapin::VerificationResult;
 use symbiont_runtime::types::AgentId;
@@ -38,7 +38,7 @@ fn create_test_tool_with_status(name: &str, status: VerificationStatus) -> McpTo
 
 fn create_verified_tool(name: &str) -> McpTool {
     create_test_tool_with_status(name, VerificationStatus::Verified {
-        result: VerificationResult {
+        result: Box::new(VerificationResult {
             success: true,
             message: "Test verification successful".to_string(),
             schema_hash: Some("test_hash".to_string()),
@@ -46,7 +46,7 @@ fn create_verified_tool(name: &str) -> McpTool {
             signature: None,
             metadata: None,
             timestamp: Some("2024-01-01T00:00:00Z".to_string()),
-        },
+        }),
         verified_at: "2024-01-01T00:00:00Z".to_string(),
     })
 }
@@ -246,7 +246,7 @@ async fn test_mcp_client_integration_blocks_unverified() {
 #[tokio::test]
 async fn test_secure_mcp_client_with_enforcer() {
     let config = symbiont_runtime::integrations::McpClientConfig::default();
-    let schema_pin = Arc::new(MockSchemaPinCli::new_success());
+    let schema_pin = Arc::new(MockNativeSchemaPinClient::new_success());
     let key_store = Arc::new(LocalKeyStore::new().unwrap());
     
     let client = SecureMcpClient::new(config, schema_pin, key_store);

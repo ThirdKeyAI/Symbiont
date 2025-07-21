@@ -15,7 +15,7 @@ use super::types::{
     ToolDiscoveryEvent, ToolVerificationRequest, ToolVerificationResponse,
 };
 use crate::integrations::schemapin::{
-    SchemaPinCli, SchemaPinCliWrapper, LocalKeyStore, VerifyArgs, PinnedKey,
+    SchemaPinClient, NativeSchemaPinClient, LocalKeyStore, VerifyArgs, PinnedKey,
 };
 use crate::integrations::tool_invocation::{
     ToolInvocationEnforcer, DefaultToolInvocationEnforcer, ToolInvocationError,
@@ -56,8 +56,8 @@ pub trait McpClient: Send + Sync {
 pub struct SecureMcpClient {
     /// Client configuration
     config: McpClientConfig,
-    /// SchemaPin CLI wrapper for verification
-    schema_pin: Arc<dyn SchemaPinCli>,
+    /// SchemaPin client for verification
+    schema_pin: Arc<dyn SchemaPinClient>,
     /// Local key store for TOFU
     key_store: Arc<LocalKeyStore>,
     /// Available tools (name -> tool)
@@ -70,7 +70,7 @@ impl SecureMcpClient {
     /// Create a new secure MCP client
     pub fn new(
         config: McpClientConfig,
-        schema_pin: Arc<dyn SchemaPinCli>,
+        schema_pin: Arc<dyn SchemaPinClient>,
         key_store: Arc<LocalKeyStore>,
     ) -> Self {
         let enforcer = Arc::new(DefaultToolInvocationEnforcer::new());
@@ -86,7 +86,7 @@ impl SecureMcpClient {
     /// Create a new secure MCP client with custom enforcer
     pub fn with_enforcer(
         config: McpClientConfig,
-        schema_pin: Arc<dyn SchemaPinCli>,
+        schema_pin: Arc<dyn SchemaPinClient>,
         key_store: Arc<LocalKeyStore>,
         enforcer: Arc<dyn ToolInvocationEnforcer>,
     ) -> Self {
@@ -101,7 +101,7 @@ impl SecureMcpClient {
 
     /// Create a new secure MCP client with default components
     pub fn with_defaults(config: McpClientConfig) -> Result<Self, McpClientError> {
-        let schema_pin = Arc::new(SchemaPinCliWrapper::new());
+        let schema_pin = Arc::new(NativeSchemaPinClient::new());
         let key_store = Arc::new(LocalKeyStore::new()?);
         
         Ok(Self::new(config, schema_pin, key_store))
@@ -490,8 +490,7 @@ impl McpClient for MockMcpClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::integrations::schemapin::MockSchemaPinCli;
-    use std::collections::HashMap;
+    use crate::integrations::schemapin::MockNativeSchemaPinClient;
 
     fn create_test_tool() -> McpTool {
         McpTool {
@@ -539,7 +538,7 @@ mod tests {
     #[tokio::test]
     async fn test_secure_client_with_mock_components() {
         let config = McpClientConfig::default();
-        let schema_pin = Arc::new(MockSchemaPinCli::new_success());
+        let schema_pin = Arc::new(MockNativeSchemaPinClient::new_success());
         let key_store = Arc::new(LocalKeyStore::new().unwrap());
 
         let client = SecureMcpClient::new(config, schema_pin, key_store);
@@ -558,7 +557,7 @@ mod tests {
         let mut config = McpClientConfig::default();
         config.enforce_verification = true;
 
-        let schema_pin = Arc::new(MockSchemaPinCli::new_failure());
+        let schema_pin = Arc::new(MockNativeSchemaPinClient::new_failure());
         let key_store = Arc::new(LocalKeyStore::new().unwrap());
 
         let client = SecureMcpClient::new(config, schema_pin, key_store);

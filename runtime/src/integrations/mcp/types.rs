@@ -196,7 +196,7 @@ mod tests {
     #[test]
     fn test_verification_status_is_verified() {
         let verified_status = VerificationStatus::Verified {
-            result: VerificationResult {
+            result: Box::new(VerificationResult {
                 success: true,
                 message: "Test verification".to_string(),
                 schema_hash: Some("hash123".to_string()),
@@ -204,7 +204,7 @@ mod tests {
                 signature: None,
                 metadata: None,
                 timestamp: Some("2024-01-01T00:00:00Z".to_string()),
-            },
+            }),
             verified_at: "2024-01-01T00:00:00Z".to_string(),
         };
 
@@ -247,7 +247,7 @@ mod tests {
         };
 
         let verified_status = VerificationStatus::Verified {
-            result: result.clone(),
+            result: Box::new(result.clone()),
             verified_at: "2024-01-01T00:00:00Z".to_string(),
         };
 

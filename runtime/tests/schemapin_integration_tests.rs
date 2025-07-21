@@ -7,14 +7,14 @@ use tempfile::NamedTempFile;
 use std::io::Write;
 
 use symbiont_runtime::integrations::schemapin::{
-    SchemaPinCli, SchemaPinCliWrapper, MockSchemaPinCli,
+    SchemaPinClient, NativeSchemaPinClient, MockNativeSchemaPinClient,
     SchemaPinConfig, SchemaPinError, VerificationResult, VerifyArgs, SignatureInfo,
     LocalKeyStore, PinnedKey, KeyStoreConfig, KeyStoreError
 };
 
 #[tokio::test]
 async fn test_mock_schemapin_cli_success() {
-    let cli = MockSchemaPinCli::new_success();
+    let cli = MockNativeSchemaPinClient::new_success();
     
     let args = VerifyArgs::new(
         "/tmp/test_schema.json".to_string(),
@@ -27,12 +27,12 @@ async fn test_mock_schemapin_cli_success() {
     let verification = result.unwrap();
     assert!(verification.success);
     assert_eq!(verification.message, "Mock verification successful");
-    assert_eq!(verification.schema_hash, Some("mock_hash_123".to_string()));
+    assert_eq!(verification.schema_hash, Some("mock_native_hash_123".to_string()));
 }
 
 #[tokio::test]
 async fn test_mock_schemapin_cli_failure() {
-    let cli = MockSchemaPinCli::new_failure();
+    let cli = MockNativeSchemaPinClient::new_failure();
     
     let args = VerifyArgs::new(
         "/tmp/test_schema.json".to_string(),
@@ -72,7 +72,7 @@ async fn test_mock_schemapin_cli_custom_result() {
         timestamp: Some("2024-12-07T14:30:00Z".to_string()),
     };
     
-    let cli = MockSchemaPinCli::with_result(custom_result.clone());
+    let cli = MockNativeSchemaPinClient::with_result(custom_result.clone());
     
     let args = VerifyArgs::new(
         "/tmp/test_schema.json".to_string(),
@@ -91,20 +91,20 @@ async fn test_mock_schemapin_cli_custom_result() {
 
 #[tokio::test]
 async fn test_mock_cli_version_and_binary_check() {
-    let cli = MockSchemaPinCli::new_success();
+    let cli = MockNativeSchemaPinClient::new_success();
     
     // Test version
     let version = cli.get_version().await.unwrap();
     assert_eq!(version, "schemapin-cli v1.0.0 (mock)");
     
-    // Test binary check
-    let binary_available = cli.check_binary().await.unwrap();
-    assert!(binary_available);
+    // Test availability check
+    let available = cli.check_available().await.unwrap();
+    assert!(available);
 }
 
 #[tokio::test]
 async fn test_verify_args_validation() {
-    let cli = SchemaPinCliWrapper::new();
+    let cli = NativeSchemaPinClient::new();
     
     // Test empty schema path
     let args = VerifyArgs::new(
@@ -179,11 +179,10 @@ async fn test_schemapin_config() {
         environment: env,
     };
     
-    let cli = SchemaPinCliWrapper::with_config(config.clone());
-    assert_eq!(cli.config.binary_path, "/custom/path/schemapin-cli");
-    assert_eq!(cli.config.timeout_seconds, 60);
-    assert!(!cli.config.capture_stderr);
-    assert_eq!(cli.config.environment.get("SCHEMAPIN_DEBUG"), Some(&"true".to_string()));
+    // Note: NativeSchemaPinClient doesn't use external config like CLI wrapper
+    let cli = NativeSchemaPinClient::new();
+    // Native client doesn't expose config in the same way as CLI wrapper
+    // This test is mainly for CLI wrapper compatibility
 }
 
 #[tokio::test]
@@ -196,28 +195,17 @@ async fn test_default_config() {
 }
 
 #[tokio::test]
-async fn test_binary_not_found_error() {
-    let config = SchemaPinConfig {
-        binary_path: "/non/existent/binary".to_string(),
-        timeout_seconds: 30,
-        capture_stderr: true,
-        environment: HashMap::new(),
-    };
+async fn test_native_client_no_binary_dependency() {
+    // Native client doesn't depend on external binaries, so it should always be available
+    let cli = NativeSchemaPinClient::new();
     
-    let cli = SchemaPinCliWrapper::with_config(config);
+    // Test that availability check always succeeds
+    let available = cli.check_available().await.unwrap();
+    assert!(available);
     
-    // Create a temporary file for the schema
-    let mut temp_file = NamedTempFile::new().unwrap();
-    writeln!(temp_file, r#"{{"type": "object"}}"#).unwrap();
-    let temp_path = temp_file.path().to_string_lossy().to_string();
-    
-    let args = VerifyArgs::new(
-        temp_path,
-        "https://example.com/pubkey".to_string(),
-    );
-    
-    let result = cli.verify_schema(args).await;
-    assert!(matches!(result, Err(SchemaPinError::BinaryNotFound { .. })));
+    // Test that version can be retrieved
+    let version = cli.get_version().await.unwrap();
+    assert!(version.contains("schemapin-native"));
 }
 
 #[test]

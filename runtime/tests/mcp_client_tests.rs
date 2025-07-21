@@ -9,7 +9,7 @@ use tempfile::TempDir;
 use symbiont_runtime::integrations::{
     McpClient, SecureMcpClient, MockMcpClient, McpClientConfig, McpClientError,
     McpTool, ToolProvider, VerificationStatus, ToolVerificationRequest,
-    MockSchemaPinCli, SchemaPinCliWrapper, LocalKeyStore,
+    MockNativeSchemaPinClient, NativeSchemaPinClient, LocalKeyStore,
     KeyStoreConfig, PinnedKey,
 };
 
@@ -110,7 +110,7 @@ async fn test_mock_client_failed_discovery() {
 #[tokio::test]
 async fn test_secure_client_with_successful_verification() {
     let config = McpClientConfig::default();
-    let schema_pin = Arc::new(MockSchemaPinCli::new_success());
+    let schema_pin = Arc::new(MockNativeSchemaPinClient::new_success());
     let (key_store, _temp_dir) = create_test_key_store();
     let key_store = Arc::new(key_store);
 
@@ -135,7 +135,7 @@ async fn test_secure_client_with_successful_verification() {
 #[tokio::test]
 async fn test_secure_client_with_failed_verification() {
     let config = McpClientConfig::default();
-    let schema_pin = Arc::new(MockSchemaPinCli::new_failure());
+    let schema_pin = Arc::new(MockNativeSchemaPinClient::new_failure());
     let (key_store, _temp_dir) = create_test_key_store();
     let key_store = Arc::new(key_store);
 
@@ -163,7 +163,7 @@ async fn test_secure_client_verification_disabled() {
     let mut config = McpClientConfig::default();
     config.enforce_verification = false;
     
-    let schema_pin = Arc::new(MockSchemaPinCli::new_failure());
+    let schema_pin = Arc::new(MockNativeSchemaPinClient::new_failure());
     let (key_store, _temp_dir) = create_test_key_store();
     let key_store = Arc::new(key_store);
 
@@ -298,7 +298,7 @@ async fn test_multiple_tools_discovery() {
 #[tokio::test]
 async fn test_key_store_tofu_mechanism() {
     let config = McpClientConfig::default();
-    let schema_pin = Arc::new(MockSchemaPinCli::new_success());
+    let schema_pin = Arc::new(MockNativeSchemaPinClient::new_success());
     let (key_store, _temp_dir) = create_test_key_store();
     let key_store = Arc::new(key_store);
 
@@ -326,7 +326,7 @@ async fn test_key_store_tofu_mechanism() {
 async fn test_verification_status_methods() {
     // Test verified status
     let verified_status = VerificationStatus::Verified {
-        result: symbiont_runtime::integrations::VerificationResult {
+        result: Box::new(symbiont_runtime::integrations::VerificationResult {
             success: true,
             message: "Test verification".to_string(),
             schema_hash: Some("hash123".to_string()),
@@ -334,7 +334,7 @@ async fn test_verification_status_methods() {
             signature: None,
             metadata: None,
             timestamp: Some("2024-01-01T00:00:00Z".to_string()),
-        },
+        }),
         verified_at: "2024-01-01T00:00:00Z".to_string(),
     };
 

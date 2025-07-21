@@ -407,7 +407,7 @@ mod tests {
         );
 
         let tool = create_test_tool(VerificationStatus::Verified {
-            result: VerificationResult {
+            result: Box::new(VerificationResult {
                 success: true,
                 message: "Test verification".to_string(),
                 schema_hash: Some("hash123".to_string()),
@@ -415,7 +415,7 @@ mod tests {
                 signature: None,
                 metadata: None,
                 timestamp: Some("2024-01-01T00:00:00Z".to_string()),
-            },
+            }),
             verified_at: "2024-01-01T00:00:00Z".to_string(),
         });
 

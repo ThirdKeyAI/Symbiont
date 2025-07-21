@@ -37,6 +37,7 @@ pub use audit_trail::{
 };
 pub use schemapin::{
     SchemaPinCli, SchemaPinCliWrapper, MockSchemaPinCli,
+    SchemaPinClient, NativeSchemaPinClient, MockNativeSchemaPinClient, DefaultSchemaPinClient,
     SchemaPinConfig, SchemaPinError, VerificationResult, VerifyArgs, SignatureInfo,
     SigningResult, SignArgs, LocalKeyStore, KeyStoreConfig, PinnedKey
 };

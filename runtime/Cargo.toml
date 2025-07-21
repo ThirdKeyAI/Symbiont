@@ -55,6 +55,9 @@ octocrab = "0.34"
 toml = "0.8"
 url = "2.4"
 base64 = "0.21"
+schemapin = "1.1.4"
+sha2 = "0.10"
+hex = "0.4"
 
 # HTTP API dependencies (optional)
 axum = { version = "0.7", optional = true }
