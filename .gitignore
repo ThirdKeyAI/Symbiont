@@ -326,12 +326,6 @@ dist
 .roomodes
 .roo
 
-# Never Enterprise in OSS
-enterprise/
-
-# Internal sync and security scripts (private only)
-.gitea/
-scripts/sync_oss_to_github.sh
-scripts/install-hooks.sh
-scripts/pre-commit
-docs/OSS_SYNC_SETUP.md
+# Internal sync and security scripts (keep private, don't sync to OSS)
+# Note: enterprise/ folder is intentionally NOT ignored here - it should be
+# committed to Gitea but excluded only during OSS sync by the sync script
