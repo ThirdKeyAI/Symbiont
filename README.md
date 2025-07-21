@@ -8,17 +8,34 @@ Symbiont is an AI-native agent framework for building autonomous, policy-aware a
 - Docker (recommended) or Rust 1.88+
 - Qdrant vector database (for semantic search)
 
-### Running the System
+### Running with Pre-built Containers
+
+**Using GitHub Container Registry (Recommended):**
 
 ```bash
-# Build and run with Docker
+# Run DSL parser
+docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbiont-dsl:latest parse /workspace/agent.dsl
+
+# Run Runtime/MCP Server
+docker run --rm -p 8080:8080 ghcr.io/thirdkeyai/symbiont-runtime:latest
+
+# Interactive development
+docker run --rm -it -v $(pwd):/workspace ghcr.io/thirdkeyai/symbiont-runtime:latest bash
+```
+
+### Building from Source
+
+```bash
+# Build development environment
 docker build -t symbiont:latest .
 docker run --rm -it -v $(pwd):/workspace symbiont:latest bash
 
-# Test the DSL parser
-cd dsl && cargo run && cargo test
+# Build individual components
+cd dsl && docker build -t symbiont-dsl .
+cd runtime && docker build -t symbiont-runtime .
 
-# Test the runtime system
+# Test the components
+cd dsl && cargo run && cargo test
 cd ../runtime && cargo test
 
 # Run example agents

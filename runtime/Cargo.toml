@@ -32,7 +32,7 @@ async-trait = "0.1"
 dashmap = "5.0"
 parking_lot = "0.12"
 crossbeam = "0.8"
-ed25519-dalek = { version = "2.0", features = ["serde"] }
+ed25519-dalek = { version = "1.0", features = ["serde"] }
 aes-gcm = "0.10"
 rand = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
@@ -55,7 +55,8 @@ octocrab = "0.34"
 toml = "0.8"
 url = "2.4"
 base64 = "0.21"
-schemapin = "1.1.4"
+base64ct = "=1.6.0"  # Force exact compatible version that doesn't require edition2024
+schemapin = "1.0.0"
 sha2 = "0.10"
 hex = "0.4"
 
@@ -65,8 +66,7 @@ tower = { version = "0.4", optional = true }
 tower-http = { version = "0.5", features = ["cors", "trace"], optional = true }
 tokio-tungstenite = { version = "0.21", optional = true }
 
-# Enterprise features (optional)
-symbiont-enterprise = { path = "../enterprise", optional = true }
+# Enterprise features removed for OSS build
 
 [dev-dependencies]
 tokio-test = "0.4"
@@ -78,7 +78,7 @@ default = ["vector-db"]
 vector-db = []
 embedding-models = ["candle-core", "candle-nn", "candle-transformers", "tokenizers", "hf-hub"]
 http-api = ["axum", "tower", "tower-http", "tokio-tungstenite"]
-enterprise = ["dep:symbiont-enterprise"]
+# enterprise feature removed for OSS build
 full = ["vector-db", "embedding-models", "http-api"]
 
 
