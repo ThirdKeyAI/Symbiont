@@ -7,7 +7,6 @@ Symbiont is an AI-native agent framework for building autonomous, policy-aware a
 ### Prerequisites
 - Docker (recommended) or Rust 1.88+
 - Qdrant vector database (for semantic search)
-- SchemaPin Go CLI (for tool verification)
 
 ### Running the System
 
