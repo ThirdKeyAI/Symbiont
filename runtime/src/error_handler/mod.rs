@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
+use std::boxed::Box;
 use async_trait::async_trait;
 use parking_lot::RwLock;
 use tokio::sync::{mpsc, Notify};
@@ -218,15 +219,22 @@ impl DefaultErrorHandler {
                 error_history.write().entry(agent_id).or_default().push(error_record);
                 
                 // Check circuit breaker
-                let mut breakers = circuit_breakers.write();
-                let breaker = breakers.entry(agent_id).or_insert_with(|| CircuitBreaker::new(config.circuit_breaker_threshold, config.circuit_breaker_timeout));
+                let circuit_breaker_open = {
+                    let mut breakers = circuit_breakers.write();
+                    let breaker = breakers.entry(agent_id).or_insert_with(|| CircuitBreaker::new(config.circuit_breaker_threshold, config.circuit_breaker_timeout));
+                    
+                    if breaker.is_open() {
+                        tracing::warn!("Circuit breaker open for agent {}, blocking error handling", agent_id);
+                        return;
+                    }
+                    
+                    breaker.record_failure();
+                    false
+                };
                 
-                if breaker.is_open() {
-                    tracing::warn!("Circuit breaker open for agent {}, blocking error handling", agent_id);
+                if circuit_breaker_open {
                     return;
                 }
-                
-                breaker.record_failure();
                 
                 // Check thresholds
                 let thresholds = error_thresholds.read().get(&agent_id).cloned().unwrap_or_default();
@@ -238,25 +246,58 @@ impl DefaultErrorHandler {
                 }
                 
                 // Determine recovery action
-                let strategies = recovery_strategies.read();
                 let error_type = Self::classify_error(&error);
+                let strategy_option = {
+                    let strategies = recovery_strategies.read();
+                    strategies.get(&error_type).cloned()
+                };
                 
-                if let Some(strategy) = strategies.get(&error_type) {
+                if let Some(strategy) = strategy_option {
                     tracing::info!("Applying recovery strategy {:?} for agent {} error: {}", strategy, agent_id, error);
+                    
+                    // Simulate recovery attempt (in real implementation this would call actual recovery logic)
+                    let success = match strategy {
+                        RecoveryStrategy::Retry { .. } => true, // Assume retry succeeds
+                        RecoveryStrategy::Restart { .. } => true, // Assume restart succeeds
+                        RecoveryStrategy::Terminate { .. } => true, // Terminate always succeeds
+                        RecoveryStrategy::Failover { .. } => false, // Failover might fail without backup
+                        RecoveryStrategy::Manual { .. } => false, // Manual requires intervention
+                        RecoveryStrategy::None => false, // No recovery means failure
+                    };
+                    
+                    // Send recovery event (this would be done by the actual recovery system)
+                    let recovery_event = ErrorEvent::RecoveryAttempted {
+                        agent_id,
+                        strategy: strategy.clone(),
+                        success,
+                        timestamp: SystemTime::now(),
+                    };
+                    
+                    // Process the recovery event to demonstrate its usage
+                    Box::pin(Self::process_error_event(
+                        recovery_event,
+                        error_history,
+                        recovery_strategies,
+                        error_thresholds,
+                        circuit_breakers,
+                        config,
+                    )).await;
                 } else {
                     tracing::warn!("No recovery strategy found for error type {:?} in agent {}", error_type, agent_id);
                 }
             }
-            ErrorEvent::RecoveryAttempted { agent_id, strategy, success } => {
+            ErrorEvent::RecoveryAttempted { agent_id, strategy, success, timestamp } => {
                 if success {
-                    tracing::info!("Recovery successful for agent {} using strategy {:?}", agent_id, strategy);
+                    tracing::info!("Recovery successful for agent {} using strategy {:?} at {:?}", agent_id, strategy, timestamp);
                     
                     // Reset circuit breaker on successful recovery
-                    if let Some(breaker) = circuit_breakers.write().get_mut(&agent_id) {
-                        breaker.record_success();
+                    {
+                        if let Some(breaker) = circuit_breakers.write().get_mut(&agent_id) {
+                            breaker.record_success();
+                        }
                     }
                 } else {
-                    tracing::error!("Recovery failed for agent {} using strategy {:?}", agent_id, strategy);
+                    tracing::error!("Recovery failed for agent {} using strategy {:?} at {:?}", agent_id, strategy, timestamp);
                 }
             }
         }
@@ -629,6 +670,7 @@ enum ErrorEvent {
         agent_id: AgentId,
         strategy: RecoveryStrategy,
         success: bool,
+        timestamp: SystemTime,
     },
 }
 

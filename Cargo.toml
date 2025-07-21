@@ -1,0 +1,38 @@
+[workspace]
+members = [
+    "runtime",
+    "dsl", 
+    "enterprise",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Jascha Wanger <jascha@thirdkey.ai>"]
+repository = "https://github.com/thirdkey/symbiont"
+
+[workspace.dependencies]
+# Shared dependencies across workspace
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+
+[profile.release]
+# Workspace-wide release optimizations
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.dev]
+# Development optimizations
+opt-level = 0
+debug = true
+overflow-checks = true

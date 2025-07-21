@@ -4,11 +4,16 @@
 
 pub mod policy_engine;
 pub mod sandbox_orchestrator;
-pub mod audit_trail;
 pub mod schemapin;
 pub mod mcp;
-pub mod tool_review;
 pub mod tool_invocation;
+
+// Enterprise-only modules (gated behind feature flag)
+#[cfg(feature = "enterprise")]
+pub mod audit_trail;
+
+#[cfg(feature = "enterprise")]
+pub mod tool_review;
 
 // Re-export specific types to avoid naming conflicts
 pub use policy_engine::{
@@ -24,6 +29,7 @@ pub use sandbox_orchestrator::{
     SandboxType, SandboxConfig, SandboxStatus, SandboxCommand, CommandResult,
     SnapshotId as SandboxSnapshotId
 };
+#[cfg(feature = "enterprise")]
 pub use audit_trail::{
     AuditTrail, MockAuditTrail, AuditEvent, AuditRecord, AuditQuery,
     AuditEventType, AuditSeverity, AuditCategory, AuditOutcome,
@@ -39,6 +45,7 @@ pub use mcp::{
     McpTool, McpClientConfig, McpClientError, ToolProvider, VerificationStatus,
     ToolDiscoveryEvent, ToolVerificationRequest, ToolVerificationResponse
 };
+#[cfg(feature = "enterprise")]
 pub use tool_review::{
     ToolReviewOrchestrator, WorkflowEvent, WorkflowEventHandler, WorkflowStats,
     SecurityAnalyzer, AISecurityAnalyzer, SecurityAnalyzerConfig,

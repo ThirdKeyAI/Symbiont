@@ -244,7 +244,7 @@ impl DefaultAgentScheduler {
                         let mut failed_agents = Vec::new();
                         for entry in running_agents.iter() {
                             let agent_id = *entry.key();
-                            if let Err(_) = task_manager.check_task_health(agent_id).await {
+                            if (task_manager.check_task_health(agent_id).await).is_err() {
                                 failed_agents.push(agent_id);
                             }
                         }
@@ -329,11 +329,11 @@ impl AgentScheduler for DefaultAgentScheduler {
     }
 
     async fn get_system_status(&self) -> SystemStatus {
-        let (total_scheduled, start_time) = {
+        let (total_scheduled, uptime) = {
             let metrics = self.system_metrics.read();
-            (metrics.total_scheduled, metrics.start_time)
+            let now = SystemTime::now();
+            (metrics.total_scheduled, metrics.uptime_since(now))
         };
-        let now = SystemTime::now();
         let resource_utilization = self.load_balancer.get_resource_utilization().await;
         
         SystemStatus {
@@ -341,8 +341,8 @@ impl AgentScheduler for DefaultAgentScheduler {
             running_agents: self.running_agents.len(),
             suspended_agents: 0, // TODO: Track suspended agents
             resource_utilization,
-            uptime: now.duration_since(start_time).unwrap_or_default(),
-            last_updated: now,
+            uptime,
+            last_updated: SystemTime::now(),
         }
     }
 

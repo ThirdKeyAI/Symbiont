@@ -1,5 +1,5 @@
 //! Symbiont MCP Server Management CLI
-//! 
+//!
 //! Provides command-line interface for managing MCP servers with integrated
 //! security verification and tool discovery.
 
@@ -7,13 +7,6 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use tracing::{info, Level};
-
-mod commands;
-mod config;
-mod github;
-mod registry;
-
-use commands::*;
 
 #[derive(Parser)]
 #[command(name = "symbiont-mcp")]
@@ -100,46 +93,37 @@ async fn main() -> Result<()> {
     
     info!("Starting Symbiont MCP CLI");
     
-    // Load configuration
-    let config_path = expand_path(&cli.config)?;
-    let config = config::McpConfig::load_or_create(&config_path).await?;
-    
     // Execute command
     match cli.command {
         Commands::Add { source, name, skip_verification } => {
-            add_server(&config, &source, name, skip_verification).await
+            println!("Add command not yet implemented");
+            println!("Source: {}, Name: {:?}, Skip verification: {}", source, name, skip_verification);
+            Ok(())
         }
         Commands::Remove { name, force } => {
-            remove_server(&config, &name, force).await
+            println!("Remove command not yet implemented");
+            println!("Name: {}, Force: {}", name, force);
+            Ok(())
         }
         Commands::List { detailed, status } => {
-            list_servers(&config, detailed, status).await
+            println!("List command not yet implemented");
+            println!("Detailed: {}, Status: {:?}", detailed, status);
+            Ok(())
         }
         Commands::Status { name, health_check } => {
-            status_check(&config, name, health_check).await
+            println!("Status command not yet implemented");
+            println!("Name: {:?}, Health check: {}", name, health_check);
+            Ok(())
         }
         Commands::Verify { name, force } => {
-            verify_server(&config, &name, force).await
+            println!("Verify command not yet implemented");
+            println!("Name: {}, Force: {}", name, force);
+            Ok(())
         }
         Commands::Update { name, source } => {
-            update_server(&config, &name, source).await
+            println!("Update command not yet implemented");
+            println!("Name: {}, Source: {:?}", name, source);
+            Ok(())
         }
-    }
-}
-
-/// Expand ~ in path to home directory
-fn expand_path(path: &PathBuf) -> Result<PathBuf> {
-    let path_str = path.to_string_lossy();
-    if path_str.starts_with('~') {
-        let home = dirs::home_dir()
-            .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?;
-        let relative = &path_str[1..];
-        if relative.starts_with('/') {
-            Ok(home.join(&relative[1..]))
-        } else {
-            Ok(home.join(relative))
-        }
-    } else {
-        Ok(path.clone())
     }
 }

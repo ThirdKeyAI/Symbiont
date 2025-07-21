@@ -80,12 +80,14 @@ pub enum SandboxType {
         image: String,
         tag: String,
     },
-    /// gVisor sandbox for enhanced security
+    /// gVisor sandbox for enhanced security (Enterprise only)
+    #[cfg(feature = "enterprise")]
     GVisor {
         runtime: String,
         platform: String,
     },
-    /// Firecracker microVM sandbox
+    /// Firecracker microVM sandbox (Enterprise only)
+    #[cfg(feature = "enterprise")]
     Firecracker {
         kernel_image: String,
         rootfs_image: String,
@@ -424,6 +426,46 @@ struct SandboxSnapshot {
     size: u64,
 }
 
+impl SandboxSnapshot {
+    fn new(id: SnapshotId, sandbox_id: SandboxId, name: String) -> Self {
+        Self {
+            id,
+            sandbox_id,
+            name,
+            created_at: SystemTime::now(),
+            size: 0,
+        }
+    }
+
+    fn get_id(&self) -> SnapshotId {
+        self.id
+    }
+
+    fn get_sandbox_id(&self) -> SandboxId {
+        self.sandbox_id
+    }
+
+    fn get_name(&self) -> &str {
+        &self.name
+    }
+
+    fn get_age(&self) -> Duration {
+        SystemTime::now().duration_since(self.created_at).unwrap_or_default()
+    }
+
+    fn get_size(&self) -> u64 {
+        self.size
+    }
+
+    fn set_size(&mut self, size: u64) {
+        self.size = size;
+    }
+
+    fn is_expired(&self, max_age: Duration) -> bool {
+        self.get_age() > max_age
+    }
+}
+
 impl MockSandboxOrchestrator {
     pub fn new() -> Self {
         Self {
@@ -631,13 +673,12 @@ impl SandboxOrchestrator for MockSandboxOrchestrator {
         let sandboxes = self.sandboxes.read().unwrap();
         if sandboxes.contains_key(&sandbox_id) {
             let snapshot_id = SnapshotId::new_v4();
-            let snapshot = SandboxSnapshot {
-                id: snapshot_id,
-                sandbox_id,
-                name,
-                created_at: SystemTime::now(),
-                size: 1024 * 1024 * 100, // 100MB
-            };
+            let mut snapshot = SandboxSnapshot::new(snapshot_id, sandbox_id, name);
+            snapshot.set_size(1024 * 1024 * 100); // 100MB
+            
+            tracing::info!("Created snapshot {} for sandbox {} with size {} bytes",
+                          snapshot.get_id(), snapshot.get_sandbox_id(), snapshot.get_size());
+                          
             self.snapshots.write().unwrap().insert(snapshot_id, snapshot);
             Ok(snapshot_id)
         } else {
@@ -662,11 +703,44 @@ impl SandboxOrchestrator for MockSandboxOrchestrator {
 
     async fn delete_snapshot(&self, snapshot_id: SnapshotId) -> Result<(), SandboxError> {
         let mut snapshots = self.snapshots.write().unwrap();
+        if let Some(snapshot) = snapshots.get(&snapshot_id) {
+            tracing::info!("Deleting snapshot '{}' (age: {:?}s, size: {} bytes)",
+                          snapshot.get_name(), snapshot.get_age().as_secs(), snapshot.get_size());
+        }
+        
         if snapshots.remove(&snapshot_id).is_some() {
             Ok(())
         } else {
             Err(SandboxError::SnapshotNotFound { id: snapshot_id.to_string() })
         }
+    }
+
+}
+
+impl MockSandboxOrchestrator {
+    /// Clean up expired snapshots
+    pub async fn cleanup_expired_snapshots(&self, max_age: Duration) -> u32 {
+        let mut snapshots = self.snapshots.write().unwrap();
+        let mut expired_count = 0;
+        let expired_ids: Vec<SnapshotId> = snapshots
+            .iter()
+            .filter_map(|(id, snapshot)| {
+                if snapshot.is_expired(max_age) {
+                    tracing::info!("Snapshot '{}' expired (age: {:?})",
+                                  snapshot.get_name(), snapshot.get_age());
+                    expired_count += 1;
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        
+        for id in expired_ids {
+            snapshots.remove(&id);
+        }
+        
+        expired_count
     }
 }
 

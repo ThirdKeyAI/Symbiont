@@ -43,7 +43,7 @@ impl TaskManager {
         self.running_tasks.write().insert(agent_id, handle.clone());
 
         // Send command to start the task
-        self.task_sender.send(TaskCommand::Start { task, handle })
+        self.task_sender.send(TaskCommand::Start { task: Box::new(task), handle })
             .map_err(|_| SchedulerError::SchedulingFailed {
                 agent_id,
                 reason: "Failed to send start command".to_string(),
@@ -122,14 +122,13 @@ impl TaskManager {
 
     /// Start the task execution loop
     fn start_task_loop(&self, mut task_receiver: mpsc::UnboundedReceiver<TaskCommand>) {
-        let running_tasks = self.running_tasks.clone();
         let task_timeout = self.task_timeout;
 
         tokio::spawn(async move {
             while let Some(command) = task_receiver.recv().await {
                 match command {
                     TaskCommand::Start { task, handle } => {
-                        Self::execute_task(task, handle, task_timeout).await;
+                        Self::execute_task(*task, handle, task_timeout).await;
                     }
                     TaskCommand::Terminate { agent_id, handle } => {
                         Self::terminate_task_execution(agent_id, handle).await;
@@ -191,7 +190,7 @@ impl TaskManager {
 #[derive(Debug)]
 enum TaskCommand {
     Start {
-        task: super::ScheduledTask,
+        task: Box<super::ScheduledTask>,
         handle: TaskHandle,
     },
     Terminate {

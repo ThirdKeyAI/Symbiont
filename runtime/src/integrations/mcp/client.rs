@@ -144,7 +144,7 @@ impl SecureMcpClient {
         match verification_result {
             Ok(result) => {
                 Ok(VerificationStatus::Verified {
-                    result,
+                    result: Box::new(result),
                     verified_at: chrono::Utc::now().to_rfc3339(),
                 })
             }
@@ -307,7 +307,7 @@ impl McpClient for SecureMcpClient {
     async fn invoke_tool(
         &self,
         tool_name: &str,
-        arguments: serde_json::Value,
+        _arguments: serde_json::Value,
         context: InvocationContext,
     ) -> Result<InvocationResult, McpClientError> {
         // Get the tool first
@@ -318,7 +318,7 @@ impl McpClient for SecureMcpClient {
             .execute_tool_with_enforcement(&tool, context)
             .await
             .map_err(|e| match e {
-                ToolInvocationError::InvocationBlocked { tool_name, reason } => {
+                ToolInvocationError::InvocationBlocked { tool_name, reason: _ } => {
                     McpClientError::ToolNotVerified { name: tool_name }
                 }
                 ToolInvocationError::ToolNotFound { tool_name } => {
@@ -327,7 +327,7 @@ impl McpClient for SecureMcpClient {
                 ToolInvocationError::VerificationRequired { tool_name, .. } => {
                     McpClientError::ToolNotVerified { name: tool_name }
                 }
-                ToolInvocationError::VerificationFailed { tool_name, reason } => {
+                ToolInvocationError::VerificationFailed { tool_name: _, reason } => {
                     McpClientError::VerificationFailed { reason }
                 }
                 _ => McpClientError::CommunicationError {
@@ -367,7 +367,7 @@ impl McpClient for MockMcpClient {
         // Mock verification
         tool.verification_status = if self.should_verify_successfully {
             VerificationStatus::Verified {
-                result: crate::integrations::schemapin::VerificationResult {
+                result: Box::new(crate::integrations::schemapin::VerificationResult {
                     success: true,
                     message: "Mock verification successful".to_string(),
                     schema_hash: Some("mock_hash".to_string()),
@@ -375,7 +375,7 @@ impl McpClient for MockMcpClient {
                     signature: None,
                     metadata: None,
                     timestamp: Some(chrono::Utc::now().to_rfc3339()),
-                },
+                }),
                 verified_at: chrono::Utc::now().to_rfc3339(),
             }
         } else {
@@ -426,7 +426,7 @@ impl McpClient for MockMcpClient {
     async fn verify_tool(&self, request: ToolVerificationRequest) -> Result<ToolVerificationResponse, McpClientError> {
         let status = if self.should_verify_successfully {
             VerificationStatus::Verified {
-                result: crate::integrations::schemapin::VerificationResult {
+                result: Box::new(crate::integrations::schemapin::VerificationResult {
                     success: true,
                     message: "Mock verification successful".to_string(),
                     schema_hash: Some("mock_hash".to_string()),
@@ -434,7 +434,7 @@ impl McpClient for MockMcpClient {
                     signature: None,
                     metadata: None,
                     timestamp: Some(chrono::Utc::now().to_rfc3339()),
-                },
+                }),
                 verified_at: chrono::Utc::now().to_rfc3339(),
             }
         } else {
@@ -460,7 +460,7 @@ impl McpClient for MockMcpClient {
         &self,
         tool_name: &str,
         arguments: serde_json::Value,
-        context: InvocationContext,
+        _context: InvocationContext,
     ) -> Result<InvocationResult, McpClientError> {
         // Get the tool to check its verification status
         let tool = self.get_tool(tool_name).await?;
