@@ -1,0 +1,91 @@
+[package]
+name = "symbiont-runtime"
+version = "0.1.0"
+edition = "2021"
+authors = ["Jascha Wanger / ThirdKey.ai"]
+description = "Agent Runtime System for the Symbiont platform"
+license = "MIT"
+repository = "https://github.com/thirdkeyai/symbiont"
+keywords = ["agent", "runtime", "ai", "symbiont", "automation"]
+categories = ["development-tools", "api-bindings"]
+
+
+[[example]]
+name = "basic_agent"
+path = "examples/basic_agent.rs"
+
+[[example]]
+name = "full_system"
+path = "examples/full_system.rs"
+
+[[bin]]
+name = "symbiont-mcp"
+path = "src/bin/symbiont_mcp.rs"
+[dependencies]
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+thiserror = "1.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+async-trait = "0.1"
+dashmap = "5.0"
+parking_lot = "0.12"
+crossbeam = "0.8"
+ed25519-dalek = { version = "1.0", features = ["serde"] }
+aes-gcm = "0.10"
+rand = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "5.0"
+futures = "0.3"
+bytes = { version = "1.0", features = ["serde"] }
+tempfile = "3.0"
+qdrant-client = "1.14.0"
+flate2 = "1.0"
+candle-core = { version = "0.3", optional = true }
+candle-nn = { version = "0.3", optional = true }
+candle-transformers = { version = "0.3", optional = true }
+tokenizers = { version = "0.15", optional = true }
+hf-hub = { version = "0.3", optional = true }
+regex = "1.0"
+clap = { version = "4.0", features = ["derive"] }
+reqwest = { version = "0.11", features = ["json"] }
+git2 = "0.18"
+octocrab = "0.34"
+toml = "0.8"
+url = "2.4"
+base64 = "0.21"
+base64ct = "=1.6.0"  # Force exact compatible version that doesn't require edition2024
+schemapin = "1.1.4"
+sha2 = "0.10"
+hex = "0.4"
+
+# HTTP API dependencies (optional)
+axum = { version = "0.7", optional = true }
+tower = { version = "0.4", optional = true }
+tower-http = { version = "0.5", features = ["cors", "trace"], optional = true }
+tokio-tungstenite = { version = "0.21", optional = true }
+
+# Enterprise features removed for OSS build
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3.0"
+criterion = "0.5"
+
+[features]
+default = ["vector-db"]
+vector-db = []
+embedding-models = ["candle-core", "candle-nn", "candle-transformers", "tokenizers", "hf-hub"]
+http-api = ["axum", "tower", "tower-http", "tokio-tungstenite"]
+enterprise = []  # Enterprise feature for conditional compilation
+full = ["vector-db", "embedding-models", "http-api"]
+
+
+
+[lib]
+name = "symbiont_runtime"
+path = "src/lib.rs"

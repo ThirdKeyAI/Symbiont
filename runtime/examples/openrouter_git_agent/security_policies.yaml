@@ -1,0 +1,234 @@
+# Security Policies for OpenRouter Git Agent
+# This file defines access control policies and security rules
+
+# Global security settings
+global:
+  # Default access decision when no policy matches
+  default_decision: DENY
+  
+  # Enable audit logging for all access decisions
+  audit_logging: true
+  
+  # Maximum request size in bytes
+  max_request_size: 10485760  # 10MB
+  
+  # Rate limiting settings
+  rate_limit:
+    requests_per_minute: 100
+    burst_size: 20
+
+# Network access policies
+network:
+  # Allow access to common Git hosting platforms
+  allowed_domains:
+    - "github.com"
+    - "gitlab.com"
+    - "bitbucket.org"
+    - "git.sr.ht"
+    - "codeberg.org"
+    
+  # Allow access to AI/ML service endpoints
+  ai_services:
+    - "openrouter.ai"
+    - "api.openai.com"
+    - "api.anthropic.com"
+    
+  # Allow localhost for development
+  localhost:
+    - "127.0.0.1"
+    - "localhost"
+    - "::1"
+    
+  # Block known malicious or restricted domains
+  blocked_domains:
+    - "suspicious-site.com"
+    - "malware-host.net"
+
+# File system access policies
+filesystem:
+  # Allowed base directories for operations
+  allowed_base_paths:
+    - "./temp_repos"
+    - "./agent_storage"
+    - "/tmp/agent_*"
+    
+  # Forbidden paths - never allow access to these
+  forbidden_paths:
+    - "/etc/passwd"
+    - "/etc/shadow"
+    - "/home/*/.ssh"
+    - "/root"
+    - "~/.aws"
+    - "~/.config/gcloud"
+    
+  # Maximum file size for analysis
+  max_file_size: 10485760  # 10MB
+  
+  # Allowed file extensions for analysis
+  allowed_extensions:
+    code:
+      - "rs"
+      - "py" 
+      - "js"
+      - "ts"
+      - "go"
+      - "java"
+      - "cpp"
+      - "c"
+      - "h"
+      - "hpp"
+    config:
+      - "json"
+      - "yaml"
+      - "yml"
+      - "toml"
+      - "xml"
+    docs:
+      - "md"
+      - "txt"
+      - "rst"
+
+# Repository access policies
+repository:
+  # Allow cloning from trusted sources
+  trusted_sources:
+    - pattern: "https://github.com/*"
+      description: "GitHub public repositories"
+      
+    - pattern: "https://gitlab.com/*"
+      description: "GitLab public repositories"
+      
+    - pattern: "https://bitbucket.org/*"
+      description: "Bitbucket public repositories"
+      
+  # Block private or sensitive repositories
+  blocked_patterns:
+    - "*/private-*"
+    - "*/.env*"
+    - "*/secrets/*"
+    - "*/credentials/*"
+    
+  # Maximum repository size
+  max_repo_size: 104857600  # 100MB
+  
+  # Clone timeout in seconds
+  clone_timeout: 300
+
+# AI/ML service policies
+ai_services:
+  openrouter:
+    # Rate limiting for API calls
+    rate_limit:
+      requests_per_minute: 60
+      tokens_per_hour: 100000
+      
+    # Maximum content size for analysis
+    max_content_size: 32768  # 32KB per request
+    
+    # Allowed models
+    allowed_models:
+      - "anthropic/claude-3.5-sonnet"
+      - "anthropic/claude-3-haiku"
+      - "openai/gpt-4"
+      - "openai/gpt-3.5-turbo"
+      
+    # Content filtering
+    content_filters:
+      - "no_personal_data"
+      - "no_credentials"
+      - "no_private_keys"
+
+# Security scanning policies
+security:
+  # Enable vulnerability scanning
+  vulnerability_scanning: true
+  
+  # Secrets detection patterns
+  secrets_patterns:
+    - pattern: "api[_-]?key"
+      severity: "high"
+      
+    - pattern: "secret[_-]?key"
+      severity: "high"
+      
+    - pattern: "password\\s*="
+      severity: "medium"
+      
+    - pattern: "-----BEGIN.*PRIVATE KEY-----"
+      severity: "critical"
+      
+  # Code quality checks
+  quality_checks:
+    - "unused_variables"
+    - "deprecated_functions"
+    - "security_antipatterns"
+    
+  # Maximum analysis time per file
+  max_analysis_time: 30  # seconds
+
+# Resource usage policies
+resources:
+  # Memory limits
+  memory:
+    max_heap_size: "2GB"
+    max_context_size: "100MB"
+    
+  # CPU limits
+  cpu:
+    max_analysis_threads: 4
+    max_cpu_time: 300  # seconds
+    
+  # Storage limits
+  storage:
+    max_temp_storage: "1GB"
+    max_cache_size: "500MB"
+    cleanup_interval: 3600  # seconds
+
+# Agent-specific policies by ID
+agents:
+  # Default policy for all agents
+  default:
+    permissions:
+      - "read_repositories"
+      - "analyze_code"
+      - "generate_documentation"
+      
+    restrictions:
+      - "no_file_write"
+      - "no_network_admin"
+      - "no_system_access"
+      
+  # Example of agent-specific overrides
+  # "agent-id-12345":
+  #   permissions:
+  #     - "read_repositories"
+  #     - "write_reports"
+  #   restrictions:
+  #     - "network_limited"
+
+# Audit and compliance
+audit:
+  # Log all access decisions
+  log_access_decisions: true
+  
+  # Log sensitive operations
+  log_sensitive_ops: true
+  
+  # Retention period for audit logs
+  log_retention_days: 30
+  
+  # Export audit logs format
+  export_format: "json"
+  
+# Emergency procedures
+emergency:
+  # Kill switch - immediately deny all access
+  kill_switch: false
+  
+  # Quarantine mode - extremely restrictive access
+  quarantine_mode: false
+  
+  # Emergency contacts
+  contacts:
+    - "security@company.com"
+    - "admin@company.com"
