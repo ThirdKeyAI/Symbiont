@@ -1,0 +1,122 @@
+//
+// Typography
+//
+
+$body-font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !default;
+$mono-font-family: "SFMono-Regular", Menlo, Consolas, Monospace !default;
+$root-font-size: 16px !default;         // Base font-size for rems
+$body-line-height: 1.4 !default;
+$content-line-height: 1.5 !default;
+$body-heading-line-height: 1.15 !default;
+
+//
+// Colors
+//
+$white: #fff !default;
+
+$grey-dk-000: #959396 !default;
+$grey-dk-100: #5c5962 !default;
+$grey-dk-200: #44434d !default;
+$grey-dk-250: #302d36 !default;
+$grey-dk-300: #27262b !default;
+
+$grey-lt-000: #f5f6fa !default;
+$grey-lt-100: #eeebee !default;
+$grey-lt-200: #ecebed !default;
+$grey-lt-300: #e6e1e8 !default;
+
+$purple-000: #7253ed !default;
+$purple-100: #5e41d0 !default;
+$purple-200: #4e26af !default;
+$purple-300: #381885 !default;
+
+$blue-000: #2c84fa !default;
+$blue-100: #2869e6 !default;
+$blue-200: #264caf !default;
+$blue-300: #183385 !default;
+
+// Green color scheme
+$green-000: #28a745 !default;
+$green-100: #22863a !default;
+$green-200: #1e7e34 !default;
+$green-300: #155724 !default;
+
+$yellow-000: #ffeb3b !default;
+$yellow-100: #fdd835 !default;
+$yellow-200: #f9a825 !default;
+$yellow-300: #f57f17 !default;
+
+$red-000: #f77e7e !default;
+$red-100: #f96e65 !default;
+$red-200: #e81e25 !default;
+$red-300: #dd0e17 !default;
+
+//
+// Backgrounds
+//
+$sidebar-color: $grey-dk-300 !default;
+$search-background-color: $grey-dk-250 !default;
+$table-background-color: $grey-dk-250 !default;
+$code-background-color: $grey-dk-250 !default;
+
+//
+// Borders
+//
+$border: 1px solid $grey-dk-200 !default;
+$border-radius: 4px !default;
+$border-color: $grey-dk-200 !default;
+
+//
+// Body
+//
+$body-background-color: $grey-dk-300 !default;
+$body-text-color: $grey-lt-300 !default;
+$body-heading-color: $grey-lt-000 !default;
+
+//
+// Navigation
+//
+$nav-child-link-color: $grey-dk-100 !default;
+$nav-list-item-color: $grey-lt-300 !default;
+$nav-list-item-color-hover: $grey-lt-000 !default;
+
+//
+// Links
+//
+$link-color: $green-000 !default;
+$link-color-hover: $green-100 !default;
+$link-color-visited: $green-200 !default;
+
+//
+// Buttons
+//
+$btn-primary-color: $green-200 !default;
+$btn-primary-background-color: $green-000 !default;
+$btn-primary-background-color-hover: $green-100 !default;
+
+//
+// Search
+//
+$search-result-preview-color: $grey-dk-000 !default;
+
+//
+// Labels
+//
+$label-primary: $green-100 !default;
+
+//
+// Code
+//
+$code-color: $grey-lt-000 !default;
+$code-background-color: $grey-dk-250 !default;
+
+//
+// Tables
+//
+$feedback-color: darken($sidebar-color, 3%) !default;
+
+//
+// Scrollbar
+//
+$scrollbar-track-color: $grey-dk-300 !default;
+$scrollbar-thumb-color: $grey-dk-200 !default;

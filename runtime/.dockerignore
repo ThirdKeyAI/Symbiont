@@ -1,0 +1,29 @@
+# Rust build artifacts
+target/
+**/*.orig
+**/*.rej
+**/*.bk
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Git files
+.git/
+.gitignore
+
+# Documentation that's not needed in container
+docs/
+examples/
+*.md
+!README.md
+
+# Test files
+tests/
