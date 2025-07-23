@@ -1,0 +1,220 @@
+/* Custom styles for Symbiont Documentation */
+
+/* Text color utility classes */
+.text-green-100 {
+  color: #22863a !important;
+}
+
+.text-green-000 {
+  color: #28a745 !important;
+}
+
+.text-green-200 {
+  color: #1e7e34 !important;
+}
+
+.text-green-300 {
+  color: #155724 !important;
+}
+
+/* Force all links to be green (override theme defaults) */
+a {
+  color: #28a745 !important;
+}
+
+a:hover {
+  color: #22863a !important;
+}
+
+a:visited {
+  color: #1e7e34 !important;
+}
+
+/* Navigation links */
+.nav-list a {
+  color: #28a745 !important;
+}
+
+.nav-list a:hover {
+  color: #22863a !important;
+}
+
+/* Main navigation links */
+.main-nav a {
+  color: #28a745 !important;
+}
+
+.main-nav a:hover {
+  color: #22863a !important;
+}
+
+/* Site nav links */
+.site-nav a {
+  color: #28a745 !important;
+}
+
+.site-nav a:hover {
+  color: #22863a !important;
+}
+
+/* Additional green utilities for various elements */
+.btn-green {
+  background-color: #28a745 !important;
+  color: white !important;
+  border-color: #28a745 !important;
+}
+
+.btn-green:hover {
+  background-color: #22863a !important;
+  border-color: #22863a !important;
+}
+
+/* Override button styles to use dark green instead of purple */
+.btn-primary,
+.btn-purple,
+button.btn-primary,
+a.btn-primary {
+  background-color: #155724 !important;
+  color: white !important;
+  border-color: #155724 !important;
+}
+
+.btn-primary:hover,
+.btn-purple:hover,
+button.btn-primary:hover,
+a.btn-primary:hover {
+  background-color: #0f421a !important;
+  border-color: #0f421a !important;
+  color: white !important;
+}
+
+/* Main page buttons and call-to-action buttons */
+.btn,
+button {
+  background-color: #155724 !important;
+  color: white !important;
+  border-color: #155724 !important;
+}
+
+.btn:hover,
+button:hover {
+  background-color: #0f421a !important;
+  border-color: #0f421a !important;
+  color: white !important;
+}
+
+.border-green {
+  border-color: #28a745 !important;
+}
+
+.bg-green {
+  background-color: #28a745 !important;
+}
+
+.bg-green-light {
+  background-color: rgba(40, 167, 69, 0.1) !important;
+}
+
+/* Logo customization */
+.site-logo {
+  cursor: pointer;
+}
+
+.site-logo img {
+  max-height: 40px;
+  width: auto;
+}
+
+/* Override the default logo link behavior */
+.site-header .site-title {
+  display: flex;
+  align-items: center;
+}
+
+.site-header .site-title a {
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+/* Override logo click behavior to link to symbiont.dev */
+.site-header .site-title img {
+  cursor: pointer;
+}
+
+.site-header .site-title img:hover {
+  opacity: 0.8;
+  transition: opacity 0.2s ease;
+}
+
+/* API Reference specific styling for better readability in dark theme */
+/* Improve inline code contrast and readability */
+code {
+  background-color: rgba(255, 255, 255, 0.15) !important;
+  color: #e6ffed !important;
+  padding: 2px 6px !important;
+  border-radius: 4px !important;
+  font-family: 'SFMono-Regular', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace !important;
+  font-weight: 500 !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+/* HTTP method blocks in API reference - make them stand out more */
+.highlight code,
+pre code {
+  background-color: rgba(0, 0, 0, 0.3) !important;
+  color: #f6f8fa !important;
+  padding: 1rem !important;
+  border-radius: 6px !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Enhanced styling for HTTP method code blocks in API reference */
+.language-http code,
+code.language-http {
+  background-color: rgba(40, 167, 69, 0.15) !important;
+  border-left: 4px solid #28a745 !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
+}
+
+/* Ensure JSON and HTTP code blocks have good contrast */
+.language-json code,
+.language-http code {
+  background-color: rgba(0, 0, 0, 0.4) !important;
+  color: #f6f8fa !important;
+}
+
+/* Make sure headers with code elements are readable */
+h5 code,
+h4 code,
+h3 code {
+  background-color: rgba(40, 167, 69, 0.25) !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  padding: 4px 8px !important;
+  margin: 0 4px !important;
+}
+
+/* Specific styling for HTTP method indicators in headings */
+h1 code,
+h2 code,
+h3 code,
+h4 code,
+h5 code,
+h6 code {
+  font-size: 0.9em !important;
+  vertical-align: baseline !important;
+}
+
+/* Enhanced styling for endpoint URLs */
+code[class*="endpoint"],
+code:contains("/api/"),
+code:contains("/sessions"),
+code:contains("/review"),
+code:contains("/analysis"),
+code:contains("/signing") {
+  background-color: rgba(40, 167, 69, 0.15) !important;
+  border-left: 4px solid #28a745 !important;
+  padding-left: 8px !important;
+}
