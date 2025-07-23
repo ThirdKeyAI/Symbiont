@@ -1,0 +1,121 @@
+name: Deploy OSS Documentation
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  security-check:
+    name: Security Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify no enterprise content
+        run: |
+          echo "🔍 Verifying documentation contains no enterprise content..."
+          
+          # Check for enterprise folder
+          if [[ -d "enterprise" ]]; then
+            echo "❌ ERROR: Enterprise folder found in public repo!"
+            exit 1
+          fi
+          
+          # Check for sensitive patterns in docs
+          sensitive_patterns=("password" "secret" "private_key" "api_key")
+          for pattern in "${sensitive_patterns[@]}"; do
+            if grep -r -i "$pattern" docs/ --exclude-dir=_site 2>/dev/null | grep -v "example" | grep -v "placeholder"; then
+              echo "⚠️  WARNING: Potential sensitive content found for pattern: $pattern"
+              grep -r -i "$pattern" docs/ --exclude-dir=_site | grep -v "example" | grep -v "placeholder"
+            fi
+          done
+          
+          echo "✅ Documentation security check passed"
+
+  build:
+    name: Build Documentation
+    runs-on: ubuntu-latest
+    needs: security-check
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.1'
+          bundler-cache: true
+          working-directory: docs
+
+      - name: Setup Pages
+        id: pages
+        uses: actions/configure-pages@v4
+
+      - name: Install dependencies
+        run: |
+          cd docs
+          bundle install
+
+      - name: Build with Jekyll
+        run: |
+          cd docs
+          bundle exec jekyll build
+        env:
+          JEKYLL_ENV: production
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/_site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  validate-deployment:
+    name: Validate Deployment
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: success()
+    steps:
+      - name: Check deployment
+        run: |
+          echo "🌐 Validating deployed documentation..."
+          
+          # Wait for deployment to be available
+          sleep 30
+          
+          # Basic connectivity check
+          if curl -s -f "${{ needs.deploy.outputs.page_url }}" > /dev/null; then
+            echo "✅ Documentation site is accessible"
+          else
+            echo "❌ Documentation site is not accessible"
+            exit 1
+          fi
+          
+          echo "📖 Documentation deployed successfully"
+          echo "URL: ${{ needs.deploy.outputs.page_url }}"

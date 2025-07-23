@@ -1,0 +1,16 @@
+<!-- Custom CSS for green links and utilities -->
+<link rel="stylesheet" href="{{ '/assets/css/custom.css' | relative_url }}">
+
+<!-- Make logo clickable to link to symbiont.dev -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Find the logo image and make it clickable
+    var logoImg = document.querySelector('.site-header .site-title img');
+    if (logoImg) {
+        logoImg.addEventListener('click', function() {
+            window.open('https://symbiont.dev', '_blank');
+        });
+        logoImg.style.cursor = 'pointer';
+    }
+});
+</script>

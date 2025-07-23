@@ -1,0 +1,79 @@
+//
+// Custom styles for Symbiont Documentation
+//
+
+// Import the green color scheme variables
+@import "color_schemes/green";
+
+// Text color utility classes
+.text-green-100 {
+  color: $green-100 !important;
+}
+
+.text-green-000 {
+  color: $green-000 !important;
+}
+
+.text-green-200 {
+  color: $green-200 !important;
+}
+
+.text-green-300 {
+  color: $green-300 !important;
+}
+
+// Ensure links are green (override theme defaults)
+a {
+  color: $green-000 !important;
+  
+  &:hover {
+    color: $green-100 !important;
+  }
+  
+  &:visited {
+    color: $green-200 !important;
+  }
+}
+
+// Additional green utilities for various elements
+.btn-green {
+  background-color: $green-000 !important;
+  color: white !important;
+  border-color: $green-000 !important;
+  
+  &:hover {
+    background-color: $green-100 !important;
+    border-color: $green-100 !important;
+  }
+}
+
+.border-green {
+  border-color: $green-000 !important;
+}
+
+.bg-green {
+  background-color: $green-000 !important;
+}
+
+.bg-green-light {
+  background-color: rgba($green-000, 0.1) !important;
+}
+
+// Minimal API Reference improvements for dark theme readability
+// Only target specific HTTP method styling without breaking existing theme
+
+// Improve readability for HTTP methods in headers (like "POST /sessions")
+h5 code,
+h4 code {
+  background-color: rgba($green-000, 0.2) !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
+  padding: 3px 6px !important;
+  border-radius: 3px !important;
+}
+
+// Subtle enhancement for inline code readability without breaking theme
+code {
+  // Only add subtle border for better definition in dark theme
+  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
