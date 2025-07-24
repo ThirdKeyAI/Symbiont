@@ -77,3 +77,38 @@ code {
   // Only add subtle border for better definition in dark theme
   border: 1px solid rgba(255, 255, 255, 0.05) !important;
 }
+
+// Hide the default "This site uses Just the Docs" footer text
+.site-footer {
+  // Hide any auto-generated theme attribution
+  a[href*="just-the-docs"] {
+    display: none !important;
+  }
+  
+  // Hide the parent text node containing "This site uses"
+  &::before {
+    content: none !important;
+  }
+  
+  // Ensure our custom footer content shows properly
+  .footer-content {
+    display: block !important;
+  }
+}
+
+// Alternative approach: replace the entire footer content
+.site-footer {
+  font-size: 11px !important;
+  
+  // Hide everything and show only our custom content
+  & > * {
+    display: none !important;
+  }
+  
+  // Show our copyright notice
+  &::after {
+    content: "Copyright © 2025 ThirdKey. All rights reserved." !important;
+    display: block !important;
+    color: $grey-dk-000 !important;
+  }
+}

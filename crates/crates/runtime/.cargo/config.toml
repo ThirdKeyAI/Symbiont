@@ -1,0 +1,41 @@
+[net]
+git-fetch-with-cli = true
+
+[registries.crates-io]
+protocol = "sparse"
+
+[build]
+jobs = 4
+
+# Optimized linker settings (only used when available)
+# Note: mold linker configuration moved to CI workflows
+# Local development should use default linker unless mold is specifically installed
+# [target.x86_64-unknown-linux-gnu]
+# rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+strip = true
+panic = "abort"
+
+[profile.dev]
+incremental = true
+debug = 1
+
+# Optimize specific heavy dependencies
+[profile.release.package.reqwest]
+opt-level = 2
+
+[profile.release.package.octocrab]
+opt-level = 2
+
+[profile.release.package.git2]
+opt-level = 2
+
+[profile.release.package.qdrant-client]
+opt-level = 2
+
+[profile.release.package.schemapin]
+opt-level = 2
