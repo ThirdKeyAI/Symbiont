@@ -1,0 +1,49 @@
+[package]
+name = "symbi"
+version = "0.1.0"
+edition = "2021"
+authors = ["Jascha Wanger / ThirdKey.ai"]
+description = "AI-native agent framework for building autonomous, policy-aware agents that can safely collaborate with humans, other agents, and large language models"
+license = "MIT"
+repository = "https://github.com/thirdkeyai/symbiont"
+homepage = "https://symbiont.dev"
+documentation = "https://docs.symbiont.dev"
+readme = "README.md"
+keywords = ["ai", "agents", "automation", "security", "symbiont"]
+categories = ["development-tools", "command-line-utilities"]
+exclude = [
+    "enterprise/",
+    "scripts/",
+    "docs/assets/",
+    "*.png",
+    "*.jpg",
+    "*.jpeg",
+    ".github/",
+    "Dockerfile*",
+    ".dockerignore"
+]
+
+[workspace]
+resolver = "2"
+members = [
+    "crates/dsl",
+    "crates/runtime"
+]
+
+[dependencies]
+clap = { version = "4.0", features = ["derive"] }
+tokio = { version = "1.0", features = ["full"] }
+
+[profile.release]
+# Optimize for performance and security
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.dev]
+# Development optimizations
+opt-level = 0
+debug = true
+overflow-checks = true

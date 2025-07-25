@@ -1,0 +1,93 @@
+# Git and GitHub files
+.git/
+.github/
+
+# Rust build artifacts - be very explicit
+**/target/
+target/
+crates/runtime/target/
+crates/dsl/target/
+debug/
+release/
+
+# Examples and documentation not needed for build
+crates/runtime/examples/
+examples/
+crates/runtime/docs/
+docs/
+*.md
+README*
+CHANGELOG*
+LICENSE*
+
+# Test files
+tests/
+crates/runtime/tests/
+crates/dsl/tests/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*.vim
+
+# OS files
+.DS_Store
+Thumbs.db
+._*
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.bak
+
+# Environment files
+.env
+.env.*
+!/.env.example
+
+# Cache directories
+.cache/
+tmp/
+temp/
+
+# Large data files
+*.db
+*.sqlite
+*.sqlite3
+data/
+
+# Compiled binaries and libraries
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Archive files
+*.zip
+*.tar.gz
+*.tgz
+*.rar
+
+# Tree-sitter generated files (keep only what's needed)
+crates/dsl/tree-sitter-symbiont/node_modules/
+crates/dsl/tree-sitter-symbiont/package-lock.json
+
+# Roo mode files
+.roomodes
+.roo
+
+# Enterprise (excluded for OSS builds)
+enterprise/
+
+# Additional Rust-specific exclusions
+**/*.orig
+**/*.rej
+**/Cargo.lock.bak
+**/.cargo/
+.rustup/
+**/coverage/
+**/flamegraph.svg
+**/*.profraw

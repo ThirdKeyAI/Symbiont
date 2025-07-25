@@ -1,0 +1,62 @@
+/* Force green color override with maximum specificity */
+:root {
+  --green-000: #15a89d !important;
+  --green-100: #129680 !important;
+  --green-200: #0f8469 !important;
+  --green-300: #0c7253 !important;
+}
+
+/* Override all link colors with highest specificity */
+html body a,
+html body a:link,
+html body .main-content a,
+html body .side-bar a {
+  color: #15a89d !important;
+}
+
+/* Button text should be white for readability */
+html body .btn-primary {
+  color: white !important;
+}
+
+html body a:hover,
+html body .main-content a:hover,
+html body .side-bar a:hover,
+html body .btn-primary:hover {
+  color: #129680 !important;
+}
+
+html body a:visited,
+html body .main-content a:visited,
+html body .side-bar a:visited {
+  color: #0f8469 !important;
+}
+
+/* Button overrides */
+html body .btn-primary,
+html body .btn-green {
+  background-color: #15a89d !important;
+  border-color: #15a89d !important;
+}
+
+html body .btn-primary:hover,
+html body .btn-green:hover {
+  background-color: #129680 !important;
+  border-color: #129680 !important;
+}
+
+/* Label overrides */
+html body .label-primary {
+  background-color: #129680 !important;
+}
+
+/* Ensure footer shows only our custom content */
+html body .site-footer {
+  font-size: 11px !important;
+}
+
+/* Hide any remaining Jekyll attribution */
+html body .site-footer a[href*="just-the-docs"],
+html body .site-footer a[href*="jekyll"] {
+  display: none !important;
+}

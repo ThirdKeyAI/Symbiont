@@ -1,0 +1,110 @@
+<!-- Custom CSS for green links and utilities -->
+<link rel="stylesheet" href="{{ '/assets/css/custom.css' | relative_url }}">
+
+<!-- Force new green color with inline styles for maximum priority -->
+<style>
+/* Force green color override with maximum specificity and !important */
+:root {
+  --green-000: #15a89d !important;
+  --green-100: #129680 !important;
+  --green-200: #0f8469 !important;
+  --green-300: #0c7253 !important;
+}
+
+/* Override all link colors with highest possible specificity */
+html body a,
+html body a:link,
+html body .main-content a,
+html body .side-bar a,
+html body .text-green-000,
+html body .label-primary {
+  color: #15a89d !important;
+}
+
+/* Button text should be white for readability */
+html body .btn-primary {
+  color: white !important;
+}
+
+html body a:hover,
+html body .main-content a:hover,
+html body .side-bar a:hover,
+html body .btn-primary:hover {
+  color: #129680 !important;
+}
+
+html body a:visited,
+html body .main-content a:visited {
+  color: #0f8469 !important;
+}
+
+/* Button and label overrides */
+html body .btn-primary,
+html body .btn-green {
+  background-color: #15a89d !important;
+  border-color: #15a89d !important;
+}
+
+html body .btn-primary:hover,
+html body .btn-green:hover {
+  background-color: #129680 !important;
+  border-color: #129680 !important;
+}
+
+/* Hide Jekyll attribution completely */
+html body .site-footer a[href*="just-the-docs"],
+html body .site-footer a[href*="jekyll"] {
+  display: none !important;
+}
+
+/* Force only our footer content */
+html body .site-footer {
+  font-size: 11px !important;
+}
+</style>
+
+<!-- Make logo clickable to link to symbiont.dev -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Find the logo image and make it clickable
+    var logoImg = document.querySelector('.site-header .site-title img');
+    if (logoImg) {
+        logoImg.addEventListener('click', function() {
+            window.open('https://symbiont.dev', '_blank');
+        });
+        logoImg.style.cursor = 'pointer';
+    }
+    
+    // Remove Jekyll attribution text from footer using JavaScript as backup
+    setTimeout(function() {
+        var footer = document.querySelector('.site-footer');
+        if (footer) {
+            // Remove text nodes containing Jekyll attribution
+            var textNodes = [];
+            var walker = document.createTreeWalker(
+                footer,
+                NodeFilter.SHOW_TEXT,
+                null,
+                false
+            );
+            var node;
+            while (node = walker.nextNode()) {
+                if (node.textContent.includes('This site uses') ||
+                    node.textContent.includes('Just the Docs') ||
+                    node.textContent.includes('Jekyll')) {
+                    textNodes.push(node);
+                }
+            }
+            textNodes.forEach(function(node) {
+                node.remove();
+            });
+            
+            // Hide any remaining Jekyll links
+            var jekyllLinks = footer.querySelectorAll('a[href*="just-the-docs"], a[href*="jekyll"]');
+            jekyllLinks.forEach(function(link) {
+                link.style.display = 'none';
+            });
+        }
+    }, 100);
+});
+</script>

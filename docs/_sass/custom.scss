@@ -1,0 +1,171 @@
+//
+// Custom styles for Symbiont Documentation
+//
+
+// Import the green color scheme variables
+@import "color_schemes/green";
+
+// Force the new green color with high specificity to override any cached styles
+:root {
+  --green-000: #15a89d;
+  --green-100: #129680;
+  --green-200: #0f8469;
+  --green-300: #0c7253;
+}
+
+// Override the exact CSS variables that Just the Docs uses
+:root {
+  --link-color: #15a89d !important;
+  --link-color-hover: #129680 !important;
+  --link-color-visited: #0f8469 !important;
+  --btn-primary-color: #15a89d !important;
+  --btn-primary-background-color: #15a89d !important;
+  --btn-primary-background-color-hover: #129680 !important;
+  --label-primary: #129680 !important;
+}
+
+// Force overrides on all Just the Docs classes with maximum specificity
+html body .main-content a,
+html body .side-bar .nav-list .nav-list-item .nav-list-link,
+html body .site-nav .nav-list .nav-list-item .nav-list-link,
+html body a {
+  color: #15a89d !important;
+}
+
+// Button text should be white for readability
+html body .btn-primary {
+  color: white !important;
+}
+
+html body .main-content a:hover,
+html body .side-bar .nav-list .nav-list-item .nav-list-link:hover,
+html body .site-nav .nav-list .nav-list-item .nav-list-link:hover,
+html body a:hover,
+html body .btn-primary:hover {
+  color: #129680 !important;
+}
+
+html body .main-content a:visited,
+html body .side-bar .nav-list .nav-list-item .nav-list-link:visited,
+html body a:visited {
+  color: #0f8469 !important;
+}
+
+// Additional overrides to ensure new green color is used everywhere
+.btn-primary {
+  background-color: #15a89d !important;
+  border-color: #15a89d !important;
+  
+  &:hover {
+    background-color: #129680 !important;
+    border-color: #129680 !important;
+  }
+}
+
+// Text color utility classes
+.text-green-100 {
+  color: $green-100 !important;
+}
+
+.text-green-000 {
+  color: $green-000 !important;
+}
+
+.text-green-200 {
+  color: $green-200 !important;
+}
+
+.text-green-300 {
+  color: $green-300 !important;
+}
+
+// Ensure links are green (override theme defaults)
+a {
+  color: $green-000 !important;
+  
+  &:hover {
+    color: $green-100 !important;
+  }
+  
+  &:visited {
+    color: $green-200 !important;
+  }
+}
+
+// Additional green utilities for various elements
+.btn-green {
+  background-color: $green-000 !important;
+  color: white !important;
+  border-color: $green-000 !important;
+  
+  &:hover {
+    background-color: $green-100 !important;
+    border-color: $green-100 !important;
+  }
+}
+
+.border-green {
+  border-color: $green-000 !important;
+}
+
+.bg-green {
+  background-color: $green-000 !important;
+}
+
+.bg-green-light {
+  background-color: rgba($green-000, 0.1) !important;
+}
+
+// Minimal API Reference improvements for dark theme readability
+// Only target specific HTTP method styling without breaking existing theme
+
+// Improve readability for HTTP methods in headers (like "POST /sessions")
+h5 code,
+h4 code {
+  background-color: rgba($green-000, 0.2) !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
+  padding: 3px 6px !important;
+  border-radius: 3px !important;
+}
+
+// Subtle enhancement for inline code readability without breaking theme
+code {
+  // Only add subtle border for better definition in dark theme
+  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+
+// Hide the default "This site uses Just the Docs" footer text
+.site-footer {
+  // Hide any auto-generated theme attribution
+  a[href*="just-the-docs"] {
+    display: none !important;
+  }
+  
+  // Hide the parent text node containing "This site uses"
+  &::before {
+    content: none !important;
+  }
+  
+  // Ensure our custom footer content shows properly
+  .footer-content {
+    display: block !important;
+  }
+}
+
+// Alternative approach: replace the entire footer content
+.site-footer {
+  font-size: 11px !important;
+  
+  // Hide everything and show only our custom content
+  & > * {
+    display: none !important;
+  }
+  
+  // Show our copyright notice
+  &::after {
+    content: "Copyright © 2025 ThirdKey. All rights reserved." !important;
+    display: block !important;
+    color: $grey-dk-000 !important;
+  }
+}
