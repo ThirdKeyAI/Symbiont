@@ -4528,7 +4528,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "symbi"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clap",
  "tokio",
@@ -4536,7 +4536,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-dsl"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "cc",
@@ -4562,7 +4562,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-runtime"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "aes-gcm",
  "anyhow",

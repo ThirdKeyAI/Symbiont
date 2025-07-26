@@ -1,6 +1,6 @@
 [package]
 name = "symbi"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Jascha Wanger / ThirdKey.ai"]
 description = "AI-native agent framework for building autonomous, policy-aware agents that can safely collaborate with humans, other agents, and large language models"
