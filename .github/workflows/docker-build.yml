@@ -16,6 +16,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write  # Required for OIDC keyless signing
 
     steps:
     - name: Checkout repository
@@ -40,9 +41,25 @@ jobs:
           type=raw,value=latest,enable={{is_default_branch}}
 
     - name: Build and push Docker image
+      id: build
       uses: docker/build-push-action@v5
       with:
         context: .
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
+
+    - name: Install cosign
+      uses: sigstore/cosign-installer@v3.4.0
+      with:
+        cosign-release: 'v2.2.3'
+
+    - name: Sign image with cosign
+      run: |
+        images="${{ steps.meta.outputs.tags }}"
+        for image in ${images//,/ }; do
+          echo "Signing image: $image"
+          cosign sign --yes "$image"
+        done
+      env:
+        COSIGN_EXPERIMENTAL: "1"
