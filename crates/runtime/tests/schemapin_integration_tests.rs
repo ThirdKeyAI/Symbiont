@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use symbiont_runtime::integrations::schemapin::{
+use symbi_runtime::integrations::schemapin::{
     KeyStoreConfig, KeyStoreError, LocalKeyStore, MockNativeSchemaPinClient, NativeSchemaPinClient,
     PinnedKey, SchemaPinClient, SchemaPinConfig, SchemaPinError, SignatureInfo, VerificationResult,
     VerifyArgs,

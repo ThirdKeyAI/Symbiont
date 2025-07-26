@@ -5,14 +5,14 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use symbiont_runtime::integrations::schemapin::VerificationResult;
-use symbiont_runtime::integrations::{
+use symbi_runtime::integrations::schemapin::VerificationResult;
+use symbi_runtime::integrations::{
     DefaultToolInvocationEnforcer, EnforcementPolicy, InvocationContext,
     InvocationEnforcementConfig, LocalKeyStore, McpClient, McpTool, MockMcpClient,
     MockNativeSchemaPinClient, SecureMcpClient, ToolInvocationEnforcer, ToolInvocationError,
     ToolProvider, VerificationStatus,
 };
-use symbiont_runtime::types::AgentId;
+use symbi_runtime::types::AgentId;
 
 fn create_test_tool_with_status(name: &str, status: VerificationStatus) -> McpTool {
     McpTool {
@@ -103,7 +103,7 @@ async fn test_strict_mode_allows_verified_tools() {
         .unwrap();
     assert!(matches!(
         decision,
-        symbiont_runtime::integrations::EnforcementDecision::Allow
+        symbi_runtime::integrations::EnforcementDecision::Allow
     ));
 }
 
@@ -124,7 +124,7 @@ async fn test_strict_mode_blocks_unverified_tools() {
         .unwrap();
     assert!(matches!(
         decision,
-        symbiont_runtime::integrations::EnforcementDecision::Block { .. }
+        symbi_runtime::integrations::EnforcementDecision::Block { .. }
     ));
 }
 
@@ -145,7 +145,7 @@ async fn test_strict_mode_blocks_failed_tools() {
         .unwrap();
     assert!(matches!(
         decision,
-        symbiont_runtime::integrations::EnforcementDecision::Block { .. }
+        symbi_runtime::integrations::EnforcementDecision::Block { .. }
     ));
 }
 
@@ -167,7 +167,7 @@ async fn test_permissive_mode_allows_with_warnings() {
         .unwrap();
     assert!(matches!(
         decision,
-        symbiont_runtime::integrations::EnforcementDecision::AllowWithWarnings { .. }
+        symbi_runtime::integrations::EnforcementDecision::AllowWithWarnings { .. }
     ));
 }
 
@@ -189,7 +189,7 @@ async fn test_development_mode_allows_skipped_tools() {
         .unwrap();
     assert!(matches!(
         decision,
-        symbiont_runtime::integrations::EnforcementDecision::AllowWithWarnings { .. }
+        symbi_runtime::integrations::EnforcementDecision::AllowWithWarnings { .. }
     ));
 }
 
@@ -210,7 +210,7 @@ async fn test_disabled_mode_allows_all_tools() {
         .unwrap();
     assert!(matches!(
         decision,
-        symbiont_runtime::integrations::EnforcementDecision::Allow
+        symbi_runtime::integrations::EnforcementDecision::Allow
     ));
 }
 
@@ -301,7 +301,7 @@ async fn test_mcp_client_integration_blocks_unverified() {
 
 #[tokio::test]
 async fn test_secure_mcp_client_with_enforcer() {
-    let config = symbiont_runtime::integrations::McpClientConfig::default();
+    let config = symbi_runtime::integrations::McpClientConfig::default();
     let schema_pin = Arc::new(MockNativeSchemaPinClient::new_success());
     let key_store = Arc::new(LocalKeyStore::new().unwrap());
 

@@ -12,11 +12,11 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::SystemTime;
-use symbiont_runtime::context::manager::{
+use symbi_runtime::context::manager::{
     ContextManager, ContextManagerConfig, StandardContextManager,
 };
-use symbiont_runtime::context::types::*;
-use symbiont_runtime::types::AgentId;
+use symbi_runtime::context::types::*;
+use symbi_runtime::types::AgentId;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

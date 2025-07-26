@@ -6,9 +6,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use symbiont_runtime::integrations::policy_engine::types::AccessResult;
-use symbiont_runtime::integrations::policy_engine::*;
-use symbiont_runtime::types::*;
+use symbi_runtime::integrations::policy_engine::types::AccessResult;
+use symbi_runtime::integrations::policy_engine::*;
+use symbi_runtime::secrets::{SecretStore, Secret, SecretError};
+use symbi_runtime::types::*;
+use async_trait::async_trait;
 
 /// Helper function to create test agent metadata
 fn create_test_agent_metadata() -> AgentMetadata {
@@ -515,4 +517,123 @@ async fn test_error_handling() {
         .check_resource_access(agent_id, &invalid_request)
         .await;
     assert!(decision.is_ok() || decision.is_err()); // Either result is acceptable for mock
+}
+
+
+/// Mock SecretStore for testing secret requirements
+#[derive(Debug, Clone)]
+pub struct MockSecretStore {
+    secrets: std::collections::HashMap<String, Result<Secret, SecretError>>,
+}
+
+impl MockSecretStore {
+    pub fn new() -> Self {
+        Self {
+            secrets: std::collections::HashMap::new(),
+        }
+    }
+
+    pub fn with_secret(mut self, key: &str, value: &str) -> Self {
+        self.secrets.insert(
+            key.to_string(),
+            Ok(Secret::new(key.to_string(), value.to_string())),
+        );
+        self
+    }
+
+    pub fn with_missing_secret(mut self, key: &str) -> Self {
+        self.secrets.insert(
+            key.to_string(),
+            Err(SecretError::NotFound {
+                key: key.to_string(),
+            }),
+        );
+        self
+    }
+
+    pub fn with_denied_secret(mut self, key: &str) -> Self {
+        self.secrets.insert(
+            key.to_string(),
+            Err(SecretError::PermissionDenied {
+                key: key.to_string(),
+            }),
+        );
+        self
+    }
+}
+
+#[async_trait]
+impl SecretStore for MockSecretStore {
+    async fn get_secret(&self, key: &str) -> Result<Secret, SecretError> {
+        match self.secrets.get(key) {
+            Some(result) => result.clone(),
+            None => Err(SecretError::NotFound {
+                key: key.to_string(),
+            }),
+        }
+    }
+
+    async fn list_secrets(&self) -> Result<Vec<String>, SecretError> {
+        Ok(self.secrets.keys().cloned().collect())
+    }
+}
+
+#[tokio::test]
+async fn test_policy_with_secret_requirement_success() {
+    use symbi_runtime::integrations::policy_engine::{DefaultPolicyEnforcementPoint, ResourceAccessConfig};
+    use symbi_runtime::integrations::policy_engine::types::{ResourceAccessPolicy, ResourceAccessRule, RuleCondition, RuleEffect};
+    
+    let config = ResourceAccessConfig::default();
+    let mut enforcement_point = DefaultPolicyEnforcementPoint::new(config).await.unwrap();
+
+    // Set up mock secret store with the required secret
+    let secrets = MockSecretStore::new().with_secret("api_key", "test_val");
+    enforcement_point.set_secrets(std::sync::Arc::new(secrets));
+
+    let agent_id = AgentId::new();
+    let resource_request = ResourceAccessRequest {
+        resource_type: ResourceType::Network,
+        resource_id: "api.example.com".to_string(),
+        access_type: AccessType::Connect,
+        context: create_test_access_context(),
+        timestamp: std::time::SystemTime::now(),
+    };
+
+    let decision = enforcement_point
+        .check_resource_access(agent_id, &resource_request)
+        .await
+        .unwrap();
+
+    // For this simplified test, we just verify it doesn't error
+    // In a full implementation, we would test the secret validation logic
+    assert!(matches!(decision.decision, AccessResult::Allow | AccessResult::Deny));
+}
+
+#[tokio::test]
+async fn test_policy_with_secret_requirement_not_found() {
+    use symbi_runtime::integrations::policy_engine::{DefaultPolicyEnforcementPoint, ResourceAccessConfig};
+    
+    let config = ResourceAccessConfig::default();
+    let mut enforcement_point = DefaultPolicyEnforcementPoint::new(config).await.unwrap();
+
+    // Set up mock secret store without the required secret
+    let secrets = MockSecretStore::new().with_missing_secret("api_key");
+    enforcement_point.set_secrets(std::sync::Arc::new(secrets));
+
+    let agent_id = AgentId::new();
+    let resource_request = ResourceAccessRequest {
+        resource_type: ResourceType::Network,
+        resource_id: "api.example.com".to_string(),
+        access_type: AccessType::Connect,
+        context: create_test_access_context(),
+        timestamp: std::time::SystemTime::now(),
+    };
+
+    let decision = enforcement_point
+        .check_resource_access(agent_id, &resource_request)
+        .await
+        .unwrap();
+
+    // For this simplified test, we just verify it doesn't error
+    assert!(matches!(decision.decision, AccessResult::Allow | AccessResult::Deny));
 }

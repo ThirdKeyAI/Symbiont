@@ -2,13 +2,13 @@
 
 use std::collections::HashMap;
 use std::time::SystemTime;
-use symbiont_runtime::context::{
+use symbi_runtime::context::{
     ContextError, EmbeddingService, KnowledgeItem, KnowledgeSource, KnowledgeType, MemoryItem,
     MemoryType, MockEmbeddingService, QdrantClientWrapper, QdrantConfig, QdrantDistance,
     TfIdfEmbeddingService, VectorBatchItem, VectorBatchOperation, VectorContentType,
     VectorDatabase, VectorMetadata, VectorOperationType,
 };
-use symbiont_runtime::types::AgentId;
+use symbi_runtime::types::AgentId;
 
 /// Test basic vector database operations
 #[tokio::test]
@@ -33,7 +33,7 @@ async fn test_vector_database_basic_operations() {
 
             // Test storing a knowledge item
             let knowledge_item = KnowledgeItem {
-                id: symbiont_runtime::context::KnowledgeId::new(),
+                id: symbi_runtime::context::KnowledgeId::new(),
                 content: "Test knowledge about vector databases".to_string(),
                 knowledge_type: KnowledgeType::Fact,
                 confidence: 0.9,
@@ -236,7 +236,7 @@ async fn test_memory_item_storage() {
             let agent_id = AgentId::new();
 
             let memory_item = MemoryItem {
-                id: symbiont_runtime::context::ContextId::new(),
+                id: symbi_runtime::context::ContextId::new(),
                 content: "Important memory about vector database usage".to_string(),
                 memory_type: MemoryType::Semantic,
                 importance: 0.8,

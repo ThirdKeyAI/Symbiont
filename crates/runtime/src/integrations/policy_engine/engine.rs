@@ -12,6 +12,7 @@ use tokio::time::Instant;
 
 use super::types::*;
 use super::{PolicyEnforcementPoint, ResourceAccessConfig};
+use crate::secrets::{SecretStore, SecretError};
 use crate::types::*;
 
 /// Default implementation of PolicyEnforcementPoint
@@ -20,6 +21,7 @@ pub struct DefaultPolicyEnforcementPoint {
     policies: Arc<RwLock<Vec<ResourceAccessPolicy>>>,
     stats: Arc<RwLock<EnforcementStatistics>>,
     decision_cache: Arc<RwLock<HashMap<String, CachedDecision>>>,
+    secrets: Option<Arc<dyn SecretStore + Send + Sync>>,
 }
 
 /// Cached policy decision
@@ -56,6 +58,7 @@ impl DefaultPolicyEnforcementPoint {
             policies,
             stats,
             decision_cache,
+            secrets: None,
         };
 
         // Load default policies
@@ -298,7 +301,6 @@ impl DefaultPolicyEnforcementPoint {
         }
 
         // Evaluate against policies
-        let policies = self.policies.read();
         let mut decision = if self.config.default_deny {
             AccessDecision {
                 decision: AccessResult::Deny,
@@ -319,6 +321,12 @@ impl DefaultPolicyEnforcementPoint {
             }
         };
 
+        // Clone policies to avoid holding the read lock across await points
+        let policies = {
+            let policies_guard = self.policies.read();
+            policies_guard.clone()
+        };
+
         // Apply policies in priority order
         for policy in policies.iter() {
             if !policy.enabled {
@@ -326,7 +334,7 @@ impl DefaultPolicyEnforcementPoint {
             }
 
             for rule in &policy.rules {
-                if self.rule_matches(rule, request) {
+                if self.rule_matches(rule, request).await? {
                     decision = self.apply_rule_effect(&rule.effect, &rule.id);
                     break;
                 }
@@ -352,11 +360,17 @@ impl DefaultPolicyEnforcementPoint {
     }
 
     /// Check if a rule matches the request
-    fn rule_matches(&self, rule: &ResourceAccessRule, _request: &ResourceAccessRequest) -> bool {
+    async fn rule_matches(&self, rule: &ResourceAccessRule, _request: &ResourceAccessRequest) -> Result<bool, PolicyError> {
+        // Check secret requirements in rule conditions
+        let secret_valid = self.validate_secret_requirements(&rule.conditions).await?;
+        if !secret_valid {
+            return Ok(false);
+        }
+
         // Simplified rule matching - in a real implementation, this would
-        // evaluate the rule conditions against the request
-        // For now, just return true for first matching rule
-        !rule.conditions.is_empty() || rule.conditions.is_empty()
+        // evaluate other rule conditions against the request
+        // For now, if secret validation passes, consider the rule as matching
+        Ok(true)
     }
 
     /// Apply rule effect to generate decision
@@ -496,6 +510,45 @@ impl DefaultPolicyEnforcementPoint {
             // Simple approximation - in reality you'd track hits vs misses
             *hit_rate = (*hit_rate * 0.9) + (1.0 * 0.1);
         }
+    }
+
+    /// Set the secrets store for secret validation
+    pub fn set_secrets(&mut self, secrets: Arc<dyn SecretStore + Send + Sync>) {
+        self.secrets = Some(secrets);
+    }
+
+    /// Validate secret requirements
+    async fn validate_secret_requirements(
+        &self,
+        conditions: &[RuleCondition],
+    ) -> Result<bool, PolicyError> {
+        for condition in conditions {
+            if let RuleCondition::SecretMatch { secret_name, permissions: _ } = condition {
+                if let Some(ref secrets) = self.secrets {
+                    match secrets.get_secret(secret_name).await {
+                        Ok(_) => {
+                            // Secret found and accessible - validation passes
+                            continue;
+                        }
+                        Err(SecretError::NotFound { .. }) => {
+                            return Ok(false);
+                        }
+                        Err(SecretError::PermissionDenied { .. }) => {
+                            return Ok(false);
+                        }
+                        Err(e) => {
+                            return Err(PolicyError::EvaluationFailed(
+                                format!("Secret validation error: {}", e)
+                            ));
+                        }
+                    }
+                } else {
+                    // No secrets store available - fail validation
+                    return Ok(false);
+                }
+            }
+        }
+        Ok(true)
     }
 }
 

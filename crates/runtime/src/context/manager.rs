@@ -13,6 +13,7 @@ use super::types::*;
 use super::vector_db::{
     EmbeddingService, MockEmbeddingService, QdrantClientWrapper, QdrantConfig, VectorDatabase,
 };
+use crate::secrets::{SecretStore, SecretsConfig};
 use crate::types::AgentId;
 
 /// Context Manager trait for agent memory and knowledge management
@@ -101,6 +102,8 @@ pub struct StandardContextManager {
     embedding_service: Arc<MockEmbeddingService>,
     /// Persistent storage for contexts
     persistence: Arc<dyn ContextPersistence>,
+    /// Secrets store for secure secret management
+    secrets: Box<dyn SecretStore + Send + Sync>,
 }
 
 /// Configuration for the Context Manager
@@ -126,10 +129,14 @@ pub struct ContextManagerConfig {
     pub persistence_config: FilePersistenceConfig,
     /// Enable persistent storage
     pub enable_persistence: bool,
+    /// Secrets configuration for secure secret management
+    pub secrets_config: SecretsConfig,
 }
 
 impl Default for ContextManagerConfig {
     fn default() -> Self {
+        use std::path::PathBuf;
+        
         Self {
             max_contexts_in_memory: 1000,
             default_retention_policy: RetentionPolicy::default(),
@@ -141,6 +148,7 @@ impl Default for ContextManagerConfig {
             enable_vector_db: true,
             persistence_config: FilePersistenceConfig::default(),
             enable_persistence: true,
+            secrets_config: SecretsConfig::file_json(PathBuf::from("secrets.json")),
         }
     }
 }
@@ -466,7 +474,7 @@ impl ContextPersistence for FilePersistence {
 
 impl StandardContextManager {
     /// Create a new StandardContextManager
-    pub fn new(config: ContextManagerConfig) -> Self {
+    pub async fn new(config: ContextManagerConfig, agent_id: &str) -> Result<Self, ContextError> {
         let vector_db: Arc<dyn VectorDatabase> = if config.enable_vector_db {
             Arc::new(QdrantClientWrapper::new(config.qdrant_config.clone()))
         } else {
@@ -485,14 +493,27 @@ impl StandardContextManager {
             Arc::new(FilePersistence::new(config.persistence_config.clone()))
         };
 
-        Self {
+        // Initialize secrets store
+        let secrets = crate::secrets::new_secret_store(&config.secrets_config, agent_id)
+            .await
+            .map_err(|e| ContextError::StorageError {
+                reason: format!("Failed to initialize secrets store: {}", e),
+            })?;
+
+        Ok(Self {
             contexts: Arc::new(RwLock::new(HashMap::new())),
             config,
             shared_knowledge: Arc::new(RwLock::new(HashMap::new())),
             vector_db,
             embedding_service,
             persistence,
-        }
+            secrets,
+        })
+    }
+
+    /// Get access to the secrets store
+    pub fn secrets(&self) -> &(dyn SecretStore + Send + Sync) {
+        self.secrets.as_ref()
     }
 
     /// Initialize the context manager

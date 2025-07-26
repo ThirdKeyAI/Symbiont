@@ -3,13 +3,13 @@
 //! These tests verify the end-to-end functionality of the RAG engine
 //! with real context manager and vector database integration.
 
-use symbiont_runtime::context::manager::{
+use symbi_runtime::context::manager::{
     ContextManager, ContextManagerConfig, StandardContextManager,
 };
-use symbiont_runtime::context::types::{Knowledge, KnowledgeFact, KnowledgeId, KnowledgeSource};
-use symbiont_runtime::rag::engine::{RAGEngine, StandardRAGEngine};
-use symbiont_runtime::rag::types::*;
-use symbiont_runtime::types::AgentId;
+use symbi_runtime::context::types::{Knowledge, KnowledgeFact, KnowledgeId, KnowledgeSource};
+use symbi_runtime::rag::engine::{RAGEngine, StandardRAGEngine};
+use symbi_runtime::rag::types::*;
+use symbi_runtime::types::AgentId;
 
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -22,12 +22,9 @@ async fn create_test_context_manager() -> Arc<dyn ContextManager> {
         ..Default::default()
     };
 
-    let manager = Arc::new(StandardContextManager::new(config));
-    manager
-        .initialize()
-        .await
-        .expect("Failed to initialize context manager");
-    manager
+    let manager = StandardContextManager::new(config, "test-agent").await
+        .expect("Failed to create context manager");
+    Arc::new(manager)
 }
 
 /// Create a test RAG request

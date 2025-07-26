@@ -5,12 +5,14 @@
 
 pub mod communication;
 pub mod context;
+pub mod crypto;
 pub mod error_handler;
 pub mod integrations;
 pub mod lifecycle;
 pub mod rag;
 pub mod resource;
 pub mod scheduler;
+pub mod secrets;
 pub mod types;
 
 #[cfg(feature = "http-api")]

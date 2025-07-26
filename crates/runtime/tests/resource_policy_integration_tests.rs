@@ -5,9 +5,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use symbiont_runtime::integrations::policy_engine::*;
-use symbiont_runtime::resource::{DefaultResourceManager, ResourceManager, ResourceManagerConfig};
-use symbiont_runtime::types::*;
+use symbi_runtime::integrations::policy_engine::*;
+use symbi_runtime::resource::{DefaultResourceManager, ResourceManager, ResourceManagerConfig};
+use symbi_runtime::types::*;
 
 /// Helper function to create test resource manager configuration
 fn create_test_resource_config() -> ResourceManagerConfig {

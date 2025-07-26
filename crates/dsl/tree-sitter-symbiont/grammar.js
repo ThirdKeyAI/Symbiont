@@ -154,14 +154,33 @@ module.exports = grammar({
     expression: $ => choice(
       $.function_call,
       $.identifier,
-      $.value
+      $.value,
+      $.array
     ),
 
     function_call: $ => seq(
       $.identifier,
       '(',
-      repeat(seq($.expression, optional(','))),
+      optional(seq(
+        choice($.expression, $.named_argument),
+        repeat(seq(',', choice($.expression, $.named_argument)))
+      )),
       ')'
+    ),
+
+    named_argument: $ => seq(
+      $.identifier,
+      ':',
+      $.expression
+    ),
+
+    array: $ => seq(
+      '[',
+      optional(seq(
+        $.expression,
+        repeat(seq(',', $.expression))
+      )),
+      ']'
     ),
 
     value: $ => choice(

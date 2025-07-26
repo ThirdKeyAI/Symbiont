@@ -10,14 +10,14 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Instant, SystemTime};
 
-use symbiont_runtime::context::types::{KnowledgeFact, KnowledgeSource};
-use symbiont_runtime::context::vector_db::QdrantConfig;
-use symbiont_runtime::context::{
+use symbi_runtime::context::types::{KnowledgeFact, KnowledgeSource};
+use symbi_runtime::context::vector_db::QdrantConfig;
+use symbi_runtime::context::{
     AgentContext, ContextId, ContextManager, ContextManagerConfig, FilePersistenceConfig,
     HierarchicalMemory, Knowledge, KnowledgeBase, KnowledgeId, MemoryItem, MemoryType,
     RetentionPolicy, SessionId, StandardContextManager,
 };
-use symbiont_runtime::types::AgentId;
+use symbi_runtime::types::AgentId;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

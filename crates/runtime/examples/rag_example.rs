@@ -8,9 +8,9 @@
 
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
-use symbiont_runtime::context::manager::{ContextManagerConfig, StandardContextManager};
-use symbiont_runtime::rag::*;
-use symbiont_runtime::types::AgentId;
+use symbi_runtime::context::manager::{ContextManagerConfig, StandardContextManager};
+use symbi_runtime::rag::*;
+use symbi_runtime::types::AgentId;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

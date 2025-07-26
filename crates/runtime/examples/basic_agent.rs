@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 use std::time::Duration;
-use symbiont_runtime::*;
+use symbi_runtime::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

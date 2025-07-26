@@ -5,7 +5,7 @@
 use std::sync::Arc;
 use tempfile::TempDir;
 
-use symbiont_runtime::integrations::{
+use symbi_runtime::integrations::{
     KeyStoreConfig, LocalKeyStore, McpClient, McpClientConfig, McpClientError, McpTool,
     MockMcpClient, MockNativeSchemaPinClient, SecureMcpClient, ToolProvider,
     ToolVerificationRequest, VerificationStatus,
@@ -326,7 +326,7 @@ async fn test_key_store_tofu_mechanism() {
 async fn test_verification_status_methods() {
     // Test verified status
     let verified_status = VerificationStatus::Verified {
-        result: Box::new(symbiont_runtime::integrations::VerificationResult {
+        result: Box::new(symbi_runtime::integrations::VerificationResult {
             success: true,
             message: "Test verification".to_string(),
             schema_hash: Some("hash123".to_string()),

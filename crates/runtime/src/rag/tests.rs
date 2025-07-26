@@ -9,9 +9,10 @@ mod rag_tests {
     use std::time::Duration;
     use tokio;
 
-    fn create_test_context_manager() -> Arc<dyn ContextManager> {
+    async fn create_test_context_manager() -> Arc<dyn ContextManager> {
         let config = ContextManagerConfig::default();
-        Arc::new(StandardContextManager::new(config))
+        let manager = StandardContextManager::new(config, "test-agent").await.unwrap();
+        Arc::new(manager)
     }
 
     fn create_test_rag_request() -> RAGRequest {
@@ -37,7 +38,7 @@ mod rag_tests {
 
     #[tokio::test]
     async fn test_rag_engine_creation() {
-        let context_manager = create_test_context_manager();
+        let context_manager = create_test_context_manager().await;
         let _rag_engine = StandardRAGEngine::new(context_manager);
 
         // Test that the engine was created successfully
@@ -46,7 +47,7 @@ mod rag_tests {
 
     #[tokio::test]
     async fn test_query_analysis() {
-        let context_manager = create_test_context_manager();
+        let context_manager = create_test_context_manager().await;
         let rag_engine = StandardRAGEngine::new(context_manager);
 
         let query = "How to implement machine learning algorithms?";
@@ -63,7 +64,7 @@ mod rag_tests {
 
     #[tokio::test]
     async fn test_intent_classification() {
-        let context_manager = create_test_context_manager();
+        let context_manager = create_test_context_manager().await;
         let rag_engine = StandardRAGEngine::new(context_manager);
 
         // Test different query intents
@@ -97,7 +98,7 @@ mod rag_tests {
 
     #[tokio::test]
     async fn test_document_retrieval() {
-        let context_manager = create_test_context_manager();
+        let context_manager = create_test_context_manager().await;
         let rag_engine = StandardRAGEngine::new(context_manager);
 
         let analyzed_query = AnalyzedQuery {
@@ -124,7 +125,7 @@ mod rag_tests {
 
     #[tokio::test]
     async fn test_document_ranking() {
-        let context_manager = create_test_context_manager();
+        let context_manager = create_test_context_manager().await;
         let rag_engine = StandardRAGEngine::new(context_manager);
 
         let analyzed_query = AnalyzedQuery {
@@ -166,7 +167,7 @@ mod rag_tests {
 
     #[tokio::test]
     async fn test_context_augmentation() {
-        let context_manager = create_test_context_manager();
+        let context_manager = create_test_context_manager().await;
         let rag_engine = StandardRAGEngine::new(context_manager);
 
         let analyzed_query = AnalyzedQuery {
@@ -207,7 +208,7 @@ mod rag_tests {
 
     #[tokio::test]
     async fn test_response_generation() {
-        let context_manager = create_test_context_manager();
+        let context_manager = create_test_context_manager().await;
         let rag_engine = StandardRAGEngine::new(context_manager);
 
         let analyzed_query = AnalyzedQuery {
@@ -248,7 +249,7 @@ mod rag_tests {
 
     #[tokio::test]
     async fn test_response_validation() {
-        let context_manager = create_test_context_manager();
+        let context_manager = create_test_context_manager().await;
         let rag_engine = StandardRAGEngine::new(context_manager);
 
         let response = GeneratedResponse {
@@ -278,7 +279,7 @@ mod rag_tests {
 
     #[tokio::test]
     async fn test_full_rag_pipeline() {
-        let context_manager = create_test_context_manager();
+        let context_manager = create_test_context_manager().await;
         let rag_engine = StandardRAGEngine::new(context_manager);
 
         let request = create_test_rag_request();
@@ -295,7 +296,7 @@ mod rag_tests {
 
     #[tokio::test]
     async fn test_keyword_extraction() {
-        let context_manager = create_test_context_manager();
+        let context_manager = create_test_context_manager().await;
         let rag_engine = StandardRAGEngine::new(context_manager);
 
         let text = "Machine learning algorithms for natural language processing";
@@ -314,7 +315,7 @@ mod rag_tests {
 
     #[tokio::test]
     async fn test_entity_extraction() {
-        let context_manager = create_test_context_manager();
+        let context_manager = create_test_context_manager().await;
         let rag_engine = StandardRAGEngine::new(context_manager);
 
         let text = "OpenAI developed GPT-3 with 175 billion parameters";
@@ -331,7 +332,7 @@ mod rag_tests {
 
     #[tokio::test]
     async fn test_semantic_similarity() {
-        let context_manager = create_test_context_manager();
+        let context_manager = create_test_context_manager().await;
         let rag_engine = StandardRAGEngine::new(context_manager);
 
         let vec1 = vec![1.0, 0.0, 0.0];
@@ -349,7 +350,7 @@ mod rag_tests {
 
     #[tokio::test]
     async fn test_mock_embeddings_generation() {
-        let context_manager = create_test_context_manager();
+        let context_manager = create_test_context_manager().await;
         let rag_engine = StandardRAGEngine::new(context_manager);
 
         let text = "test text for embeddings";
@@ -364,7 +365,7 @@ mod rag_tests {
 
     #[tokio::test]
     async fn test_rag_stats() {
-        let context_manager = create_test_context_manager();
+        let context_manager = create_test_context_manager().await;
         let rag_engine = StandardRAGEngine::new(context_manager);
 
         let result = rag_engine.get_stats().await;

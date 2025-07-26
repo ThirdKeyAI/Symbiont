@@ -16,6 +16,7 @@ pub enum ConditionType {
     AuditRequired,
     SecurityScan,
     RateLimited,
+    SecretRequired,
 }
 
 /// Rule condition for policy evaluation
@@ -26,6 +27,7 @@ pub enum RuleCondition {
     ResourceMatch { resource_patterns: Vec<String> },
     TimeMatch { time_windows: Vec<TimeWindow> },
     SecurityLevelMatch { levels: Vec<SecurityTier> },
+    SecretMatch { secret_name: String, permissions: Option<Vec<String>> },
     And { conditions: Vec<RuleCondition> },
     Or { conditions: Vec<RuleCondition> },
     Not { condition: Box<RuleCondition> },

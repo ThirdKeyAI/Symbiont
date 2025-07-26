@@ -3,8 +3,8 @@
 //! These tests verify that the core components can be instantiated and basic types work correctly.
 
 use std::time::Duration;
-use symbiont_runtime::error_handler::ErrorType;
-use symbiont_runtime::*;
+use symbi_runtime::error_handler::ErrorType;
+use symbi_runtime::*;
 
 #[tokio::test]
 async fn test_basic_id_generation() {
