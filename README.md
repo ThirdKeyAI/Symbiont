@@ -91,12 +91,14 @@ symbi/
 ### ✅ Community Features (OSS)
 - **DSL Grammar**: Complete Tree-sitter grammar for agent definitions
 - **Agent Runtime**: Task scheduling, resource management, lifecycle control
-- **Docker Sandboxing**: Basic containerized isolation for agent operations
+- **Tier 1 Sandboxing**: Docker containerized isolation for agent operations
 - **MCP Integration**: Model Context Protocol client for external tools
 - **SchemaPin Security**: Basic cryptographic tool verification 
 - **RAG Engine**: Retrieval-augmented generation with vector search
 - **Context Management**: Persistent agent memory and knowledge storage
 - **Vector Database**: Qdrant integration for semantic search
+- **Basic Secrets Management**: Local encrypted file storage for configurations
+- **Cryptographic CLI**: Tool for encrypting/decrypting secret files
 - **HTTP API**: Optional RESTful interface (feature-gated)
 
 ### 🏢 Enterprise Features (License Required)
@@ -141,13 +143,13 @@ agent analyze_data(input: DataSet) -> Result {
 ## 🔒 Security Model
 
 ### Basic Security (Community)
-- **Docker Isolation**: Containerized agent execution
+- **Tier 1 Isolation**: Docker containerized agent execution
 - **Schema Verification**: Cryptographic tool validation with SchemaPin
 - **Policy Engine**: Basic resource access control
 - **Audit Logging**: Operation tracking and compliance
 
 ### Advanced Security (Enterprise)
-- **Multi-tier Sandboxing**: gVisor/Firecracker for high-risk operations **(Enterprise)**
+- **Enhanced Sandboxing**: gVisor (Tier2) and Firecracker (Tier3) isolation **(Enterprise)**
 - **AI Security Review**: Automated tool analysis and approval **(Enterprise)**
 - **Encrypted Communication**: Secure inter-agent messaging **(Enterprise)**
 - **Comprehensive Audits**: Cryptographic integrity guarantees **(Enterprise)**

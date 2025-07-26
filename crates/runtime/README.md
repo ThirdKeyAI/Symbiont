@@ -19,6 +19,8 @@ The Symbi Agent Runtime System provides a complete infrastructure for executing 
 - **SchemaPin Security**: Tool verification with Trust-On-First-Use (TOFU)
 - **AI Tool Review**: Automated security analysis and signing workflow
 - **Policy Engine**: Resource access control with YAML-based policies
+- **Basic Secrets Management**: Local encrypted file storage for secure configurations
+- **Cryptographic CLI**: Tool for encrypting/decrypting secret files locally
 - **Optional HTTP API**: RESTful API interface for external system integration (feature-gated)
 
 ## Architecture
@@ -363,9 +365,56 @@ match decision.decision {
         // Handle other decision types
     }
 }
+### 9. Basic Secrets Management
+
+Local encrypted file storage for secure configuration data:
+
+```rust
+use symbi_runtime::secrets::file_backend::*;
+use symbi_runtime::crypto::*;
+
+// Configure encrypted file storage
+let file_config = FileBackendConfig {
+    base_path: "./secrets".to_string(),
+    file_extension: "enc".to_string(),
+    permissions: 0o600,
+};
+
+let crypto = Aes256GcmCrypto::new();
+let key_utils = KeyUtils::new();
+let master_key = key_utils.get_or_create_key()?;
+
+let file_backend = FileBackend::new(file_config, crypto, master_key).await?;
+
+// Store encrypted secret
+let secret = Secret::new("api_key", "secret_value_123")
+    .with_metadata("environment", "development");
+
+file_backend.store_secret("app/api_key", secret).await?;
+
+// Retrieve a secret
+let retrieved = file_backend.get_secret("app/api_key").await?;
+println!("API Key: {}", retrieved.value);
 ```
 
-### 9. Optional HTTP API
+#### CLI Usage
+
+Encrypt and decrypt secret files:
+
+```bash
+# Encrypt a JSON configuration file
+symbiont secrets encrypt --in config.json --out config.json.enc
+
+# Decrypt and view
+symbiont secrets decrypt --in config.json.enc
+
+# Edit encrypted file in-place
+symbiont secrets edit --file config.json.enc
+```
+
+```
+
+### 10. Optional HTTP API
 
 When enabled with the `http-api` feature, the runtime exposes a RESTful API:
 
@@ -426,11 +475,10 @@ cargo build --features http-api
 
 ## Security Features
 
-### Multi-tier Sandboxing
+### Sandboxing
 
-- **Tier1**: Docker containers with resource limits
-- **Tier2**: gVisor for enhanced isolation  
-- **Tier3**: Firecracker microVMs for maximum security
+- **Tier 1 (Docker)**: Container isolation with resource limits and security hardening
+- **Enhanced Isolation**: Additional tiers available in Enterprise edition
 
 ### SchemaPin Cryptographic Security
 
@@ -715,7 +763,13 @@ For issues and questions:
 - [x] Resource access management with policy engine
 - [x] Complete end-to-end security framework
 
-### 🚧 Phase 6: Advanced Intelligence (PLANNED)
+### ✅ Phase 6: Basic Secrets Management (COMPLETED)
+- [x] Encrypted file backend with AES-256-GCM encryption
+- [x] CLI tools for secret encryption/decryption operations
+- [x] Cross-platform file-based secret storage
+- [x] Integration with existing runtime components
+
+### 🚧 Phase 7: Advanced Intelligence (PLANNED)
 - [ ] Multi-modal RAG support (images, audio, structured data)
 - [ ] Cross-agent knowledge synthesis with knowledge graphs
 - [ ] Intelligent context management with adaptive pruning
