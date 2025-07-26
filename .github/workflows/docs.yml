@@ -3,6 +3,8 @@ name: Deploy OSS Documentation
 on:
   push:
     branches: [ main ]
+    tags:
+      - 'v*'
     paths:
       - 'docs/**'
       - '.github/workflows/docs.yml'
