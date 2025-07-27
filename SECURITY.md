@@ -18,7 +18,7 @@ We take security vulnerabilities seriously. If you discover a security vulnerabi
 
 Instead, please:
 
-1. **Email**: Send details to [INSERT SECURITY EMAIL]
+1. **Email**: Send details to security@symbiont.dev
 2. **Subject**: Include "SECURITY" in the subject line
 3. **Content**: Include the following information:
    - Description of the vulnerability

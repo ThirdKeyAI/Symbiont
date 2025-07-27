@@ -7,8 +7,8 @@ use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
-use tokio::sync::{mpsc, Notify};
-use tokio::time::interval;
+use tokio::sync::{mpsc, oneshot, Notify};
+use tokio::time::{interval, timeout};
 
 use crate::types::*;
 
@@ -50,6 +50,14 @@ pub trait CommunicationBus {
     /// Unregister an agent
     async fn unregister_agent(&self, agent_id: AgentId) -> Result<(), CommunicationError>;
 
+    /// Send a request and wait for response with timeout
+    async fn request(
+        &self,
+        target_agent: AgentId,
+        request_payload: bytes::Bytes,
+        timeout_duration: Duration,
+    ) -> Result<bytes::Bytes, CommunicationError>;
+
     /// Shutdown the communication bus
     async fn shutdown(&self) -> Result<(), CommunicationError>;
 }
@@ -89,6 +97,7 @@ pub struct DefaultCommunicationBus {
     subscriptions: Arc<RwLock<HashMap<String, Vec<AgentId>>>>,
     message_tracker: Arc<RwLock<HashMap<MessageId, MessageTracker>>>,
     dead_letter_queue: Arc<RwLock<DeadLetterQueue>>,
+    pending_requests: Arc<RwLock<HashMap<RequestId, oneshot::Sender<bytes::Bytes>>>>,
     event_sender: mpsc::UnboundedSender<CommunicationEvent>,
     shutdown_notify: Arc<Notify>,
     is_running: Arc<RwLock<bool>>,
@@ -103,6 +112,7 @@ impl DefaultCommunicationBus {
         let dead_letter_queue = Arc::new(RwLock::new(DeadLetterQueue::new(
             config.dead_letter_queue_size,
         )));
+        let pending_requests = Arc::new(RwLock::new(HashMap::new()));
         let (event_sender, event_receiver) = mpsc::unbounded_channel();
         let shutdown_notify = Arc::new(Notify::new());
         let is_running = Arc::new(RwLock::new(true));
@@ -113,6 +123,7 @@ impl DefaultCommunicationBus {
             subscriptions,
             message_tracker,
             dead_letter_queue,
+            pending_requests,
             event_sender,
             shutdown_notify,
             is_running,
@@ -134,6 +145,7 @@ impl DefaultCommunicationBus {
         let subscriptions = self.subscriptions.clone();
         let message_tracker = self.message_tracker.clone();
         let dead_letter_queue = self.dead_letter_queue.clone();
+        let pending_requests = self.pending_requests.clone();
         let shutdown_notify = self.shutdown_notify.clone();
         let config = self.config.clone();
 
@@ -148,6 +160,7 @@ impl DefaultCommunicationBus {
                                 &subscriptions,
                                 &message_tracker,
                                 &dead_letter_queue,
+                                &pending_requests,
                                 &config,
                             ).await;
                         } else {
@@ -198,12 +211,23 @@ impl DefaultCommunicationBus {
         subscriptions: &Arc<RwLock<HashMap<String, Vec<AgentId>>>>,
         message_tracker: &Arc<RwLock<HashMap<MessageId, MessageTracker>>>,
         dead_letter_queue: &Arc<RwLock<DeadLetterQueue>>,
+        pending_requests: &Arc<RwLock<HashMap<RequestId, oneshot::Sender<bytes::Bytes>>>>,
         config: &CommunicationConfig,
     ) {
         match event {
             CommunicationEvent::MessageSent { message } => {
                 let recipient = message.recipient;
                 let message_id = message.id;
+
+                // Check if this is a response to a pending request
+                if let MessageType::Response(request_id) = &message.message_type {
+                    if let Some(sender) = pending_requests.write().remove(request_id) {
+                        // Send response payload to waiting request
+                        let _ = sender.send(message.payload.data.clone());
+                        tracing::debug!("Response {} sent for request {:?}", message_id, request_id);
+                        return;
+                    }
+                }
 
                 // Add to message tracker
                 message_tracker
@@ -302,6 +326,7 @@ impl DefaultCommunicationBus {
                         subscriptions,
                         message_tracker,
                         dead_letter_queue,
+                        pending_requests,
                         config,
                     ))
                     .await;
@@ -516,6 +541,66 @@ impl CommunicationBus for DefaultCommunicationBus {
     async fn unregister_agent(&self, agent_id: AgentId) -> Result<(), CommunicationError> {
         self.send_event(CommunicationEvent::AgentUnregistered { agent_id })?;
         Ok(())
+    }
+
+    async fn request(
+        &self,
+        target_agent: AgentId,
+        request_payload: bytes::Bytes,
+        timeout_duration: Duration,
+    ) -> Result<bytes::Bytes, CommunicationError> {
+        if !*self.is_running.read() {
+            return Err(CommunicationError::ShuttingDown);
+        }
+
+        // Create request ID and oneshot channel for response
+        let request_id = RequestId::new();
+        let (response_sender, response_receiver) = oneshot::channel();
+
+        // Store the response sender
+        self.pending_requests.write().insert(request_id, response_sender);
+
+        // Create request message
+        let request_message = SecureMessage {
+            id: MessageId::new(),
+            sender: AgentId::new(), // TODO: Should be the actual sender agent ID
+            recipient: Some(target_agent),
+            topic: None,
+            message_type: MessageType::Request(request_id),
+            payload: EncryptedPayload {
+                data: request_payload,
+                nonce: vec![0u8; 12], // TODO: Generate proper nonce
+                encryption_algorithm: EncryptionAlgorithm::Aes256Gcm,
+            },
+            signature: MessageSignature {
+                signature: vec![0u8; 64], // TODO: Generate proper signature
+                algorithm: SignatureAlgorithm::Ed25519,
+                public_key: vec![0u8; 32], // TODO: Use proper public key
+            },
+            ttl: timeout_duration,
+            timestamp: SystemTime::now(),
+        };
+
+        // Send the request
+        self.send_message(request_message).await?;
+
+        // Wait for response with timeout
+        match timeout(timeout_duration, response_receiver).await {
+            Ok(Ok(response_payload)) => Ok(response_payload),
+            Ok(Err(_)) => {
+                // Remove from pending requests if channel was dropped
+                self.pending_requests.write().remove(&request_id);
+                Err(CommunicationError::RequestCancelled { request_id })
+            }
+            Err(_) => {
+                // Timeout occurred
+                self.pending_requests.write().remove(&request_id);
+                Err(CommunicationError::RequestTimeout {
+                    request_id,
+                    timeout: timeout_duration,
+                })
+            }
+        }
     }
 
     async fn shutdown(&self) -> Result<(), CommunicationError> {
@@ -825,5 +910,92 @@ mod tests {
         // Should not be able to receive messages
         let result = bus.receive_messages(agent_id).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_request_response_timeout() {
+        let bus = DefaultCommunicationBus::new(CommunicationConfig::default())
+            .await
+            .unwrap();
+        let target_agent = AgentId::new();
+
+        // Register target agent (but it won't respond)
+        bus.register_agent(target_agent).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Make request with short timeout
+        let request_payload = bytes::Bytes::from("test request");
+        let timeout = Duration::from_millis(100);
+
+        let result = bus.request(target_agent, request_payload, timeout).await;
+        assert!(result.is_err());
+
+        if let Err(CommunicationError::RequestTimeout { request_id: _, timeout: actual_timeout }) = result {
+            assert_eq!(actual_timeout, timeout);
+        } else {
+            panic!("Expected RequestTimeout error");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_request_response_success() {
+        let bus = DefaultCommunicationBus::new(CommunicationConfig::default())
+            .await
+            .unwrap();
+        let requester = AgentId::new();
+        let responder = AgentId::new();
+
+        // Register both agents
+        bus.register_agent(requester).await.unwrap();
+        bus.register_agent(responder).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let request_payload = bytes::Bytes::from("test request");
+        let response_payload = bytes::Bytes::from("test response");
+
+        // Start request in background
+        let bus_clone = Arc::new(bus);
+        let request_bus = bus_clone.clone();
+        let request_handle = tokio::spawn(async move {
+            request_bus.request(responder, request_payload, Duration::from_secs(5)).await
+        });
+
+        // Give request time to be sent
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Responder receives the request and sends response
+        let messages = bus_clone.receive_messages(responder).await.unwrap();
+        assert_eq!(messages.len(), 1);
+        assert!(matches!(messages[0].message_type, MessageType::Request(_)));
+
+        // Extract request ID and send response
+        if let MessageType::Request(request_id) = &messages[0].message_type {
+            let response_message = SecureMessage {
+                id: MessageId::new(),
+                sender: responder,
+                recipient: Some(requester),
+                topic: None,
+                message_type: MessageType::Response(*request_id),
+                payload: EncryptedPayload {
+                    data: response_payload.clone(),
+                    nonce: vec![0u8; 12],
+                    encryption_algorithm: EncryptionAlgorithm::Aes256Gcm,
+                },
+                signature: MessageSignature {
+                    signature: vec![0u8; 64],
+                    algorithm: SignatureAlgorithm::Ed25519,
+                    public_key: vec![0u8; 32],
+                },
+                ttl: Duration::from_secs(3600),
+                timestamp: SystemTime::now(),
+            };
+
+            bus_clone.send_message(response_message).await.unwrap();
+        }
+
+        // Wait for request to complete
+        let result = request_handle.await.unwrap();
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), response_payload);
     }
 }

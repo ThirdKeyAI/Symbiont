@@ -97,8 +97,9 @@ symbi/
 - **RAG Engine**: Retrieval-augmented generation with vector search
 - **Context Management**: Persistent agent memory and knowledge storage
 - **Vector Database**: Qdrant integration for semantic search
-- **Basic Secrets Management**: Local encrypted file storage for configurations
-- **Cryptographic CLI**: Tool for encrypting/decrypting secret files
+- **Comprehensive Secrets Management**: HashiCorp Vault integration with multiple auth methods
+- **Encrypted File Backend**: AES-256-GCM encryption with OS keychain integration
+- **Secrets CLI Tools**: Complete encrypt/decrypt/edit operations with audit trails
 - **HTTP API**: Optional RESTful interface (feature-gated)
 
 ### 🏢 Enterprise Features (License Required)
@@ -140,12 +141,45 @@ agent analyze_data(input: DataSet) -> Result {
 }
 ```
 
+## 🔐 Secrets Management
+
+Symbi provides enterprise-grade secrets management with multiple backend options:
+
+### Backend Options
+- **HashiCorp Vault**: Production-ready secrets management with multiple authentication methods
+  - Token-based authentication
+  - Kubernetes service account authentication
+- **Encrypted Files**: Local AES-256-GCM encrypted storage with OS keychain integration
+- **Agent Namespaces**: Scoped secrets access per agent for isolation
+
+### CLI Operations
+```bash
+# Encrypt secrets file
+symbi secrets encrypt config.json --output config.enc
+
+# Decrypt secrets file
+symbi secrets decrypt config.enc --output config.json
+
+# Edit encrypted secrets directly
+symbi secrets edit config.enc
+
+# Configure Vault backend
+symbi secrets configure vault --endpoint https://vault.company.com
+```
+
+### Audit & Compliance
+- Complete audit trails for all secrets operations
+- Cryptographic integrity verification
+- Agent-scoped access controls
+- Tamper-evident logging
+
 ## 🔒 Security Model
 
 ### Basic Security (Community)
 - **Tier 1 Isolation**: Docker containerized agent execution
 - **Schema Verification**: Cryptographic tool validation with SchemaPin
 - **Policy Engine**: Basic resource access control
+- **Secrets Management**: Vault integration and encrypted file storage
 - **Audit Logging**: Operation tracking and compliance
 
 ### Advanced Security (Enterprise)

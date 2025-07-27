@@ -1,13 +1,30 @@
-MIT License
+# Symbiont by ThirdKey.ai
+Combined Licensing Notice
+
+This repository includes software licensed under both the MIT License and the GNU Affero General Public License v3.0 (AGPL-3.0).
+
+Please review the license terms for each component carefully.
+
+--------------------------------------------------------------------------------
+MIT License Applies To:
+
+All files in this repository **except**:
+- `/crates/runtime/src/communication/`
+
+This includes:
+- `/crates/runtime/` (except `src/communication/`)
+- `/crates/cli/`
+- `/crates/sdk-python/`, `/sdk-go/`, `/sdk-js/`
+- `/examples/`, `/docs/`, `/tools/`, and all other paths
 
 Copyright (c) 2025 Jascha Wanger / ThirdKey.ai
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+in the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software, and to permit persons to whom the Software is furnished to do
+so, subject to the following conditions:
 
 The above copyright notice and this permission notice shall be included in all
 copies or substantial portions of the Software.
@@ -19,3 +36,27 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+--------------------------------------------------------------------------------
+AGPL-3.0 License Applies To:
+
+The communication layer code located in:
+
+- `/crates/runtime/src/communication/`
+
+This component implements the Symbiont Message Bus and Coordination Layer.
+
+It is licensed under the GNU Affero General Public License v3.0:
+
+https://www.gnu.org/licenses/agpl-3.0.html
+
+### Commercial Licensing
+
+If you wish to:
+- Use the Symbiont Message Bus in a proprietary or closed-source application,
+- Offer it as part of a hosted or managed service,
+- Embed it within a commercial product,
+
+you must obtain a commercial license from ThirdKey.ai.
+
+Contact: **licensing@thirdkey.ai**

@@ -581,7 +581,6 @@ impl SecretStore for MockSecretStore {
 #[tokio::test]
 async fn test_policy_with_secret_requirement_success() {
     use symbi_runtime::integrations::policy_engine::{DefaultPolicyEnforcementPoint, ResourceAccessConfig};
-    use symbi_runtime::integrations::policy_engine::types::{ResourceAccessPolicy, ResourceAccessRule, RuleCondition, RuleEffect};
     
     let config = ResourceAccessConfig::default();
     let mut enforcement_point = DefaultPolicyEnforcementPoint::new(config).await.unwrap();

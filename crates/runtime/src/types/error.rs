@@ -3,7 +3,7 @@
 use std::time::Duration;
 use thiserror::Error;
 
-use super::{AgentId, MessageId, PolicyId};
+use super::{AgentId, MessageId, PolicyId, RequestId};
 
 /// Main runtime error type
 #[derive(Error, Debug, Clone)]
@@ -164,6 +164,12 @@ pub enum CommunicationError {
 
     #[error("Message not found: {message_id}")]
     MessageNotFound { message_id: MessageId },
+
+    #[error("Request timeout: request {request_id} timed out after {timeout:?}")]
+    RequestTimeout { request_id: RequestId, timeout: Duration },
+
+    #[error("Request cancelled: {request_id}")]
+    RequestCancelled { request_id: RequestId },
 }
 
 /// Policy enforcement errors
