@@ -59,7 +59,7 @@ cargo build --features http-api
 
 # Or add to Cargo.toml
 [dependencies]
-symbi-runtime = { version = "0.1.0", features = ["http-api"] }
+symbi-runtime = { version = "0.1.2", features = ["http-api"] }
 ```
 
 **Key Endpoints:**
@@ -257,3 +257,7 @@ Contact [ThirdKey](https://thirdkey.ai) for Enterprise licensing.
 ---
 
 *Symbi enables secure collaboration between AI agents and humans through intelligent policy enforcement, cryptographic verification, and comprehensive audit trails.*
+
+<div align="right">
+  <img src="symbi-trans.png" alt="Symbi Transparent Logo" width="120">
+</div>
