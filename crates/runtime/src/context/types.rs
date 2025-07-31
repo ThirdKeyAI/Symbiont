@@ -651,28 +651,160 @@ pub struct StorageStats {
 }
 
 /// Configuration for file-based persistence
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FilePersistenceConfig {
-    /// Base directory for storing context files
-    pub storage_path: PathBuf,
-    /// Enable compression for stored files
+    /// Root data directory (replaces storage_path)
+    pub root_data_dir: PathBuf,
+    
+    /// Subdirectory paths (relative to root_data_dir)
+    pub state_dir: PathBuf,
+    pub logs_dir: PathBuf,
+    pub prompts_dir: PathBuf,
+    pub vector_db_dir: PathBuf,
+    
+    /// Existing configuration options
     pub enable_compression: bool,
-    /// Enable encryption for stored files
     pub enable_encryption: bool,
-    /// Backup retention count
     pub backup_count: usize,
-    /// Auto-save interval in seconds
     pub auto_save_interval: u64,
+    
+    /// New configuration options
+    pub auto_create_dirs: bool,
+    pub dir_permissions: Option<u32>,
 }
 
 impl Default for FilePersistenceConfig {
     fn default() -> Self {
+        let mut root_dir = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+        root_dir.push(".symbiont");
+        root_dir.push("data");
+        
         Self {
-            storage_path: PathBuf::from("./data/contexts"),
+            root_data_dir: root_dir,
+            state_dir: PathBuf::from("state"),
+            logs_dir: PathBuf::from("logs"),
+            prompts_dir: PathBuf::from("prompts"),
+            vector_db_dir: PathBuf::from("vector_db"),
             enable_compression: true,
-            enable_encryption: false, // Disabled by default for simplicity
+            enable_encryption: false,
             backup_count: 3,
-            auto_save_interval: 300, // 5 minutes
+            auto_save_interval: 300,
+            auto_create_dirs: true,
+            dir_permissions: Some(0o755),
         }
+    }
+}
+
+/// Migration error types
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum MigrationError {
+    #[error("IO error during migration: {reason}")]
+    IOError { reason: String },
+    
+    #[error("Context error during migration: {error}")]
+    ContextError { error: ContextError },
+    
+    #[error("Migration validation failed: {reason}")]
+    ValidationError { reason: String },
+}
+
+impl From<std::io::Error> for MigrationError {
+    fn from(error: std::io::Error) -> Self {
+        MigrationError::IOError {
+            reason: error.to_string(),
+        }
+    }
+}
+
+impl From<ContextError> for MigrationError {
+    fn from(error: ContextError) -> Self {
+        MigrationError::ContextError { error }
+    }
+}
+
+impl FilePersistenceConfig {
+    /// Get the full path for state storage
+    pub fn state_path(&self) -> PathBuf {
+        self.root_data_dir.join(&self.state_dir)
+    }
+    
+    /// Get the full path for logs storage
+    pub fn logs_path(&self) -> PathBuf {
+        self.root_data_dir.join(&self.logs_dir)
+    }
+    
+    /// Get the full path for prompts storage
+    pub fn prompts_path(&self) -> PathBuf {
+        self.root_data_dir.join(&self.prompts_dir)
+    }
+    
+    /// Get the full path for vector database storage
+    pub fn vector_db_path(&self) -> PathBuf {
+        self.root_data_dir.join(&self.vector_db_dir)
+    }
+    
+    /// Get the full path for agent contexts (within state directory)
+    pub fn agent_contexts_path(&self) -> PathBuf {
+        self.state_path().join("agents")
+    }
+    
+    /// Get the full path for sessions (within state directory)
+    pub fn sessions_path(&self) -> PathBuf {
+        self.state_path().join("sessions")
+    }
+    
+    /// Create all configured directories if they don't exist
+    pub async fn ensure_directories(&self) -> Result<(), std::io::Error> {
+        if self.auto_create_dirs {
+            tokio::fs::create_dir_all(self.state_path()).await?;
+            tokio::fs::create_dir_all(self.logs_path()).await?;
+            tokio::fs::create_dir_all(self.prompts_path()).await?;
+            tokio::fs::create_dir_all(self.vector_db_path()).await?;
+            
+            // Create subdirectories
+            tokio::fs::create_dir_all(self.agent_contexts_path()).await?;
+            tokio::fs::create_dir_all(self.sessions_path()).await?;
+            tokio::fs::create_dir_all(self.logs_path().join("system")).await?;
+            tokio::fs::create_dir_all(self.logs_path().join("agents")).await?;
+            tokio::fs::create_dir_all(self.logs_path().join("audit")).await?;
+            tokio::fs::create_dir_all(self.prompts_path().join("templates")).await?;
+            tokio::fs::create_dir_all(self.prompts_path().join("history")).await?;
+            tokio::fs::create_dir_all(self.prompts_path().join("cache")).await?;
+            tokio::fs::create_dir_all(self.vector_db_path().join("collections")).await?;
+            tokio::fs::create_dir_all(self.vector_db_path().join("indexes")).await?;
+            tokio::fs::create_dir_all(self.vector_db_path().join("metadata")).await?;
+        }
+        Ok(())
+    }
+    
+    /// Migrate from legacy storage_path to new structure
+    pub async fn migrate_from_legacy(legacy_path: PathBuf) -> Result<Self, MigrationError> {
+        let config = Self::default();
+        
+        // Copy existing context files to new state directory
+        if legacy_path.exists() {
+            let agents_path = config.agent_contexts_path();
+            config.ensure_directories().await?;
+            
+            // Move existing context files
+            let mut entries = tokio::fs::read_dir(&legacy_path).await?;
+            while let Some(entry) = entries.next_entry().await? {
+                let file_path = entry.path();
+                if file_path.extension().map_or(false, |ext| ext == "json" || ext == "gz") {
+                    let dest_path = agents_path.join(entry.file_name());
+                    tokio::fs::copy(&file_path, &dest_path).await?;
+                }
+            }
+        }
+        
+        Ok(config)
+    }
+    
+    /// Check if this is a legacy configuration (has storage_path but not root_data_dir)
+    pub fn is_legacy(&self) -> bool {
+        // This method is conceptual - in practice we'd need to handle this differently
+        // since the struct doesn't have storage_path anymore. This would be used
+        // during config loading to detect legacy configs.
+        false
     }
 }

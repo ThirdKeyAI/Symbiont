@@ -18,6 +18,9 @@ pub mod types;
 #[cfg(feature = "http-api")]
 pub mod api;
 
+#[cfg(feature = "http-input")]
+pub mod http_input;
+
 // Re-export commonly used types
 pub use communication::{CommunicationBus, CommunicationConfig, DefaultCommunicationBus};
 pub use error_handler::{DefaultErrorHandler, ErrorHandler, ErrorHandlerConfig};

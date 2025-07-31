@@ -48,7 +48,7 @@ RUN mkdir -p src crates/dsl/src crates/runtime/src/bin && \
 # Build dependencies only with optimized settings (cached layer)
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/app/target \
-    cargo build --release && \
+    cargo build --release --features "http-input" && \
     rm -rf target/release/deps/symbi* target/release/symbi*
 
 # Copy actual source code (invalidates cache only when source changes)
@@ -58,7 +58,7 @@ COPY crates/ ./crates/
 # Build the unified symbi binary with cached dependencies
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/app/target \
-    cargo build --release && \
+    cargo build --release --features "http-input" && \
     cp target/release/symbi /tmp/symbi
 
 # Runtime stage - minimal security-hardened image

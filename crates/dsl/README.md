@@ -73,7 +73,7 @@ cargo build --release
 cargo run --release
 
 # Use via the unified symbi CLI (from project root)
-cd ../.. && cargo run -- dsl parse my_agent.symbi
+cd ../.. && cargo run -- dsl parse my_agent.dsl
 ```
 
 ## Development Workflow

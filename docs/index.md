@@ -158,6 +158,7 @@ graph TB
 
 - **Documentation**: Comprehensive guides and API references
 - [API Reference](api-reference.md)
+- [HTTP Input Module](http-input.md)
 - **Issues**: [GitHub Issues](https://github.com/thirdkeyai/symbiont/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/thirdkeyai/symbiont/discussions)
 - **License**: Open source software by ThirdKey

@@ -35,7 +35,7 @@ async-trait = "0.1"
 dashmap = "5.0"
 parking_lot = "0.12"
 crossbeam = "0.8"
-ed25519-dalek = { version = "2.0", features = ["serde"] }
+ed25519-dalek = { version = "1.0", features = ["serde"] }
 aes-gcm = "0.10"
 rand = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
@@ -88,9 +88,10 @@ default = ["vector-db", "keychain"]
 vector-db = []
 embedding-models = ["candle-core", "candle-nn", "candle-transformers", "tokenizers", "hf-hub"]
 http-api = ["axum", "tower", "tower-http", "tokio-tungstenite"]
+http-input = ["axum", "tower", "tower-http"]
 keychain = ["keyring", "security-framework", "secret-service", "winapi"]
 enterprise = []  # Enterprise feature for conditional compilation
-full = ["vector-db", "embedding-models", "http-api", "keychain"]
+full = ["vector-db", "embedding-models", "http-api", "http-input", "keychain"]
 minimal = ["vector-db"]  # Minimal build for faster CI
 
 

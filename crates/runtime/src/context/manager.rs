@@ -176,10 +176,10 @@ impl FilePersistence {
 
     /// Initialize storage directory
     pub async fn initialize(&self) -> Result<(), ContextError> {
-        fs::create_dir_all(&self.config.storage_path)
+        self.config.ensure_directories()
             .await
             .map_err(|e| ContextError::StorageError {
-                reason: format!("Failed to create storage directory: {}", e),
+                reason: format!("Failed to create storage directories: {}", e),
             })?;
         Ok(())
     }
@@ -191,7 +191,7 @@ impl FilePersistence {
         } else {
             format!("{}.json", agent_id)
         };
-        self.config.storage_path.join(filename)
+        self.config.agent_contexts_path().join(filename)
     }
 
     /// Serialize context to bytes
@@ -274,7 +274,7 @@ impl FilePersistence {
     /// Clean up old backup files
     async fn cleanup_old_backups(&self, agent_id: AgentId) -> Result<(), ContextError> {
         let mut backup_files = Vec::new();
-        let mut dir = fs::read_dir(&self.config.storage_path).await.map_err(|e| {
+        let mut dir = fs::read_dir(&self.config.agent_contexts_path()).await.map_err(|e| {
             ContextError::StorageError {
                 reason: format!("Failed to read storage directory: {}", e),
             }
@@ -395,7 +395,7 @@ impl ContextPersistence for FilePersistence {
 
     async fn list_agent_contexts(&self) -> Result<Vec<AgentId>, ContextError> {
         let mut agent_ids = Vec::new();
-        let mut dir = fs::read_dir(&self.config.storage_path).await.map_err(|e| {
+        let mut dir = fs::read_dir(&self.config.agent_contexts_path()).await.map_err(|e| {
             ContextError::StorageError {
                 reason: format!("Failed to read storage directory: {}", e),
             }
@@ -435,7 +435,7 @@ impl ContextPersistence for FilePersistence {
         let mut total_contexts = 0;
         let mut total_size_bytes = 0;
 
-        let mut dir = fs::read_dir(&self.config.storage_path).await.map_err(|e| {
+        let mut dir = fs::read_dir(&self.config.agent_contexts_path()).await.map_err(|e| {
             ContextError::StorageError {
                 reason: format!("Failed to read storage directory: {}", e),
             }
@@ -463,7 +463,7 @@ impl ContextPersistence for FilePersistence {
             total_contexts,
             total_size_bytes,
             last_cleanup: SystemTime::now(),
-            storage_path: self.config.storage_path.clone(),
+            storage_path: self.config.agent_contexts_path(),
         })
     }
 

@@ -106,7 +106,7 @@ Let's create a simple data analysis agent to understand the basics of Symbi.
 
 ### 1. Create Agent Definition
 
-Create a new file `my_agent.symbi`:
+Create a new file `my_agent.dsl`:
 
 ```rust
 metadata {
@@ -140,10 +140,10 @@ agent greet_user(name: String) -> String {
 
 ```bash
 # Parse and validate the agent definition
-cargo run -- dsl parse my_agent.symbi
+cargo run -- dsl parse my_agent.dsl
 
 # Run the agent in the runtime
-cd crates/runtime && cargo run --example basic_agent -- --agent ../../my_agent.symbi
+cd crates/runtime && cargo run --example basic_agent -- --agent ../../my_agent.dsl
 ```
 
 ---
@@ -333,7 +333,7 @@ brew install pkg-config openssl
 **Problem**: Agent fails to start
 ```bash
 # Check agent definition syntax
-cargo run -- dsl parse your_agent.symbi
+cargo run -- dsl parse your_agent.dsl
 
 # Enable debug logging
 RUST_LOG=debug cd crates/runtime && cargo run --example basic_agent
