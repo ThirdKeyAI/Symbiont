@@ -1,7 +1,6 @@
 ---
 layout: default
 title: Erste Schritte
-nav_order: 2
 description: "Schnellstart-Anleitung für Symbiont"
 ---
 
@@ -9,6 +8,7 @@ description: "Schnellstart-Anleitung für Symbiont"
 {: .no_toc }
 
 ## 🌐 Andere Sprachen
+{: .no_toc}
 
 [English](getting-started.md) | [中文简体](getting-started.zh-cn.md) | [Español](getting-started.es.md) | [Português](getting-started.pt.md) | [日本語](getting-started.ja.md) | **Deutsch**
 

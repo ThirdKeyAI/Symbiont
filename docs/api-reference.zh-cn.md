@@ -1,6 +1,7 @@
 # API 参考
 
 ## 🌐 其他语言
+{: .no_toc}
 
 [English](api-reference.md) | **中文简体** | [Español](api-reference.es.md) | [Português](api-reference.pt.md) | [日本語](api-reference.ja.md) | [Deutsch](api-reference.de.md)
 

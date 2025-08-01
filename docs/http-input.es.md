@@ -1,6 +1,7 @@
 # Módulo de Entrada HTTP
 
 ## 🌐 Otros idiomas
+{: .no_toc}
 
 [English](http-input.md) | [中文简体](http-input.zh-cn.md) | **Español** | [Português](http-input.pt.md) | [日本語](http-input.ja.md) | [Deutsch](http-input.de.md)
 

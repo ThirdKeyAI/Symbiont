@@ -1,8 +1,7 @@
 ---
 layout: default
-title: Runtime Architecture
-nav_order: 4
-description: "Symbiont runtime system architecture and components"
+title: ランタイムアーキテクチャ
+description: "Symbiont ランタイムシステムアーキテクチャの概要"
 ---
 
 # ランタイムアーキテクチャ
@@ -20,6 +19,7 @@ Symbi ランタイムシステムアーキテクチャとコアコンポーネ�
 ---
 
 ## 🌐 他の言語
+{: .no_toc}
 
 [English](runtime-architecture.md) | [中文简体](runtime-architecture.zh-cn.md) | [Español](runtime-architecture.es.md) | [Português](runtime-architecture.pt.md) | **日本語** | [Deutsch](runtime-architecture.de.md)
 

@@ -1,14 +1,14 @@
 ---
 layout: default
-title: Runtime Architecture
-nav_order: 4
-description: "Symbiont runtime system architecture and components"
+title: 运行时架构
+description: "Symbiont 运行时系统架构概述"
 ---
 
 # 运行时架构
 {: .no_toc }
 
 ## 🌐 其他语言
+{: .no_toc}
 
 [English](runtime-architecture.md) | **中文简体** | [Español](runtime-architecture.es.md) | [Português](runtime-architecture.pt.md) | [日本語](runtime-architecture.ja.md) | [Deutsch](runtime-architecture.de.md)
 

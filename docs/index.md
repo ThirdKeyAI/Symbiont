@@ -18,6 +18,7 @@ AI-native, privacy-first programming language and agent framework for autonomous
 ---
 
 ## 🌐 Other Languages
+{: .no_toc}
 
 **English** | [中文简体](index.zh-cn.md) | [Español](index.es.md) | [Português](index.pt.md) | [日本語](index.ja.md) | [Deutsch](index.de.md)
 

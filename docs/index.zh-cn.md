@@ -1,9 +1,7 @@
 ---
 layout: default
 title: 主页
-nav_order: 1
 description: "Symbiont：AI原生、隐私优先的编程语言和智能体框架"
-permalink: /
 ---
 
 # Symbiont 文档
@@ -18,6 +16,7 @@ AI原生、隐私优先的编程语言和智能体框架，用于自主、策略
 ---
 
 ## 🌐 其他语言
+{: .no_toc}
 
 [English](index.md) | **中文简体** | [Español](index.es.md) | [Português](index.pt.md) | [日本語](index.ja.md) | [Deutsch](index.de.md)
 

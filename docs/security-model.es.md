@@ -1,7 +1,6 @@
 ---
 layout: default
 title: Modelo de Seguridad
-nav_order: 5
 description: "Arquitectura e implementación de seguridad de Symbiont"
 ---
 
@@ -12,6 +11,7 @@ Arquitectura de seguridad integral que garantiza protección de confianza cero e
 {: .fs-6 .fw-300 }
 
 ## 🌐 Otros idiomas
+{: .no_toc}
 
 [English](security-model.md) | [中文简体](security-model.zh-cn.md) | **Español** | [Português](security-model.pt.md) | [日本語](security-model.ja.md) | [Deutsch](security-model.de.md)
 

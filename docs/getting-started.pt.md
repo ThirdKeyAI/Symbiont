@@ -1,7 +1,6 @@
 ---
 layout: default
 title: Começando
-nav_order: 2
 description: "Guia de início rápido para Symbiont"
 ---
 
@@ -9,6 +8,7 @@ description: "Guia de início rápido para Symbiont"
 {: .no_toc }
 
 ## 🌐 Outros idiomas
+{: .no_toc}
 
 [English](getting-started.md) | [中文简体](getting-started.zh-cn.md) | [Español](getting-started.es.md) | **Português** | [日本語](getting-started.ja.md) | [Deutsch](getting-started.de.md)
 

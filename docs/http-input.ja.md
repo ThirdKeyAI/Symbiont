@@ -1,6 +1,7 @@
 # HTTP 入力モジュール
 
 ## 🌐 他の言語
+{: .no_toc}
 
 [English](http-input.md) | [中文简体](http-input.zh-cn.md) | [Español](http-input.es.md) | [Português](http-input.pt.md) | **日本語** | [Deutsch](http-input.de.md)
 

@@ -1,7 +1,6 @@
 ---
 layout: default
 title: DSL-Leitfaden
-nav_order: 3
 description: "Vollständiger Leitfaden zur Symbiont Domain-Specific Language"
 ---
 
@@ -9,6 +8,7 @@ description: "Vollständiger Leitfaden zur Symbiont Domain-Specific Language"
 {: .no_toc }
 
 ## 🌐 Andere Sprachen
+{: .no_toc}
 
 [English](dsl-guide.md) | [中文简体](dsl-guide.zh-cn.md) | [Español](dsl-guide.es.md) | [Português](dsl-guide.pt.md) | [日本語](dsl-guide.ja.md) | **Deutsch**
 

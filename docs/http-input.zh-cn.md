@@ -1,6 +1,7 @@
 # HTTP 输入模块
 
 ## 🌐 其他语言
+{: .no_toc}
 
 [English](http-input.md) | **中文简体** | [Español](http-input.es.md) | [Português](http-input.pt.md) | [日本語](http-input.ja.md) | [Deutsch](http-input.de.md)
 

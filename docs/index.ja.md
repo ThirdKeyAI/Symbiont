@@ -1,9 +1,7 @@
 ---
 layout: default
 title: ホーム
-nav_order: 1
 description: "Symbiont：AIネイティブでプライバシーファーストのプログラミング言語とエージェントフレームワーク"
-permalink: /
 ---
 
 # Symbiont ドキュメント
@@ -18,6 +16,7 @@ permalink: /
 ---
 
 ## 🌐 他の言語
+{: .no_toc}
 
 [English](index.md) | [中文简体](index.zh-cn.md) | [Español](index.es.md) | [Português](index.pt.md) | **日本語** | [Deutsch](index.de.md)
 

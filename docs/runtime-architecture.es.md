@@ -1,14 +1,14 @@
 ---
 layout: default
-title: Runtime Architecture
-nav_order: 4
-description: "Symbiont runtime system architecture and components"
+title: Arquitectura del Runtime
+description: "Visión general de la arquitectura del sistema runtime de Symbiont"
 ---
 
 # Arquitectura del Runtime
 {: .no_toc }
 
 ## 🌐 Otros idiomas
+{: .no_toc}
 
 [English](runtime-architecture.md) | [中文简体](runtime-architecture.zh-cn.md) | **Español** | [Português](runtime-architecture.pt.md) | [日本語](runtime-architecture.ja.md) | [Deutsch](runtime-architecture.de.md)
 

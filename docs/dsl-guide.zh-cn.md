@@ -1,7 +1,6 @@
 ---
 layout: default
 title: DSL 指南
-nav_order: 3
 description: "Symbiont 领域特定语言完整指南"
 ---
 
@@ -9,6 +8,7 @@ description: "Symbiont 领域特定语言完整指南"
 {: .no_toc }
 
 ## 🌐 其他语言
+{: .no_toc}
 
 [English](dsl-guide.md) | **中文简体** | [Español](dsl-guide.es.md) | [Português](dsl-guide.pt.md) | [日本語](dsl-guide.ja.md) | [Deutsch](dsl-guide.de.md)
 

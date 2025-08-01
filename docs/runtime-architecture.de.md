@@ -1,8 +1,7 @@
 ---
 layout: default
-title: Runtime Architecture
-nav_order: 4
-description: "Symbiont runtime system architecture and components"
+title: Runtime-Architektur
+description: "Überblick über die Symbiont Runtime-Systemarchitektur"
 ---
 
 # Runtime-Architektur
@@ -20,6 +19,7 @@ Verstehen Sie die Architektur des Symbi-Laufzeitsystems und die Kernkomponenten.
 ---
 
 ## 🌐 Andere Sprachen
+{: .no_toc}
 
 [English](runtime-architecture.md) | [中文简体](runtime-architecture.zh-cn.md) | [Español](runtime-architecture.es.md) | [Português](runtime-architecture.pt.md) | [日本語](runtime-architecture.ja.md) | **Deutsch**
 

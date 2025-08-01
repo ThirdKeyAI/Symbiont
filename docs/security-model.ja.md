@@ -1,7 +1,6 @@
 ---
 layout: default
 title: セキュリティモデル
-nav_order: 5
 description: "Symbiont のセキュリティアーキテクチャと実装"
 ---
 
@@ -9,6 +8,7 @@ description: "Symbiont のセキュリティアーキテクチャと実装"
 {: .no_toc }
 
 ## 🌐 他の言語
+{: .no_toc}
 
 [English](security-model.md) | [中文简体](security-model.zh-cn.md) | [Español](security-model.es.md) | [Português](security-model.pt.md) | **日本語** | [Deutsch](security-model.de.md)
 

@@ -9,6 +9,7 @@ description: "Complete guide to the Symbiont Domain-Specific Language"
 {: .no_toc }
 
 ## 🌐 Other Languages
+{: .no_toc}
 
 **English** | [中文简体](dsl-guide.zh-cn.md) | [Español](dsl-guide.es.md) | [Português](dsl-guide.pt.md) | [日本語](dsl-guide.ja.md) | [Deutsch](dsl-guide.de.md)
 

@@ -9,6 +9,7 @@ description: "Symbiont runtime system architecture and components"
 {: .no_toc }
 
 ## 🌐 Other Languages
+{: .no_toc}
 
 **English** | [中文简体](runtime-architecture.zh-cn.md) | [Español](runtime-architecture.es.md) | [Português](runtime-architecture.pt.md) | [日本語](runtime-architecture.ja.md) | [Deutsch](runtime-architecture.de.md)
 

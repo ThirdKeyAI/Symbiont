@@ -1,9 +1,7 @@
 ---
 layout: default
 title: Startseite
-nav_order: 1
 description: "Symbiont: KI-native, datenschutzorientierte Programmiersprache und Agent-Framework"
-permalink: /
 ---
 
 # Symbiont Dokumentation
@@ -18,6 +16,7 @@ KI-native, datenschutzorientierte Programmiersprache und Agent-Framework für au
 ---
 
 ## 🌐 Andere Sprachen
+{: .no_toc}
 
 [English](index.md) | [中文简体](index.zh-cn.md) | [Español](index.es.md) | [Português](index.pt.md) | [日本語](index.ja.md) | **Deutsch**
 

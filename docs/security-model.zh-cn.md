@@ -1,7 +1,6 @@
 ---
 layout: default
 title: 安全模型
-nav_order: 5
 description: "Symbiont 安全架构和实现"
 ---
 
@@ -12,6 +11,7 @@ description: "Symbiont 安全架构和实现"
 {: .fs-6 .fw-300 }
 
 ## 🌐 其他语言
+{: .no_toc}
 
 [English](security-model.md) | **中文简体** | [Español](security-model.es.md) | [Português](security-model.pt.md) | [日本語](security-model.ja.md) | [Deutsch](security-model.de.md)
 

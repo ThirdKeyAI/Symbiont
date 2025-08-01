@@ -1,7 +1,6 @@
 ---
 layout: default
 title: はじめに
-nav_order: 2
 description: "Symbiont クイックスタートガイド"
 ---
 
@@ -9,6 +8,7 @@ description: "Symbiont クイックスタートガイド"
 {: .no_toc }
 
 ## 🌐 他の言語
+{: .no_toc}
 
 [English](getting-started.md) | [中文简体](getting-started.zh-cn.md) | [Español](getting-started.es.md) | [Português](getting-started.pt.md) | **日本語** | [Deutsch](getting-started.de.md)
 

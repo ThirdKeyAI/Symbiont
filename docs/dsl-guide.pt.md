@@ -1,7 +1,6 @@
 ---
 layout: default
 title: Guia DSL
-nav_order: 3
 description: "Guia completo da Linguagem Específica de Domínio do Symbiont"
 ---
 
@@ -9,6 +8,7 @@ description: "Guia completo da Linguagem Específica de Domínio do Symbiont"
 {: .no_toc }
 
 ## 🌐 Outros idiomas
+{: .no_toc}
 
 [English](dsl-guide.md) | [中文简体](dsl-guide.zh-cn.md) | [Español](dsl-guide.es.md) | **Português** | [日本語](dsl-guide.ja.md) | [Deutsch](dsl-guide.de.md)
 

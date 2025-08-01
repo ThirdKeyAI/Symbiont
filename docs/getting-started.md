@@ -9,6 +9,7 @@ description: "Quick start guide for Symbiont"
 {: .no_toc }
 
 ## 🌐 Other Languages
+{: .no_toc}
 
 **English** | [中文简体](getting-started.zh-cn.md) | [Español](getting-started.es.md) | [Português](getting-started.pt.md) | [日本語](getting-started.ja.md) | [Deutsch](getting-started.de.md)
 

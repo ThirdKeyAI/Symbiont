@@ -1,9 +1,7 @@
 ---
 layout: default
 title: Início
-nav_order: 1
 description: "Symbiont: Linguagem de programação nativa de IA e framework de agentes com privacidade em primeiro lugar"
-permalink: /
 ---
 
 # Documentação do Symbiont
@@ -18,6 +16,7 @@ Linguagem de programação nativa de IA e framework de agentes com privacidade e
 ---
 
 ## 🌐 Outros idiomas
+{: .no_toc}
 
 [English](index.md) | [中文简体](index.zh-cn.md) | [Español](index.es.md) | **Português** | [日本語](index.ja.md) | [Deutsch](index.de.md)
 

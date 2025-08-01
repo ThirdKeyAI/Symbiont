@@ -1,7 +1,6 @@
 ---
 layout: default
 title: DSLガイド
-nav_order: 3
 description: "Symbiont ドメイン固有言語の完全ガイド"
 ---
 
@@ -9,6 +8,7 @@ description: "Symbiont ドメイン固有言語の完全ガイド"
 {: .no_toc }
 
 ## 🌐 他の言語
+{: .no_toc}
 
 [English](dsl-guide.md) | [中文简体](dsl-guide.zh-cn.md) | [Español](dsl-guide.es.md) | [Português](dsl-guide.pt.md) | **日本語** | [Deutsch](dsl-guide.de.md)
 

@@ -1,7 +1,6 @@
 ---
 layout: default
 title: 入门指南
-nav_order: 2
 description: "Symbiont 快速入门指南"
 ---
 
@@ -9,6 +8,7 @@ description: "Symbiont 快速入门指南"
 {: .no_toc }
 
 ## 🌐 其他语言
+{: .no_toc}
 
 [English](getting-started.md) | **中文简体** | [Español](getting-started.es.md) | [Português](getting-started.pt.md) | [日本語](getting-started.ja.md) | [Deutsch](getting-started.de.md)
 

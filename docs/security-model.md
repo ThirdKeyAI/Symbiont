@@ -12,6 +12,7 @@ Comprehensive security architecture ensuring zero-trust, policy-driven protectio
 {: .fs-6 .fw-300 }
 
 ## 🌐 Other Languages
+{: .no_toc}
 
 **English** | [中文简体](security-model.zh-cn.md) | [Español](security-model.es.md) | [Português](security-model.pt.md) | [日本語](security-model.ja.md) | [Deutsch](security-model.de.md)
 
