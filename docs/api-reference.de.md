@@ -1,63 +1,63 @@
-# API Reference
+# API-Referenz
 
-## 🌐 Other Languages
+## 🌐 Andere Sprachen
 
-**English** | [中文简体](api-reference.zh-cn.md) | [Español](api-reference.es.md) | [Português](api-reference.pt.md) | [日本語](api-reference.ja.md) | [Deutsch](api-reference.de.md)
-
----
-
-This document provides comprehensive documentation for the Symbiont runtime APIs. The Symbiont project exposes two distinct API systems designed for different use cases and development stages.
-
-## Overview
-
-Symbiont offers two API interfaces:
-
-1. **Tool Review API (Production)** - A comprehensive, production-ready API for AI-driven tool review and signing workflows
-2. **Runtime HTTP API (Development Preview)** - An evolving API for direct runtime interaction (currently incomplete)
+[English](api-reference.md) | [中文简体](api-reference.zh-cn.md) | [Español](api-reference.es.md) | [Português](api-reference.pt.md) | [日本語](api-reference.ja.md) | **Deutsch**
 
 ---
 
-## Tool Review API (Production)
+Dieses Dokument bietet umfassende Dokumentation für die Symbiont Runtime APIs. Das Symbiont-Projekt stellt zwei unterschiedliche API-Systeme bereit, die für verschiedene Anwendungsfälle und Entwicklungsstadien konzipiert sind.
 
-The Tool Review API provides a complete workflow for securely reviewing, analyzing, and signing MCP (Model Context Protocol) tools using AI-driven security analysis with human oversight capabilities.
+## Überblick
 
-### Base URL
+Symbiont bietet zwei API-Schnittstellen:
+
+1. **Tool Review API (Produktion)** - Eine umfassende, produktionsbereite API für KI-gesteuerte Tool-Review- und Signaturworkflows
+2. **Runtime HTTP API (Entwicklungsvorschau)** - Eine sich entwickelnde API für direkte Runtime-Interaktion (derzeit unvollständig)
+
+---
+
+## Tool Review API (Produktion)
+
+Die Tool Review API bietet einen vollständigen Workflow zur sicheren Überprüfung, Analyse und Signierung von MCP (Model Context Protocol) Tools unter Verwendung KI-gesteuerter Sicherheitsanalyse mit menschlichen Überwachungsfähigkeiten.
+
+### Basis-URL
 ```
 https://your-symbiont-instance.com/api/v1
 ```
 
-### Authentication
-All endpoints require Bearer JWT authentication:
+### Authentifizierung
+Alle Endpunkte erfordern Bearer JWT-Authentifizierung:
 ```
 Authorization: Bearer <your-jwt-token>
 ```
 
-### Core Workflow
+### Kern-Workflow
 
-The Tool Review API follows this request/response flow:
+Die Tool Review API folgt diesem Request/Response-Flow:
 
 ```mermaid
 graph TD
-    A[Submit Tool] --> B[Security Analysis]
-    B --> C{Risk Assessment}
-    C -->|Low Risk| D[Auto-Approve]
-    C -->|High Risk| E[Human Review Queue]
-    E --> F[Human Decision]
+    A[Tool Einreichen] --> B[Sicherheitsanalyse]
+    B --> C{Risikobewertung}
+    C -->|Geringes Risiko| D[Auto-Genehmigung]
+    C -->|Hohes Risiko| E[Menschliche Review-Warteschlange]
+    E --> F[Menschliche Entscheidung]
     F --> D
-    D --> G[Code Signing]
-    G --> H[Signed Tool Ready]
+    D --> G[Code-Signierung]
+    G --> H[Signiertes Tool Bereit]
 ```
 
-### Endpoints
+### Endpunkte
 
-#### Review Sessions
+#### Review-Sitzungen
 
-##### Submit Tool for Review
+##### Tool zur Überprüfung einreichen
 ```http
 POST /sessions
 ```
 
-Submits an MCP tool for security review and analysis.
+Reicht ein MCP-Tool zur Sicherheitsüberprüfung und -analyse ein.
 
 **Request Body:**
 ```json
@@ -82,18 +82,18 @@ Submits an MCP tool for security review and analysis.
 }
 ```
 
-##### List Review Sessions
+##### Review-Sitzungen auflisten
 ```http
 GET /sessions
 ```
 
-Retrieves a paginated list of review sessions with optional filtering.
+Ruft eine paginierte Liste von Review-Sitzungen mit optionaler Filterung ab.
 
-**Query Parameters:**
-- `page` (integer): Page number for pagination
-- `limit` (integer): Number of items per page
-- `status` (string): Filter by review status
-- `author` (string): Filter by tool author
+**Query-Parameter:**
+- `page` (integer): Seitennummer für Paginierung
+- `limit` (integer): Anzahl der Elemente pro Seite
+- `status` (string): Nach Review-Status filtern
+- `author` (string): Nach Tool-Autor filtern
 
 **Response:**
 ```json
@@ -116,12 +116,12 @@ Retrieves a paginated list of review sessions with optional filtering.
 }
 ```
 
-##### Get Review Session Details
+##### Review-Sitzungsdetails abrufen
 ```http
 GET /sessions/{reviewId}
 ```
 
-Retrieves detailed information about a specific review session.
+Ruft detaillierte Informationen über eine bestimmte Review-Sitzung ab.
 
 **Response:**
 ```json
@@ -140,14 +140,14 @@ Retrieves detailed information about a specific review session.
 }
 ```
 
-#### Security Analysis
+#### Sicherheitsanalyse
 
-##### Get Analysis Results
+##### Analyseergebnisse abrufen
 ```http
 GET /analysis/{analysisId}
 ```
 
-Retrieves detailed security analysis results for a specific analysis.
+Ruft detaillierte Sicherheitsanalyseergebnisse für eine bestimmte Analyse ab.
 
 **Response:**
 ```json
@@ -176,14 +176,14 @@ Retrieves detailed security analysis results for a specific analysis.
 }
 ```
 
-#### Human Review Workflow
+#### Menschlicher Review-Workflow
 
-##### Get Review Queue
+##### Review-Warteschlange abrufen
 ```http
 GET /review/queue
 ```
 
-Retrieves items pending human review, typically high-risk tools requiring manual inspection.
+Ruft Elemente ab, die auf menschliche Überprüfung warten, typischerweise hochriskante Tools, die manuelle Inspektion erfordern.
 
 **Response:**
 ```json
@@ -206,12 +206,12 @@ Retrieves items pending human review, typically high-risk tools requiring manual
 }
 ```
 
-##### Submit Review Decision
+##### Review-Entscheidung einreichen
 ```http
 POST /review/{reviewId}/decision
 ```
 
-Submits a human reviewer's decision on a tool review.
+Reicht die Entscheidung eines menschlichen Reviewers zu einem Tool-Review ein.
 
 **Request Body:**
 ```json
@@ -233,14 +233,14 @@ Submits a human reviewer's decision on a tool review.
 }
 ```
 
-#### Tool Signing
+#### Tool-Signierung
 
-##### Get Signing Status
+##### Signierungsstatus abrufen
 ```http
 GET /signing/{reviewId}
 ```
 
-Retrieves the signing status and signature information for a reviewed tool.
+Ruft den Signierungsstatus und Signaturinformationen für ein überprüftes Tool ab.
 
 **Response:**
 ```json
@@ -257,24 +257,24 @@ Retrieves the signing status and signature information for a reviewed tool.
 }
 ```
 
-##### Download Signed Tool
+##### Signiertes Tool herunterladen
 ```http
 GET /signing/{reviewId}/download
 ```
 
-Downloads the signed tool package with embedded signature and verification metadata.
+Lädt das signierte Tool-Paket mit eingebetteter Signatur und Verifizierungsmetadaten herunter.
 
 **Response:**
-Binary download of the signed tool package.
+Binärer Download des signierten Tool-Pakets.
 
-#### Statistics & Monitoring
+#### Statistiken & Überwachung
 
-##### Get Workflow Statistics
+##### Workflow-Statistiken abrufen
 ```http
 GET /stats
 ```
 
-Retrieves comprehensive statistics and metrics about the review workflow.
+Ruft umfassende Statistiken und Metriken zum Review-Workflow ab.
 
 **Response:**
 ```json
@@ -303,22 +303,22 @@ Retrieves comprehensive statistics and metrics about the review workflow.
 
 ### Rate Limiting
 
-The Tool Review API implements rate limiting per endpoint type:
+Die Tool Review API implementiert Rate Limiting pro Endpunkt-Typ:
 
-- **Submission endpoints**: 10 requests per minute
-- **Query endpoints**: 100 requests per minute
-- **Download endpoints**: 20 requests per minute
+- **Einreichungs-Endpunkte**: 10 Anfragen pro Minute
+- **Abfrage-Endpunkte**: 100 Anfragen pro Minute
+- **Download-Endpunkte**: 20 Anfragen pro Minute
 
-Rate limit headers are included in all responses:
+Rate Limit-Header sind in allen Responses enthalten:
 ```
 X-RateLimit-Limit: 100
 X-RateLimit-Remaining: 95
 X-RateLimit-Reset: 1642248000
 ```
 
-### Error Handling
+### Fehlerbehandlung
 
-The API uses standard HTTP status codes and returns detailed error information:
+Die API verwendet Standard-HTTP-Statuscodes und gibt detaillierte Fehlerinformationen zurück:
 
 ```json
 {
@@ -337,21 +337,21 @@ The API uses standard HTTP status codes and returns detailed error information:
 
 ## Runtime HTTP API
 
-The Runtime HTTP API provides direct access to the Symbiont runtime for workflow execution, agent management, and system monitoring. All documented endpoints are fully implemented and available when the `http-api` feature is enabled.
+Die Runtime HTTP API bietet direkten Zugang zur Symbiont Runtime für Workflow-Ausführung, Agent-Management und Systemüberwachung. Alle dokumentierten Endpunkte sind vollständig implementiert und verfügbar, wenn das `http-api` Feature aktiviert ist.
 
-### Base URL
+### Basis-URL
 ```
 http://127.0.0.1:8080/api/v1
 ```
 
-### Available Endpoints
+### Verfügbare Endpunkte
 
-#### Health Check
+#### Gesundheitsprüfung
 ```http
 GET /api/v1/health
 ```
 
-Returns the current system health status and basic runtime information.
+Gibt den aktuellen Systemgesundheitsstatus und grundlegende Runtime-Informationen zurück.
 
 **Response (200 OK):**
 ```json
@@ -363,7 +363,7 @@ Returns the current system health status and basic runtime information.
 }
 ```
 
-**Response (500 Internal Server Error):**
+**Response (500 Interner Serverfehler):**
 ```json
 {
   "status": "unhealthy",
@@ -372,14 +372,14 @@ Returns the current system health status and basic runtime information.
 }
 ```
 
-### Available Endpoints
+### Verfügbare Endpunkte
 
-#### Workflow Execution
+#### Workflow-Ausführung
 ```http
 POST /api/v1/workflows/execute
 ```
 
-Execute a workflow with specified parameters.
+Führt einen Workflow mit angegebenen Parametern aus.
 
 **Request Body:**
 ```json
@@ -397,14 +397,14 @@ Execute a workflow with specified parameters.
 }
 ```
 
-#### Agent Management
+#### Agent-Management
 
-##### List Agents
+##### Agenten auflisten
 ```http
 GET /api/v1/agents
 ```
 
-Retrieve a list of all active agents in the runtime.
+Ruft eine Liste aller aktiven Agenten in der Runtime ab.
 
 **Response (200 OK):**
 ```json
@@ -415,12 +415,12 @@ Retrieve a list of all active agents in the runtime.
 ]
 ```
 
-##### Get Agent Status
+##### Agent-Status abrufen
 ```http
 GET /api/v1/agents/{id}/status
 ```
 
-Get detailed status information for a specific agent.
+Ruft detaillierte Statusinformationen für einen bestimmten Agenten ab.
 
 **Response (200 OK):**
 ```json
@@ -436,12 +436,12 @@ Get detailed status information for a specific agent.
 }
 ```
 
-#### System Metrics
+#### System-Metriken
 ```http
 GET /api/v1/metrics
 ```
 
-Retrieve comprehensive system performance metrics.
+Ruft umfassende Systemleistungsmetriken ab.
 
 **Response (200 OK):**
 ```json
@@ -459,27 +459,27 @@ Retrieve comprehensive system performance metrics.
 }
 ```
 
-### Server Configuration
+### Server-Konfiguration
 
-The Runtime HTTP API server can be configured with the following options:
+Der Runtime HTTP API-Server kann mit den folgenden Optionen konfiguriert werden:
 
-- **Default bind address**: `127.0.0.1:8080`
-- **CORS support**: Configurable for development
-- **Request tracing**: Enabled via Tower middleware
-- **Feature gate**: Available behind `http-api` Cargo feature
+- **Standard-Bind-Adresse**: `127.0.0.1:8080`
+- **CORS-Unterstützung**: Konfigurierbar für Entwicklung
+- **Request-Tracing**: Aktiviert über Tower-Middleware
+- **Feature Gate**: Verfügbar hinter dem `http-api` Cargo-Feature
 
-### Data Structures
+### Datenstrukturen
 
-#### Core Types
+#### Kern-Typen
 ```rust
-// Workflow execution request
+// Workflow-Ausführungsanfrage
 WorkflowExecutionRequest {
     workflow_id: String,
     parameters: serde_json::Value,
     agent_id: Option<AgentId>
 }
 
-// Agent status response
+// Agent-Status-Response
 AgentStatusResponse {
     agent_id: AgentId,
     state: AgentState,
@@ -487,7 +487,7 @@ AgentStatusResponse {
     resource_usage: ResourceUsage
 }
 
-// Health check response
+// Gesundheitsprüfungs-Response
 HealthResponse {
     status: String,
     uptime_seconds: u64,
@@ -498,44 +498,44 @@ HealthResponse {
 
 ### Runtime Provider Interface
 
-The API implements a `RuntimeApiProvider` trait with the following methods:
+Die API implementiert ein `RuntimeApiProvider` Trait mit den folgenden Methoden:
 
-- `execute_workflow()` - Execute a workflow with given parameters
-- `get_agent_status()` - Retrieve status information for a specific agent
-- `get_system_health()` - Get overall system health status
-- `list_agents()` - List all active agents in the runtime
-- `shutdown_agent()` - Gracefully shutdown a specific agent
-- `get_metrics()` - Retrieve system performance metrics
+- `execute_workflow()` - Führt einen Workflow mit gegebenen Parametern aus
+- `get_agent_status()` - Ruft Statusinformationen für einen bestimmten Agenten ab
+- `get_system_health()` - Ruft den allgemeinen Systemgesundheitsstatus ab
+- `list_agents()` - Listet alle aktiven Agenten in der Runtime auf
+- `shutdown_agent()` - Fährt einen bestimmten Agenten ordnungsgemäß herunter
+- `get_metrics()` - Ruft Systemleistungsmetriken ab
 
 ---
 
-## Getting Started
+## Erste Schritte
 
 ### Tool Review API
 
-1. Obtain API credentials from your Symbiont administrator
-2. Submit a tool for review using the `/sessions` endpoint
-3. Monitor the review progress via `/sessions/{reviewId}`
-4. Download signed tools from `/signing/{reviewId}/download`
+1. API-Anmeldedaten von Ihrem Symbiont-Administrator erhalten
+2. Tool zur Überprüfung über den `/sessions` Endpunkt einreichen
+3. Review-Fortschritt über `/sessions/{reviewId}` überwachen
+4. Signierte Tools von `/signing/{reviewId}/download` herunterladen
 
 ### Runtime HTTP API
 
-1. Ensure the runtime is built with the `http-api` feature:
+1. Sicherstellen, dass die Runtime mit dem `http-api` Feature gebaut ist:
    ```bash
    cargo build --features http-api
    ```
-2. Start the runtime server:
+2. Runtime-Server starten:
    ```bash
    ./target/debug/symbiont-runtime --http-api
    ```
-3. Verify the server is running:
+3. Überprüfen, ob der Server läuft:
    ```bash
    curl http://127.0.0.1:8080/api/v1/health
    ```
 
 ## Support
 
-For API support and questions:
-- Review the [Runtime Architecture documentation](runtime-architecture.md)
-- Check the [Security Model documentation](security-model.md)
-- File issues on the project's GitHub repository
+Für API-Support und Fragen:
+- Überprüfen Sie die [Runtime-Architektur-Dokumentation](runtime-architecture.md)
+- Konsultieren Sie die [Sicherheitsmodell-Dokumentation](security-model.md)
+- Melden Sie Probleme im GitHub-Repository des Projekts

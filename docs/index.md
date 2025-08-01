@@ -17,6 +17,12 @@ AI-native, privacy-first programming language and agent framework for autonomous
 
 ---
 
+## 🌐 Other Languages
+
+**English** | [中文简体](index.zh-cn.md) | [Español](index.es.md) | [Português](index.pt.md) | [日本語](index.ja.md) | [Deutsch](index.de.md)
+
+---
+
 ## What is Symbiont?
 
 Symbiont represents the next evolution in software development — where AI agents and human developers collaborate securely, transparently, and effectively. It enables developers to build autonomous, policy-aware agents that can safely collaborate with humans, other agents, and large language models while enforcing zero-trust security, data privacy, and verifiable behavior.

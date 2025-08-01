@@ -1,23 +1,23 @@
 ---
 layout: default
-title: DSL Guide
+title: DSLガイド
 nav_order: 3
-description: "Complete guide to the Symbiont Domain-Specific Language"
+description: "Symbiont ドメイン固有言語の完全ガイド"
 ---
 
-# DSL Guide
+# DSLガイド
 {: .no_toc }
 
-## 🌐 Other Languages
+## 🌐 他の言語
 
-**English** | [中文简体](dsl-guide.zh-cn.md) | [Español](dsl-guide.es.md) | [Português](dsl-guide.pt.md) | [日本語](dsl-guide.ja.md) | [Deutsch](dsl-guide.de.md)
+[English](dsl-guide.md) | [中文简体](dsl-guide.zh-cn.md) | [Español](dsl-guide.es.md) | [Português](dsl-guide.pt.md) | **日本語** | [Deutsch](dsl-guide.de.md)
 
 ---
 
-Master the Symbi DSL for building policy-aware, secure AI agents.
+ポリシー対応のセキュアなAIエージェントを構築するためのSymbi DSLをマスターしましょう。
 {: .fs-6 .fw-300 }
 
-## Table of contents
+## 目次
 {: .no_toc .text-delta }
 
 1. TOC
@@ -25,25 +25,25 @@ Master the Symbi DSL for building policy-aware, secure AI agents.
 
 ---
 
-## Overview
+## 概要
 
-The Symbi DSL is a domain-specific language designed for creating autonomous, policy-aware agents. It combines traditional programming constructs with advanced security features, cryptographic operations, and declarative policy definitions.
+Symbi DSLは、自律的でポリシー対応のエージェントを作成するために設計されたドメイン固有言語です。従来のプログラミング構造と高度なセキュリティ機能、暗号化操作、宣言的ポリシー定義を組み合わせています。
 
-### Key Features
+### 主な機能
 
-- **Security-First Design**: Built-in policy enforcement and audit capabilities
-- **Declarative Policies**: Express security requirements as code
-- **Cryptographic Operations**: Native support for encryption, signing, and proofs
-- **Inter-Agent Communication**: Built-in messaging and collaboration patterns
-- **Type Safety**: Strong typing with security-aware type annotations
+- **セキュリティファーストデザイン**: 組み込みのポリシー実行と監査機能
+- **宣言的ポリシー**: セキュリティ要件をコードとして表現
+- **暗号化操作**: 暗号化、署名、証明のネイティブサポート
+- **エージェント間通信**: 組み込みのメッセージングと協働パターン
+- **型安全性**: セキュリティ対応型注釈を持つ強い型付け
 
 ---
 
-## Language Syntax
+## 言語構文
 
-### Basic Structure
+### 基本構造
 
-Every Symbi program consists of optional metadata, imports, and agent definitions:
+すべてのSymbiプログラムは、オプションのメタデータ、インポート、エージェント定義で構成されます：
 
 ```rust
 metadata {
@@ -60,7 +60,7 @@ agent process_data(input: DataSet) -> Result {
 }
 ```
 
-### Comments
+### コメント
 
 ```rust
 // Single-line comment
@@ -73,9 +73,9 @@ agent process_data(input: DataSet) -> Result {
 
 ---
 
-## Metadata Blocks
+## メタデータブロック
 
-Metadata provides essential information about your agent:
+メタデータは、あなたのエージェントに関する重要な情報を提供します：
 
 ```rust
 metadata {
@@ -89,23 +89,23 @@ metadata {
 }
 ```
 
-### Metadata Fields
+### メタデータフィールド
 
-| Field | Type | Required | Description |
+| フィールド | 型 | 必須 | 説明 |
 |-------|------|----------|-------------|
-| `version` | String | Yes | Semantic version of the agent |
-| `author` | String | Yes | Agent author or organization |
-| `description` | String | Yes | Brief description of agent functionality |
-| `license` | String | No | License identifier |
-| `tags` | Array[String] | No | Classification tags |
-| `min_runtime_version` | String | No | Minimum required runtime version |
-| `dependencies` | Array[String] | No | External dependencies |
+| `version` | String | はい | エージェントのセマンティックバージョン |
+| `author` | String | はい | エージェントの作者または組織 |
+| `description` | String | はい | エージェント機能の簡潔な説明 |
+| `license` | String | いいえ | ライセンス識別子 |
+| `tags` | Array[String] | いいえ | 分類タグ |
+| `min_runtime_version` | String | いいえ | 必要な最小ランタイムバージョン |
+| `dependencies` | Array[String] | いいえ | 外部依存関係 |
 
 ---
 
-## Agent Definitions
+## エージェント定義
 
-### Basic Agent Structure
+### 基本エージェント構造
 
 ```rust
 agent agent_name(param1: Type1, param2: Type2) -> ReturnType {
@@ -121,9 +121,9 @@ agent agent_name(param1: Type1, param2: Type2) -> ReturnType {
 }
 ```
 
-### Agent Parameters
+### エージェントパラメータ
 
-Support for various parameter types:
+さまざまなパラメータ型をサポート：
 
 ```rust
 agent complex_agent(
@@ -147,9 +147,9 @@ agent complex_agent(
 }
 ```
 
-### Capabilities Declaration
+### 機能宣言
 
-Declare what your agent can do:
+あなたのエージェントができることを宣言します：
 
 ```rust
 agent data_processor(input: DataSet) -> Analysis {
@@ -166,11 +166,11 @@ agent data_processor(input: DataSet) -> Analysis {
 
 ---
 
-## Policy Definitions
+## ポリシー定義
 
-Policies define security and compliance rules that are enforced at runtime.
+ポリシーは、実行時に強制されるセキュリティとコンプライアンスルールを定義します。
 
-### Policy Structure
+### ポリシー構造
 
 ```rust
 policy policy_name {
@@ -185,7 +185,7 @@ policy policy_name {
 }
 ```
 
-### Access Control Policies
+### アクセス制御ポリシー
 
 ```rust
 policy medical_data_access {
@@ -200,7 +200,7 @@ policy medical_data_access {
 }
 ```
 
-### Data Classification Policies
+### データ分類ポリシー
 
 ```rust
 policy data_classification {
@@ -217,7 +217,7 @@ policy data_classification {
 }
 ```
 
-### Complex Policy Logic
+### 複雑なポリシーロジック
 
 ```rust
 policy dynamic_access_control {
@@ -239,9 +239,9 @@ policy dynamic_access_control {
 
 ---
 
-## Type System
+## 型システム
 
-### Primitive Types
+### プリミティブ型
 
 ```rust
 // Basic types
@@ -252,7 +252,7 @@ let active: Boolean = true;
 let data: Bytes = b"binary_data";
 ```
 
-### Collection Types
+### コレクション型
 
 ```rust
 // Arrays
@@ -270,7 +270,7 @@ let config: Map<String, String> = {
 let unique_ids: Set<String> = {"id1", "id2", "id3"};
 ```
 
-### Security-Aware Types
+### セキュリティ対応型
 
 ```rust
 // Encrypted types
@@ -288,7 +288,7 @@ let verified_result: VerifiableResult<Analysis> = VerifiableResult {
 };
 ```
 
-### Custom Types
+### カスタム型
 
 ```rust
 // Struct definitions
@@ -314,11 +314,11 @@ type EncryptedPersonalInfo = EncryptedData<PersonalInfo>;
 
 ---
 
-## Execution Context
+## 実行コンテキスト
 
-Configure how your agent executes with the `with` clause:
+`with`句でエージェントの実行方法を設定します：
 
-### Memory Management
+### メモリ管理
 
 ```rust
 agent persistent_agent(data: DataSet) -> Result {
@@ -337,7 +337,7 @@ agent ephemeral_agent(query: String) -> Answer {
 }
 ```
 
-### Privacy Settings
+### プライバシー設定
 
 ```rust
 agent privacy_preserving_agent(sensitive_data: PersonalInfo) -> Statistics {
@@ -349,7 +349,7 @@ agent privacy_preserving_agent(sensitive_data: PersonalInfo) -> Statistics {
 }
 ```
 
-### Security Configuration
+### セキュリティ設定
 
 ```rust
 agent high_security_agent(classified_data: ClassifiedInfo) -> Report {
@@ -367,9 +367,9 @@ agent high_security_agent(classified_data: ClassifiedInfo) -> Report {
 
 ---
 
-## Built-in Functions
+## 組み込み関数
 
-### Data Processing
+### データ処理
 
 ```rust
 // Validation functions
@@ -382,7 +382,7 @@ let cleaned_data = sanitize(raw_data);
 let normalized = normalize(cleaned_data);
 ```
 
-### Cryptographic Operations
+### 暗号化操作
 
 ```rust
 // Encryption/Decryption
@@ -398,7 +398,7 @@ let proof = prove(statement);
 let verified = verify_proof(proof, public_statement);
 ```
 
-### Audit and Logging
+### 監査とログ記録
 
 ```rust
 // Audit logging
@@ -418,9 +418,9 @@ security_event("policy_violation", {
 
 ---
 
-## Inter-Agent Communication
+## エージェント間通信
 
-### Direct Messaging
+### 直接メッセージング
 
 ```rust
 agent coordinator(task: Task) -> Result {
@@ -438,7 +438,7 @@ agent coordinator(task: Task) -> Result {
 }
 ```
 
-### Publish-Subscribe Pattern
+### パブリッシュ・サブスクライブパターン
 
 ```rust
 agent event_publisher(event: Event) -> Confirmation {
@@ -466,7 +466,7 @@ agent event_subscriber() -> Void {
 }
 ```
 
-### Secure Communication
+### セキュア通信
 
 ```rust
 agent secure_collaborator(request: SecureRequest) -> SecureResponse {
@@ -486,9 +486,9 @@ agent secure_collaborator(request: SecureRequest) -> SecureResponse {
 
 ---
 
-## Error Handling
+## エラーハンドリング
 
-### Try-Catch Blocks
+### Try-Catchブロック
 
 ```rust
 agent robust_processor(data: DataSet) -> Result {
@@ -506,7 +506,7 @@ agent robust_processor(data: DataSet) -> Result {
 }
 ```
 
-### Error Recovery
+### エラー回復
 
 ```rust
 agent fault_tolerant_agent(input: Input) -> Result {
@@ -530,9 +530,9 @@ agent fault_tolerant_agent(input: Input) -> Result {
 
 ---
 
-## Advanced Features
+## 高度な機能
 
-### Conditional Compilation
+### 条件付きコンパイル
 
 ```rust
 agent development_agent(data: DataSet) -> Result {
@@ -553,7 +553,7 @@ agent development_agent(data: DataSet) -> Result {
 }
 ```
 
-### Macros and Code Generation
+### マクロとコード生成
 
 ```rust
 // Define reusable policy template
@@ -573,7 +573,7 @@ agent classified_processor(data: ClassifiedData) -> Report {
 }
 ```
 
-### Integration with External Systems
+### 外部システム統合
 
 ```rust
 agent api_integrator(request: APIRequest) -> APIResponse {
@@ -597,37 +597,37 @@ agent api_integrator(request: APIRequest) -> APIResponse {
 
 ---
 
-## Best Practices
+## ベストプラクティス
 
-### Security Guidelines
+### セキュリティガイドライン
 
-1. **Always define policies** for data access and operations
-2. **Use encrypted types** for sensitive data
-3. **Implement audit logging** for compliance
-4. **Validate all inputs** before processing
-5. **Use least privilege principle** in policy definitions
+1. **データアクセスと操作に対して常にポリシーを定義する**
+2. **機密データには暗号化型を使用する**
+3. **コンプライアンスのために監査ログを実装する**
+4. **処理前にすべての入力を検証する**
+5. **ポリシー定義で最小権限の原則を使用する**
 
-### Performance Optimization
+### パフォーマンス最適化
 
-1. **Use ephemeral memory** for short-lived agents
-2. **Batch operations** when possible
-3. **Implement proper error handling** with retries
-4. **Monitor resource usage** in execution context
-5. **Use appropriate data types** for your use case
+1. **短期間のエージェントには一時的メモリを使用する**
+2. **可能な限り操作をバッチ処理する**
+3. **リトライを含む適切なエラーハンドリングを実装する**
+4. **実行コンテキストでリソース使用量を監視する**
+5. **使用ケースに適したデータ型を使用する**
 
-### Code Organization
+### コード組織
 
-1. **Group related policies** in the same block
-2. **Use descriptive capability names**
-3. **Document complex policy logic** with comments
-4. **Separate concerns** into different agents
-5. **Reuse common patterns** with macros
+1. **関連するポリシーを同じブロックにグループ化する**
+2. **説明的な機能名を使用する**
+3. **複雑なポリシーロジックをコメントで文書化する**
+4. **関心事を異なるエージェントに分離する**
+5. **共通パターンをマクロで再利用する**
 
 ---
 
-## Examples
+## 例
 
-### Healthcare Data Processor
+### 医療データプロセッサ
 
 ```rust
 metadata {
@@ -686,7 +686,7 @@ agent medical_analyzer(patient_data: EncryptedPatientRecord) -> MedicalInsights 
 }
 ```
 
-### Financial Transaction Monitor
+### 金融取引監視
 
 ```rust
 agent fraud_detector(transaction: Transaction) -> FraudAssessment {
@@ -731,11 +731,11 @@ agent fraud_detector(transaction: Transaction) -> FraudAssessment {
 
 ---
 
-## Next Steps
+## 次のステップ
 
-- **[Runtime Architecture](/runtime-architecture)** - Understand how agents execute
-- **[Security Model](/security-model)** - Learn about security implementation
-- **[API Reference](/api-reference)** - Complete function and type reference
-- **[Examples](https://github.com/thirdkeyai/symbiont/tree/main/examples)** - More complete examples
+- **[ランタイムアーキテクチャ](/runtime-architecture.ja)** - エージェントの実行方法を理解する
+- **[セキュリティモデル](/security-model.ja)** - セキュリティ実装について学ぶ
+- **[APIリファレンス](/api-reference.ja)** - 完全な関数と型のリファレンス
+- **[例](https://github.com/thirdkeyai/symbiont/tree/main/examples)** - より多くの完全な例
 
-Ready to build your first agent? Check out our [getting started guide](/getting-started) or explore the [runtime examples](https://github.com/thirdkeyai/symbiont/tree/main/crates/runtime/examples).
+最初のエージェントを構築する準備はできましたか？[スタートガイド](/getting-started.ja)をチェックするか、[ランタイムの例](https://github.com/thirdkeyai/symbiont/tree/main/crates/runtime/examples)を探索してください。

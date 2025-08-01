@@ -1,23 +1,23 @@
 ---
 layout: default
-title: DSL Guide
+title: DSL 指南
 nav_order: 3
-description: "Complete guide to the Symbiont Domain-Specific Language"
+description: "Symbiont 领域特定语言完整指南"
 ---
 
-# DSL Guide
+# DSL 指南
 {: .no_toc }
 
-## 🌐 Other Languages
+## 🌐 其他语言
 
-**English** | [中文简体](dsl-guide.zh-cn.md) | [Español](dsl-guide.es.md) | [Português](dsl-guide.pt.md) | [日本語](dsl-guide.ja.md) | [Deutsch](dsl-guide.de.md)
+[English](dsl-guide.md) | **中文简体** | [Español](dsl-guide.es.md) | [Português](dsl-guide.pt.md) | [日本語](dsl-guide.ja.md) | [Deutsch](dsl-guide.de.md)
 
 ---
 
-Master the Symbi DSL for building policy-aware, secure AI agents.
+掌握 Symbi DSL，构建策略感知的安全 AI 代理。
 {: .fs-6 .fw-300 }
 
-## Table of contents
+## 目录
 {: .no_toc .text-delta }
 
 1. TOC
@@ -25,25 +25,25 @@ Master the Symbi DSL for building policy-aware, secure AI agents.
 
 ---
 
-## Overview
+## 概述
 
-The Symbi DSL is a domain-specific language designed for creating autonomous, policy-aware agents. It combines traditional programming constructs with advanced security features, cryptographic operations, and declarative policy definitions.
+Symbi DSL 是一种专为创建自主、策略感知代理而设计的领域特定语言。它将传统编程结构与高级安全功能、加密操作和声明式策略定义相结合。
 
-### Key Features
+### 主要特性
 
-- **Security-First Design**: Built-in policy enforcement and audit capabilities
-- **Declarative Policies**: Express security requirements as code
-- **Cryptographic Operations**: Native support for encryption, signing, and proofs
-- **Inter-Agent Communication**: Built-in messaging and collaboration patterns
-- **Type Safety**: Strong typing with security-aware type annotations
+- **安全优先设计**：内置策略执行和审计功能
+- **声明式策略**：以代码形式表达安全要求
+- **加密操作**：原生支持加密、签名和证明
+- **代理间通信**：内置消息传递和协作模式
+- **类型安全**：具有安全感知类型注释的强类型系统
 
 ---
 
-## Language Syntax
+## 语言语法
 
-### Basic Structure
+### 基本结构
 
-Every Symbi program consists of optional metadata, imports, and agent definitions:
+每个 Symbi 程序都由可选的元数据、导入和代理定义组成：
 
 ```rust
 metadata {
@@ -60,7 +60,7 @@ agent process_data(input: DataSet) -> Result {
 }
 ```
 
-### Comments
+### 注释
 
 ```rust
 // Single-line comment
@@ -73,9 +73,9 @@ agent process_data(input: DataSet) -> Result {
 
 ---
 
-## Metadata Blocks
+## 元数据块
 
-Metadata provides essential information about your agent:
+元数据提供关于您的代理的基本信息：
 
 ```rust
 metadata {
@@ -89,23 +89,23 @@ metadata {
 }
 ```
 
-### Metadata Fields
+### 元数据字段
 
-| Field | Type | Required | Description |
+| 字段 | 类型 | 必需 | 描述 |
 |-------|------|----------|-------------|
-| `version` | String | Yes | Semantic version of the agent |
-| `author` | String | Yes | Agent author or organization |
-| `description` | String | Yes | Brief description of agent functionality |
-| `license` | String | No | License identifier |
-| `tags` | Array[String] | No | Classification tags |
-| `min_runtime_version` | String | No | Minimum required runtime version |
-| `dependencies` | Array[String] | No | External dependencies |
+| `version` | String | 是 | 代理的语义版本 |
+| `author` | String | 是 | 代理作者或组织 |
+| `description` | String | 是 | 代理功能的简要描述 |
+| `license` | String | 否 | 许可证标识符 |
+| `tags` | Array[String] | 否 | 分类标签 |
+| `min_runtime_version` | String | 否 | 所需的最低运行时版本 |
+| `dependencies` | Array[String] | 否 | 外部依赖项 |
 
 ---
 
-## Agent Definitions
+## 代理定义
 
-### Basic Agent Structure
+### 基本代理结构
 
 ```rust
 agent agent_name(param1: Type1, param2: Type2) -> ReturnType {
@@ -121,9 +121,9 @@ agent agent_name(param1: Type1, param2: Type2) -> ReturnType {
 }
 ```
 
-### Agent Parameters
+### 代理参数
 
-Support for various parameter types:
+支持各种参数类型：
 
 ```rust
 agent complex_agent(
@@ -147,9 +147,9 @@ agent complex_agent(
 }
 ```
 
-### Capabilities Declaration
+### 能力声明
 
-Declare what your agent can do:
+声明您的代理能够做什么：
 
 ```rust
 agent data_processor(input: DataSet) -> Analysis {
@@ -166,11 +166,11 @@ agent data_processor(input: DataSet) -> Analysis {
 
 ---
 
-## Policy Definitions
+## 策略定义
 
-Policies define security and compliance rules that are enforced at runtime.
+策略定义在运行时强制执行的安全和合规规则。
 
-### Policy Structure
+### 策略结构
 
 ```rust
 policy policy_name {
@@ -185,7 +185,7 @@ policy policy_name {
 }
 ```
 
-### Access Control Policies
+### 访问控制策略
 
 ```rust
 policy medical_data_access {
@@ -200,7 +200,7 @@ policy medical_data_access {
 }
 ```
 
-### Data Classification Policies
+### 数据分类策略
 
 ```rust
 policy data_classification {
@@ -217,7 +217,7 @@ policy data_classification {
 }
 ```
 
-### Complex Policy Logic
+### 复杂策略逻辑
 
 ```rust
 policy dynamic_access_control {
@@ -239,9 +239,9 @@ policy dynamic_access_control {
 
 ---
 
-## Type System
+## 类型系统
 
-### Primitive Types
+### 基本类型
 
 ```rust
 // Basic types
@@ -252,7 +252,7 @@ let active: Boolean = true;
 let data: Bytes = b"binary_data";
 ```
 
-### Collection Types
+### 集合类型
 
 ```rust
 // Arrays
@@ -270,7 +270,7 @@ let config: Map<String, String> = {
 let unique_ids: Set<String> = {"id1", "id2", "id3"};
 ```
 
-### Security-Aware Types
+### 安全感知类型
 
 ```rust
 // Encrypted types
@@ -288,7 +288,7 @@ let verified_result: VerifiableResult<Analysis> = VerifiableResult {
 };
 ```
 
-### Custom Types
+### 自定义类型
 
 ```rust
 // Struct definitions
@@ -314,11 +314,11 @@ type EncryptedPersonalInfo = EncryptedData<PersonalInfo>;
 
 ---
 
-## Execution Context
+## 执行上下文
 
-Configure how your agent executes with the `with` clause:
+使用 `with` 子句配置代理的执行方式：
 
-### Memory Management
+### 内存管理
 
 ```rust
 agent persistent_agent(data: DataSet) -> Result {
@@ -337,7 +337,7 @@ agent ephemeral_agent(query: String) -> Answer {
 }
 ```
 
-### Privacy Settings
+### 隐私设置
 
 ```rust
 agent privacy_preserving_agent(sensitive_data: PersonalInfo) -> Statistics {
@@ -349,7 +349,7 @@ agent privacy_preserving_agent(sensitive_data: PersonalInfo) -> Statistics {
 }
 ```
 
-### Security Configuration
+### 安全配置
 
 ```rust
 agent high_security_agent(classified_data: ClassifiedInfo) -> Report {
@@ -367,9 +367,9 @@ agent high_security_agent(classified_data: ClassifiedInfo) -> Report {
 
 ---
 
-## Built-in Functions
+## 内置函数
 
-### Data Processing
+### 数据处理
 
 ```rust
 // Validation functions
@@ -382,7 +382,7 @@ let cleaned_data = sanitize(raw_data);
 let normalized = normalize(cleaned_data);
 ```
 
-### Cryptographic Operations
+### 加密操作
 
 ```rust
 // Encryption/Decryption
@@ -398,7 +398,7 @@ let proof = prove(statement);
 let verified = verify_proof(proof, public_statement);
 ```
 
-### Audit and Logging
+### 审计和日志记录
 
 ```rust
 // Audit logging
@@ -418,9 +418,9 @@ security_event("policy_violation", {
 
 ---
 
-## Inter-Agent Communication
+## 代理间通信
 
-### Direct Messaging
+### 直接消息传递
 
 ```rust
 agent coordinator(task: Task) -> Result {
@@ -438,7 +438,7 @@ agent coordinator(task: Task) -> Result {
 }
 ```
 
-### Publish-Subscribe Pattern
+### 发布-订阅模式
 
 ```rust
 agent event_publisher(event: Event) -> Confirmation {
@@ -466,7 +466,7 @@ agent event_subscriber() -> Void {
 }
 ```
 
-### Secure Communication
+### 安全通信
 
 ```rust
 agent secure_collaborator(request: SecureRequest) -> SecureResponse {
@@ -486,9 +486,9 @@ agent secure_collaborator(request: SecureRequest) -> SecureResponse {
 
 ---
 
-## Error Handling
+## 错误处理
 
-### Try-Catch Blocks
+### Try-Catch 块
 
 ```rust
 agent robust_processor(data: DataSet) -> Result {
@@ -506,7 +506,7 @@ agent robust_processor(data: DataSet) -> Result {
 }
 ```
 
-### Error Recovery
+### 错误恢复
 
 ```rust
 agent fault_tolerant_agent(input: Input) -> Result {
@@ -530,9 +530,9 @@ agent fault_tolerant_agent(input: Input) -> Result {
 
 ---
 
-## Advanced Features
+## 高级功能
 
-### Conditional Compilation
+### 条件编译
 
 ```rust
 agent development_agent(data: DataSet) -> Result {
@@ -553,7 +553,7 @@ agent development_agent(data: DataSet) -> Result {
 }
 ```
 
-### Macros and Code Generation
+### 宏和代码生成
 
 ```rust
 // Define reusable policy template
@@ -573,7 +573,7 @@ agent classified_processor(data: ClassifiedData) -> Report {
 }
 ```
 
-### Integration with External Systems
+### 外部系统集成
 
 ```rust
 agent api_integrator(request: APIRequest) -> APIResponse {
@@ -597,37 +597,37 @@ agent api_integrator(request: APIRequest) -> APIResponse {
 
 ---
 
-## Best Practices
+## 最佳实践
 
-### Security Guidelines
+### 安全指南
 
-1. **Always define policies** for data access and operations
-2. **Use encrypted types** for sensitive data
-3. **Implement audit logging** for compliance
-4. **Validate all inputs** before processing
-5. **Use least privilege principle** in policy definitions
+1. **始终为数据访问和操作定义策略**
+2. **对敏感数据使用加密类型**
+3. **为合规性实施审计日志记录**
+4. **在处理之前验证所有输入**
+5. **在策略定义中使用最小权限原则**
 
-### Performance Optimization
+### 性能优化
 
-1. **Use ephemeral memory** for short-lived agents
-2. **Batch operations** when possible
-3. **Implement proper error handling** with retries
-4. **Monitor resource usage** in execution context
-5. **Use appropriate data types** for your use case
+1. **对短期代理使用临时内存**
+2. **尽可能批量操作**
+3. **实施适当的错误处理和重试机制**
+4. **在执行上下文中监控资源使用情况**
+5. **为您的用例使用适当的数据类型**
 
-### Code Organization
+### 代码组织
 
-1. **Group related policies** in the same block
-2. **Use descriptive capability names**
-3. **Document complex policy logic** with comments
-4. **Separate concerns** into different agents
-5. **Reuse common patterns** with macros
+1. **将相关策略分组在同一块中**
+2. **使用描述性的能力名称**
+3. **用注释记录复杂的策略逻辑**
+4. **将关注点分离到不同的代理中**
+5. **使用宏重用常见模式**
 
 ---
 
-## Examples
+## 示例
 
-### Healthcare Data Processor
+### 医疗数据处理器
 
 ```rust
 metadata {
@@ -686,7 +686,7 @@ agent medical_analyzer(patient_data: EncryptedPatientRecord) -> MedicalInsights 
 }
 ```
 
-### Financial Transaction Monitor
+### 金融交易监控器
 
 ```rust
 agent fraud_detector(transaction: Transaction) -> FraudAssessment {
@@ -731,11 +731,11 @@ agent fraud_detector(transaction: Transaction) -> FraudAssessment {
 
 ---
 
-## Next Steps
+## 下一步
 
-- **[Runtime Architecture](/runtime-architecture)** - Understand how agents execute
-- **[Security Model](/security-model)** - Learn about security implementation
-- **[API Reference](/api-reference)** - Complete function and type reference
-- **[Examples](https://github.com/thirdkeyai/symbiont/tree/main/examples)** - More complete examples
+- **[运行时架构](/runtime-architecture.zh-cn)** - 了解代理如何执行
+- **[安全模型](/security-model.zh-cn)** - 学习安全实现
+- **[API 参考](/api-reference.zh-cn)** - 完整的函数和类型参考
+- **[示例](https://github.com/thirdkeyai/symbiont/tree/main/examples)** - 更多完整示例
 
-Ready to build your first agent? Check out our [getting started guide](/getting-started) or explore the [runtime examples](https://github.com/thirdkeyai/symbiont/tree/main/crates/runtime/examples).
+准备构建您的第一个代理？查看我们的[入门指南](/getting-started.zh-cn)或探索[运行时示例](https://github.com/thirdkeyai/symbiont/tree/main/crates/runtime/examples)。

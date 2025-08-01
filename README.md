@@ -1,5 +1,7 @@
 <img src="logo-hz.png" alt="Symbi">
 
+[中文简体](README.zh-cn.md) | [Español](README.es.md) | [Português](README.pt.md) | [日本語](README.ja.md) | [Deutsch](README.de.md)
+
 **Symbi** is an AI-native agent framework for building autonomous, policy-aware agents that can safely collaborate with humans, other agents, and large language models. The Community edition provides core functionality with optional Enterprise features for advanced security, monitoring, and collaboration.
 
 ## 🚀 Quick Start

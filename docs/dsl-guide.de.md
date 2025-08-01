@@ -1,23 +1,23 @@
 ---
 layout: default
-title: DSL Guide
+title: DSL-Leitfaden
 nav_order: 3
-description: "Complete guide to the Symbiont Domain-Specific Language"
+description: "Vollständiger Leitfaden zur Symbiont Domain-Specific Language"
 ---
 
-# DSL Guide
+# DSL-Leitfaden
 {: .no_toc }
 
-## 🌐 Other Languages
+## 🌐 Andere Sprachen
 
-**English** | [中文简体](dsl-guide.zh-cn.md) | [Español](dsl-guide.es.md) | [Português](dsl-guide.pt.md) | [日本語](dsl-guide.ja.md) | [Deutsch](dsl-guide.de.md)
+[English](dsl-guide.md) | [中文简体](dsl-guide.zh-cn.md) | [Español](dsl-guide.es.md) | [Português](dsl-guide.pt.md) | [日本語](dsl-guide.ja.md) | **Deutsch**
 
 ---
 
-Master the Symbi DSL for building policy-aware, secure AI agents.
+Meistern Sie die Symbi DSL für den Aufbau richtlinienbewusster, sicherer KI-Agenten.
 {: .fs-6 .fw-300 }
 
-## Table of contents
+## Inhaltsverzeichnis
 {: .no_toc .text-delta }
 
 1. TOC
@@ -25,25 +25,25 @@ Master the Symbi DSL for building policy-aware, secure AI agents.
 
 ---
 
-## Overview
+## Überblick
 
-The Symbi DSL is a domain-specific language designed for creating autonomous, policy-aware agents. It combines traditional programming constructs with advanced security features, cryptographic operations, and declarative policy definitions.
+Die Symbi DSL ist eine domänenspezifische Sprache, die für die Erstellung autonomer, richtlinienbewusster Agenten entwickelt wurde. Sie kombiniert traditionelle Programmierstrukturen mit erweiterten Sicherheitsfeatures, kryptographischen Operationen und deklarativen Richtliniendefinitionen.
 
-### Key Features
+### Hauptmerkmale
 
-- **Security-First Design**: Built-in policy enforcement and audit capabilities
-- **Declarative Policies**: Express security requirements as code
-- **Cryptographic Operations**: Native support for encryption, signing, and proofs
-- **Inter-Agent Communication**: Built-in messaging and collaboration patterns
-- **Type Safety**: Strong typing with security-aware type annotations
+- **Sicherheitsorientiertes Design**: Eingebaute Richtliniendurchsetzung und Audit-Funktionen
+- **Deklarative Richtlinien**: Sicherheitsanforderungen als Code ausdrücken
+- **Kryptographische Operationen**: Native Unterstützung für Verschlüsselung, Signierung und Beweise
+- **Inter-Agent-Kommunikation**: Eingebaute Messaging- und Kollaborationsmuster
+- **Typsicherheit**: Starke Typisierung mit sicherheitsbewussten Typannotationen
 
 ---
 
-## Language Syntax
+## Sprachsyntax
 
-### Basic Structure
+### Grundstruktur
 
-Every Symbi program consists of optional metadata, imports, and agent definitions:
+Jedes Symbi-Programm besteht aus optionalen Metadaten, Importen und Agentendefinitionen:
 
 ```rust
 metadata {
@@ -60,7 +60,7 @@ agent process_data(input: DataSet) -> Result {
 }
 ```
 
-### Comments
+### Kommentare
 
 ```rust
 // Single-line comment
@@ -73,9 +73,9 @@ agent process_data(input: DataSet) -> Result {
 
 ---
 
-## Metadata Blocks
+## Metadatenblöcke
 
-Metadata provides essential information about your agent:
+Metadaten stellen wesentliche Informationen über Ihren Agenten bereit:
 
 ```rust
 metadata {
@@ -89,23 +89,23 @@ metadata {
 }
 ```
 
-### Metadata Fields
+### Metadatenfelder
 
-| Field | Type | Required | Description |
+| Feld | Typ | Erforderlich | Beschreibung |
 |-------|------|----------|-------------|
-| `version` | String | Yes | Semantic version of the agent |
-| `author` | String | Yes | Agent author or organization |
-| `description` | String | Yes | Brief description of agent functionality |
-| `license` | String | No | License identifier |
-| `tags` | Array[String] | No | Classification tags |
-| `min_runtime_version` | String | No | Minimum required runtime version |
-| `dependencies` | Array[String] | No | External dependencies |
+| `version` | String | Ja | Semantische Version des Agenten |
+| `author` | String | Ja | Agent-Autor oder Organisation |
+| `description` | String | Ja | Kurze Beschreibung der Agent-Funktionalität |
+| `license` | String | Nein | Lizenzidentifikator |
+| `tags` | Array[String] | Nein | Klassifizierungs-Tags |
+| `min_runtime_version` | String | Nein | Minimal erforderliche Runtime-Version |
+| `dependencies` | Array[String] | Nein | Externe Abhängigkeiten |
 
 ---
 
-## Agent Definitions
+## Agentendefinitionen
 
-### Basic Agent Structure
+### Grundlegende Agentenstruktur
 
 ```rust
 agent agent_name(param1: Type1, param2: Type2) -> ReturnType {
@@ -121,9 +121,9 @@ agent agent_name(param1: Type1, param2: Type2) -> ReturnType {
 }
 ```
 
-### Agent Parameters
+### Agentenparameter
 
-Support for various parameter types:
+Unterstützung für verschiedene Parametertypen:
 
 ```rust
 agent complex_agent(
@@ -147,9 +147,9 @@ agent complex_agent(
 }
 ```
 
-### Capabilities Declaration
+### Fähigkeitsdeklaration
 
-Declare what your agent can do:
+Deklarieren Sie, was Ihr Agent kann:
 
 ```rust
 agent data_processor(input: DataSet) -> Analysis {
@@ -166,11 +166,11 @@ agent data_processor(input: DataSet) -> Analysis {
 
 ---
 
-## Policy Definitions
+## Richtliniendefinitionen
 
-Policies define security and compliance rules that are enforced at runtime.
+Richtlinien definieren Sicherheits- und Compliance-Regeln, die zur Laufzeit durchgesetzt werden.
 
-### Policy Structure
+### Richtlinienstruktur
 
 ```rust
 policy policy_name {
@@ -185,7 +185,7 @@ policy policy_name {
 }
 ```
 
-### Access Control Policies
+### Zugriffskontrollrichtlinien
 
 ```rust
 policy medical_data_access {
@@ -200,7 +200,7 @@ policy medical_data_access {
 }
 ```
 
-### Data Classification Policies
+### Datenklassifizierungsrichtlinien
 
 ```rust
 policy data_classification {
@@ -217,7 +217,7 @@ policy data_classification {
 }
 ```
 
-### Complex Policy Logic
+### Komplexe Richtlinienlogik
 
 ```rust
 policy dynamic_access_control {
@@ -239,9 +239,9 @@ policy dynamic_access_control {
 
 ---
 
-## Type System
+## Typsystem
 
-### Primitive Types
+### Primitive Typen
 
 ```rust
 // Basic types
@@ -252,7 +252,7 @@ let active: Boolean = true;
 let data: Bytes = b"binary_data";
 ```
 
-### Collection Types
+### Sammlungstypen
 
 ```rust
 // Arrays
@@ -270,7 +270,7 @@ let config: Map<String, String> = {
 let unique_ids: Set<String> = {"id1", "id2", "id3"};
 ```
 
-### Security-Aware Types
+### Sicherheitsbewusste Typen
 
 ```rust
 // Encrypted types
@@ -288,7 +288,7 @@ let verified_result: VerifiableResult<Analysis> = VerifiableResult {
 };
 ```
 
-### Custom Types
+### Benutzerdefinierte Typen
 
 ```rust
 // Struct definitions
@@ -314,11 +314,11 @@ type EncryptedPersonalInfo = EncryptedData<PersonalInfo>;
 
 ---
 
-## Execution Context
+## Ausführungskontext
 
-Configure how your agent executes with the `with` clause:
+Konfigurieren Sie die Ausführung Ihres Agenten mit der `with`-Klausel:
 
-### Memory Management
+### Speicherverwaltung
 
 ```rust
 agent persistent_agent(data: DataSet) -> Result {
@@ -337,7 +337,7 @@ agent ephemeral_agent(query: String) -> Answer {
 }
 ```
 
-### Privacy Settings
+### Datenschutzeinstellungen
 
 ```rust
 agent privacy_preserving_agent(sensitive_data: PersonalInfo) -> Statistics {
@@ -349,7 +349,7 @@ agent privacy_preserving_agent(sensitive_data: PersonalInfo) -> Statistics {
 }
 ```
 
-### Security Configuration
+### Sicherheitskonfiguration
 
 ```rust
 agent high_security_agent(classified_data: ClassifiedInfo) -> Report {
@@ -367,9 +367,9 @@ agent high_security_agent(classified_data: ClassifiedInfo) -> Report {
 
 ---
 
-## Built-in Functions
+## Eingebaute Funktionen
 
-### Data Processing
+### Datenverarbeitung
 
 ```rust
 // Validation functions
@@ -382,7 +382,7 @@ let cleaned_data = sanitize(raw_data);
 let normalized = normalize(cleaned_data);
 ```
 
-### Cryptographic Operations
+### Kryptographische Operationen
 
 ```rust
 // Encryption/Decryption
@@ -398,7 +398,7 @@ let proof = prove(statement);
 let verified = verify_proof(proof, public_statement);
 ```
 
-### Audit and Logging
+### Audit und Protokollierung
 
 ```rust
 // Audit logging
@@ -418,9 +418,9 @@ security_event("policy_violation", {
 
 ---
 
-## Inter-Agent Communication
+## Inter-Agent-Kommunikation
 
-### Direct Messaging
+### Direktes Messaging
 
 ```rust
 agent coordinator(task: Task) -> Result {
@@ -438,7 +438,7 @@ agent coordinator(task: Task) -> Result {
 }
 ```
 
-### Publish-Subscribe Pattern
+### Publish-Subscribe-Muster
 
 ```rust
 agent event_publisher(event: Event) -> Confirmation {
@@ -466,7 +466,7 @@ agent event_subscriber() -> Void {
 }
 ```
 
-### Secure Communication
+### Sichere Kommunikation
 
 ```rust
 agent secure_collaborator(request: SecureRequest) -> SecureResponse {
@@ -486,9 +486,9 @@ agent secure_collaborator(request: SecureRequest) -> SecureResponse {
 
 ---
 
-## Error Handling
+## Fehlerbehandlung
 
-### Try-Catch Blocks
+### Try-Catch-Blöcke
 
 ```rust
 agent robust_processor(data: DataSet) -> Result {
@@ -506,7 +506,7 @@ agent robust_processor(data: DataSet) -> Result {
 }
 ```
 
-### Error Recovery
+### Fehlerwiederherstellung
 
 ```rust
 agent fault_tolerant_agent(input: Input) -> Result {
@@ -530,9 +530,9 @@ agent fault_tolerant_agent(input: Input) -> Result {
 
 ---
 
-## Advanced Features
+## Erweiterte Features
 
-### Conditional Compilation
+### Bedingte Kompilierung
 
 ```rust
 agent development_agent(data: DataSet) -> Result {
@@ -553,7 +553,7 @@ agent development_agent(data: DataSet) -> Result {
 }
 ```
 
-### Macros and Code Generation
+### Makros und Codegenerierung
 
 ```rust
 // Define reusable policy template
@@ -573,7 +573,7 @@ agent classified_processor(data: ClassifiedData) -> Report {
 }
 ```
 
-### Integration with External Systems
+### Integration mit externen Systemen
 
 ```rust
 agent api_integrator(request: APIRequest) -> APIResponse {
@@ -599,35 +599,35 @@ agent api_integrator(request: APIRequest) -> APIResponse {
 
 ## Best Practices
 
-### Security Guidelines
+### Sicherheitsleitlinien
 
-1. **Always define policies** for data access and operations
-2. **Use encrypted types** for sensitive data
-3. **Implement audit logging** for compliance
-4. **Validate all inputs** before processing
-5. **Use least privilege principle** in policy definitions
+1. **Definieren Sie immer Richtlinien** für Datenzugriff und Operationen
+2. **Verwenden Sie verschlüsselte Typen** für sensible Daten
+3. **Implementieren Sie Audit-Protokollierung** für Compliance
+4. **Validieren Sie alle Eingaben** vor der Verarbeitung
+5. **Verwenden Sie das Prinzip der minimalen Berechtigung** in Richtliniendefinitionen
 
-### Performance Optimization
+### Leistungsoptimierung
 
-1. **Use ephemeral memory** for short-lived agents
-2. **Batch operations** when possible
-3. **Implement proper error handling** with retries
-4. **Monitor resource usage** in execution context
-5. **Use appropriate data types** for your use case
+1. **Verwenden Sie flüchtigen Speicher** für kurzlebige Agenten
+2. **Bündeln Sie Operationen** wenn möglich
+3. **Implementieren Sie ordnungsgemäße Fehlerbehandlung** mit Wiederholungen
+4. **Überwachen Sie die Ressourcennutzung** im Ausführungskontext
+5. **Verwenden Sie geeignete Datentypen** für Ihren Anwendungsfall
 
-### Code Organization
+### Code-Organisation
 
-1. **Group related policies** in the same block
-2. **Use descriptive capability names**
-3. **Document complex policy logic** with comments
-4. **Separate concerns** into different agents
-5. **Reuse common patterns** with macros
+1. **Gruppieren Sie verwandte Richtlinien** im selben Block
+2. **Verwenden Sie beschreibende Fähigkeitsnamen**
+3. **Dokumentieren Sie komplexe Richtlinienlogik** mit Kommentaren
+4. **Trennen Sie Anliegen** in verschiedene Agenten
+5. **Verwenden Sie gemeinsame Muster wieder** mit Makros
 
 ---
 
-## Examples
+## Beispiele
 
-### Healthcare Data Processor
+### Gesundheitsdaten-Prozessor
 
 ```rust
 metadata {
@@ -686,7 +686,7 @@ agent medical_analyzer(patient_data: EncryptedPatientRecord) -> MedicalInsights 
 }
 ```
 
-### Financial Transaction Monitor
+### Finanz-Transaktionsmonitor
 
 ```rust
 agent fraud_detector(transaction: Transaction) -> FraudAssessment {
@@ -731,11 +731,11 @@ agent fraud_detector(transaction: Transaction) -> FraudAssessment {
 
 ---
 
-## Next Steps
+## Nächste Schritte
 
-- **[Runtime Architecture](/runtime-architecture)** - Understand how agents execute
-- **[Security Model](/security-model)** - Learn about security implementation
-- **[API Reference](/api-reference)** - Complete function and type reference
-- **[Examples](https://github.com/thirdkeyai/symbiont/tree/main/examples)** - More complete examples
+- **[Runtime-Architektur](/runtime-architecture.de)** - Verstehen Sie, wie Agenten ausgeführt werden
+- **[Sicherheitsmodell](/security-model.de)** - Lernen Sie über die Sicherheitsimplementierung
+- **[API-Referenz](/api-reference.de)** - Vollständige Funktions- und Typenreferenz
+- **[Beispiele](https://github.com/thirdkeyai/symbiont/tree/main/examples)** - Weitere vollständige Beispiele
 
-Ready to build your first agent? Check out our [getting started guide](/getting-started) or explore the [runtime examples](https://github.com/thirdkeyai/symbiont/tree/main/crates/runtime/examples).
+Bereit, Ihren ersten Agenten zu erstellen? Schauen Sie sich unseren [Startleitfaden](/getting-started.de) an oder erkunden Sie die [Runtime-Beispiele](https://github.com/thirdkeyai/symbiont/tree/main/crates/runtime/examples).

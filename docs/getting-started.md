@@ -8,6 +8,12 @@ description: "Quick start guide for Symbiont"
 # Getting Started
 {: .no_toc }
 
+## 🌐 Other Languages
+
+**English** | [中文简体](getting-started.zh-cn.md) | [Español](getting-started.es.md) | [Português](getting-started.pt.md) | [日本語](getting-started.ja.md) | [Deutsch](getting-started.de.md)
+
+---
+
 This guide will walk you through setting up Symbi and creating your first AI agent.
 {: .fs-6 .fw-300 }
 

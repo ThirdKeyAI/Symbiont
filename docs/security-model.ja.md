@@ -1,23 +1,23 @@
 ---
 layout: default
-title: Security Model
+title: セキュリティモデル
 nav_order: 5
-description: "Symbiont security architecture and implementation"
+description: "Symbiont のセキュリティアーキテクチャと実装"
 ---
 
-# Security Model
+# セキュリティモデル
 {: .no_toc }
 
-Comprehensive security architecture ensuring zero-trust, policy-driven protection for AI agents.
-{: .fs-6 .fw-300 }
+## 🌐 他の言語
 
-## 🌐 Other Languages
-
-**English** | [中文简体](security-model.zh-cn.md) | [Español](security-model.es.md) | [Português](security-model.pt.md) | [日本語](security-model.ja.md) | [Deutsch](security-model.de.md)
+[English](security-model.md) | [中文简体](security-model.zh-cn.md) | [Español](security-model.es.md) | [Português](security-model.pt.md) | **日本語** | [Deutsch](security-model.de.md)
 
 ---
 
-## Table of contents
+AI エージェントに対してゼロトラスト、ポリシー駆動型保護を確保する包括的なセキュリティアーキテクチャ。
+{: .fs-6 .fw-300 }
+
+## 目次
 {: .no_toc .text-delta }
 
 1. TOC
@@ -25,23 +25,23 @@ Comprehensive security architecture ensuring zero-trust, policy-driven protectio
 
 ---
 
-## Overview
+## 概要
 
-Symbiont implements a security-first architecture designed for regulated and high-assurance environments. The security model is built on zero-trust principles with comprehensive policy enforcement, multi-tier sandboxing, and cryptographic auditability.
+Symbiont は、規制された高保証環境向けに設計されたセキュリティファーストアーキテクチャを実装しています。セキュリティモデルは、包括的なポリシー実行、マルチティアサンドボックス、暗号学的監査可能性を備えたゼロトラスト原則に基づいて構築されています。
 
-### Security Principles
+### セキュリティ原則
 
-- **Zero Trust**: All components and communications are verified
-- **Defense in Depth**: Multiple security layers with no single point of failure
-- **Policy-Driven**: Declarative security policies enforced at runtime
-- **Complete Auditability**: Every operation logged with cryptographic integrity
-- **Least Privilege**: Minimal permissions required for operation
+- **ゼロトラスト**：すべてのコンポーネントと通信が検証される
+- **多層防御**：単一障害点のない複数のセキュリティ層
+- **ポリシー駆動型**：実行時に適用される宣言的セキュリティポリシー
+- **完全監査可能性**：暗号学的整合性を持つすべての操作ログ
+- **最小権限**：操作に必要な最小限の権限
 
 ---
 
-## Multi-Tier Sandboxing
+## マルチティアサンドボックス
 
-The runtime implements two isolation tiers based on risk assessment:
+ランタイムは、リスク評価に基づいて2つの分離ティアを実装します：
 
 ```mermaid
 graph TB
@@ -68,16 +68,16 @@ graph TB
     D --> D1
 ```
 
-> **Note**: Additional isolation tiers with hardware virtualization are available in Enterprise editions.
+> **注意**：ハードウェア仮想化を使用した追加の分離ティアは Enterprise エディションで利用可能です。
 
-### Tier 1: Docker Isolation
+### ティア1：Docker 分離
 
-**Use Cases:**
-- Trusted development tasks
-- Low-sensitivity data processing
-- Internal tool operations
+**使用例：**
+- 信頼できる開発タスク
+- 低感度データ処理
+- 内部ツール操作
 
-**Security Features:**
+**セキュリティ機能：**
 ```yaml
 docker_security:
   memory_limit: "512MB"
@@ -92,26 +92,26 @@ docker_security:
     add: ["SETUID", "SETGID"]
 ```
 
-**Threat Protection:**
-- Process isolation from host
-- Resource exhaustion prevention
-- Network access control
-- Filesystem protection
+**脅威保護：**
+- ホストからのプロセス分離
+- リソース枯渇防止
+- ネットワークアクセス制御
+- ファイルシステム保護
 
-### Tier 2: gVisor Isolation
+### ティア2：gVisor 分離
 
-**Use Cases:**
-- Standard production workloads
-- Sensitive data processing
-- External tool integration
+**使用例：**
+- 標準本番ワークロード
+- 機密データ処理
+- 外部ツール統合
 
-**Security Features:**
-- User-space kernel implementation
-- System call filtering and translation
-- Memory protection boundaries
-- I/O request validation
+**セキュリティ機能：**
+- ユーザー空間カーネル実装
+- システムコールフィルタリングと変換
+- メモリ保護境界
+- I/O リクエスト検証
 
-**Configuration:**
+**設定：**
 ```yaml
 gvisor_security:
   runtime: "runsc"
@@ -122,15 +122,15 @@ gvisor_security:
   strace: false
 ```
 
-**Advanced Protection:**
-- Kernel vulnerability isolation
-- System call interception
-- Memory corruption prevention
-- Side-channel attack mitigation
+**高度な保護：**
+- カーネル脆弱性分離
+- システムコール傍受
+- メモリ破損防止
+- サイドチャネル攻撃緩和
 
-> **Enterprise Feature**: Advanced isolation with hardware virtualization (Firecracker) is available in Enterprise editions for maximum security requirements.
+> **Enterprise 機能**：最大セキュリティ要件のためのハードウェア仮想化（Firecracker）による高度な分離は Enterprise エディションで利用可能です。
 
-### Risk Assessment Algorithm
+### リスク評価アルゴリズム
 
 ```rust
 pub struct RiskAssessment {
@@ -155,11 +155,11 @@ pub fn calculate_risk_score(assessment: RiskAssessment) -> f32 {
 
 ---
 
-## Policy Engine
+## ポリシーエンジン
 
-### Policy Architecture
+### ポリシーアーキテクチャ
 
-The policy engine provides declarative security controls with runtime enforcement:
+ポリシーエンジンは、実行時適用による宣言的セキュリティ制御を提供します：
 
 ```mermaid
 graph TB
@@ -178,11 +178,11 @@ graph TB
     E --> K
 ```
 
-### Policy Types
+### ポリシータイプ
 
-#### Access Control Policies
+#### アクセス制御ポリシー
 
-Define who can access what resources under which conditions:
+どの条件下で誰がどのリソースにアクセスできるかを定義します：
 
 ```rust
 policy secure_data_access {
@@ -202,9 +202,9 @@ policy secure_data_access {
 }
 ```
 
-#### Data Flow Policies
+#### データフローポリシー
 
-Control how data moves through the system:
+システム内でのデータの移動方法を制御します：
 
 ```rust
 policy data_flow_control {
@@ -221,9 +221,9 @@ policy data_flow_control {
 }
 ```
 
-#### Resource Usage Policies
+#### リソース使用ポリシー
 
-Manage computational resource allocation:
+計算リソース割り当てを管理します：
 
 ```rust
 policy resource_governance {
@@ -238,7 +238,7 @@ policy resource_governance {
 }
 ```
 
-### Policy Evaluation Engine
+### ポリシー評価エンジン
 
 ```rust
 pub trait PolicyEngine {
@@ -260,31 +260,31 @@ pub enum PolicyDecision {
 }
 ```
 
-### Performance Optimization
+### パフォーマンス最適化
 
-**Policy Caching:**
-- Compiled policy evaluation for performance
-- LRU cache for frequent decisions
-- Batch evaluation for bulk operations
-- Sub-millisecond evaluation times
+**ポリシーキャッシュ：**
+- パフォーマンスのためのコンパイル済みポリシー評価
+- 頻繁な決定のための LRU キャッシュ
+- 一括操作のためのバッチ評価
+- サブミリ秒評価時間
 
-**Incremental Updates:**
-- Real-time policy updates without restart
-- Versioned policy deployment
-- Rollback capabilities for policy errors
+**増分更新：**
+- 再起動なしのリアルタイムポリシー更新
+- バージョン管理されたポリシーデプロイメント
+- ポリシーエラーのロールバック機能
 
 ---
 
-## Cryptographic Security
+## 暗号学的セキュリティ
 
-### Digital Signatures
+### デジタル署名
 
-All security-relevant operations are cryptographically signed:
+すべてのセキュリティ関連操作は暗号学的に署名されます：
 
-**Signature Algorithm:** Ed25519 (RFC 8032)
-- **Key Size:** 256-bit private keys, 256-bit public keys
-- **Signature Size:** 512 bits (64 bytes)
-- **Performance:** 70,000+ signatures/second, 25,000+ verifications/second
+**署名アルゴリズム：** Ed25519（RFC 8032）
+- **キーサイズ：** 256 ビット秘密鍵、256 ビット公開鍵
+- **署名サイズ：** 512 ビット（64 バイト）
+- **パフォーマンス：** 70,000+ 署名/秒、25,000+ 検証/秒
 
 ```rust
 pub struct CryptographicSignature {
@@ -308,19 +308,19 @@ impl AuditEvent {
 }
 ```
 
-### Key Management
+### キー管理
 
-**Key Storage:**
-- Hardware Security Module (HSM) integration
-- Secure enclave support for key protection
-- Key rotation with configurable intervals
-- Distributed key backup and recovery
+**キー保存：**
+- ハードウェアセキュリティモジュール（HSM）統合
+- キー保護のためのセキュアエンクレーブサポート
+- 設定可能な間隔でのキーローテーション
+- 分散キーバックアップと復旧
 
-**Key Hierarchy:**
-- Root signing keys for system operations
-- Per-agent keys for operation signing
-- Ephemeral keys for session encryption
-- External keys for tool verification
+**キー階層：**
+- システム操作のためのルート署名キー
+- 操作署名のためのエージェント別キー
+- セッション暗号化のための一時キー
+- ツール検証のための外部キー
 
 ```rust
 pub struct KeyManager {
@@ -336,19 +336,19 @@ impl KeyManager {
 }
 ```
 
-### Encryption Standards
+### 暗号化標準
 
-**Symmetric Encryption:** AES-256-GCM
-- 256-bit keys with authenticated encryption
-- Unique nonces for each encryption operation
-- Associated data for context binding
+**対称暗号化：** AES-256-GCM
+- 認証付き暗号化を持つ 256 ビットキー
+- 各暗号化操作のユニークナンス
+- コンテキストバインディングのための関連データ
 
-**Asymmetric Encryption:** X25519 + ChaCha20-Poly1305
-- Elliptic curve key exchange
-- Stream cipher with authenticated encryption
-- Perfect forward secrecy
+**非対称暗号化：** X25519 + ChaCha20-Poly1305
+- 楕円曲線キー交換
+- 認証付き暗号化を持つストリーム暗号
+- 完全前方秘匿性
 
-**Message Encryption:**
+**メッセージ暗号化：**
 ```rust
 pub fn encrypt_message(
     plaintext: &[u8], 
@@ -370,11 +370,11 @@ pub fn encrypt_message(
 
 ---
 
-## Audit and Compliance
+## 監査とコンプライアンス
 
-### Cryptographic Audit Trail
+### 暗号学的監査証跡
 
-Every security-relevant operation generates an immutable audit event:
+すべてのセキュリティ関連操作は不変の監査イベントを生成します：
 
 ```rust
 pub struct AuditEvent {
@@ -389,17 +389,17 @@ pub struct AuditEvent {
 }
 ```
 
-**Audit Event Types:**
-- Agent lifecycle events (creation, termination)
-- Policy evaluation decisions
-- Resource allocation and usage
-- Message sending and routing
-- External tool invocations
-- Security violations and alerts
+**監査イベントタイプ：**
+- エージェントライフサイクルイベント（作成、終了）
+- ポリシー評価決定
+- リソース割り当てと使用
+- メッセージ送信とルーティング
+- 外部ツール呼び出し
+- セキュリティ違反とアラート
 
-### Hash Chaining
+### ハッシュチェーン
 
-Events are linked in an immutable chain:
+イベントは不変チェーンでリンクされます：
 
 ```rust
 impl AuditChain {
@@ -432,29 +432,29 @@ impl AuditChain {
 }
 ```
 
-### Compliance Features
+### コンプライアンス機能
 
-**Regulatory Support:**
+**規制サポート：**
 
-**HIPAA (Healthcare):**
-- PHI access logging with user identification
-- Data minimization enforcement
-- Breach detection and notification
-- Audit trail retention for 6 years
+**HIPAA（ヘルスケア）：**
+- ユーザー識別を含む PHI アクセスログ
+- データ最小化適用
+- 侵害検出と通知
+- 6 年間の監査証跡保持
 
-**GDPR (Privacy):**
-- Personal data processing logs
-- Consent verification tracking
-- Data subject rights enforcement
-- Data retention policy compliance
+**GDPR（プライバシー）：**
+- 個人データ処理ログ
+- 同意検証追跡
+- データ主体権利適用
+- データ保持ポリシーコンプライアンス
 
-**SOX (Financial):**
-- Internal control documentation
-- Change management tracking
-- Access control verification
-- Financial data protection
+**SOX（金融）：**
+- 内部統制文書化
+- 変更管理追跡
+- アクセス制御検証
+- 金融データ保護
 
-**Custom Compliance:**
+**カスタムコンプライアンス：**
 ```rust
 pub struct ComplianceFramework {
     pub name: String,
@@ -472,11 +472,11 @@ impl ComplianceFramework {
 
 ---
 
-## Tool Security with SchemaPin
+## SchemaPin によるツールセキュリティ
 
-### Tool Verification Process
+### ツール検証プロセス
 
-External tools are verified using cryptographic signatures:
+外部ツールは暗号署名を使用して検証されます：
 
 ```mermaid
 sequenceDiagram
@@ -499,13 +499,13 @@ sequenceDiagram
     Runtime-->>Agent: Allow/Deny Tool Use
 ```
 
-### Trust-On-First-Use (TOFU)
+### 初回使用時信頼（TOFU）
 
-**Key Pinning Process:**
-1. First encounter with a tool provider
-2. Verify provider's public key through external channels
-3. Pin the public key in local trust store
-4. Use pinned key for all future verifications
+**キーピニングプロセス：**
+1. ツールプロバイダーとの初回接触
+2. 外部チャネルを通じてプロバイダーの公開鍵を検証
+3. ローカル信頼ストアに公開鍵をピン留め
+4. 将来のすべての検証にピン留めされたキーを使用
 
 ```rust
 pub struct TOFUKeyStore {
@@ -542,15 +542,15 @@ impl TOFUKeyStore {
 }
 ```
 
-### AI-Driven Tool Review
+### AI 駆動ツールレビュー
 
-Automated security analysis before tool approval:
+ツール承認前の自動セキュリティ分析：
 
-**Analysis Components:**
-- **Vulnerability Detection**: Pattern matching against known vulnerability signatures
-- **Malicious Code Detection**: ML-based malicious behavior identification
-- **Resource Usage Analysis**: Assessment of computational resource requirements
-- **Privacy Impact Assessment**: Data handling and privacy implications
+**分析コンポーネント：**
+- **脆弱性検出**：既知の脆弱性シグネチャに対するパターンマッチング
+- **悪意のあるコード検出**：ML ベースの悪意のある動作識別
+- **リソース使用分析**：計算リソース要件の評価
+- **プライバシー影響評価**：データ処理とプライバシーへの影響
 
 ```rust
 pub struct SecurityAnalyzer {
@@ -591,21 +591,21 @@ impl SecurityAnalyzer {
 
 ---
 
-## Network Security
+## ネットワークセキュリティ
 
-### Secure Communication
+### セキュア通信
 
-**Transport Layer Security:**
-- TLS 1.3 for all external communications
-- Mutual TLS (mTLS) for service-to-service communication
-- Certificate pinning for known services
-- Perfect forward secrecy
+**トランスポート層セキュリティ：**
+- すべての外部通信に TLS 1.3
+- サービス間通信のための相互 TLS（mTLS）
+- 既知のサービスの証明書ピニング
+- 完全前方秘匿性
 
-**Message-Level Security:**
-- End-to-end encryption for agent messages
-- Message authentication codes (MAC)
-- Replay attack prevention with timestamps
-- Message ordering guarantees
+**メッセージレベルセキュリティ：**
+- エージェントメッセージのエンドツーエンド暗号化
+- メッセージ認証コード（MAC）
+- タイムスタンプによるリプレイ攻撃防止
+- メッセージ順序保証
 
 ```rust
 pub struct SecureChannel {
@@ -634,15 +634,15 @@ impl SecureChannel {
 }
 ```
 
-### Network Isolation
+### ネットワーク分離
 
-**Sandbox Network Control:**
-- No network access by default
-- Explicit allow-list for external connections
-- Traffic monitoring and anomaly detection
-- DNS filtering and validation
+**サンドボックスネットワーク制御：**
+- デフォルトでネットワークアクセスなし
+- 外部接続の明示的許可リスト
+- トラフィック監視と異常検出
+- DNS フィルタリングと検証
 
-**Network Policies:**
+**ネットワークポリシー：**
 ```yaml
 network_policy:
   default_action: "deny"
@@ -662,17 +662,17 @@ network_policy:
 
 ---
 
-## Incident Response
+## インシデント対応
 
-### Security Event Detection
+### セキュリティイベント検出
 
-**Automated Detection:**
-- Policy violation monitoring
-- Anomalous behavior detection
-- Resource usage anomalies
-- Failed authentication tracking
+**自動検出：**
+- ポリシー違反監視
+- 異常行動検出
+- リソース使用異常
+- 認証失敗追跡
 
-**Alert Classification:**
+**アラート分類：**
 ```rust
 pub enum SecurityEventSeverity {
     Info,       // Normal security events
@@ -693,7 +693,7 @@ pub struct SecurityEvent {
 }
 ```
 
-### Incident Response Workflow
+### インシデント対応ワークフロー
 
 ```mermaid
 graph TB
@@ -714,35 +714,35 @@ graph TB
     G --> L[External Incident Response]
 ```
 
-### Recovery Procedures
+### 復旧手順
 
-**Automated Recovery:**
-- Agent restart with clean state
-- Key rotation for compromised credentials
-- Policy updates to prevent recurrence
-- System health verification
+**自動復旧：**
+- クリーンな状態でのエージェント再起動
+- 侵害された認証情報のキーローテーション
+- 再発防止のためのポリシー更新
+- システムヘルス検証
 
-**Manual Recovery:**
-- Forensic analysis of security events
-- Root cause analysis and remediation
-- Security control updates
-- Incident documentation and lessons learned
+**手動復旧：**
+- セキュリティイベントのフォレンジック分析
+- 根本原因分析と修復
+- セキュリティ制御更新
+- インシデント文書化と教訓
 
 ---
 
-## Security Best Practices
+## セキュリティベストプラクティス
 
-### Development Guidelines
+### 開発ガイドライン
 
-1. **Secure by Default**: All security features enabled by default
-2. **Principle of Least Privilege**: Minimal permissions for all operations
-3. **Defense in Depth**: Multiple security layers with redundancy
-4. **Fail Securely**: Security failures should deny access, not grant it
-5. **Audit Everything**: Complete logging of security-relevant operations
+1. **デフォルトでセキュア**：すべてのセキュリティ機能をデフォルトで有効化
+2. **最小権限の原則**：すべての操作に最小限の権限
+3. **多層防御**：冗長性を持つ複数のセキュリティ層
+4. **セキュアな失敗**：セキュリティ失敗はアクセスを許可ではなく拒否すべき
+5. **すべてを監査**：セキュリティ関連操作の完全ログ
 
-### Deployment Security
+### デプロイメントセキュリティ
 
-**Environment Hardening:**
+**環境ハードニング：**
 ```bash
 # Disable unnecessary services
 systemctl disable cups bluetooth
@@ -755,7 +755,7 @@ echo "kernel.kptr_restrict=2" >> /etc/sysctl.conf
 mount -o remount,nodev,nosuid,noexec /tmp
 ```
 
-**Container Security:**
+**コンテナセキュリティ：**
 ```dockerfile
 # Use minimal base image
 FROM scratch
@@ -768,27 +768,27 @@ USER 1000:1000
 LABEL security.no-new-privileges=true
 ```
 
-### Operational Security
+### 運用セキュリティ
 
-**Monitoring Checklist:**
-- [ ] Real-time security event monitoring
-- [ ] Policy violation tracking
-- [ ] Resource usage anomaly detection
-- [ ] Failed authentication monitoring
-- [ ] Certificate expiration tracking
+**監視チェックリスト：**
+- [ ] リアルタイムセキュリティイベント監視
+- [ ] ポリシー違反追跡
+- [ ] リソース使用異常検出
+- [ ] 認証失敗監視
+- [ ] 証明書有効期限追跡
 
-**Maintenance Procedures:**
-- Regular security updates and patches
-- Key rotation on schedule
-- Policy review and updates
-- Security audit and penetration testing
-- Incident response plan testing
+**メンテナンス手順：**
+- 定期的なセキュリティ更新とパッチ
+- スケジュールされたキーローテーション
+- ポリシーレビューと更新
+- セキュリティ監査と侵入テスト
+- インシデント対応計画テスト
 
 ---
 
-## Security Configuration
+## セキュリティ設定
 
-### Environment Variables
+### 環境変数
 
 ```bash
 # Cryptographic settings
@@ -807,7 +807,7 @@ export SYMBIONT_DEFAULT_SANDBOX_TIER=gvisor
 export SYMBIONT_TOFU_ENABLED=true
 ```
 
-### Security Configuration File
+### セキュリティ設定ファイル
 
 ```toml
 [security]
@@ -851,68 +851,68 @@ automatic_key_pinning = false
 
 ---
 
-## Security Metrics
+## セキュリティメトリクス
 
-### Key Performance Indicators
+### 主要パフォーマンス指標
 
-**Security Operations:**
-- Policy evaluation latency: <1ms average
-- Audit event generation rate: 10,000+ events/second
-- Security incident response time: <5 minutes
-- Cryptographic operation throughput: 70,000+ ops/second
+**セキュリティ操作：**
+- ポリシー評価レイテンシ：平均 <1ms
+- 監査イベント生成率：10,000+ イベント/秒
+- セキュリティインシデント応答時間：<5 分
+- 暗号操作スループット：70,000+ 操作/秒
 
-**Compliance Metrics:**
-- Policy compliance rate: >99.9%
-- Audit trail integrity: 100%
-- Security event false positive rate: <1%
-- Incident resolution time: <24 hours
+**コンプライアンスメトリクス：**
+- ポリシーコンプライアンス率：>99.9%
+- 監査証跡整合性：100%
+- セキュリティイベント偽陽性率：<1%
+- インシデント解決時間：<24 時間
 
-**Risk Assessment:**
-- Vulnerability patching time: <48 hours
-- Security control effectiveness: >95%
-- Threat detection accuracy: >99%
-- Recovery time objective: <1 hour
-
----
-
-## Future Enhancements
-
-### Advanced Cryptography
-
-**Post-Quantum Cryptography:**
-- NIST-approved post-quantum algorithms
-- Hybrid classical/post-quantum schemes
-- Migration planning for quantum threats
-
-**Homomorphic Encryption:**
-- Privacy-preserving computation on encrypted data
-- CKKS scheme for approximate arithmetic
-- Integration with machine learning workflows
-
-**Zero-Knowledge Proofs:**
-- zk-SNARKs for computation verification
-- Privacy-preserving authentication
-- Compliance proof generation
-
-### AI-Enhanced Security
-
-**Behavior Analysis:**
-- Machine learning for anomaly detection
-- Predictive security analytics
-- Adaptive threat response
-
-**Automated Response:**
-- Self-healing security controls
-- Dynamic policy generation
-- Intelligent incident classification
+**リスク評価：**
+- 脆弱性パッチ適用時間：<48 時間
+- セキュリティ制御有効性：>95%
+- 脅威検出精度：>99%
+- 復旧時間目標：<1 時間
 
 ---
 
-## Next Steps
+## 将来の改良
 
-- **[Contributing](/contributing)** - Security development guidelines
-- **[Runtime Architecture](/runtime-architecture)** - Technical implementation details
-- **[API Reference](/api-reference)** - Security API documentation
-- **[Compliance Guide](/compliance)** - Regulatory compliance information
+### 高度な暗号学
 
-The Symbiont security model provides enterprise-grade protection suitable for regulated industries and high-assurance environments. Its layered approach ensures robust protection against evolving threats while maintaining operational efficiency.
+**ポスト量子暗号：**
+- NIST 承認のポスト量子アルゴリズム
+- 古典/ポスト量子ハイブリッドスキーム
+- 量子脅威の移行計画
+
+**準同型暗号：**
+- 暗号化データでのプライバシー保護計算
+- 近似算術のための CKKS スキーム
+- 機械学習ワークフローとの統合
+
+**ゼロ知識証明：**
+- 計算検証のための zk-SNARKs
+- プライバシー保護認証
+- コンプライアンス証明生成
+
+### AI 強化セキュリティ
+
+**行動分析：**
+- 異常検出のための機械学習
+- 予測的セキュリティ分析
+- 適応的脅威対応
+
+**自動応答：**
+- 自己修復セキュリティ制御
+- 動的ポリシー生成
+- インテリジェントインシデント分類
+
+---
+
+## 次のステップ
+
+- **[コントリビューション](/contributing)** - セキュリティ開発ガイドライン
+- **[ランタイムアーキテクチャ](/runtime-architecture)** - 技術実装詳細
+- **[API リファレンス](/api-reference)** - セキュリティ API ドキュメント
+- **[コンプライアンスガイド](/compliance)** - 規制コンプライアンス情報
+
+Symbiont セキュリティモデルは、規制産業と高保証環境に適したエンタープライズグレードの保護を提供します。その階層アプローチは、運用効率を維持しながら進化する脅威に対する堅牢な保護を確保します。

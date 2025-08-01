@@ -8,6 +8,12 @@ description: "Symbiont runtime system architecture and components"
 # Runtime Architecture
 {: .no_toc }
 
+## 🌐 Other Languages
+
+**English** | [中文简体](runtime-architecture.zh-cn.md) | [Español](runtime-architecture.es.md) | [Português](runtime-architecture.pt.md) | [日本語](runtime-architecture.ja.md) | [Deutsch](runtime-architecture.de.md)
+
+---
+
 Understanding the Symbi runtime system architecture and core components.
 {: .fs-6 .fw-300 }
 

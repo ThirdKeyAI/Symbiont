@@ -1,5 +1,11 @@
 # HTTP Input Module
 
+## 🌐 Other Languages
+
+**English** | [中文简体](http-input.zh-cn.md) | [Español](http-input.es.md) | [Português](http-input.pt.md) | [日本語](http-input.ja.md) | [Deutsch](http-input.de.md)
+
+---
+
 The HTTP Input module provides a webhook server that allows external systems to invoke Symbiont agents via HTTP requests. This module enables integration with external services, webhooks, and APIs by exposing agents through HTTP endpoints.
 
 ## Overview

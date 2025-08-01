@@ -1,23 +1,23 @@
 ---
 layout: default
-title: Security Model
+title: Sicherheitsmodell
 nav_order: 5
-description: "Symbiont security architecture and implementation"
+description: "Symbiont Sicherheitsarchitektur und -implementierung"
 ---
 
-# Security Model
+# Sicherheitsmodell
 {: .no_toc }
 
-Comprehensive security architecture ensuring zero-trust, policy-driven protection for AI agents.
-{: .fs-6 .fw-300 }
+## 🌐 Andere Sprachen
 
-## 🌐 Other Languages
-
-**English** | [中文简体](security-model.zh-cn.md) | [Español](security-model.es.md) | [Português](security-model.pt.md) | [日本語](security-model.ja.md) | [Deutsch](security-model.de.md)
+[English](security-model.md) | [中文简体](security-model.zh-cn.md) | [Español](security-model.es.md) | [Português](security-model.pt.md) | [日本語](security-model.ja.md) | **Deutsch**
 
 ---
 
-## Table of contents
+Umfassende Sicherheitsarchitektur, die Zero-Trust, richtliniengesteuerten Schutz für KI-Agenten gewährleistet.
+{: .fs-6 .fw-300 }
+
+## Inhaltsverzeichnis
 {: .no_toc .text-delta }
 
 1. TOC
@@ -25,23 +25,23 @@ Comprehensive security architecture ensuring zero-trust, policy-driven protectio
 
 ---
 
-## Overview
+## Überblick
 
-Symbiont implements a security-first architecture designed for regulated and high-assurance environments. The security model is built on zero-trust principles with comprehensive policy enforcement, multi-tier sandboxing, and cryptographic auditability.
+Symbiont implementiert eine sicherheitsorientierte Architektur, die für regulierte und hochsichere Umgebungen entwickelt wurde. Das Sicherheitsmodell basiert auf Zero-Trust-Prinzipien mit umfassender Richtliniendurchsetzung, mehrstufiger Sandbox und kryptographischer Auditierbarkeit.
 
-### Security Principles
+### Sicherheitsprinzipien
 
-- **Zero Trust**: All components and communications are verified
-- **Defense in Depth**: Multiple security layers with no single point of failure
-- **Policy-Driven**: Declarative security policies enforced at runtime
-- **Complete Auditability**: Every operation logged with cryptographic integrity
-- **Least Privilege**: Minimal permissions required for operation
+- **Zero Trust**: Alle Komponenten und Kommunikationen werden verifiziert
+- **Defense in Depth**: Mehrere Sicherheitsschichten ohne Single Point of Failure
+- **Richtliniengesteuert**: Deklarative Sicherheitsrichtlinien zur Laufzeit durchgesetzt
+- **Vollständige Auditierbarkeit**: Jede Operation mit kryptographischer Integrität protokolliert
+- **Least Privilege**: Minimale für den Betrieb erforderliche Berechtigungen
 
 ---
 
-## Multi-Tier Sandboxing
+## Mehrstufige Sandbox
 
-The runtime implements two isolation tiers based on risk assessment:
+Die Laufzeitumgebung implementiert zwei Isolationsstufen basierend auf Risikobewertung:
 
 ```mermaid
 graph TB
@@ -68,16 +68,16 @@ graph TB
     D --> D1
 ```
 
-> **Note**: Additional isolation tiers with hardware virtualization are available in Enterprise editions.
+> **Hinweis**: Zusätzliche Isolationsstufen mit Hardware-Virtualisierung sind in Enterprise-Editionen verfügbar.
 
-### Tier 1: Docker Isolation
+### Stufe 1: Docker-Isolation
 
-**Use Cases:**
-- Trusted development tasks
-- Low-sensitivity data processing
-- Internal tool operations
+**Anwendungsfälle:**
+- Vertrauenswürdige Entwicklungsaufgaben
+- Datenverarbeitung mit geringer Sensibilität
+- Interne Tool-Operationen
 
-**Security Features:**
+**Sicherheitsmerkmale:**
 ```yaml
 docker_security:
   memory_limit: "512MB"
@@ -92,26 +92,26 @@ docker_security:
     add: ["SETUID", "SETGID"]
 ```
 
-**Threat Protection:**
-- Process isolation from host
-- Resource exhaustion prevention
-- Network access control
-- Filesystem protection
+**Bedrohungsschutz:**
+- Prozessisolation vom Host
+- Ressourcenerschöpfungsschutz
+- Netzwerkzugriffskontrolle
+- Dateisystemschutz
 
-### Tier 2: gVisor Isolation
+### Stufe 2: gVisor-Isolation
 
-**Use Cases:**
-- Standard production workloads
-- Sensitive data processing
-- External tool integration
+**Anwendungsfälle:**
+- Standard-Produktionsworkloads
+- Verarbeitung sensibler Daten
+- Integration externer Tools
 
-**Security Features:**
-- User-space kernel implementation
-- System call filtering and translation
-- Memory protection boundaries
-- I/O request validation
+**Sicherheitsmerkmale:**
+- Benutzerbereich-Kernel-Implementierung
+- Systemaufruf-Filterung und -Übersetzung
+- Speicherschutzgrenzen
+- E/A-Anfrageverifizierung
 
-**Configuration:**
+**Konfiguration:**
 ```yaml
 gvisor_security:
   runtime: "runsc"
@@ -122,15 +122,15 @@ gvisor_security:
   strace: false
 ```
 
-**Advanced Protection:**
-- Kernel vulnerability isolation
-- System call interception
-- Memory corruption prevention
-- Side-channel attack mitigation
+**Erweiteter Schutz:**
+- Kernel-Sicherheitslücken-Isolation
+- Systemaufruf-Abfangung
+- Speicherkorruptions-Prävention
+- Seitenkanalangriff-Minderung
 
-> **Enterprise Feature**: Advanced isolation with hardware virtualization (Firecracker) is available in Enterprise editions for maximum security requirements.
+> **Enterprise-Feature**: Erweiterte Isolation mit Hardware-Virtualisierung (Firecracker) ist in Enterprise-Editionen für maximale Sicherheitsanforderungen verfügbar.
 
-### Risk Assessment Algorithm
+### Risikobewertungsalgorithmus
 
 ```rust
 pub struct RiskAssessment {
@@ -155,11 +155,11 @@ pub fn calculate_risk_score(assessment: RiskAssessment) -> f32 {
 
 ---
 
-## Policy Engine
+## Richtlinien-Engine
 
-### Policy Architecture
+### Richtlinienarchitektur
 
-The policy engine provides declarative security controls with runtime enforcement:
+Die Richtlinien-Engine bietet deklarative Sicherheitskontrollen mit Laufzeitdurchsetzung:
 
 ```mermaid
 graph TB
@@ -178,11 +178,11 @@ graph TB
     E --> K
 ```
 
-### Policy Types
+### Richtlinientypen
 
-#### Access Control Policies
+#### Zugriffskontrollrichtlinien
 
-Define who can access what resources under which conditions:
+Definieren, wer unter welchen Bedingungen auf welche Ressourcen zugreifen kann:
 
 ```rust
 policy secure_data_access {
@@ -202,9 +202,9 @@ policy secure_data_access {
 }
 ```
 
-#### Data Flow Policies
+#### Datenflussrichtlinien
 
-Control how data moves through the system:
+Kontrollieren, wie Daten durch das System fließen:
 
 ```rust
 policy data_flow_control {
@@ -221,9 +221,9 @@ policy data_flow_control {
 }
 ```
 
-#### Resource Usage Policies
+#### Ressourcennutzungsrichtlinien
 
-Manage computational resource allocation:
+Verwalten die Zuweisung von Rechenressourcen:
 
 ```rust
 policy resource_governance {
@@ -238,7 +238,7 @@ policy resource_governance {
 }
 ```
 
-### Policy Evaluation Engine
+### Richtlinienbewertungs-Engine
 
 ```rust
 pub trait PolicyEngine {
@@ -260,31 +260,31 @@ pub enum PolicyDecision {
 }
 ```
 
-### Performance Optimization
+### Leistungsoptimierung
 
-**Policy Caching:**
-- Compiled policy evaluation for performance
-- LRU cache for frequent decisions
-- Batch evaluation for bulk operations
-- Sub-millisecond evaluation times
+**Richtlinien-Caching:**
+- Kompilierte Richtlinienbewertung für Leistung
+- LRU-Cache für häufige Entscheidungen
+- Batch-Bewertung für Massenoperationen
+- Submillisekunden-Bewertungszeiten
 
-**Incremental Updates:**
-- Real-time policy updates without restart
-- Versioned policy deployment
-- Rollback capabilities for policy errors
+**Inkrementelle Updates:**
+- Echtzeit-Richtlinienaktualisierungen ohne Neustart
+- Versionierte Richtlinienbereitstellung
+- Rollback-Fähigkeiten für Richtlinienfehler
 
 ---
 
-## Cryptographic Security
+## Kryptographische Sicherheit
 
-### Digital Signatures
+### Digitale Signaturen
 
-All security-relevant operations are cryptographically signed:
+Alle sicherheitsrelevanten Operationen sind kryptographisch signiert:
 
-**Signature Algorithm:** Ed25519 (RFC 8032)
-- **Key Size:** 256-bit private keys, 256-bit public keys
-- **Signature Size:** 512 bits (64 bytes)
-- **Performance:** 70,000+ signatures/second, 25,000+ verifications/second
+**Signaturalgorithmus:** Ed25519 (RFC 8032)
+- **Schlüsselgröße:** 256-Bit private Schlüssel, 256-Bit öffentliche Schlüssel
+- **Signaturgröße:** 512 Bits (64 Bytes)
+- **Leistung:** 70.000+ Signaturen/Sekunde, 25.000+ Verifikationen/Sekunde
 
 ```rust
 pub struct CryptographicSignature {
@@ -308,19 +308,19 @@ impl AuditEvent {
 }
 ```
 
-### Key Management
+### Schlüsselverwaltung
 
-**Key Storage:**
-- Hardware Security Module (HSM) integration
-- Secure enclave support for key protection
-- Key rotation with configurable intervals
-- Distributed key backup and recovery
+**Schlüsselspeicherung:**
+- Hardware Security Module (HSM) Integration
+- Secure Enclave Unterstützung für Schlüsselschutz
+- Schlüsselrotation mit konfigurierbaren Intervallen
+- Verteilte Schlüsselsicherung und -wiederherstellung
 
-**Key Hierarchy:**
-- Root signing keys for system operations
-- Per-agent keys for operation signing
-- Ephemeral keys for session encryption
-- External keys for tool verification
+**Schlüsselhierarchie:**
+- Root-Signierschlüssel für Systemoperationen
+- Pro-Agent-Schlüssel für Operationssignierung
+- Ephemere Schlüssel für Sitzungsverschlüsselung
+- Externe Schlüssel für Tool-Verifikation
 
 ```rust
 pub struct KeyManager {
@@ -336,19 +336,19 @@ impl KeyManager {
 }
 ```
 
-### Encryption Standards
+### Verschlüsselungsstandards
 
-**Symmetric Encryption:** AES-256-GCM
-- 256-bit keys with authenticated encryption
-- Unique nonces for each encryption operation
-- Associated data for context binding
+**Symmetrische Verschlüsselung:** AES-256-GCM
+- 256-Bit-Schlüssel mit authentifizierter Verschlüsselung
+- Eindeutige Nonces für jede Verschlüsselungsoperation
+- Zugehörige Daten für Kontextbindung
 
-**Asymmetric Encryption:** X25519 + ChaCha20-Poly1305
-- Elliptic curve key exchange
-- Stream cipher with authenticated encryption
-- Perfect forward secrecy
+**Asymmetrische Verschlüsselung:** X25519 + ChaCha20-Poly1305
+- Elliptische Kurven-Schlüsselaustausch
+- Stream-Verschlüsselung mit authentifizierter Verschlüsselung
+- Perfect Forward Secrecy
 
-**Message Encryption:**
+**Nachrichtenverschlüsselung:**
 ```rust
 pub fn encrypt_message(
     plaintext: &[u8], 
@@ -370,11 +370,11 @@ pub fn encrypt_message(
 
 ---
 
-## Audit and Compliance
+## Audit und Compliance
 
-### Cryptographic Audit Trail
+### Kryptographische Audit-Spur
 
-Every security-relevant operation generates an immutable audit event:
+Jede sicherheitsrelevante Operation generiert ein unveränderliches Audit-Event:
 
 ```rust
 pub struct AuditEvent {
@@ -389,17 +389,17 @@ pub struct AuditEvent {
 }
 ```
 
-**Audit Event Types:**
-- Agent lifecycle events (creation, termination)
-- Policy evaluation decisions
-- Resource allocation and usage
-- Message sending and routing
-- External tool invocations
-- Security violations and alerts
+**Audit-Event-Typen:**
+- Agent-Lebenszyklus-Events (Erstellung, Beendigung)
+- Richtlinienbewertungsentscheidungen
+- Ressourcenzuweisung und -nutzung
+- Nachrichten-Versendung und -Routing
+- Externe Tool-Aufrufe
+- Sicherheitsverletzungen und Warnungen
 
-### Hash Chaining
+### Hash-Verkettung
 
-Events are linked in an immutable chain:
+Events sind in einer unveränderlichen Kette verknüpft:
 
 ```rust
 impl AuditChain {
@@ -432,29 +432,29 @@ impl AuditChain {
 }
 ```
 
-### Compliance Features
+### Compliance-Features
 
-**Regulatory Support:**
+**Regulatorische Unterstützung:**
 
-**HIPAA (Healthcare):**
-- PHI access logging with user identification
-- Data minimization enforcement
-- Breach detection and notification
-- Audit trail retention for 6 years
+**HIPAA (Gesundheitswesen):**
+- PHI-Zugriffsprotokolle mit Benutzeridentifikation
+- Datenminimierungsdurchsetzung
+- Datenschutzverletzungserkennung und -benachrichtigung
+- Audit-Spur-Aufbewahrung für 6 Jahre
 
-**GDPR (Privacy):**
-- Personal data processing logs
-- Consent verification tracking
-- Data subject rights enforcement
-- Data retention policy compliance
+**GDPR (Datenschutz):**
+- Personendatenverarbeitungsprotokolle
+- Einverständnisverifikationsverfolgung
+- Betroffenenrechtsdurchsetzung
+- Datenaufbewahrungsrichtlinien-Compliance
 
-**SOX (Financial):**
-- Internal control documentation
-- Change management tracking
-- Access control verification
-- Financial data protection
+**SOX (Finanzwesen):**
+- Interne Kontrolldokumentation
+- Änderungsmanagement-Verfolgung
+- Zugriffskontrollverifikation
+- Finanzdatenschutz
 
-**Custom Compliance:**
+**Benutzerdefinierte Compliance:**
 ```rust
 pub struct ComplianceFramework {
     pub name: String,
@@ -472,11 +472,11 @@ impl ComplianceFramework {
 
 ---
 
-## Tool Security with SchemaPin
+## Tool-Sicherheit mit SchemaPin
 
-### Tool Verification Process
+### Tool-Verifikationsprozess
 
-External tools are verified using cryptographic signatures:
+Externe Tools werden mit kryptographischen Signaturen verifiziert:
 
 ```mermaid
 sequenceDiagram
@@ -501,11 +501,11 @@ sequenceDiagram
 
 ### Trust-On-First-Use (TOFU)
 
-**Key Pinning Process:**
-1. First encounter with a tool provider
-2. Verify provider's public key through external channels
-3. Pin the public key in local trust store
-4. Use pinned key for all future verifications
+**Schlüssel-Pinning-Prozess:**
+1. Erste Begegnung mit einem Tool-Anbieter
+2. Öffentlichen Schlüssel des Anbieters über externe Kanäle verifizieren
+3. Öffentlichen Schlüssel im lokalen Trust Store anheften
+4. Angehefteten Schlüssel für alle zukünftigen Verifikationen verwenden
 
 ```rust
 pub struct TOFUKeyStore {
@@ -542,15 +542,15 @@ impl TOFUKeyStore {
 }
 ```
 
-### AI-Driven Tool Review
+### KI-gesteuerte Tool-Überprüfung
 
-Automated security analysis before tool approval:
+Automatisierte Sicherheitsanalyse vor Tool-Genehmigung:
 
-**Analysis Components:**
-- **Vulnerability Detection**: Pattern matching against known vulnerability signatures
-- **Malicious Code Detection**: ML-based malicious behavior identification
-- **Resource Usage Analysis**: Assessment of computational resource requirements
-- **Privacy Impact Assessment**: Data handling and privacy implications
+**Analysekomponenten:**
+- **Sicherheitslücken-Erkennung**: Musterabgleich gegen bekannte Sicherheitslücken-Signaturen
+- **Schädlicher Code-Erkennung**: ML-basierte Identifikation von bösartigem Verhalten
+- **Ressourcennutzungsanalyse**: Bewertung von Rechenressourcenanforderungen
+- **Datenschutz-Folgenabschätzung**: Datenbehandlung und Datenschutzauswirkungen
 
 ```rust
 pub struct SecurityAnalyzer {
@@ -591,21 +591,21 @@ impl SecurityAnalyzer {
 
 ---
 
-## Network Security
+## Netzwerksicherheit
 
-### Secure Communication
+### Sichere Kommunikation
 
 **Transport Layer Security:**
-- TLS 1.3 for all external communications
-- Mutual TLS (mTLS) for service-to-service communication
-- Certificate pinning for known services
-- Perfect forward secrecy
+- TLS 1.3 für alle externe Kommunikation
+- Mutual TLS (mTLS) für Service-zu-Service-Kommunikation
+- Zertifikat-Pinning für bekannte Services
+- Perfect Forward Secrecy
 
-**Message-Level Security:**
-- End-to-end encryption for agent messages
-- Message authentication codes (MAC)
-- Replay attack prevention with timestamps
-- Message ordering guarantees
+**Nachrichten-Level-Sicherheit:**
+- Ende-zu-Ende-Verschlüsselung für Agent-Nachrichten
+- Message Authentication Codes (MAC)
+- Replay-Angriff-Prävention mit Zeitstempeln
+- Nachrichten-Reihenfolgen-Garantien
 
 ```rust
 pub struct SecureChannel {
@@ -634,15 +634,15 @@ impl SecureChannel {
 }
 ```
 
-### Network Isolation
+### Netzwerkisolation
 
-**Sandbox Network Control:**
-- No network access by default
-- Explicit allow-list for external connections
-- Traffic monitoring and anomaly detection
-- DNS filtering and validation
+**Sandbox-Netzwerkkontrolle:**
+- Standardmäßig kein Netzwerkzugriff
+- Explizite Whitelist für externe Verbindungen
+- Traffic-Überwachung und Anomalieerkennung
+- DNS-Filterung und -Validierung
 
-**Network Policies:**
+**Netzwerkrichtlinien:**
 ```yaml
 network_policy:
   default_action: "deny"
@@ -664,15 +664,15 @@ network_policy:
 
 ## Incident Response
 
-### Security Event Detection
+### Sicherheitsereignis-Erkennung
 
-**Automated Detection:**
-- Policy violation monitoring
-- Anomalous behavior detection
-- Resource usage anomalies
-- Failed authentication tracking
+**Automatisierte Erkennung:**
+- Richtlinienverletzungsüberwachung
+- Anomales Verhaltenserkennung
+- Ressourcennutzungsanomalien
+- Fehlgeschlagene Authentifizierungsverfolgung
 
-**Alert Classification:**
+**Alert-Klassifikation:**
 ```rust
 pub enum SecurityEventSeverity {
     Info,       // Normal security events
@@ -714,35 +714,35 @@ graph TB
     G --> L[External Incident Response]
 ```
 
-### Recovery Procedures
+### Wiederherstellungsverfahren
 
-**Automated Recovery:**
-- Agent restart with clean state
-- Key rotation for compromised credentials
-- Policy updates to prevent recurrence
-- System health verification
+**Automatisierte Wiederherstellung:**
+- Agent-Neustart mit sauberem Zustand
+- Schlüsselrotation für kompromittierte Anmeldedaten
+- Richtlinienaktualisierungen zur Wiederholungsverhinderung
+- Systemgesundheitsverifikation
 
-**Manual Recovery:**
-- Forensic analysis of security events
-- Root cause analysis and remediation
-- Security control updates
-- Incident documentation and lessons learned
+**Manuelle Wiederherstellung:**
+- Forensische Analyse von Sicherheitsereignissen
+- Ursachenanalyse und Remediation
+- Sicherheitskontrollaktualisierungen
+- Vorfallsdokumentation und Lessons Learned
 
 ---
 
-## Security Best Practices
+## Sicherheits-Best-Practices
 
-### Development Guidelines
+### Entwicklungsrichtlinien
 
-1. **Secure by Default**: All security features enabled by default
-2. **Principle of Least Privilege**: Minimal permissions for all operations
-3. **Defense in Depth**: Multiple security layers with redundancy
-4. **Fail Securely**: Security failures should deny access, not grant it
-5. **Audit Everything**: Complete logging of security-relevant operations
+1. **Secure by Default**: Alle Sicherheitsfeatures standardmäßig aktiviert
+2. **Principle of Least Privilege**: Minimale Berechtigungen für alle Operationen
+3. **Defense in Depth**: Mehrere Sicherheitsschichten mit Redundanz
+4. **Fail Securely**: Sicherheitsfehler sollten Zugriff verweigern, nicht gewähren
+5. **Audit Everything**: Vollständige Protokollierung sicherheitsrelevanter Operationen
 
-### Deployment Security
+### Deployment-Sicherheit
 
-**Environment Hardening:**
+**Umgebungshärtung:**
 ```bash
 # Disable unnecessary services
 systemctl disable cups bluetooth
@@ -755,7 +755,7 @@ echo "kernel.kptr_restrict=2" >> /etc/sysctl.conf
 mount -o remount,nodev,nosuid,noexec /tmp
 ```
 
-**Container Security:**
+**Container-Sicherheit:**
 ```dockerfile
 # Use minimal base image
 FROM scratch
@@ -768,27 +768,27 @@ USER 1000:1000
 LABEL security.no-new-privileges=true
 ```
 
-### Operational Security
+### Operative Sicherheit
 
-**Monitoring Checklist:**
-- [ ] Real-time security event monitoring
-- [ ] Policy violation tracking
-- [ ] Resource usage anomaly detection
-- [ ] Failed authentication monitoring
-- [ ] Certificate expiration tracking
+**Überwachungs-Checkliste:**
+- [ ] Echtzeit-Sicherheitsereignisüberwachung
+- [ ] Richtlinienverletzungsverfolgung
+- [ ] Ressourcennutzungsanomalieerkennnung
+- [ ] Fehlgeschlagene Authentifizierungsüberwachung
+- [ ] Zertifikatsablaufverfolgung
 
-**Maintenance Procedures:**
-- Regular security updates and patches
-- Key rotation on schedule
-- Policy review and updates
-- Security audit and penetration testing
-- Incident response plan testing
+**Wartungsverfahren:**
+- Regelmäßige Sicherheitsupdates und Patches
+- Geplante Schlüsselrotation
+- Richtlinienüberprüfung und -aktualisierungen
+- Sicherheitsaudit und Penetrationstests
+- Incident Response Plan Tests
 
 ---
 
-## Security Configuration
+## Sicherheitskonfiguration
 
-### Environment Variables
+### Umgebungsvariablen
 
 ```bash
 # Cryptographic settings
@@ -807,7 +807,7 @@ export SYMBIONT_DEFAULT_SANDBOX_TIER=gvisor
 export SYMBIONT_TOFU_ENABLED=true
 ```
 
-### Security Configuration File
+### Sicherheitskonfigurationsdatei
 
 ```toml
 [security]
@@ -851,68 +851,68 @@ automatic_key_pinning = false
 
 ---
 
-## Security Metrics
+## Sicherheitsmetriken
 
 ### Key Performance Indicators
 
-**Security Operations:**
-- Policy evaluation latency: <1ms average
-- Audit event generation rate: 10,000+ events/second
-- Security incident response time: <5 minutes
-- Cryptographic operation throughput: 70,000+ ops/second
+**Sicherheitsoperationen:**
+- Richtlinienbewertungslatenz: Durchschnitt <1ms
+- Audit-Event-Generierungsrate: 10.000+ Events/Sekunde
+- Sicherheitsvorfallreaktionszeit: <5 Minuten
+- Kryptographischer Operationsdurchsatz: 70.000+ Ops/Sekunde
 
-**Compliance Metrics:**
-- Policy compliance rate: >99.9%
-- Audit trail integrity: 100%
-- Security event false positive rate: <1%
-- Incident resolution time: <24 hours
+**Compliance-Metriken:**
+- Richtlinien-Compliance-Rate: >99,9%
+- Audit-Spur-Integrität: 100%
+- Sicherheitsereignis-False-Positive-Rate: <1%
+- Vorfallauflösungszeit: <24 Stunden
 
-**Risk Assessment:**
-- Vulnerability patching time: <48 hours
-- Security control effectiveness: >95%
-- Threat detection accuracy: >99%
-- Recovery time objective: <1 hour
+**Risikobewertung:**
+- Sicherheitslücken-Patch-Zeit: <48 Stunden
+- Sicherheitskontrolleffektivität: >95%
+- Bedrohungserkennungsgenauigkeit: >99%
+- Recovery Time Objective: <1 Stunde
 
 ---
 
-## Future Enhancements
+## Zukünftige Verbesserungen
 
-### Advanced Cryptography
+### Erweiterte Kryptographie
 
-**Post-Quantum Cryptography:**
-- NIST-approved post-quantum algorithms
-- Hybrid classical/post-quantum schemes
-- Migration planning for quantum threats
+**Post-Quantum-Kryptographie:**
+- NIST-genehmigte Post-Quantum-Algorithmen
+- Hybride klassische/Post-Quantum-Schemas
+- Migrationspläne für Quantenbedrohungen
 
-**Homomorphic Encryption:**
-- Privacy-preserving computation on encrypted data
-- CKKS scheme for approximate arithmetic
-- Integration with machine learning workflows
+**Homomorphe Verschlüsselung:**
+- Datenschutzwahrende Berechnung auf verschlüsselten Daten
+- CKKS-Schema für approximative Arithmetik
+- Integration mit Machine Learning Workflows
 
 **Zero-Knowledge Proofs:**
-- zk-SNARKs for computation verification
-- Privacy-preserving authentication
-- Compliance proof generation
+- zk-SNARKs für Berechnungsverifikation
+- Datenschutzwahrende Authentifizierung
+- Compliance-Beweisgenerierung
 
-### AI-Enhanced Security
+### KI-verstärkte Sicherheit
 
-**Behavior Analysis:**
-- Machine learning for anomaly detection
-- Predictive security analytics
-- Adaptive threat response
+**Verhaltensanalyse:**
+- Machine Learning für Anomalieerkennung
+- Prädiktive Sicherheitsanalysen
+- Adaptive Bedrohungsreaktion
 
-**Automated Response:**
-- Self-healing security controls
-- Dynamic policy generation
-- Intelligent incident classification
+**Automatisierte Antwort:**
+- Selbstheilende Sicherheitskontrollen
+- Dynamische Richtliniengenerierung
+- Intelligente Vorfallklassifizierung
 
 ---
 
-## Next Steps
+## Nächste Schritte
 
-- **[Contributing](/contributing)** - Security development guidelines
-- **[Runtime Architecture](/runtime-architecture)** - Technical implementation details
-- **[API Reference](/api-reference)** - Security API documentation
-- **[Compliance Guide](/compliance)** - Regulatory compliance information
+- **[Beiträge](/contributing)** - Sicherheitsentwicklungsrichtlinien
+- **[Runtime-Architektur](/runtime-architecture)** - Technische Implementierungsdetails
+- **[API-Referenz](/api-reference)** - Sicherheits-API-Dokumentation
+- **[Compliance-Leitfaden](/compliance)** - Regulatorische Compliance-Informationen
 
-The Symbiont security model provides enterprise-grade protection suitable for regulated industries and high-assurance environments. Its layered approach ensures robust protection against evolving threats while maintaining operational efficiency.
+Das Symbiont-Sicherheitsmodell bietet unternehmenstauglichen Schutz für regulierte Industrien und Hochsicherheitsumgebungen. Sein geschichteter Ansatz gewährleistet robusten Schutz vor sich entwickelnden Bedrohungen bei gleichzeitiger Aufrechterhaltung der betrieblichen Effizienz.
