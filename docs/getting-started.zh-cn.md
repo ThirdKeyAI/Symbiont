@@ -2,6 +2,7 @@
 layout: default
 title: 入门指南
 description: "Symbiont 快速入门指南"
+nav_exclude: true
 ---
 
 # 入门指南

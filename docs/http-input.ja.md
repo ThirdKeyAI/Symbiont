@@ -1,3 +1,10 @@
+---
+layout: default
+title: HTTP 入力モジュール
+description: "Symbiont エージェントとのウェブフック統合のための HTTP 入力モジュール"
+nav_exclude: true
+---
+
 # HTTP 入力モジュール
 
 ## 🌐 他の言語

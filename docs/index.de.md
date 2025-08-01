@@ -2,6 +2,7 @@
 layout: default
 title: Startseite
 description: "Symbiont: KI-native, datenschutzorientierte Programmiersprache und Agent-Framework"
+nav_exclude: true
 ---
 
 # Symbiont Dokumentation

@@ -1,3 +1,10 @@
+---
+layout: default
+title: HTTP-Eingabe-Modul
+description: "HTTP-Eingabe-Modul für Webhook-Integration mit Symbiont-Agenten"
+nav_exclude: true
+---
+
 # HTTP-Eingabe-Modul
 
 ## 🌐 Andere Sprachen

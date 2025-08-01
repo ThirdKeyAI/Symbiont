@@ -2,6 +2,7 @@
 layout: default
 title: Começando
 description: "Guia de início rápido para Symbiont"
+nav_exclude: true
 ---
 
 # Começando

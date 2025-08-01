@@ -2,6 +2,7 @@
 layout: default
 title: Modelo de Segurança
 description: "Arquitetura e implementação de segurança do Symbiont"
+nav_exclude: true
 ---
 
 # Modelo de Segurança

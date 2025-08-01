@@ -2,6 +2,7 @@
 layout: default
 title: Erste Schritte
 description: "Schnellstart-Anleitung für Symbiont"
+nav_exclude: true
 ---
 
 # Erste Schritte

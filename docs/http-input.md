@@ -1,6 +1,14 @@
+---
+layout: default
+title: HTTP Input Module
+nav_order: 7
+description: "HTTP Input module for webhook integration with Symbiont agents"
+---
+
 # HTTP Input Module
 
 ## 🌐 Other Languages
+{: .no_toc}
 
 **English** | [中文简体](http-input.zh-cn.md) | [Español](http-input.es.md) | [Português](http-input.pt.md) | [日本語](http-input.ja.md) | [Deutsch](http-input.de.md)
 

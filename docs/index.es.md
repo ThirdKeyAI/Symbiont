@@ -2,6 +2,7 @@
 layout: default
 title: Inicio
 description: "Symbiont: Lenguaje de programación nativo de IA y framework de agentes con privacidad prioritaria"
+nav_exclude: true
 ---
 
 # Documentación de Symbiont

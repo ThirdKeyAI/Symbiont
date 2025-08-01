@@ -1,3 +1,10 @@
+---
+layout: default
+title: Referencia de API
+description: "Documentación completa de las APIs del runtime de Symbiont"
+nav_exclude: true
+---
+
 # Referencia de API
 
 ## 🌐 Otros idiomas

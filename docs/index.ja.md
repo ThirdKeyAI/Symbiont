@@ -2,6 +2,7 @@
 layout: default
 title: ホーム
 description: "Symbiont：AIネイティブでプライバシーファーストのプログラミング言語とエージェントフレームワーク"
+nav_exclude: true
 ---
 
 # Symbiont ドキュメント

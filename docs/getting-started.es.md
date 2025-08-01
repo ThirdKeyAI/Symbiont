@@ -2,6 +2,7 @@
 layout: default
 title: Primeros Pasos
 description: "Guía de inicio rápido para Symbiont"
+nav_exclude: true
 ---
 
 # Primeros Pasos

@@ -1,3 +1,10 @@
+---
+layout: default
+title: API リファレンス
+description: "Symbiont ランタイム API の包括的なドキュメント"
+nav_exclude: true
+---
+
 # API リファレンス
 
 ## 🌐 他の言語

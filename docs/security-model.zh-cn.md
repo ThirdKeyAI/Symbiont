@@ -2,6 +2,7 @@
 layout: default
 title: 安全模型
 description: "Symbiont 安全架构和实现"
+nav_exclude: true
 ---
 
 # 安全模型

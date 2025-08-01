@@ -1,6 +1,14 @@
+---
+layout: default
+title: API Reference
+nav_order: 5
+description: "Comprehensive API documentation for Symbiont runtime"
+---
+
 # API Reference
 
 ## 🌐 Other Languages
+{: .no_toc}
 
 **English** | [中文简体](api-reference.zh-cn.md) | [Español](api-reference.es.md) | [Português](api-reference.pt.md) | [日本語](api-reference.ja.md) | [Deutsch](api-reference.de.md)
 

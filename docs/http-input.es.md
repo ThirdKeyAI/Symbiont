@@ -1,3 +1,10 @@
+---
+layout: default
+title: Módulo de Entrada HTTP
+description: "Módulo de entrada HTTP para integración de webhook con agentes Symbiont"
+nav_exclude: true
+---
+
 # Módulo de Entrada HTTP
 
 ## 🌐 Otros idiomas

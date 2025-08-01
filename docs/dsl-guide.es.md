@@ -2,6 +2,7 @@
 layout: default
 title: Guía DSL
 description: "Guía completa del Lenguaje Específico de Dominio de Symbiont"
+nav_exclude: true
 ---
 
 # Guía DSL

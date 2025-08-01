@@ -2,6 +2,7 @@
 layout: default
 title: Arquitectura del Runtime
 description: "Visión general de la arquitectura del sistema runtime de Symbiont"
+nav_exclude: true
 ---
 
 # Arquitectura del Runtime

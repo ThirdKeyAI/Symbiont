@@ -1,3 +1,10 @@
+---
+layout: default
+title: API 参考
+description: "Symbiont 运行时 API 的综合文档"
+nav_exclude: true
+---
+
 # API 参考
 
 ## 🌐 其他语言

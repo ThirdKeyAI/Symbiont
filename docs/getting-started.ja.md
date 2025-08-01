@@ -2,6 +2,7 @@
 layout: default
 title: はじめに
 description: "Symbiont クイックスタートガイド"
+nav_exclude: true
 ---
 
 # はじめに

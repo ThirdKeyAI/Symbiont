@@ -2,6 +2,7 @@
 layout: default
 title: DSL-Leitfaden
 description: "Vollständiger Leitfaden zur Symbiont Domain-Specific Language"
+nav_exclude: true
 ---
 
 # DSL-Leitfaden

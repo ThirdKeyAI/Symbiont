@@ -1,3 +1,10 @@
+---
+layout: default
+title: HTTP 输入模块
+description: "与 Symbiont 代理的 webhook 集成的 HTTP 输入模块"
+nav_exclude: true
+---
+
 # HTTP 输入模块
 
 ## 🌐 其他语言

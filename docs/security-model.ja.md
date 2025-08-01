@@ -2,6 +2,7 @@
 layout: default
 title: セキュリティモデル
 description: "Symbiont のセキュリティアーキテクチャと実装"
+nav_exclude: true
 ---
 
 # セキュリティモデル

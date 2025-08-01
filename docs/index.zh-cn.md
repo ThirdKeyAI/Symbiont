@@ -2,6 +2,7 @@
 layout: default
 title: 主页
 description: "Symbiont：AI原生、隐私优先的编程语言和智能体框架"
+nav_exclude: true
 ---
 
 # Symbiont 文档
