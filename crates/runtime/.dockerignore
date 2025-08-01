@@ -1,0 +1,52 @@
+# Rust build artifacts
+target/
+debug/
+release/
+
+# Test files
+tests/
+examples/
+
+# Documentation (included in main docs/)
+docs/
+*.md
+README*
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+
+# Environment files
+.env
+.env.*
+
+# Cache directories
+.cache/
+tmp/
+
+# Compiled binaries
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Coverage and profiling
+coverage/
+*.profraw
+flamegraph.svg
+
+# Cargo artifacts
+Cargo.lock.bak
+*.orig
+*.rej

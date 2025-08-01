@@ -1,0 +1,54 @@
+# Rust build artifacts
+target/
+debug/
+release/
+
+# Test files
+tests/
+
+# Documentation (included in main docs/)
+*.md
+README*
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+
+# Environment files
+.env
+.env.*
+
+# Cache directories
+.cache/
+tmp/
+
+# Compiled binaries
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Tree-sitter node modules (keep generated files)
+tree-sitter-symbiont/node_modules/
+tree-sitter-symbiont/package-lock.json
+
+# Coverage and profiling
+coverage/
+*.profraw
+flamegraph.svg
+
+# Cargo artifacts
+Cargo.lock.bak
+*.orig
+*.rej
