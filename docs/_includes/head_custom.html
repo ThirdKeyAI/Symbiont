@@ -63,7 +63,227 @@ html body .site-footer {
 }
 </style>
 
-<!-- Make logo clickable to link to symbiont.dev -->
+<!-- Language-specific search utilities -->
+<script>
+// Language detection utility
+function detectCurrentLanguage() {
+    var pathname = window.location.pathname;
+    console.log('Detecting language for pathname:', pathname);
+    
+    // Handle different URL patterns:
+    // /filename.lang.html, /filename.lang/, /filename.lang
+    var pathLangMatch = pathname.match(/\.([a-z]{2}(-[a-z]{2})?)($|\.html?$|\/)/);
+    if (pathLangMatch) {
+        console.log('Language detected from path:', pathLangMatch[1]);
+        return pathLangMatch[1];
+    }
+    
+    // Check filename alone
+    var filename = pathname.split('/').pop() || 'index';
+    var fileLangMatch = filename.match(/\.([a-z]{2}(-[a-z]{2})?)($|\.html?$)/);
+    if (fileLangMatch) {
+        console.log('Language detected from filename:', fileLangMatch[1]);
+        return fileLangMatch[1];
+    }
+    
+    // Default to English for pages without language suffix
+    console.log('No language detected, defaulting to en');
+    return 'en';
+}
+
+// Extract language from URL or filename
+function detectLangFromURL(url) {
+    var filename = url.split('/').pop();
+    var match = filename.match(/\.([a-z]{2}(-[a-z]{2})?)\.html?$/);
+    return match ? match[1] : 'en';
+}
+
+// Set global language variable
+window.currentLanguage = detectCurrentLanguage();
+</script>
+
+<!-- Language-specific search system -->
+<script>
+// Global variables for search
+window.languageSearchData = {};
+window.languageSearchIndex = null;
+window.searchInitialized = false;
+
+// Function to load and initialize language-specific search
+function initLanguageSearch() {
+    var currentLang = window.currentLanguage || 'en';
+    var searchDataUrl = '{{ site.baseurl }}/assets/js/search-data-' + currentLang + '.json';
+    
+    console.log('Initializing language search for:', currentLang);
+    console.log('Loading search data from:', searchDataUrl);
+    
+    // Load language-specific search data
+    fetch(searchDataUrl)
+        .then(function(response) {
+            if (!response.ok) {
+                throw new Error('HTTP ' + response.status);
+            }
+            return response.json();
+        })
+        .then(function(docs) {
+            console.log('Successfully loaded', Object.keys(docs).length, 'documents for language:', currentLang);
+            window.languageSearchData = docs;
+            
+            // Wait for Lunr to be available
+            function waitForLunr() {
+                if (typeof lunr !== 'undefined') {
+                    setupLanguageSearch(docs);
+                } else {
+                    setTimeout(waitForLunr, 100);
+                }
+            }
+            waitForLunr();
+        })
+        .catch(function(error) {
+            console.log('Error loading language search data:', error);
+            // Fall back to default search if available
+        });
+}
+
+function setupLanguageSearch(docs) {
+    // Create Lunr index
+    lunr.tokenizer.separator = /[\s/]+/;
+    
+    window.languageSearchIndex = lunr(function(){
+        this.ref('id');
+        this.field('title', { boost: 200 });
+        this.field('content', { boost: 2 });
+        this.field('relUrl');
+        this.metadataWhitelist = ['position'];
+        
+        for (var i in docs) {
+            this.add({
+                id: i,
+                title: docs[i].title,
+                content: docs[i].content,
+                relUrl: docs[i].relUrl
+            });
+        }
+    });
+    
+    console.log('Language search index created successfully');
+    window.searchInitialized = true;
+    
+    // Replace search functionality
+    replaceSearchFunction();
+}
+
+function replaceSearchFunction() {
+    // Find search input
+    var searchInput = document.getElementById('search-input');
+    if (!searchInput) {
+        setTimeout(replaceSearchFunction, 100);
+        return;
+    }
+    
+    // Clone input to remove existing event listeners
+    var newSearchInput = searchInput.cloneNode(true);
+    searchInput.parentNode.replaceChild(newSearchInput, searchInput);
+    
+    // Add our event listeners
+    newSearchInput.addEventListener('input', performLanguageSearch);
+    newSearchInput.addEventListener('focus', performLanguageSearch);
+    
+    console.log('Search function replaced with language-aware version');
+}
+
+function performLanguageSearch() {
+    var searchInput = document.getElementById('search-input');
+    var searchResults = document.getElementById('search-results');
+    
+    if (!searchInput || !searchResults || !window.searchInitialized) {
+        return;
+    }
+    
+    var query = searchInput.value.trim();
+    
+    if (query === '') {
+        document.documentElement.classList.remove('search-active');
+        return;
+    }
+    
+    document.documentElement.classList.add('search-active');
+    
+    // Clear previous results
+    searchResults.innerHTML = '';
+    
+    // Perform search using our language-specific index
+    var results = window.languageSearchIndex.query(function (q) {
+        var tokens = lunr.tokenizer(query);
+        q.term(tokens, { boost: 10 });
+        q.term(tokens, { wildcard: lunr.Query.wildcard.TRAILING });
+    });
+    
+    if (results.length === 0) {
+        var noResultsDiv = document.createElement('div');
+        noResultsDiv.classList.add('search-no-result');
+        noResultsDiv.innerText = 'No results found';
+        searchResults.appendChild(noResultsDiv);
+    } else {
+        var resultsList = document.createElement('ul');
+        resultsList.classList.add('search-results-list');
+        searchResults.appendChild(resultsList);
+        
+        // Add results (limit to 10)
+        for (var i = 0; i < Math.min(results.length, 10); i++) {
+            addSearchResult(resultsList, results[i]);
+        }
+    }
+}
+
+function addSearchResult(resultsList, result) {
+    var doc = window.languageSearchData[result.ref];
+    if (!doc) return;
+    
+    var listItem = document.createElement('li');
+    listItem.classList.add('search-results-list-item');
+    resultsList.appendChild(listItem);
+    
+    var link = document.createElement('a');
+    link.classList.add('search-result');
+    link.setAttribute('href', doc.url || doc.relUrl);
+    listItem.appendChild(link);
+    
+    var title = document.createElement('div');
+    title.classList.add('search-result-title');
+    link.appendChild(title);
+    
+    var docDiv = document.createElement('div');
+    docDiv.classList.add('search-result-doc');
+    docDiv.innerHTML = '<svg viewBox="0 0 24 24" class="search-result-icon"><use xlink:href="#svg-doc"></use></svg>';
+    title.appendChild(docDiv);
+    
+    var docTitle = document.createElement('div');
+    docTitle.classList.add('search-result-doc-title');
+    docTitle.textContent = doc.doc || doc.title;
+    docDiv.appendChild(docTitle);
+    
+    var relUrl = document.createElement('span');
+    relUrl.classList.add('search-result-rel-url');
+    relUrl.textContent = doc.relUrl;
+    title.appendChild(relUrl);
+}
+
+// Initialize when DOM is ready
+document.addEventListener('DOMContentLoaded', function() {
+    // Wait a bit for the theme to load, then initialize
+    setTimeout(initLanguageSearch, 1000);
+    
+    // Hide search when clicking outside
+    document.addEventListener('click', function(e) {
+        var searchInput = document.getElementById('search-input');
+        if (searchInput && e.target !== searchInput) {
+            document.documentElement.classList.remove('search-active');
+        }
+    });
+});
+</script>
+
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     // Find the logo image and make it clickable

@@ -1,0 +1,52 @@
+{
+{%- assign i = 0 -%}
+{%- for page in site.html_pages -%}
+  {%- if page.title and page.url != "/" -%}
+    {%- assign page_lang = "en" -%}
+    {%- assign filename = page.name | default: page.path | split: "/" | last -%}
+    {%- assign lang_match = filename | split: "." -%}
+    {%- if lang_match.size > 2 -%}
+      {%- assign potential_lang = lang_match[1] -%}
+      {%- if potential_lang.size == 2 or potential_lang contains "-" -%}
+        {%- assign page_lang = potential_lang -%}
+      {%- endif -%}
+    {%- endif -%}
+    
+    {%- if i > 0 -%},{%- endif -%}
+    "{{ i }}": {
+      "doc": "{{ page.title | xml_escape }}",
+      "title": "{{ page.title | xml_escape }}",
+      "content": {{ page.content | strip_html | strip_newlines | jsonify }},
+      "url": "{{ page.url | xml_escape }}",
+      "relUrl": "{{ page.url | relative_url | xml_escape }}",
+      "lang": "{{ page_lang }}"
+    }
+    {%- assign i = i | plus: 1 -%}
+  {%- endif -%}
+{%- endfor -%}
+
+{%- for page in site.documents -%}
+  {%- if page.title -%}
+    {%- assign page_lang = "en" -%}
+    {%- assign filename = page.name | default: page.path | split: "/" | last -%}
+    {%- assign lang_match = filename | split: "." -%}
+    {%- if lang_match.size > 2 -%}
+      {%- assign potential_lang = lang_match[1] -%}
+      {%- if potential_lang.size == 2 or potential_lang contains "-" -%}
+        {%- assign page_lang = potential_lang -%}
+      {%- endif -%}
+    {%- endif -%}
+    
+    {%- if i > 0 -%},{%- endif -%}
+    "{{ i }}": {
+      "doc": "{{ page.collection | capitalize }} - {{ page.title | xml_escape }}",
+      "title": "{{ page.title | xml_escape }}",
+      "content": {{ page.content | strip_html | strip_newlines | jsonify }},
+      "url": "{{ page.url | xml_escape }}",
+      "relUrl": "{{ page.url | relative_url | xml_escape }}",
+      "lang": "{{ page_lang }}"
+    }
+    {%- assign i = i | plus: 1 -%}
+  {%- endif -%}
+{%- endfor -%}
+}
