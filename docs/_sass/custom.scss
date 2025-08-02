@@ -33,16 +33,26 @@ html body a {
 }
 
 // Button text should be white for readability
-html body .btn-primary {
+html body .btn-primary,
+html body .btn-primary:link,
+html body .btn-primary:visited,
+html body .btn,
+html body .btn:link,
+html body .btn:visited {
   color: white !important;
 }
 
 html body .main-content a:hover,
 html body .side-bar .nav-list .nav-list-item .nav-list-link:hover,
 html body .site-nav .nav-list .nav-list-item .nav-list-link:hover,
-html body a:hover,
-html body .btn-primary:hover {
+html body a:hover {
   color: #129680 !important;
+}
+
+// Button hover states should keep text white
+html body .btn-primary:hover,
+html body .btn:hover {
+  color: white !important;
 }
 
 html body .main-content a:visited,
