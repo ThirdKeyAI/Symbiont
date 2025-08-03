@@ -352,6 +352,18 @@ Die Runtime HTTP API bietet direkten Zugang zur Symbiont Runtime für Workflow-A
 http://127.0.0.1:8080/api/v1
 ```
 
+### Authentifizierung
+
+Die Agentenverwaltungs-Endpunkte erfordern eine Authentifizierung mit Bearer-Token. Setzen Sie die Umgebungsvariable `API_AUTH_TOKEN` und fügen Sie das Token im Authorization-Header hinzu:
+
+```
+Authorization: Bearer <your-token>
+```
+
+**Geschützte Endpunkte:**
+- Alle Endpunkte unter `/api/v1/agents/*` erfordern Authentifizierung
+- Die Endpunkte `/api/v1/health`, `/api/v1/workflows/execute` und `/api/v1/metrics` erfordern keine Authentifizierung
+
 ### Verfügbare Endpunkte
 
 #### Gesundheitsprüfung
@@ -426,6 +438,7 @@ Ruft eine Liste aller aktiven Agenten in der Runtime ab.
 ##### Agent-Status abrufen
 ```http
 GET /api/v1/agents/{id}/status
+Authorization: Bearer <your-token>
 ```
 
 Ruft detaillierte Statusinformationen für einen bestimmten Agenten ab.
@@ -441,6 +454,112 @@ Ruft detaillierte Statusinformationen für einen bestimmten Agenten ab.
     "cpu_percent": 15.5,
     "active_tasks": 3
   }
+}
+```
+
+##### Agent erstellen
+```http
+POST /api/v1/agents
+Authorization: Bearer <your-token>
+```
+
+Erstellt einen neuen Agenten mit der angegebenen Konfiguration.
+
+**Request Body:**
+```json
+{
+  "name": "mein-agent",
+  "dsl": "Agenten-Definition im DSL-Format"
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "id": "uuid",
+  "status": "created"
+}
+```
+
+##### Agent aktualisieren
+```http
+PUT /api/v1/agents/{id}
+Authorization: Bearer <your-token>
+```
+
+Aktualisiert die Konfiguration eines bestehenden Agenten. Mindestens ein Feld muss angegeben werden.
+
+**Request Body:**
+```json
+{
+  "name": "neuer-agentenname",
+  "dsl": "aktualisierte Agenten-Definition im DSL-Format"
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "id": "uuid",
+  "status": "updated"
+}
+```
+
+##### Agent löschen
+```http
+DELETE /api/v1/agents/{id}
+Authorization: Bearer <your-token>
+```
+
+Löscht einen bestehenden Agenten aus der Runtime.
+
+**Response (200 OK):**
+```json
+{
+  "id": "uuid",
+  "status": "deleted"
+}
+```
+
+##### Agent ausführen
+```http
+POST /api/v1/agents/{id}/execute
+Authorization: Bearer <your-token>
+```
+
+Startet die Ausführung eines bestimmten Agenten.
+
+**Request Body:**
+```json
+{}
+```
+
+**Response (200 OK):**
+```json
+{
+  "execution_id": "uuid",
+  "status": "execution_started"
+}
+```
+
+##### Agenten-Ausführungshistorie abrufen
+```http
+GET /api/v1/agents/{id}/history
+Authorization: Bearer <your-token>
+```
+
+Ruft die Ausführungshistorie für einen bestimmten Agenten ab.
+
+**Response (200 OK):**
+```json
+{
+  "history": [
+    {
+      "execution_id": "uuid",
+      "status": "completed",
+      "timestamp": "2024-01-15T10:30:00Z"
+    }
+  ]
 }
 ```
 
@@ -502,6 +621,57 @@ HealthResponse {
     timestamp: DateTime<Utc>,
     version: String
 }
+
+// Agent-Erstellungsanfrage
+CreateAgentRequest {
+    name: String,
+    dsl: String
+}
+
+// Agent-Erstellungsantwort
+CreateAgentResponse {
+    id: AgentId,
+    status: String
+}
+
+// Agent-Aktualisierungsanfrage
+UpdateAgentRequest {
+    name: Option<String>,
+    dsl: Option<String>
+}
+
+// Agent-Aktualisierungsantwort
+UpdateAgentResponse {
+    id: AgentId,
+    status: String
+}
+
+// Agent-Löschantwort
+DeleteAgentResponse {
+    id: AgentId,
+    status: String
+}
+
+// Agent-Ausführungsanfrage
+ExecuteAgentRequest {}
+
+// Agent-Ausführungsantwort
+ExecuteAgentResponse {
+    execution_id: String,
+    status: String
+}
+
+// Agenten-Historienantwort
+AgentHistoryResponse {
+    history: Vec<AgentExecution>
+}
+
+// Agenten-Ausführung
+AgentExecution {
+    execution_id: String,
+    status: String,
+    timestamp: DateTime<Utc>
+}
 ```
 
 ### Runtime Provider Interface
@@ -514,6 +684,11 @@ Die API implementiert ein `RuntimeApiProvider` Trait mit den folgenden Methoden:
 - `list_agents()` - Listet alle aktiven Agenten in der Runtime auf
 - `shutdown_agent()` - Fährt einen bestimmten Agenten ordnungsgemäß herunter
 - `get_metrics()` - Ruft Systemleistungsmetriken ab
+- `create_agent()` - Erstellt einen neuen Agenten mit der angegebenen Konfiguration
+- `update_agent()` - Aktualisiert die Konfiguration eines bestehenden Agenten
+- `delete_agent()` - Löscht einen bestimmten Agenten aus der Runtime
+- `execute_agent()` - Startet die Ausführung eines bestimmten Agenten
+- `get_agent_history()` - Ruft die Ausführungshistorie für einen bestimmten Agenten ab
 
 ---
 

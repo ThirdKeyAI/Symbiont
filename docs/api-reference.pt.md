@@ -352,6 +352,18 @@ A API HTTP do Runtime fornece acesso direto ao runtime Symbiont para execução 
 http://127.0.0.1:8080/api/v1
 ```
 
+### Autenticação
+
+Os endpoints de gerenciamento de agentes requerem autenticação com token Bearer. Configure a variável de ambiente `API_AUTH_TOKEN` e inclua o token no cabeçalho Authorization:
+
+```
+Authorization: Bearer <your-token>
+```
+
+**Endpoints Protegidos:**
+- Todos os endpoints `/api/v1/agents/*` requerem autenticação
+- Os endpoints `/api/v1/health`, `/api/v1/workflows/execute` e `/api/v1/metrics` não requerem autenticação
+
 ### Endpoints Disponíveis
 
 #### Verificação de Saúde
@@ -426,6 +438,7 @@ Recupera uma lista de todos os agentes ativos no runtime.
 ##### Obter Status do Agente
 ```http
 GET /api/v1/agents/{id}/status
+Authorization: Bearer <your-token>
 ```
 
 Obtém informações detalhadas de status para um agente específico.
@@ -441,6 +454,112 @@ Obtém informações detalhadas de status para um agente específico.
     "cpu_percent": 15.5,
     "active_tasks": 3
   }
+}
+```
+
+##### Criar Agente
+```http
+POST /api/v1/agents
+Authorization: Bearer <your-token>
+```
+
+Cria um novo agente com a configuração fornecida.
+
+**Corpo da Solicitação:**
+```json
+{
+  "name": "meu-agente",
+  "dsl": "definição do agente em formato DSL"
+}
+```
+
+**Resposta (200 OK):**
+```json
+{
+  "id": "uuid",
+  "status": "created"
+}
+```
+
+##### Atualizar Agente
+```http
+PUT /api/v1/agents/{id}
+Authorization: Bearer <your-token>
+```
+
+Atualiza a configuração de um agente existente. Pelo menos um campo deve ser fornecido.
+
+**Corpo da Solicitação:**
+```json
+{
+  "name": "nome-agente-atualizado",
+  "dsl": "definição do agente atualizada em formato DSL"
+}
+```
+
+**Resposta (200 OK):**
+```json
+{
+  "id": "uuid",
+  "status": "updated"
+}
+```
+
+##### Excluir Agente
+```http
+DELETE /api/v1/agents/{id}
+Authorization: Bearer <your-token>
+```
+
+Exclui um agente existente do runtime.
+
+**Resposta (200 OK):**
+```json
+{
+  "id": "uuid",
+  "status": "deleted"
+}
+```
+
+##### Executar Agente
+```http
+POST /api/v1/agents/{id}/execute
+Authorization: Bearer <your-token>
+```
+
+Aciona a execução de um agente específico.
+
+**Corpo da Solicitação:**
+```json
+{}
+```
+
+**Resposta (200 OK):**
+```json
+{
+  "execution_id": "uuid",
+  "status": "execution_started"
+}
+```
+
+##### Obter Histórico de Execução do Agente
+```http
+GET /api/v1/agents/{id}/history
+Authorization: Bearer <your-token>
+```
+
+Recupera o histórico de execução para um agente específico.
+
+**Resposta (200 OK):**
+```json
+{
+  "history": [
+    {
+      "execution_id": "uuid",
+      "status": "completed",
+      "timestamp": "2024-01-15T10:30:00Z"
+    }
+  ]
 }
 ```
 
@@ -502,6 +621,57 @@ HealthResponse {
     timestamp: DateTime<Utc>,
     version: String
 }
+
+// Solicitação de criação de agente
+CreateAgentRequest {
+    name: String,
+    dsl: String
+}
+
+// Resposta de criação de agente
+CreateAgentResponse {
+    id: AgentId,
+    status: String
+}
+
+// Solicitação de atualização de agente
+UpdateAgentRequest {
+    name: Option<String>,
+    dsl: Option<String>
+}
+
+// Resposta de atualização de agente
+UpdateAgentResponse {
+    id: AgentId,
+    status: String
+}
+
+// Resposta de exclusão de agente
+DeleteAgentResponse {
+    id: AgentId,
+    status: String
+}
+
+// Solicitação de execução de agente
+ExecuteAgentRequest {}
+
+// Resposta de execução de agente
+ExecuteAgentResponse {
+    execution_id: String,
+    status: String
+}
+
+// Resposta de histórico de agente
+AgentHistoryResponse {
+    history: Vec<AgentExecution>
+}
+
+// Execução de agente
+AgentExecution {
+    execution_id: String,
+    status: String,
+    timestamp: DateTime<Utc>
+}
 ```
 
 ### Interface do Provedor de Runtime
@@ -514,6 +684,11 @@ A API implementa uma trait `RuntimeApiProvider` com os seguintes métodos:
 - `list_agents()` - Lista todos os agentes ativos no runtime
 - `shutdown_agent()` - Desliga graciosamente um agente específico
 - `get_metrics()` - Recupera métricas de desempenho do sistema
+- `create_agent()` - Cria um novo agente com a configuração fornecida
+- `update_agent()` - Atualiza a configuração de um agente existente
+- `delete_agent()` - Exclui um agente específico do runtime
+- `execute_agent()` - Aciona a execução de um agente específico
+- `get_agent_history()` - Recupera o histórico de execução para um agente específico
 
 ---
 

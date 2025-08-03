@@ -345,12 +345,24 @@ La API utiliza códigos de estado HTTP estándar y devuelve información detalla
 
 ## API HTTP del Runtime
 
-La API HTTP del Runtime proporciona acceso directo al runtime de Symbiont para ejecución de flujos de trabajo, gestión de agentes y monitoreo del sistema. Todos los endpoints documentados están completamente implementados y disponibles cuando la característica `http-api` está habilitada.
+La API HTTP del Runtime proporciona acceso directo al runtime de Symbiont para ejecución de flujos de trabajo, gestión de agentes y monitoreo del sistema. Todos los endpoints están completamente implementados y listos para producción cuando la característica `http-api` está habilitada.
 
 ### URL Base
 ```
 http://127.0.0.1:8080/api/v1
 ```
+
+### Autenticación
+
+Los endpoints de gestión de agentes requieren autenticación con token Bearer. Configure la variable de entorno `API_AUTH_TOKEN` e incluya el token en el encabezado Authorization:
+
+```
+Authorization: Bearer <your-token>
+```
+
+**Endpoints Protegidos:**
+- Todos los endpoints `/api/v1/agents/*` requieren autenticación
+- Los endpoints `/api/v1/health`, `/api/v1/workflows/execute` y `/api/v1/metrics` no requieren autenticación
 
 ### Endpoints Disponibles
 
@@ -426,6 +438,7 @@ Recupera una lista de todos los agentes activos en el runtime.
 ##### Obtener Estado del Agente
 ```http
 GET /api/v1/agents/{id}/status
+Authorization: Bearer <your-token>
 ```
 
 Obtiene información detallada del estado para un agente específico.
@@ -441,6 +454,112 @@ Obtiene información detallada del estado para un agente específico.
     "cpu_percent": 15.5,
     "active_tasks": 3
   }
+}
+```
+
+##### Crear Agente
+```http
+POST /api/v1/agents
+Authorization: Bearer <your-token>
+```
+
+Crea un nuevo agente con la configuración proporcionada.
+
+**Cuerpo de Solicitud:**
+```json
+{
+  "name": "mi-agente",
+  "dsl": "definición del agente en formato DSL"
+}
+```
+
+**Respuesta (200 OK):**
+```json
+{
+  "id": "uuid",
+  "status": "created"
+}
+```
+
+##### Actualizar Agente
+```http
+PUT /api/v1/agents/{id}
+Authorization: Bearer <your-token>
+```
+
+Actualiza la configuración de un agente existente. Al menos un campo debe ser proporcionado.
+
+**Cuerpo de Solicitud:**
+```json
+{
+  "name": "nombre-agente-actualizado",
+  "dsl": "definición del agente actualizada en formato DSL"
+}
+```
+
+**Respuesta (200 OK):**
+```json
+{
+  "id": "uuid",
+  "status": "updated"
+}
+```
+
+##### Eliminar Agente
+```http
+DELETE /api/v1/agents/{id}
+Authorization: Bearer <your-token>
+```
+
+Elimina un agente existente del runtime.
+
+**Respuesta (200 OK):**
+```json
+{
+  "id": "uuid",
+  "status": "deleted"
+}
+```
+
+##### Ejecutar Agente
+```http
+POST /api/v1/agents/{id}/execute
+Authorization: Bearer <your-token>
+```
+
+Activa la ejecución de un agente específico.
+
+**Cuerpo de Solicitud:**
+```json
+{}
+```
+
+**Respuesta (200 OK):**
+```json
+{
+  "execution_id": "uuid",
+  "status": "execution_started"
+}
+```
+
+##### Obtener Historial de Ejecución del Agente
+```http
+GET /api/v1/agents/{id}/history
+Authorization: Bearer <your-token>
+```
+
+Recupera el historial de ejecución para un agente específico.
+
+**Respuesta (200 OK):**
+```json
+{
+  "history": [
+    {
+      "execution_id": "uuid",
+      "status": "completed",
+      "timestamp": "2024-01-15T10:30:00Z"
+    }
+  ]
 }
 ```
 
@@ -502,6 +621,57 @@ HealthResponse {
     timestamp: DateTime<Utc>,
     version: String
 }
+
+// Solicitud de creación de agente
+CreateAgentRequest {
+    name: String,
+    dsl: String
+}
+
+// Respuesta de creación de agente
+CreateAgentResponse {
+    id: AgentId,
+    status: String
+}
+
+// Solicitud de actualización de agente
+UpdateAgentRequest {
+    name: Option<String>,
+    dsl: Option<String>
+}
+
+// Respuesta de actualización de agente
+UpdateAgentResponse {
+    id: AgentId,
+    status: String
+}
+
+// Respuesta de eliminación de agente
+DeleteAgentResponse {
+    id: AgentId,
+    status: String
+}
+
+// Solicitud de ejecución de agente
+ExecuteAgentRequest {}
+
+// Respuesta de ejecución de agente
+ExecuteAgentResponse {
+    execution_id: String,
+    status: String
+}
+
+// Respuesta de historial de agente
+AgentHistoryResponse {
+    history: Vec<AgentExecution>
+}
+
+// Ejecución de agente
+AgentExecution {
+    execution_id: String,
+    status: String,
+    timestamp: DateTime<Utc>
+}
 ```
 
 ### Interfaz del Proveedor de Runtime
@@ -514,6 +684,11 @@ La API implementa un trait `RuntimeApiProvider` con los siguientes métodos:
 - `list_agents()` - Lista todos los agentes activos en el runtime
 - `shutdown_agent()` - Apaga graciosamente un agente específico
 - `get_metrics()` - Recupera métricas de rendimiento del sistema
+- `create_agent()` - Crea un nuevo agente con la configuración proporcionada
+- `update_agent()` - Actualiza la configuración de un agente existente
+- `delete_agent()` - Elimina un agente específico del runtime
+- `execute_agent()` - Activa la ejecución de un agente específico
+- `get_agent_history()` - Recupera el historial de ejecución para un agente específico
 
 ---
 

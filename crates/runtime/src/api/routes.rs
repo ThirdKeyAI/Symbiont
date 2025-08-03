@@ -16,7 +16,7 @@ use std::sync::Arc;
 use super::traits::RuntimeApiProvider;
 
 #[cfg(feature = "http-api")]
-use super::types::{AgentStatusResponse, ErrorResponse, WorkflowExecutionRequest};
+use super::types::{AgentStatusResponse, CreateAgentRequest, CreateAgentResponse, DeleteAgentResponse, ErrorResponse, ExecuteAgentRequest, ExecuteAgentResponse, GetAgentHistoryResponse, UpdateAgentRequest, UpdateAgentResponse, WorkflowExecutionRequest};
 
 #[cfg(feature = "http-api")]
 use crate::types::AgentId;
@@ -94,6 +94,103 @@ pub async fn get_metrics(
             Json(ErrorResponse {
                 error: e.to_string(),
                 code: "METRICS_FAILED".to_string(),
+                details: None,
+            }),
+        )),
+    }
+}
+
+/// Create agent endpoint handler
+#[cfg(feature = "http-api")]
+pub async fn create_agent(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    Json(request): Json<CreateAgentRequest>,
+) -> Result<Json<CreateAgentResponse>, (StatusCode, Json<ErrorResponse>)> {
+    match provider.create_agent(request).await {
+        Ok(response) => Ok(Json(response)),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "AGENT_CREATION_FAILED".to_string(),
+                details: None,
+            }),
+        )),
+    }
+}
+
+/// Update agent endpoint handler
+#[cfg(feature = "http-api")]
+pub async fn update_agent(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    Path(agent_id): Path<String>,
+    Json(request): Json<UpdateAgentRequest>,
+) -> Result<Json<UpdateAgentResponse>, (StatusCode, Json<ErrorResponse>)> {
+    match provider.update_agent(agent_id, request).await {
+        Ok(response) => Ok(Json(response)),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "AGENT_UPDATE_FAILED".to_string(),
+                details: None,
+            }),
+        )),
+    }
+}
+
+/// Delete agent endpoint handler
+#[cfg(feature = "http-api")]
+pub async fn delete_agent(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    Path(agent_id): Path<String>,
+) -> Result<Json<DeleteAgentResponse>, (StatusCode, Json<ErrorResponse>)> {
+    match provider.delete_agent(agent_id).await {
+        Ok(response) => Ok(Json(response)),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "AGENT_DELETION_FAILED".to_string(),
+                details: None,
+            }),
+        )),
+    }
+}
+
+/// Execute agent endpoint handler
+#[cfg(feature = "http-api")]
+pub async fn execute_agent(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    Path(agent_id): Path<String>,
+    Json(request): Json<ExecuteAgentRequest>,
+) -> Result<Json<ExecuteAgentResponse>, (StatusCode, Json<ErrorResponse>)> {
+    match provider.execute_agent(agent_id, request).await {
+        Ok(response) => Ok(Json(response)),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "AGENT_EXECUTION_FAILED".to_string(),
+                details: None,
+            }),
+        )),
+    }
+}
+
+/// Get agent execution history endpoint handler
+#[cfg(feature = "http-api")]
+pub async fn get_agent_history(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    Path(agent_id): Path<String>,
+) -> Result<Json<GetAgentHistoryResponse>, (StatusCode, Json<ErrorResponse>)> {
+    match provider.get_agent_history(agent_id).await {
+        Ok(response) => Ok(Json(response)),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "AGENT_HISTORY_FAILED".to_string(),
                 details: None,
             }),
         )),

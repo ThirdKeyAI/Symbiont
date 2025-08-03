@@ -20,8 +20,362 @@ This document provides comprehensive documentation for the Symbiont runtime APIs
 
 Symbiont offers two API interfaces:
 
-1. **Tool Review API (Production)** - A comprehensive, production-ready API for AI-driven tool review and signing workflows
-2. **Runtime HTTP API (Development Preview)** - An evolving API for direct runtime interaction (currently incomplete)
+1. **Runtime HTTP API** - A complete API for direct runtime interaction, agent management, and workflow execution
+2. **Tool Review API (Production)** - A comprehensive, production-ready API for AI-driven tool review and signing workflows
+
+---
+
+## Runtime HTTP API
+
+The Runtime HTTP API provides direct access to the Symbiont runtime for workflow execution, agent management, and system monitoring. All endpoints are fully implemented and production-ready when the `http-api` feature is enabled.
+
+### Base URL
+```
+http://127.0.0.1:8080/api/v1
+```
+
+### Authentication
+
+Agent management endpoints require Bearer token authentication. Set the `API_AUTH_TOKEN` environment variable and include the token in the Authorization header:
+
+```
+Authorization: Bearer <your-token>
+```
+
+**Protected Endpoints:**
+- All `/api/v1/agents/*` endpoints require authentication
+- `/api/v1/health`, `/api/v1/workflows/execute`, and `/api/v1/metrics` endpoints do not require authentication
+
+### Available Endpoints
+
+#### Health Check
+```http
+GET /api/v1/health
+```
+
+Returns the current system health status and basic runtime information.
+
+**Response (200 OK):**
+```json
+{
+  "status": "healthy",
+  "uptime_seconds": 3600,
+  "timestamp": "2024-01-15T10:30:00Z",
+  "version": "0.1.0"
+}
+```
+
+**Response (500 Internal Server Error):**
+```json
+{
+  "status": "unhealthy",
+  "error": "Database connection failed",
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
+### Available Endpoints
+
+#### Workflow Execution
+```http
+POST /api/v1/workflows/execute
+```
+
+Execute a workflow with specified parameters.
+
+**Request Body:**
+```json
+{
+  "workflow_id": "string",
+  "parameters": {},
+  "agent_id": "optional-agent-id"
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "result": "workflow execution result"
+}
+```
+
+#### Agent Management
+
+All agent management endpoints require authentication via the `Authorization: Bearer <token>` header.
+
+##### List Agents
+```http
+GET /api/v1/agents
+Authorization: Bearer <your-token>
+```
+
+Retrieve a list of all active agents in the runtime.
+
+**Response (200 OK):**
+```json
+[
+  "agent-id-1",
+  "agent-id-2",
+  "agent-id-3"
+]
+```
+
+##### Get Agent Status
+```http
+GET /api/v1/agents/{id}/status
+Authorization: Bearer <your-token>
+```
+
+Get detailed status information for a specific agent.
+
+**Response (200 OK):**
+```json
+{
+  "agent_id": "uuid",
+  "state": "active|idle|busy|error",
+  "last_activity": "2024-01-15T10:30:00Z",
+  "resource_usage": {
+    "memory_bytes": 268435456,
+    "cpu_percent": 15.5,
+    "active_tasks": 3
+  }
+}
+```
+
+##### Create Agent
+```http
+POST /api/v1/agents
+Authorization: Bearer <your-token>
+```
+
+Create a new agent with the provided configuration.
+
+**Request Body:**
+```json
+{
+  "name": "my-agent",
+  "dsl": "agent definition in DSL format"
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "id": "uuid",
+  "status": "created"
+}
+```
+
+##### Update Agent
+```http
+PUT /api/v1/agents/{id}
+Authorization: Bearer <your-token>
+```
+
+Update an existing agent's configuration. At least one field must be provided.
+
+**Request Body:**
+```json
+{
+  "name": "updated-agent-name",
+  "dsl": "updated agent definition in DSL format"
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "id": "uuid",
+  "status": "updated"
+}
+```
+
+##### Delete Agent
+```http
+DELETE /api/v1/agents/{id}
+Authorization: Bearer <your-token>
+```
+
+Delete an existing agent from the runtime.
+
+**Response (200 OK):**
+```json
+{
+  "id": "uuid",
+  "status": "deleted"
+}
+```
+
+##### Execute Agent
+```http
+POST /api/v1/agents/{id}/execute
+Authorization: Bearer <your-token>
+```
+
+Trigger execution of a specific agent.
+
+**Request Body:**
+```json
+{}
+```
+
+**Response (200 OK):**
+```json
+{
+  "execution_id": "uuid",
+  "status": "execution_started"
+}
+```
+
+##### Get Agent Execution History
+```http
+GET /api/v1/agents/{id}/history
+Authorization: Bearer <your-token>
+```
+
+Retrieve the execution history for a specific agent.
+
+**Response (200 OK):**
+```json
+{
+  "history": [
+    {
+      "execution_id": "uuid",
+      "status": "completed",
+      "timestamp": "2024-01-15T10:30:00Z"
+    }
+  ]
+}
+```
+
+#### System Metrics
+```http
+GET /api/v1/metrics
+```
+
+Retrieve comprehensive system performance metrics.
+
+**Response (200 OK):**
+```json
+{
+  "system": {
+    "uptime_seconds": 3600,
+    "memory_usage": "75%",
+    "cpu_usage": "45%"
+  },
+  "agents": {
+    "total": 5,
+    "active": 3,
+    "idle": 2
+  }
+}
+```
+
+### Server Configuration
+
+The Runtime HTTP API server can be configured with the following options:
+
+- **Default bind address**: `127.0.0.1:8080`
+- **CORS support**: Configurable for development
+- **Request tracing**: Enabled via Tower middleware
+- **Feature gate**: Available behind `http-api` Cargo feature
+
+### Data Structures
+
+#### Core Types
+```rust
+// Workflow execution request
+WorkflowExecutionRequest {
+    workflow_id: String,
+    parameters: serde_json::Value,
+    agent_id: Option<AgentId>
+}
+
+// Agent status response
+AgentStatusResponse {
+    agent_id: AgentId,
+    state: AgentState,
+    last_activity: DateTime<Utc>,
+    resource_usage: ResourceUsage
+}
+
+// Health check response
+HealthResponse {
+    status: String,
+    uptime_seconds: u64,
+    timestamp: DateTime<Utc>,
+    version: String
+}
+
+// Agent creation request
+CreateAgentRequest {
+    name: String,
+    dsl: String
+}
+
+// Agent creation response
+CreateAgentResponse {
+    id: String,
+    status: String
+}
+
+// Agent update request
+UpdateAgentRequest {
+    name: Option<String>,
+    dsl: Option<String>
+}
+
+// Agent update response
+UpdateAgentResponse {
+    id: String,
+    status: String
+}
+
+// Agent deletion response
+DeleteAgentResponse {
+    id: String,
+    status: String
+}
+
+// Agent execution request
+ExecuteAgentRequest {
+    // Empty struct for now
+}
+
+// Agent execution response
+ExecuteAgentResponse {
+    execution_id: String,
+    status: String
+}
+
+// Agent execution record
+AgentExecutionRecord {
+    execution_id: String,
+    status: String,
+    timestamp: String
+}
+
+// Agent execution history response
+GetAgentHistoryResponse {
+    history: Vec<AgentExecutionRecord>
+}
+```
+
+### Runtime Provider Interface
+
+The API implements a `RuntimeApiProvider` trait with the following methods:
+
+- `execute_workflow()` - Execute a workflow with given parameters
+- `get_agent_status()` - Retrieve status information for a specific agent
+- `get_system_health()` - Get overall system health status
+- `list_agents()` - List all active agents in the runtime
+- `shutdown_agent()` - Gracefully shutdown a specific agent
+- `get_metrics()` - Retrieve system performance metrics
+- `create_agent()` - Create a new agent with provided configuration
+- `update_agent()` - Update an existing agent's configuration
+- `delete_agent()` - Delete an existing agent from the runtime
+- `execute_agent()` - Trigger execution of a specific agent
+- `get_agent_history()` - Retrieve execution history for a specific agent
 
 ---
 
@@ -341,190 +695,10 @@ The API uses standard HTTP status codes and returns detailed error information:
 }
 ```
 
----
-
-## Runtime HTTP API
-
-The Runtime HTTP API provides direct access to the Symbiont runtime for workflow execution, agent management, and system monitoring. All documented endpoints are fully implemented and available when the `http-api` feature is enabled.
-
-### Base URL
-```
-http://127.0.0.1:8080/api/v1
-```
-
-### Available Endpoints
-
-#### Health Check
-```http
-GET /api/v1/health
-```
-
-Returns the current system health status and basic runtime information.
-
-**Response (200 OK):**
-```json
-{
-  "status": "healthy",
-  "uptime_seconds": 3600,
-  "timestamp": "2024-01-15T10:30:00Z",
-  "version": "0.1.0"
-}
-```
-
-**Response (500 Internal Server Error):**
-```json
-{
-  "status": "unhealthy",
-  "error": "Database connection failed",
-  "timestamp": "2024-01-15T10:30:00Z"
-}
-```
-
-### Available Endpoints
-
-#### Workflow Execution
-```http
-POST /api/v1/workflows/execute
-```
-
-Execute a workflow with specified parameters.
-
-**Request Body:**
-```json
-{
-  "workflow_id": "string",
-  "parameters": {},
-  "agent_id": "optional-agent-id"
-}
-```
-
-**Response (200 OK):**
-```json
-{
-  "result": "workflow execution result"
-}
-```
-
-#### Agent Management
-
-##### List Agents
-```http
-GET /api/v1/agents
-```
-
-Retrieve a list of all active agents in the runtime.
-
-**Response (200 OK):**
-```json
-[
-  "agent-id-1",
-  "agent-id-2",
-  "agent-id-3"
-]
-```
-
-##### Get Agent Status
-```http
-GET /api/v1/agents/{id}/status
-```
-
-Get detailed status information for a specific agent.
-
-**Response (200 OK):**
-```json
-{
-  "agent_id": "uuid",
-  "state": "active|idle|busy|error",
-  "last_activity": "2024-01-15T10:30:00Z",
-  "resource_usage": {
-    "memory_bytes": 268435456,
-    "cpu_percent": 15.5,
-    "active_tasks": 3
-  }
-}
-```
-
-#### System Metrics
-```http
-GET /api/v1/metrics
-```
-
-Retrieve comprehensive system performance metrics.
-
-**Response (200 OK):**
-```json
-{
-  "system": {
-    "uptime_seconds": 3600,
-    "memory_usage": "75%",
-    "cpu_usage": "45%"
-  },
-  "agents": {
-    "total": 5,
-    "active": 3,
-    "idle": 2
-  }
-}
-```
-
-### Server Configuration
-
-The Runtime HTTP API server can be configured with the following options:
-
-- **Default bind address**: `127.0.0.1:8080`
-- **CORS support**: Configurable for development
-- **Request tracing**: Enabled via Tower middleware
-- **Feature gate**: Available behind `http-api` Cargo feature
-
-### Data Structures
-
-#### Core Types
-```rust
-// Workflow execution request
-WorkflowExecutionRequest {
-    workflow_id: String,
-    parameters: serde_json::Value,
-    agent_id: Option<AgentId>
-}
-
-// Agent status response
-AgentStatusResponse {
-    agent_id: AgentId,
-    state: AgentState,
-    last_activity: DateTime<Utc>,
-    resource_usage: ResourceUsage
-}
-
-// Health check response
-HealthResponse {
-    status: String,
-    uptime_seconds: u64,
-    timestamp: DateTime<Utc>,
-    version: String
-}
-```
-
-### Runtime Provider Interface
-
-The API implements a `RuntimeApiProvider` trait with the following methods:
-
-- `execute_workflow()` - Execute a workflow with given parameters
-- `get_agent_status()` - Retrieve status information for a specific agent
-- `get_system_health()` - Get overall system health status
-- `list_agents()` - List all active agents in the runtime
-- `shutdown_agent()` - Gracefully shutdown a specific agent
-- `get_metrics()` - Retrieve system performance metrics
 
 ---
 
 ## Getting Started
-
-### Tool Review API
-
-1. Obtain API credentials from your Symbiont administrator
-2. Submit a tool for review using the `/sessions` endpoint
-3. Monitor the review progress via `/sessions/{reviewId}`
-4. Download signed tools from `/signing/{reviewId}/download`
 
 ### Runtime HTTP API
 
@@ -532,14 +706,34 @@ The API implements a `RuntimeApiProvider` trait with the following methods:
    ```bash
    cargo build --features http-api
    ```
-2. Start the runtime server:
+
+2. Set the authentication token for agent endpoints:
+   ```bash
+   export API_AUTH_TOKEN="your-secret-token"
+   ```
+
+3. Start the runtime server:
    ```bash
    ./target/debug/symbiont-runtime --http-api
    ```
-3. Verify the server is running:
+
+4. Verify the server is running:
    ```bash
    curl http://127.0.0.1:8080/api/v1/health
    ```
+
+5. Test authenticated agent endpoint:
+   ```bash
+   curl -H "Authorization: Bearer your-secret-token" \
+        http://127.0.0.1:8080/api/v1/agents
+   ```
+
+### Tool Review API
+
+1. Obtain API credentials from your Symbiont administrator
+2. Submit a tool for review using the `/sessions` endpoint
+3. Monitor the review progress via `/sessions/{reviewId}`
+4. Download signed tools from `/signing/{reviewId}/download`
 
 ## Support
 

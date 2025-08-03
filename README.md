@@ -2,7 +2,7 @@
 
 [中文简体](README.zh-cn.md) | [Español](README.es.md) | [Português](README.pt.md) | [日本語](README.ja.md) | [Deutsch](README.de.md)
 
-**Symbi** is an AI-native agent framework for building autonomous, policy-aware agents that can safely collaborate with humans, other agents, and large language models. The Community edition provides core functionality with optional Enterprise features for advanced security, monitoring, and collaboration.
+**Symbi** is an AI-native agent framework for building autonomous, policy-aware agents that can safely collaborate with humans, other agents, and large language models. 
 
 ## 🚀 Quick Start
 
@@ -66,9 +66,18 @@ symbi-runtime = { version = "0.1.2", features = ["http-api"] }
 
 **Key Endpoints:**
 - `GET /api/v1/health` - Health check and system status
-- `GET /api/v1/agents` - List all active agents
+- `GET /api/v1/agents` - List all active agents (requires authentication)
+- `GET /api/v1/agents/{id}/status` - Get specific agent status (requires authentication)
+- `POST /api/v1/agents` - Create a new agent (requires authentication)
+- `PUT /api/v1/agents/{id}` - Update an agent (requires authentication)
+- `DELETE /api/v1/agents/{id}` - Delete an agent (requires authentication)
+- `POST /api/v1/agents/{id}/execute` - Execute an agent (requires authentication)
+- `GET /api/v1/agents/{id}/history` - Get agent execution history (requires authentication)
 - `POST /api/v1/workflows/execute` - Execute workflows
 - `GET /api/v1/metrics` - System metrics
+
+> **Note:** All `/api/v1/agents*` endpoints require Bearer token authentication. Set the `API_AUTH_TOKEN` environment variable and use the header:
+> `Authorization: Bearer <your-token>`
 
 ## 📁 Project Structure
 

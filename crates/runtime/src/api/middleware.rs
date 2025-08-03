@@ -6,11 +6,37 @@
 #[cfg(feature = "http-api")]
 use axum::{extract::Request, http::StatusCode, middleware::Next, response::Response};
 
-/// Authentication middleware (placeholder)
+/// Authentication middleware for bearer token validation
 #[cfg(feature = "http-api")]
 pub async fn auth_middleware(request: Request, next: Next) -> Result<Response, StatusCode> {
-    // TODO: Implement actual authentication logic
-    // For now, just pass through all requests
+    // Extract the Authorization header
+    let headers = request.headers();
+    let auth_header = headers.get("authorization");
+    
+    // Check if Authorization header is present
+    let auth_value = match auth_header {
+        Some(value) => value.to_str().map_err(|_| StatusCode::UNAUTHORIZED)?,
+        None => return Err(StatusCode::UNAUTHORIZED),
+    };
+    
+    // Check if it's a Bearer token
+    if !auth_value.starts_with("Bearer ") {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    
+    // Extract the token part (after "Bearer ")
+    let token = &auth_value[7..];
+    
+    // Get the expected token from environment variable
+    let expected_token = std::env::var("API_AUTH_TOKEN")
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    
+    // Validate the token
+    if token != expected_token {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    
+    // Token is valid, proceed with the request
     Ok(next.run(request).await)
 }
 

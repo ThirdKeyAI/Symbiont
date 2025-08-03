@@ -26,8 +26,8 @@ The Symbi Agent Runtime System provides a complete infrastructure for executing 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         Agent Runtime System                               │
+┌───────────────────────────────────────────────────────────────────────────────┐
+│                         Agent Runtime System                                  │
 ├─────────────────┬─────────────────┬─────────────────┬─────────────────────────┤
 │   Scheduler     │   Lifecycle     │ Resource Manager│   Context Manager       │
 │                 │   Controller    │                 │                         │
@@ -38,8 +38,8 @@ The Symbi Agent Runtime System provides a complete infrastructure for executing 
 │  MCP Client     │ SchemaPin       │ Tool Review     │   Policy Engine         │
 │                 │ Integration     │ Workflow        │                         │
 ├─────────────────┼─────────────────┼─────────────────┼─────────────────────────┤
-│ HTTP API Server │                 │                 │     (Optional)          │
-│   (Optional)    │                 │                 │                         │
+│ HTTP API Server │  HTTP-Input     │                 │     (Optional)          │
+│   (Optional)    │  (Optional)     │                 │                         │
 └─────────────────┴─────────────────┴─────────────────┴─────────────────────────┘
 ```
 
@@ -438,10 +438,18 @@ api_server.start().await?;
 #### Available Endpoints
 
 - `GET /api/v1/health` - System health check
-- `GET /api/v1/agents` - List all active agents
-- `GET /api/v1/agents/{id}/status` - Get specific agent status
+- `GET /api/v1/agents` - List all active agents (requires authentication)
+- `GET /api/v1/agents/{id}/status` - Get specific agent status (requires authentication)
+- `POST /api/v1/agents` - Create a new agent (requires authentication)
+- `PUT /api/v1/agents/{id}` - Update an agent (requires authentication)
+- `DELETE /api/v1/agents/{id}` - Delete an agent (requires authentication)
+- `POST /api/v1/agents/{id}/execute` - Execute an agent (requires authentication)
+- `GET /api/v1/agents/{id}/history` - Get agent execution history (requires authentication)
 - `POST /api/v1/workflows/execute` - Execute workflows
 - `GET /api/v1/metrics` - System performance metrics
+
+> **Note:** All `/api/v1/agents*` endpoints require Bearer token authentication. Set the `API_AUTH_TOKEN` environment variable and use the header:
+> `Authorization: Bearer <your-token>`
 
 #### Example Usage
 

@@ -18,6 +18,13 @@ pub mod types;
 #[cfg(feature = "http-api")]
 pub mod api;
 
+#[cfg(feature = "http-api")]
+use api::types::{AgentExecutionRecord, AgentStatusResponse, CreateAgentRequest, CreateAgentResponse, DeleteAgentResponse, ExecuteAgentRequest, ExecuteAgentResponse, GetAgentHistoryResponse, UpdateAgentRequest, UpdateAgentResponse, WorkflowExecutionRequest};
+#[cfg(feature = "http-api")]
+use api::traits::RuntimeApiProvider;
+#[cfg(feature = "http-api")]
+use async_trait::async_trait;
+
 #[cfg(feature = "http-input")]
 pub mod http_input;
 
@@ -142,4 +149,199 @@ pub struct RuntimeConfig {
     pub security: SecurityConfig,
     pub audit: AuditConfig,
     pub error_handler: error_handler::ErrorHandlerConfig,
+}
+
+/// Implementation of RuntimeApiProvider for AgentRuntime
+#[cfg(feature = "http-api")]
+#[async_trait]
+impl RuntimeApiProvider for AgentRuntime {
+    async fn execute_workflow(
+        &self,
+        _request: WorkflowExecutionRequest,
+    ) -> Result<serde_json::Value, RuntimeError> {
+        // Placeholder implementation
+        Ok(serde_json::json!({
+            "status": "success",
+            "message": "Workflow execution not yet implemented"
+        }))
+    }
+
+    async fn get_agent_status(
+        &self,
+        _agent_id: AgentId,
+    ) -> Result<AgentStatusResponse, RuntimeError> {
+        // Placeholder implementation
+        use crate::types::AgentState;
+        Ok(AgentStatusResponse {
+            agent_id: AgentId::new(),
+            state: AgentState::Running,
+            last_activity: chrono::Utc::now(),
+            resource_usage: api::types::ResourceUsage {
+                memory_bytes: 0,
+                cpu_percent: 0.0,
+                active_tasks: 0,
+            },
+        })
+    }
+
+    async fn get_system_health(&self) -> Result<serde_json::Value, RuntimeError> {
+        // Placeholder implementation
+        Ok(serde_json::json!({
+            "status": "healthy",
+            "components": {
+                "scheduler": "healthy",
+                "lifecycle": "healthy",
+                "resource_manager": "healthy",
+                "communication": "healthy"
+            }
+        }))
+    }
+
+    async fn list_agents(&self) -> Result<Vec<AgentId>, RuntimeError> {
+        // Placeholder implementation - return empty list for now
+        Ok(vec![])
+    }
+
+    async fn shutdown_agent(&self, _agent_id: AgentId) -> Result<(), RuntimeError> {
+        // Placeholder implementation
+        Ok(())
+    }
+
+    async fn get_metrics(&self) -> Result<serde_json::Value, RuntimeError> {
+        // Placeholder implementation
+        Ok(serde_json::json!({
+            "agents": {
+                "total": 0,
+                "running": 0,
+                "idle": 0,
+                "error": 0
+            },
+            "system": {
+                "uptime": 0,
+                "memory_usage": 0,
+                "cpu_usage": 0.0
+            }
+        }))
+    }
+
+    async fn create_agent(
+        &self,
+        request: CreateAgentRequest,
+    ) -> Result<CreateAgentResponse, RuntimeError> {
+        // Placeholder implementation - generate a UUID and return success
+        use uuid::Uuid;
+        
+        // For now, just validate that we have the required fields
+        if request.name.is_empty() {
+            return Err(RuntimeError::Internal("Agent name cannot be empty".to_string()));
+        }
+        
+        if request.dsl.is_empty() {
+            return Err(RuntimeError::Internal("Agent DSL cannot be empty".to_string()));
+        }
+
+        Ok(CreateAgentResponse {
+            id: Uuid::new_v4().to_string(),
+            status: "created".to_string(),
+        })
+    }
+
+    async fn update_agent(
+        &self,
+        agent_id: String,
+        request: UpdateAgentRequest,
+    ) -> Result<UpdateAgentResponse, RuntimeError> {
+        // Placeholder implementation - validate input and return success
+        
+        // Validate that at least one field is provided for update
+        if request.name.is_none() && request.dsl.is_none() {
+            return Err(RuntimeError::Internal("At least one field (name or dsl) must be provided for update".to_string()));
+        }
+        
+        // Validate agent_id is not empty
+        if agent_id.is_empty() {
+            return Err(RuntimeError::Internal("Agent ID cannot be empty".to_string()));
+        }
+        
+        // Validate optional fields if provided
+        if let Some(ref name) = request.name {
+            if name.is_empty() {
+                return Err(RuntimeError::Internal("Agent name cannot be empty".to_string()));
+            }
+        }
+        
+        if let Some(ref dsl) = request.dsl {
+            if dsl.is_empty() {
+                return Err(RuntimeError::Internal("Agent DSL cannot be empty".to_string()));
+            }
+        }
+
+        Ok(UpdateAgentResponse {
+            id: agent_id,
+            status: "updated".to_string(),
+        })
+    }
+
+    async fn delete_agent(
+        &self,
+        agent_id: String,
+    ) -> Result<DeleteAgentResponse, RuntimeError> {
+        // Placeholder implementation - validate input and return success
+        
+        // Validate agent_id is not empty
+        if agent_id.is_empty() {
+            return Err(RuntimeError::Internal("Agent ID cannot be empty".to_string()));
+        }
+
+        Ok(DeleteAgentResponse {
+            id: agent_id,
+            status: "deleted".to_string(),
+        })
+    }
+
+    async fn execute_agent(
+        &self,
+        agent_id: String,
+        _request: ExecuteAgentRequest,
+    ) -> Result<ExecuteAgentResponse, RuntimeError> {
+        // Placeholder implementation - validate input and return dummy response
+        
+        // Validate agent_id is not empty
+        if agent_id.is_empty() {
+            return Err(RuntimeError::Internal("Agent ID cannot be empty".to_string()));
+        }
+
+        // Generate a dummy execution ID
+        use uuid::Uuid;
+        
+        Ok(ExecuteAgentResponse {
+            execution_id: Uuid::new_v4().to_string(),
+            status: "execution_started".to_string(),
+        })
+    }
+
+    async fn get_agent_history(
+        &self,
+        agent_id: String,
+    ) -> Result<GetAgentHistoryResponse, RuntimeError> {
+        // Placeholder implementation - validate input and return dummy response
+        
+        // Validate agent_id is not empty
+        if agent_id.is_empty() {
+            return Err(RuntimeError::Internal("Agent ID cannot be empty".to_string()));
+        }
+
+        // Return a dummy history with one sample record
+        use uuid::Uuid;
+        
+        let sample_record = AgentExecutionRecord {
+            execution_id: Uuid::new_v4().to_string(),
+            status: "completed".to_string(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        };
+
+        Ok(GetAgentHistoryResponse {
+            history: vec![sample_record],
+        })
+    }
 }

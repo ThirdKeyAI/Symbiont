@@ -92,22 +92,33 @@ impl HttpApiServer {
 
     /// Create the Axum router with all routes and middleware
     fn create_router(&self) -> Router {
-        use axum::routing::{get, post};
+        use axum::routing::{get, post, put};
         
         let mut router = Router::new().route("/api/v1/health", get(health_check));
 
         // Add stateful routes if we have a runtime provider
         if let Some(provider) = &self.runtime_provider {
-            use super::routes::{execute_workflow, get_agent_status, list_agents, get_metrics};
+            use super::routes::{create_agent, delete_agent, execute_agent, execute_workflow, get_agent_history, get_agent_status, list_agents, get_metrics, update_agent};
+            use super::middleware::auth_middleware;
+            use axum::middleware;
             
-            let stateful_router = Router::new()
-                .route("/api/v1/workflows/execute", post(execute_workflow))
-                .route("/api/v1/agents", get(list_agents))
+            // Agent routes that require authentication
+            let agent_router = Router::new()
+                .route("/api/v1/agents", get(list_agents).post(create_agent))
                 .route("/api/v1/agents/:id/status", get(get_agent_status))
+                .route("/api/v1/agents/:id", put(update_agent).delete(delete_agent))
+                .route("/api/v1/agents/:id/execute", post(execute_agent))
+                .route("/api/v1/agents/:id/history", get(get_agent_history))
+                .layer(middleware::from_fn(auth_middleware))
+                .with_state(provider.clone());
+            
+            // Other routes without authentication
+            let other_router = Router::new()
+                .route("/api/v1/workflows/execute", post(execute_workflow))
                 .route("/api/v1/metrics", get(get_metrics))
                 .with_state(provider.clone());
             
-            router = router.merge(stateful_router);
+            router = router.merge(agent_router).merge(other_router);
         }
 
         // Add middleware conditionally

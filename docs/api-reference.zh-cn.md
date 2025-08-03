@@ -352,6 +352,18 @@ API 使用标准 HTTP 状态码并返回详细的错误信息：
 http://127.0.0.1:8080/api/v1
 ```
 
+### 身份验证
+
+代理管理端点需要 Bearer 令牌认证。请设置环境变量 `API_AUTH_TOKEN`，并在 Authorization 头中包含令牌：
+
+```
+Authorization: Bearer <your-token>
+```
+
+**受保护端点：**
+- 所有 `/api/v1/agents/*` 端点都需要认证
+- `/api/v1/health`、`/api/v1/workflows/execute` 和 `/api/v1/metrics` 不需要认证
+
 ### 可用端点
 
 #### 健康检查
@@ -426,6 +438,7 @@ GET /api/v1/agents
 ##### 获取代理状态
 ```http
 GET /api/v1/agents/{id}/status
+Authorization: Bearer <your-token>
 ```
 
 获取特定代理的详细状态信息。
@@ -441,6 +454,112 @@ GET /api/v1/agents/{id}/status
     "cpu_percent": 15.5,
     "active_tasks": 3
   }
+}
+```
+
+##### 创建代理
+```http
+POST /api/v1/agents
+Authorization: Bearer <your-token>
+```
+
+使用提供的配置创建新代理。
+
+**请求体：**
+```json
+{
+  "name": "my-agent",
+  "dsl": "DSL 格式的代理定义"
+}
+```
+
+**响应（200 OK）：**
+```json
+{
+  "id": "uuid",
+  "status": "created"
+}
+```
+
+##### 更新代理
+```http
+PUT /api/v1/agents/{id}
+Authorization: Bearer <your-token>
+```
+
+更新现有代理的配置。至少需要提供一个字段。
+
+**请求体：**
+```json
+{
+  "name": "新代理名称",
+  "dsl": "更新后的 DSL 格式代理定义"
+}
+```
+
+**响应（200 OK）：**
+```json
+{
+  "id": "uuid",
+  "status": "updated"
+}
+```
+
+##### 删除代理
+```http
+DELETE /api/v1/agents/{id}
+Authorization: Bearer <your-token>
+```
+
+从运行时中删除现有代理。
+
+**响应（200 OK）：**
+```json
+{
+  "id": "uuid",
+  "status": "deleted"
+}
+```
+
+##### 执行代理
+```http
+POST /api/v1/agents/{id}/execute
+Authorization: Bearer <your-token>
+```
+
+启动特定代理的执行。
+
+**请求体：**
+```json
+{}
+```
+
+**响应（200 OK）：**
+```json
+{
+  "execution_id": "uuid",
+  "status": "execution_started"
+}
+```
+
+##### 获取代理执行历史
+```http
+GET /api/v1/agents/{id}/history
+Authorization: Bearer <your-token>
+```
+
+获取特定代理的执行历史。
+
+**响应（200 OK）：**
+```json
+{
+  "history": [
+    {
+      "execution_id": "uuid",
+      "status": "completed",
+      "timestamp": "2024-01-15T10:30:00Z"
+    }
+  ]
 }
 ```
 
@@ -502,6 +621,57 @@ HealthResponse {
     timestamp: DateTime<Utc>,
     version: String
 }
+
+// 创建代理请求
+CreateAgentRequest {
+    name: String,
+    dsl: String
+}
+
+// 创建代理响应
+CreateAgentResponse {
+    id: AgentId,
+    status: String
+}
+
+// 更新代理请求
+UpdateAgentRequest {
+    name: Option<String>,
+    dsl: Option<String>
+}
+
+// 更新代理响应
+UpdateAgentResponse {
+    id: AgentId,
+    status: String
+}
+
+// 删除代理响应
+DeleteAgentResponse {
+    id: AgentId,
+    status: String
+}
+
+// 执行代理请求
+ExecuteAgentRequest {}
+
+// 执行代理响应
+ExecuteAgentResponse {
+    execution_id: String,
+    status: String
+}
+
+// 代理历史响应
+AgentHistoryResponse {
+    history: Vec<AgentExecution>
+}
+
+// 代理执行
+AgentExecution {
+    execution_id: String,
+    status: String,
+    timestamp: DateTime<Utc>
+}
 ```
 
 ### 运行时提供者接口
@@ -514,6 +684,11 @@ API 实现了一个具有以下方法的 `RuntimeApiProvider` trait：
 - `list_agents()` - 列出运行时中的所有活动代理
 - `shutdown_agent()` - 优雅地关闭特定代理
 - `get_metrics()` - 检索系统性能指标
+- `create_agent()` - 使用提供的配置创建新代理
+- `update_agent()` - 更新现有代理的配置
+- `delete_agent()` - 从运行时中删除特定代理
+- `execute_agent()` - 启动特定代理的执行
+- `get_agent_history()` - 获取特定代理的执行历史
 
 ---
 
