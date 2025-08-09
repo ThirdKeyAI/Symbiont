@@ -16,6 +16,7 @@ pub struct TaskManager {
     task_timeout: Duration,
     running_tasks: Arc<RwLock<HashMap<AgentId, TaskHandle>>>,
     task_sender: mpsc::UnboundedSender<TaskCommand>,
+    #[allow(dead_code)]
     system_info: Arc<RwLock<System>>,
 }
 
@@ -660,6 +661,7 @@ struct ExecutionMetrics {
     cpu_time_ms: u64,
     exit_code: Option<i32>,
     error_count: u32,
+    #[allow(dead_code)]
     success: bool,
 }
 
@@ -694,6 +696,7 @@ impl AgentExecutionContext {
 struct ProcessHandle {
     process_id: u32,
     child: Arc<tokio::sync::Mutex<tokio::process::Child>>,
+    #[allow(dead_code)]
     start_time: SystemTime,
 }
 
@@ -702,6 +705,7 @@ struct ProcessHandle {
 struct ExecutionEnvironment {
     working_directory: String,
     environment_variables: Vec<(String, String)>,
+    #[allow(dead_code)]
     resource_limits: ResourceLimits,
 }
 

@@ -281,3 +281,31 @@ pub enum SandboxState {
     Terminated,
     Failed,
 }
+
+/// Represents different types of capabilities that agents can request
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum Capability {
+    /// File system operations
+    FileRead(String),
+    FileWrite(String),
+    FileDelete(String),
+    
+    /// Network operations
+    NetworkRequest(String),
+    NetworkListen(u16),
+    
+    /// System operations
+    Execute(String),
+    EnvironmentRead(String),
+    EnvironmentWrite(String),
+    
+    /// Agent operations
+    AgentCreate,
+    AgentDelete,
+    AgentModify,
+    
+    /// Data operations
+    DataRead(String),
+    DataWrite(String),
+    DataDelete(String),
+}

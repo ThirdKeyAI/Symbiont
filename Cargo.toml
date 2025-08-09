@@ -1,6 +1,6 @@
 [package]
 name = "symbi"
-version = "0.1.2"
+version = "0.3.0"
 edition = "2021"
 authors = ["Jascha Wanger / ThirdKey.ai"]
 description = "AI-native agent framework for building autonomous, policy-aware agents that can safely collaborate with humans, other agents, and large language models"
@@ -27,7 +27,11 @@ exclude = [
 resolver = "2"
 members = [
     "crates/dsl",
-    "crates/runtime"
+    "crates/runtime",
+    "crates/repl-core",
+    "crates/repl-proto",
+    "crates/repl-cli",
+    "crates/repl-lsp"
 ]
 
 [dependencies]

@@ -38,14 +38,17 @@ cargo build --release
 # Test the components
 cargo test
 
-# Run example agents (from crates/runtime)
-cd crates/runtime && cargo run --example basic_agent
-cd crates/runtime && cargo run --example full_system
-cd crates/runtime && cargo run --example rag_example
+# Run the interactive REPL
+cargo run -- repl
 
 # Use the unified symbi CLI
 cargo run -- dsl parse my_agent.dsl
 cargo run -- mcp --port 8080
+
+# Run example agents (from crates/runtime)
+cd crates/runtime && cargo run --example basic_agent
+cd crates/runtime && cargo run --example full_system
+cd crates/runtime && cargo run --example rag_example
 
 # Enable HTTP API (optional)
 cd crates/runtime && cargo run --features http-api --example full_system
@@ -89,10 +92,14 @@ symbi/
 │   │   ├── src/          # Parser and library code
 │   │   ├── tests/        # DSL test suite
 │   │   └── tree-sitter-symbiont/ # Grammar definition
-│   └── runtime/          # Agent Runtime System (Community)
-│       ├── src/          # Core runtime components
-│       ├── examples/     # Usage examples
-│       └── tests/        # Integration tests
+│   ├── runtime/          # Agent Runtime System (Community)
+│   │   ├── src/          # Core runtime components
+│   │   ├── examples/     # Usage examples
+│   │   └── tests/        # Integration tests
+│   ├── repl-core/        # REPL engine and DSL evaluator
+│   ├── repl-cli/         # Interactive REPL and JSON-RPC server
+│   ├── repl-proto/       # REPL protocol definitions
+│   └── repl-lsp/         # Language Server Protocol (LSP)
 ├── docs/                 # Documentation
 └── Cargo.toml           # Workspace configuration
 ```
@@ -102,7 +109,7 @@ symbi/
 ### ✅ Community Features (OSS)
 - **DSL Grammar**: Complete Tree-sitter grammar for agent definitions
 - **Agent Runtime**: Task scheduling, resource management, lifecycle control
-- **Real Task Execution**: Actual process spawning with comprehensive monitoring and metrics
+- **Task Execution**: Process spawning with comprehensive monitoring and metrics
 - **Graceful Shutdown**: Coordinated shutdown with resource cleanup and timeout handling
 - **Tier 1 Sandboxing**: Docker containerized isolation for agent operations
 - **MCP Integration**: Model Context Protocol client for external tools
@@ -113,18 +120,10 @@ symbi/
 - **Access Control Integration**: Policy engine connected context management with agent-scoped access
 - **Context Archiving**: Automatic archiving with retention policies and compressed storage
 - **Vector Database**: Qdrant integration for semantic search
-- **Comprehensive Secrets Management**: HashiCorp Vault integration with multiple auth methods
+- **Comprehensive Secrets Management**: HashiCorp Vault/OpenBao integration with multiple auth methods
 - **Encrypted File Backend**: AES-256-GCM encryption with OS keychain integration
 - **Secrets CLI Tools**: Complete encrypt/decrypt/edit operations with audit trails
 - **HTTP API**: Optional RESTful interface (feature-gated)
-
-### 🏢 Enterprise Features (License Required)
-- **Advanced Sandboxing**: gVisor and Firecracker isolation **(Enterprise)**
-- **AI Tool Review**: Automated security analysis workflow **(Enterprise)**
-- **Cryptographic Audit**: Complete audit trails with Ed25519 signatures **(Enterprise)**
-- **Multi-Agent Communication**: Encrypted inter-agent messaging **(Enterprise)**
-- **Real-time Monitoring**: SLA metrics and performance dashboards **(Enterprise)**
-- **Professional Services and Support**: Custom development and support **(Enterprise)**
 
 ## 📐 Symbiont DSL
 
@@ -162,7 +161,7 @@ agent analyze_data(input: DataSet) -> Result {
 Symbi provides enterprise-grade secrets management with multiple backend options:
 
 ### Backend Options
-- **HashiCorp Vault**: Production-ready secrets management with multiple authentication methods
+- **HashiCorp Vault/OpenBao**: Production-ready secrets management with multiple authentication methods
   - Token-based authentication
   - Kubernetes service account authentication
 - **Encrypted Files**: Local AES-256-GCM encrypted storage with OS keychain integration
@@ -197,12 +196,6 @@ symbi secrets configure vault --endpoint https://vault.company.com
 - **Policy Engine**: Basic resource access control
 - **Secrets Management**: Vault integration and encrypted file storage
 - **Audit Logging**: Operation tracking and compliance
-
-### Advanced Security (Enterprise)
-- **Enhanced Sandboxing**: gVisor (Tier2) and Firecracker (Tier3) isolation **(Enterprise)**
-- **AI Security Review**: Automated tool analysis and approval **(Enterprise)**
-- **Encrypted Communication**: Secure inter-agent messaging **(Enterprise)**
-- **Comprehensive Audits**: Cryptographic integrity guarantees **(Enterprise)**
 
 ## 🧪 Testing
 
@@ -275,5 +268,5 @@ Contact [ThirdKey](https://thirdkey.ai) for Enterprise licensing.
 *Symbi enables secure collaboration between AI agents and humans through intelligent policy enforcement, cryptographic verification, and comprehensive audit trails.*
 
 <div align="right">
-  <img src="symbi-trans.png" alt="Symbi Transparent Logo" width="120">
+  <img src="symbi-trans.png" alt="Symbi Logo" width="120">
 </div>

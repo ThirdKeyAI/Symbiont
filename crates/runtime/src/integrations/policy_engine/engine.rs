@@ -14,6 +14,122 @@ use super::types::*;
 use super::{PolicyEnforcementPoint, ResourceAccessConfig};
 use crate::secrets::{SecretStore, SecretError};
 use crate::types::*;
+use crate::types::security::Capability;
+use serde_json::Value;
+
+/// Core trait for policy engines
+#[async_trait]
+pub trait PolicyEngine: Send + Sync {
+    /// Evaluates a policy for a given agent and input data
+    async fn evaluate_policy(
+        &self,
+        agent_id: &str,
+        input: &serde_json::Value,
+    ) -> Result<PolicyDecision, PolicyError>;
+
+    /// Checks if a given capability is allowed for an agent.
+    async fn check_capability(&self, agent_id: &str, capability: &Capability) -> Result<PolicyDecision, PolicyError>;
+}
+
+/// Policy decision outcomes
+#[derive(Debug, Clone, PartialEq)]
+pub enum PolicyDecision {
+    Allow,
+    Deny,
+}
+
+/// OPA-based policy engine implementation
+#[derive(Clone)]
+pub struct OpaPolicyEngine {
+    opa_client: OpaClient,
+}
+
+impl OpaPolicyEngine {
+    /// Creates a new OPA policy engine
+    pub fn new() -> Self {
+        Self {
+            opa_client: OpaClient::new(),
+        }
+    }
+}
+
+impl Default for OpaPolicyEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl PolicyEngine for OpaPolicyEngine {
+    async fn evaluate_policy(
+        &self,
+        agent_id: &str,
+        input: &serde_json::Value,
+    ) -> Result<PolicyDecision, PolicyError> {
+        let query_input = serde_json::json!({
+            "input": {
+                "agent_id": agent_id,
+                "data": input
+            }
+        });
+
+        let query = "data.symbiont.main.allow".to_string();
+        let results: Value = self.opa_client.query(query, query_input).await?;
+
+        if results.get("result").and_then(|r| r.as_bool()).unwrap_or(false) {
+            Ok(PolicyDecision::Allow)
+        } else {
+            Ok(PolicyDecision::Deny)
+        }
+    }
+
+    async fn check_capability(&self, agent_id: &str, capability: &Capability) -> Result<PolicyDecision, PolicyError> {
+        let input = serde_json::json!({
+            "input": {
+                "agent_id": agent_id,
+                "capability": capability,
+            }
+        });
+
+        let query = "data.symbiont.main.allow".to_string();
+        let results: Value = self.opa_client.query(query, input).await?;
+
+        if results.get("result").and_then(|r| r.as_bool()).unwrap_or(false) {
+            Ok(PolicyDecision::Allow)
+        } else {
+            Ok(PolicyDecision::Deny)
+        }
+    }
+}
+
+/// Simple OPA client implementation
+#[derive(Clone)]
+struct OpaClient {
+    base_url: String,
+}
+
+impl OpaClient {
+    fn new() -> Self {
+        Self {
+            base_url: "http://localhost:8181".to_string(),
+        }
+    }
+
+    async fn query(&self, query: String, input: serde_json::Value) -> Result<serde_json::Value, PolicyError> {
+        // For now, this is a mock implementation
+        // In a real implementation, this would make HTTP requests to OPA
+        let _query_url = format!("{}/v1/data/{}", self.base_url, query.replace("data.", ""));
+        let _input = input;
+        
+        // Mock response - in production this would use reqwest or similar
+        // to make actual HTTP calls to OPA
+        let mock_result = serde_json::json!({
+            "result": true
+        });
+        
+        Ok(mock_result)
+    }
+}
 
 /// Default implementation of PolicyEnforcementPoint
 pub struct DefaultPolicyEnforcementPoint {

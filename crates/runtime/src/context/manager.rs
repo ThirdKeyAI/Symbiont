@@ -113,6 +113,7 @@ pub struct StandardContextManager {
     /// Secrets store for secure secret management
     secrets: Box<dyn SecretStore + Send + Sync>,
     /// Policy engine for access control and permissions
+    #[allow(dead_code)]
     policy_engine: Arc<dyn PolicyEngine>,
     /// Shutdown flag to ensure idempotent shutdown
     shutdown_flag: Arc<RwLock<bool>>,

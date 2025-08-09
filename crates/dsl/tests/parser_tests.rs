@@ -217,7 +217,7 @@ mod parser_tests {
                 let entry = entry.expect("Should read directory entry");
                 let path = entry.path();
 
-                if path.extension().and_then(|s| s.to_str()) == Some("dsl") {
+                if path.extension().and_then(|s| s.to_str()).map_or(false, |ext| ext == "dsl" || ext == "symbi") {
                     let filename = path.file_name().unwrap().to_str().unwrap();
 
                     if filename.starts_with("valid_") {
@@ -244,7 +244,7 @@ mod parser_tests {
                 let entry = entry.expect("Should read directory entry");
                 let path = entry.path();
 
-                if path.extension().and_then(|s| s.to_str()) == Some("dsl") {
+                if path.extension().and_then(|s| s.to_str()).map_or(false, |ext| ext == "dsl" || ext == "symbi") {
                     let filename = path.file_name().unwrap().to_str().unwrap();
 
                     if filename.starts_with("invalid_") {
