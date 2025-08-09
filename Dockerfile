@@ -36,14 +36,24 @@ RUN mkdir -p .cargo && echo '[net]\ngit-fetch-with-cli = true\n[registries.crate
 COPY Cargo.toml Cargo.lock ./
 COPY crates/dsl/Cargo.toml ./crates/dsl/
 COPY crates/runtime/Cargo.toml ./crates/runtime/
+COPY crates/repl-core/Cargo.toml ./crates/repl-core/
+COPY crates/repl-proto/Cargo.toml ./crates/repl-proto/
+COPY crates/repl-cli/Cargo.toml ./crates/repl-cli/
+COPY crates/repl-lsp/Cargo.toml ./crates/repl-lsp/
 
 # Create dummy source files to cache dependencies
-RUN mkdir -p src crates/dsl/src crates/runtime/src/bin && \
+RUN mkdir -p src crates/dsl/src crates/runtime/src/bin \
+    crates/repl-core/src crates/repl-proto/src \
+    crates/repl-cli/src crates/repl-lsp/src && \
     echo "fn main() {}" > src/main.rs && \
     echo "fn main() {}" > crates/dsl/src/main.rs && \
     echo "" > crates/dsl/src/lib.rs && \
     echo "fn main() {}" > crates/runtime/src/bin/symbiont_mcp.rs && \
-    echo "" > crates/runtime/src/lib.rs
+    echo "" > crates/runtime/src/lib.rs && \
+    echo "" > crates/repl-core/src/lib.rs && \
+    echo "" > crates/repl-proto/src/lib.rs && \
+    echo "fn main() {}" > crates/repl-cli/src/main.rs && \
+    echo "fn main() {}" > crates/repl-lsp/src/main.rs
 
 # Build dependencies only with optimized settings (cached layer)
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
