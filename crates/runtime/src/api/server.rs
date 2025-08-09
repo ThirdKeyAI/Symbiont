@@ -9,6 +9,9 @@ use axum::{http::StatusCode, response::Json, Router};
 use std::sync::Arc;
 
 #[cfg(feature = "http-api")]
+use std::time::Instant;
+
+#[cfg(feature = "http-api")]
 use tokio::net::TcpListener;
 
 #[cfg(feature = "http-api")]
@@ -54,6 +57,7 @@ impl Default for HttpApiConfig {
 pub struct HttpApiServer {
     config: HttpApiConfig,
     runtime_provider: Option<Arc<dyn RuntimeApiProvider>>,
+    start_time: Instant,
 }
 
 #[cfg(feature = "http-api")]
@@ -63,6 +67,7 @@ impl HttpApiServer {
         Self {
             config,
             runtime_provider: None,
+            start_time: Instant::now(),
         }
     }
 
@@ -94,7 +99,9 @@ impl HttpApiServer {
     fn create_router(&self) -> Router {
         use axum::routing::{get, post, put};
         
-        let mut router = Router::new().route("/api/v1/health", get(health_check));
+        let mut router = Router::new()
+            .route("/api/v1/health", get(health_check))
+            .with_state(self.start_time);
 
         // Add stateful routes if we have a runtime provider
         if let Some(provider) = &self.runtime_provider {
@@ -130,16 +137,23 @@ impl HttpApiServer {
             router = router.layer(CorsLayer::permissive());
         }
 
+        // Apply security headers to all responses
+        router = router.layer(axum::middleware::from_fn(crate::api::middleware::security_headers_middleware));
+
         router
     }
 }
 
 /// Health check endpoint handler
 #[cfg(feature = "http-api")]
-async fn health_check() -> Result<Json<HealthResponse>, (StatusCode, Json<ErrorResponse>)> {
+async fn health_check(
+    axum::extract::State(start_time): axum::extract::State<Instant>,
+) -> Result<Json<HealthResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let uptime_seconds = start_time.elapsed().as_secs();
+    
     let response = HealthResponse {
         status: "healthy".to_string(),
-        uptime_seconds: 0, // TODO: implement actual uptime tracking
+        uptime_seconds,
         timestamp: chrono::Utc::now(),
         version: env!("CARGO_PKG_VERSION").to_string(),
     };

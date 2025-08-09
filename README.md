@@ -102,11 +102,16 @@ symbi/
 ### ✅ Community Features (OSS)
 - **DSL Grammar**: Complete Tree-sitter grammar for agent definitions
 - **Agent Runtime**: Task scheduling, resource management, lifecycle control
+- **Real Task Execution**: Actual process spawning with comprehensive monitoring and metrics
+- **Graceful Shutdown**: Coordinated shutdown with resource cleanup and timeout handling
 - **Tier 1 Sandboxing**: Docker containerized isolation for agent operations
 - **MCP Integration**: Model Context Protocol client for external tools
-- **SchemaPin Security**: Basic cryptographic tool verification 
+- **SchemaPin Security**: Basic cryptographic tool verification
 - **RAG Engine**: Retrieval-augmented generation with vector search
-- **Context Management**: Persistent agent memory and knowledge storage
+- **Advanced Context Management**: Sophisticated memory with importance calculation and search modes
+- **Multi-Modal Search**: Keyword, temporal, similarity, and hybrid search capabilities
+- **Access Control Integration**: Policy engine connected context management with agent-scoped access
+- **Context Archiving**: Automatic archiving with retention policies and compressed storage
 - **Vector Database**: Qdrant integration for semantic search
 - **Comprehensive Secrets Management**: HashiCorp Vault integration with multiple auth methods
 - **Encrypted File Backend**: AES-256-GCM encryption with OS keychain integration

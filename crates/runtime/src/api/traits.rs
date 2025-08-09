@@ -49,26 +49,26 @@ pub trait RuntimeApiProvider: Send + Sync {
     /// Update an existing agent with the given configuration
     async fn update_agent(
         &self,
-        agent_id: String,
+        agent_id: AgentId,
         request: UpdateAgentRequest,
     ) -> Result<UpdateAgentResponse, RuntimeError>;
 
     /// Delete an existing agent
     async fn delete_agent(
         &self,
-        agent_id: String,
+        agent_id: AgentId,
     ) -> Result<DeleteAgentResponse, RuntimeError>;
 
     /// Execute an agent with the given request
     async fn execute_agent(
         &self,
-        agent_id: String,
+        agent_id: AgentId,
         request: ExecuteAgentRequest,
     ) -> Result<ExecuteAgentResponse, RuntimeError>;
 
     /// Get execution history for an agent
     async fn get_agent_history(
         &self,
-        agent_id: String,
+        agent_id: AgentId,
     ) -> Result<GetAgentHistoryResponse, RuntimeError>;
 }

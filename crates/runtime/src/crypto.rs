@@ -68,6 +68,12 @@ impl fmt::Display for EncryptedData {
 /// AES-256-GCM encryption/decryption utilities
 pub struct Aes256GcmCrypto;
 
+impl Default for Aes256GcmCrypto {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Aes256GcmCrypto {
     /// Create a new Aes256GcmCrypto instance
     pub fn new() -> Self {
@@ -265,6 +271,12 @@ impl Aes256GcmCrypto {
 
 /// Utilities for key management
 pub struct KeyUtils;
+
+impl Default for KeyUtils {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl KeyUtils {
     /// Create a new KeyUtils instance

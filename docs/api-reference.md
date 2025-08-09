@@ -126,21 +126,36 @@ GET /api/v1/agents/{id}/status
 Authorization: Bearer <your-token>
 ```
 
-Get detailed status information for a specific agent.
+Get detailed status information for a specific agent including real-time execution metrics.
 
 **Response (200 OK):**
 ```json
 {
   "agent_id": "uuid",
-  "state": "active|idle|busy|error",
+  "state": "running|ready|waiting|failed|completed|terminated",
   "last_activity": "2024-01-15T10:30:00Z",
+  "scheduled_at": "2024-01-15T10:00:00Z",
   "resource_usage": {
-    "memory_bytes": 268435456,
-    "cpu_percent": 15.5,
-    "active_tasks": 3
+    "memory_usage": 268435456,
+    "cpu_usage": 15.5,
+    "active_tasks": 1
+  },
+  "execution_context": {
+    "execution_mode": "ephemeral|persistent|scheduled|event_driven",
+    "process_id": 12345,
+    "uptime": "00:15:30",
+    "health_status": "healthy|unhealthy"
   }
 }
 ```
+
+**New Agent States:**
+- `running`: Agent is actively executing with a running process
+- `ready`: Agent is initialized and ready for execution
+- `waiting`: Agent is queued for execution
+- `failed`: Agent execution failed or health check failed
+- `completed`: Agent task completed successfully
+- `terminated`: Agent was gracefully or forcibly terminated
 
 ##### Create Agent
 ```http
@@ -363,19 +378,60 @@ GetAgentHistoryResponse {
 
 ### Runtime Provider Interface
 
-The API implements a `RuntimeApiProvider` trait with the following methods:
+The API implements a `RuntimeApiProvider` trait with the following enhanced methods:
 
 - `execute_workflow()` - Execute a workflow with given parameters
-- `get_agent_status()` - Retrieve status information for a specific agent
-- `get_system_health()` - Get overall system health status
-- `list_agents()` - List all active agents in the runtime
-- `shutdown_agent()` - Gracefully shutdown a specific agent
-- `get_metrics()` - Retrieve system performance metrics
-- `create_agent()` - Create a new agent with provided configuration
-- `update_agent()` - Update an existing agent's configuration
-- `delete_agent()` - Delete an existing agent from the runtime
-- `execute_agent()` - Trigger execution of a specific agent
-- `get_agent_history()` - Retrieve execution history for a specific agent
+- `get_agent_status()` - Retrieve detailed status with real-time execution metrics
+- `get_system_health()` - Get overall system health with scheduler statistics
+- `list_agents()` - List all agents (running, queued, and completed)
+- `shutdown_agent()` - Gracefully shutdown with resource cleanup and timeout handling
+- `get_metrics()` - Retrieve comprehensive system metrics including task statistics
+- `create_agent()` - Create agents with execution mode specification
+- `update_agent()` - Update agent configuration with persistence
+- `delete_agent()` - Delete agent with proper cleanup of running processes
+- `execute_agent()` - Trigger execution with monitoring and health checks
+- `get_agent_history()` - Retrieve detailed execution history with performance metrics
+
+### New Scheduler Features
+
+**Real Task Execution:**
+- Process spawning with secure execution environments
+- Resource monitoring (memory, CPU) with 5-second intervals
+- Health checks and automatic failure detection
+- Support for ephemeral, persistent, scheduled, and event-driven execution modes
+
+**Graceful Shutdown:**
+- 30-second graceful termination period
+- Force termination for unresponsive processes
+- Resource cleanup and metrics persistence
+- Queue cleanup and state synchronization
+
+### Enhanced Context Management
+
+**Advanced Search Capabilities:**
+```json
+{
+  "query_type": "keyword|temporal|similarity|hybrid",
+  "search_terms": ["term1", "term2"],
+  "time_range": {
+    "start": "2024-01-01T00:00:00Z",
+    "end": "2024-01-31T23:59:59Z"
+  },
+  "memory_types": ["factual", "procedural", "episodic"],
+  "relevance_threshold": 0.7,
+  "max_results": 10
+}
+```
+
+**Importance Calculation:**
+- Multi-factor scoring with access frequency, recency, and user feedback
+- Memory type weighting and age decay factors
+- Trust score calculation for shared knowledge
+
+**Access Control Integration:**
+- Policy engine connected to context operations
+- Agent-scoped access with secure boundaries
+- Knowledge sharing with granular permissions
 
 ---
 

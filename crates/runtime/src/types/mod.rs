@@ -38,6 +38,14 @@ impl std::fmt::Display for AgentId {
     }
 }
 
+impl std::str::FromStr for AgentId {
+    type Err = uuid::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self(Uuid::parse_str(s)?))
+    }
+}
+
 /// Unique identifier for messages
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct MessageId(pub Uuid);
@@ -179,4 +187,64 @@ pub enum LoadBalancingStrategy {
     #[default]
     ResourceBased,
     WeightedRoundRobin,
+}
+
+/// Component health status
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HealthStatus {
+    Healthy,
+    Degraded,
+    Unhealthy,
+}
+
+/// Component health information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComponentHealth {
+    pub status: HealthStatus,
+    pub message: Option<String>,
+    pub last_check: SystemTime,
+    pub uptime: Duration,
+    pub metrics: std::collections::HashMap<String, String>,
+}
+
+impl ComponentHealth {
+    pub fn healthy(message: Option<String>) -> Self {
+        Self {
+            status: HealthStatus::Healthy,
+            message,
+            last_check: SystemTime::now(),
+            uptime: Duration::default(),
+            metrics: std::collections::HashMap::new(),
+        }
+    }
+
+    pub fn degraded(message: String) -> Self {
+        Self {
+            status: HealthStatus::Degraded,
+            message: Some(message),
+            last_check: SystemTime::now(),
+            uptime: Duration::default(),
+            metrics: std::collections::HashMap::new(),
+        }
+    }
+
+    pub fn unhealthy(message: String) -> Self {
+        Self {
+            status: HealthStatus::Unhealthy,
+            message: Some(message),
+            last_check: SystemTime::now(),
+            uptime: Duration::default(),
+            metrics: std::collections::HashMap::new(),
+        }
+    }
+
+    pub fn with_uptime(mut self, uptime: Duration) -> Self {
+        self.uptime = uptime;
+        self
+    }
+
+    pub fn with_metric(mut self, key: String, value: String) -> Self {
+        self.metrics.insert(key, value);
+        self
+    }
 }

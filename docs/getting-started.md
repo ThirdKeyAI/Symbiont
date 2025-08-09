@@ -240,12 +240,19 @@ cd crates/runtime && cargo run --features http-api --example full_system
 
 **Key API Endpoints:**
 - `GET /api/v1/health` - Health check and system status
-- `GET /api/v1/agents` - List all active agents
+- `GET /api/v1/agents` - List all active agents with real-time execution status
+- `GET /api/v1/agents/{id}/status` - Get detailed agent execution metrics
 - `POST /api/v1/workflows/execute` - Execute workflows
+
+**New Agent Management Features:**
+- Real-time process monitoring and health checks
+- Graceful shutdown capabilities for running agents
+- Comprehensive execution metrics and resource usage tracking
+- Support for different execution modes (ephemeral, persistent, scheduled, event-driven)
 
 #### Vector Database Integration
 
-For semantic search capabilities:
+For advanced semantic search and context management:
 
 ```bash
 # Start Qdrant vector database
@@ -253,7 +260,17 @@ docker run -p 6333:6333 qdrant/qdrant
 
 # Run agent with RAG capabilities
 cd crates/runtime && cargo run --example rag_example
+
+# Test context management with advanced search
+cd crates/runtime && cargo run --example context_example
 ```
+
+**Context Management Features:**
+- **Multi-Modal Search**: Keyword, temporal, similarity, and hybrid search modes
+- **Importance Calculation**: Sophisticated scoring algorithm considering access patterns, recency, and user feedback
+- **Access Control**: Policy engine integration with agent-scoped access controls
+- **Automatic Archiving**: Retention policies with compressed storage and cleanup
+- **Knowledge Sharing**: Secure cross-agent knowledge sharing with trust scores
 
 ---
 

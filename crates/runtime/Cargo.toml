@@ -22,6 +22,7 @@ path = "examples/full_system.rs"
 name = "symbi-mcp"
 path = "src/bin/symbiont_mcp.rs"
 [dependencies]
+symbi-dsl = { path = "../dsl" }
 tokio = { version = "1.0", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -45,9 +46,9 @@ bytes = { version = "1.0", features = ["serde"] }
 tempfile = "3.0"
 qdrant-client = "1.14.0"
 flate2 = "1.0"
-candle-core = { version = "0.3", optional = true }
-candle-nn = { version = "0.3", optional = true }
-candle-transformers = { version = "0.3", optional = true }
+candle-core = { version = "0.9.1", optional = true }
+candle-nn = { version = "0.9.1", optional = true }
+candle-transformers = { version = "0.9.1", optional = true }
 tokenizers = { version = "0.15", optional = true }
 hf-hub = { version = "0.3", optional = true }
 regex = "1.0"
@@ -64,6 +65,7 @@ sha2 = "0.10"
 hex = "0.4"
 argon2 = "0.5"
 vaultrs = "0.7"
+sysinfo = "0.30"
 # OS keychain access dependencies
 keyring = { version = "2.0", optional = true }
 security-framework = { version = "2.9", optional = true }
@@ -75,6 +77,7 @@ axum = { version = "0.7", optional = true }
 tower = { version = "0.4", optional = true }
 tower-http = { version = "0.5", features = ["cors", "trace"], optional = true }
 tokio-tungstenite = { version = "0.21", optional = true }
+governor = { version = "0.10", optional = true }
 
 # Enterprise features removed for OSS build
 
@@ -87,7 +90,7 @@ criterion = "0.5"
 default = ["vector-db", "keychain"]
 vector-db = []
 embedding-models = ["candle-core", "candle-nn", "candle-transformers", "tokenizers", "hf-hub"]
-http-api = ["axum", "tower", "tower-http", "tokio-tungstenite"]
+http-api = ["axum", "tower", "tower-http", "tokio-tungstenite", "governor"]
 http-input = ["axum", "tower", "tower-http"]
 keychain = ["keyring", "security-framework", "secret-service", "winapi"]
 enterprise = []  # Enterprise feature for conditional compilation

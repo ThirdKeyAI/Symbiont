@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ..Default::default()
     };
 
-    let context_manager = Arc::new(StandardContextManager::new(config));
+    let context_manager = Arc::new(StandardContextManager::new(config, "system").await?);
     context_manager.initialize().await?;
     println!("✓ Context manager initialized");
 

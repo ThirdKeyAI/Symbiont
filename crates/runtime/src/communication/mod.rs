@@ -60,6 +60,9 @@ pub trait CommunicationBus {
 
     /// Shutdown the communication bus
     async fn shutdown(&self) -> Result<(), CommunicationError>;
+
+    /// Check the health of the communication bus
+    async fn check_health(&self) -> Result<ComponentHealth, CommunicationError>;
 }
 
 /// Communication bus configuration
@@ -623,6 +626,60 @@ impl CommunicationBus for DefaultCommunicationBus {
         }
 
         Ok(())
+    }
+
+    async fn check_health(&self) -> Result<ComponentHealth, CommunicationError> {
+        let is_running = *self.is_running.read();
+        if !is_running {
+            return Ok(ComponentHealth::unhealthy("Communication bus is shut down".to_string()));
+        }
+
+        let queue_count = self.message_queues.read().len();
+        let topic_count = self.subscriptions.read().len();
+        let tracker_count = self.message_tracker.read().len();
+        let pending_requests = self.pending_requests.read().len();
+        
+        // Check for potential issues
+        let mut total_queued_messages = 0;
+        let mut full_queues = 0;
+        
+        {
+            let queues = self.message_queues.read();
+            for queue in queues.values() {
+                total_queued_messages += queue.messages.len();
+                if queue.messages.len() >= self.config.max_queue_size * 9 / 10 { // 90% full
+                    full_queues += 1;
+                }
+            }
+        }
+
+        let dead_letter_count = self.dead_letter_queue.read().messages.len();
+        
+        let status = if dead_letter_count > 100 {
+            ComponentHealth::degraded(format!(
+                "High dead letter queue: {} messages", dead_letter_count
+            ))
+        } else if full_queues > 0 {
+            ComponentHealth::degraded(format!(
+                "{} message queues near capacity", full_queues
+            ))
+        } else if pending_requests > 50 {
+            ComponentHealth::degraded(format!(
+                "Many pending requests: {}", pending_requests
+            ))
+        } else {
+            ComponentHealth::healthy(Some(format!(
+                "{} agents registered, {} active topics", queue_count, topic_count
+            )))
+        };
+
+        Ok(status
+            .with_metric("registered_agents".to_string(), queue_count.to_string())
+            .with_metric("active_topics".to_string(), topic_count.to_string())
+            .with_metric("queued_messages".to_string(), total_queued_messages.to_string())
+            .with_metric("pending_requests".to_string(), pending_requests.to_string())
+            .with_metric("dead_letters".to_string(), dead_letter_count.to_string())
+            .with_metric("message_trackers".to_string(), tracker_count.to_string()))
     }
 }
 

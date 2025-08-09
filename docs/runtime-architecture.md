@@ -95,19 +95,44 @@ graph TB
 
 ### Agent Runtime Scheduler
 
-The central orchestrator responsible for managing agent execution.
+The central orchestrator responsible for managing agent execution with real task execution and graceful shutdown capabilities.
 
 **Key Responsibilities:**
 - **Task Scheduling**: Priority-based scheduling with resource awareness
+- **Real Task Execution**: Actual process spawning and monitoring with comprehensive metrics
 - **Load Balancing**: Distribution across available resources
 - **Resource Allocation**: Memory, CPU, and I/O assignment
 - **Policy Coordination**: Integration with policy enforcement
+- **Graceful Shutdown**: Coordinated shutdown with resource cleanup
+
+**Execution Modes:**
+- **Ephemeral**: Run-once tasks that terminate after completion
+- **Persistent**: Long-running agents with continuous monitoring
+- **Scheduled**: Interval-based execution with automatic rescheduling
+- **Event-Driven**: Triggered execution based on system events
 
 **Performance Characteristics:**
 - Support for 10,000+ concurrent agents
 - Sub-millisecond scheduling decisions
 - Priority-based preemption
 - Resource-aware placement
+- Real-time process monitoring and health checks
+- Graceful shutdown with 30-second timeout before force termination
+
+**Real Task Execution Features:**
+- Process spawning with secure execution environments
+- Resource monitoring (memory, CPU usage) every 5 seconds
+- Task timeout enforcement with configurable limits
+- Comprehensive execution metrics and statistics
+- Process health monitoring and automatic failure detection
+
+**Graceful Shutdown Process:**
+1. **Stop New Tasks**: Prevent new agent scheduling
+2. **Graceful Termination**: Attempt graceful shutdown of running agents (30s timeout)
+3. **Force Termination**: Force-kill remaining processes if needed
+4. **Metrics Flush**: Save performance and usage statistics
+5. **Resource Cleanup**: Release allocated resources and cleanup state
+6. **Queue Cleanup**: Clear pending agent queue
 
 ```rust
 pub struct AgentScheduler {
@@ -115,11 +140,14 @@ pub struct AgentScheduler {
     resource_pool: ResourcePool,
     policy_engine: Arc<PolicyEngine>,
     load_balancer: LoadBalancer,
+    task_manager: Arc<TaskManager>,
 }
 
 impl AgentScheduler {
     pub async fn schedule_agent(&self, config: AgentConfig) -> Result<AgentId>;
+    pub async fn shutdown_agent(&self, agent_id: AgentId) -> Result<()>;
     pub async fn get_system_status(&self) -> SystemStatus;
+    pub async fn shutdown(&self) -> Result<()>;
 }
 ```
 
@@ -273,19 +301,63 @@ pub struct SecureMessage {
 
 ### Agent Context Manager
 
-Provides persistent memory and knowledge management for agents.
+Provides sophisticated persistent memory and knowledge management for agents with comprehensive search capabilities and access control.
 
 **Context Types:**
 - **Short-term Memory**: Recent interactions and immediate context
-- **Long-term Memory**: Persistent knowledge and learned patterns  
+- **Long-term Memory**: Persistent knowledge and learned patterns
 - **Working Memory**: Active processing and temporary state
-- **Shared Knowledge**: Cross-agent knowledge sharing
+- **Episodic Memory**: Structured experiences with events and outcomes
+- **Semantic Memory**: Concepts, relationships, and structured knowledge
+- **Shared Knowledge**: Cross-agent knowledge sharing with access control
+
+**Advanced Search Modes:**
+- **Keyword Search**: Text-based search with relevance scoring
+- **Temporal Search**: Time-range based queries with recency factors
+- **Similarity Search**: Vector-based semantic similarity using embeddings
+- **Hybrid Search**: Combined keyword and similarity search with weighted scoring
+
+**Access Control & Policy Integration:**
+- **Policy Engine Integration**: Connected to resource access policies
+- **Agent-Scoped Access**: Isolated contexts per agent with secure boundaries
+- **Knowledge Sharing Controls**: Granular permissions for cross-agent knowledge access
+- **Access Level Management**: Public, Restricted, Confidential, and Secret classifications
+
+**Importance Calculation Algorithm:**
+- **Multi-Factor Scoring**: Base importance, access frequency, recency, and user feedback
+- **Memory Type Weighting**: Different importance multipliers per memory type
+- **Age Decay**: Exponential decay with configurable half-life per memory type
+- **Access Pattern Analysis**: Logarithmic scaling for frequently accessed items
+
+**Context Archiving & Retention:**
+- **Automatic Archiving**: Policy-driven archiving of old memory items
+- **Retention Policies**: Configurable retention periods per data type
+- **Compressed Storage**: Gzip compression for archived data
+- **Incremental Cleanup**: Background cleanup with retention statistics
+
+**Context Statistics & Monitoring:**
+- **Memory Usage Tracking**: Accurate byte-level memory calculations
+- **Retention Analytics**: Items eligible for archiving and deletion
+- **Performance Metrics**: Context retrieval latency and throughput
+- **Health Monitoring**: Context manager health checks and status
+
+**Knowledge Search Fallback:**
+- **Primary Vector Search**: Semantic search via vector database when available
+- **Fallback Keyword Search**: Text-based search when vector DB unavailable
+- **Relevance Scoring**: Sophisticated scoring combining multiple factors
+- **Trust Score Calculation**: Trust metrics for shared knowledge items
 
 ```rust
 pub trait ContextManager {
     async fn store_context(&self, agent_id: AgentId, context: AgentContext) -> Result<ContextId>;
-    async fn retrieve_context(&self, agent_id: AgentId, query: ContextQuery) -> Result<Vec<ContextItem>>;
-    async fn search_knowledge(&self, agent_id: AgentId, query: &str) -> Result<Vec<KnowledgeItem>>;
+    async fn retrieve_context(&self, agent_id: AgentId, session_id: Option<SessionId>) -> Result<Option<AgentContext>>;
+    async fn query_context(&self, agent_id: AgentId, query: ContextQuery) -> Result<Vec<ContextItem>>;
+    async fn update_memory(&self, agent_id: AgentId, updates: Vec<MemoryUpdate>) -> Result<()>;
+    async fn search_knowledge(&self, agent_id: AgentId, query: &str, limit: usize) -> Result<Vec<KnowledgeItem>>;
+    async fn share_knowledge(&self, from_agent: AgentId, to_agent: AgentId, knowledge_id: KnowledgeId, access_level: AccessLevel) -> Result<()>;
+    async fn archive_context(&self, agent_id: AgentId, before: SystemTime) -> Result<u32>;
+    async fn get_context_stats(&self, agent_id: AgentId) -> Result<ContextStats>;
+    async fn shutdown(&self) -> Result<()>;
 }
 ```
 

@@ -76,6 +76,15 @@ where
         self.index.contains_key(agent_id)
     }
 
+    /// Find an item by agent ID
+    pub fn find(&self, agent_id: &AgentId) -> Option<&T> {
+        if self.index.contains_key(agent_id) {
+            self.heap.iter().find(|item| &item.agent_id() == agent_id)
+        } else {
+            None
+        }
+    }
+
     /// Get the number of items in the queue
     pub fn len(&self) -> usize {
         self.heap.len()

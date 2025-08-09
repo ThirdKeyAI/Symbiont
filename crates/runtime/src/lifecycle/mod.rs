@@ -38,6 +38,9 @@ pub trait LifecycleController {
 
     /// Shutdown the lifecycle controller
     async fn shutdown(&self) -> Result<(), LifecycleError>;
+
+    /// Check the health of the lifecycle controller
+    async fn check_health(&self) -> Result<ComponentHealth, LifecycleError>;
 }
 
 /// Lifecycle controller configuration
@@ -538,6 +541,73 @@ impl LifecycleController for DefaultLifecycleController {
         }
 
         Ok(())
+    }
+
+    async fn check_health(&self) -> Result<ComponentHealth, LifecycleError> {
+        let is_running = *self.is_running.read();
+        if !is_running {
+            return Ok(ComponentHealth::unhealthy("Lifecycle controller is shut down".to_string()));
+        }
+
+        let agents = self.agents.read();
+        let total_agents = agents.len();
+        
+        // Count agents by state
+        let mut state_counts = std::collections::HashMap::new();
+        let mut failed_count = 0;
+        let mut stuck_count = 0;
+        
+        for agent in agents.values() {
+            *state_counts.entry(agent.state.clone()).or_insert(0) += 1;
+            
+            if agent.state == AgentState::Failed {
+                failed_count += 1;
+            }
+            
+            // Check for stuck agents (in transitional states for too long)
+            let time_in_state = SystemTime::now()
+                .duration_since(agent.last_state_change)
+                .unwrap_or_default();
+            
+            if time_in_state > Duration::from_secs(300) &&
+               matches!(agent.state, AgentState::Initializing | AgentState::Terminating) {
+                stuck_count += 1;
+            }
+        }
+
+        let capacity_usage = total_agents as f64 / self.config.max_agents as f64;
+
+        let status = if stuck_count > 0 {
+            ComponentHealth::degraded(format!(
+                "{} agents stuck in transitional states", stuck_count
+            ))
+        } else if failed_count > total_agents / 4 {
+            ComponentHealth::degraded(format!(
+                "High failure rate: {}/{} agents failed", failed_count, total_agents
+            ))
+        } else if capacity_usage > 0.9 {
+            ComponentHealth::degraded(format!(
+                "Near capacity: {}/{} agent slots used", total_agents, self.config.max_agents
+            ))
+        } else {
+            ComponentHealth::healthy(Some(format!(
+                "Managing {} agents across {} states", total_agents, state_counts.len()
+            )))
+        };
+
+        let mut health = status
+            .with_metric("total_agents".to_string(), total_agents.to_string())
+            .with_metric("failed_agents".to_string(), failed_count.to_string())
+            .with_metric("stuck_agents".to_string(), stuck_count.to_string())
+            .with_metric("capacity_usage".to_string(), format!("{:.2}", capacity_usage))
+            .with_metric("max_agents".to_string(), self.config.max_agents.to_string());
+
+        // Add state counts as metrics
+        for (state, count) in state_counts {
+            health = health.with_metric(format!("state_{:?}", state).to_lowercase(), count.to_string());
+        }
+
+        Ok(health)
     }
 }
 

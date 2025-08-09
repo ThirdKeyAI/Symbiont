@@ -60,6 +60,9 @@ pub trait ResourceManager {
 
     /// Shutdown the resource manager
     async fn shutdown(&self) -> Result<(), ResourceError>;
+
+    /// Check the health of the resource manager
+    async fn check_health(&self) -> Result<ComponentHealth, ResourceError>;
 }
 
 /// Resource manager configuration
@@ -557,6 +560,49 @@ impl ResourceManager for DefaultResourceManager {
         }
 
         Ok(())
+    }
+
+    async fn check_health(&self) -> Result<ComponentHealth, ResourceError> {
+        let is_running = *self.is_running.read();
+        if !is_running {
+            return Ok(ComponentHealth::unhealthy("Resource manager is shut down".to_string()));
+        }
+
+        let system_status = self.get_system_status().await;
+        let allocations_count = self.allocations.read().len();
+        
+        // Calculate resource utilization percentages
+        let memory_usage = if system_status.total_memory > 0 {
+            (system_status.total_memory - system_status.available_memory) as f64 / system_status.total_memory as f64
+        } else { 0.0 };
+        
+        let cpu_usage = if system_status.total_cpu_cores > 0 {
+            (system_status.total_cpu_cores - system_status.available_cpu_cores) as f64 / system_status.total_cpu_cores as f64
+        } else { 0.0 };
+
+        let status = if memory_usage > 0.9 || cpu_usage > 0.9 {
+            ComponentHealth::unhealthy(format!(
+                "Critical resource usage - Memory: {:.1}%, CPU: {:.1}%",
+                memory_usage * 100.0, cpu_usage * 100.0
+            ))
+        } else if memory_usage > 0.8 || cpu_usage > 0.8 {
+            ComponentHealth::degraded(format!(
+                "High resource usage - Memory: {:.1}%, CPU: {:.1}%",
+                memory_usage * 100.0, cpu_usage * 100.0
+            ))
+        } else {
+            ComponentHealth::healthy(Some(format!(
+                "Resources available - Memory: {:.1}%, CPU: {:.1}%, {} active allocations",
+                memory_usage * 100.0, cpu_usage * 100.0, allocations_count
+            )))
+        };
+
+        Ok(status
+            .with_metric("memory_usage_percent".to_string(), format!("{:.2}", memory_usage * 100.0))
+            .with_metric("cpu_usage_percent".to_string(), format!("{:.2}", cpu_usage * 100.0))
+            .with_metric("active_allocations".to_string(), allocations_count.to_string())
+            .with_metric("available_memory_mb".to_string(), (system_status.available_memory / (1024 * 1024)).to_string())
+            .with_metric("available_cpu_cores".to_string(), system_status.available_cpu_cores.to_string()))
     }
 }
 

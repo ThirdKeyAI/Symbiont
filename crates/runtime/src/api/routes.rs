@@ -44,11 +44,9 @@ pub async fn execute_workflow(
 #[cfg(feature = "http-api")]
 pub async fn get_agent_status(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
-    Path(_agent_id): Path<String>,
+    Path(agent_id): Path<AgentId>,
 ) -> Result<Json<AgentStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let _agent_id = AgentId::new(); // TODO: Parse agent_id from string parameter
-
-    match provider.get_agent_status(_agent_id).await {
+    match provider.get_agent_status(agent_id).await {
         Ok(status) => Ok(Json(status)),
         Err(e) => Err((
             StatusCode::NOT_FOUND,
@@ -123,7 +121,7 @@ pub async fn create_agent(
 #[cfg(feature = "http-api")]
 pub async fn update_agent(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
-    Path(agent_id): Path<String>,
+    Path(agent_id): Path<AgentId>,
     Json(request): Json<UpdateAgentRequest>,
 ) -> Result<Json<UpdateAgentResponse>, (StatusCode, Json<ErrorResponse>)> {
     match provider.update_agent(agent_id, request).await {
@@ -143,7 +141,7 @@ pub async fn update_agent(
 #[cfg(feature = "http-api")]
 pub async fn delete_agent(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
-    Path(agent_id): Path<String>,
+    Path(agent_id): Path<AgentId>,
 ) -> Result<Json<DeleteAgentResponse>, (StatusCode, Json<ErrorResponse>)> {
     match provider.delete_agent(agent_id).await {
         Ok(response) => Ok(Json(response)),
@@ -162,7 +160,7 @@ pub async fn delete_agent(
 #[cfg(feature = "http-api")]
 pub async fn execute_agent(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
-    Path(agent_id): Path<String>,
+    Path(agent_id): Path<AgentId>,
     Json(request): Json<ExecuteAgentRequest>,
 ) -> Result<Json<ExecuteAgentResponse>, (StatusCode, Json<ErrorResponse>)> {
     match provider.execute_agent(agent_id, request).await {
@@ -182,7 +180,7 @@ pub async fn execute_agent(
 #[cfg(feature = "http-api")]
 pub async fn get_agent_history(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
-    Path(agent_id): Path<String>,
+    Path(agent_id): Path<AgentId>,
 ) -> Result<Json<GetAgentHistoryResponse>, (StatusCode, Json<ErrorResponse>)> {
     match provider.get_agent_history(agent_id).await {
         Ok(response) => Ok(Json(response)),

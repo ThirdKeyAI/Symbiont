@@ -790,7 +790,7 @@ impl FilePersistenceConfig {
             let mut entries = tokio::fs::read_dir(&legacy_path).await?;
             while let Some(entry) = entries.next_entry().await? {
                 let file_path = entry.path();
-                if file_path.extension().map_or(false, |ext| ext == "json" || ext == "gz") {
+                if file_path.extension().is_some_and(|ext| ext == "json" || ext == "gz") {
                     let dest_path = agents_path.join(entry.file_name());
                     tokio::fs::copy(&file_path, &dest_path).await?;
                 }
