@@ -1,3 +1,5 @@
+#![allow(clippy::multiple_crate_versions)]
+
 use clap::{Arg, Command};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
