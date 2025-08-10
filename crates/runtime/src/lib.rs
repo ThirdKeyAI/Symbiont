@@ -4,6 +4,7 @@
 //! responsible for managing the complete lifecycle of autonomous agents.
 
 pub mod communication;
+pub mod config;
 pub mod context;
 pub mod crypto;
 pub mod error_handler;
@@ -30,6 +31,7 @@ pub mod http_input;
 
 // Re-export commonly used types
 pub use communication::{CommunicationBus, CommunicationConfig, DefaultCommunicationBus};
+pub use config::{ConfigManager, ConfigSource, SecurityConfig, AuditConfig};
 pub use context::{ContextManager, ContextManagerConfig, StandardContextManager};
 pub use error_handler::{DefaultErrorHandler, ErrorHandler, ErrorHandlerConfig};
 pub use lifecycle::{DefaultLifecycleController, LifecycleConfig, LifecycleController};
