@@ -78,6 +78,8 @@ tower = { version = "0.4", optional = true }
 tower-http = { version = "0.5", features = ["cors", "trace"], optional = true }
 tokio-tungstenite = { version = "0.21", optional = true }
 governor = { version = "0.10", optional = true }
+utoipa = { version = "4.2", features = ["axum_extras", "chrono"], optional = true }
+utoipa-swagger-ui = { version = "6.0", features = ["axum"], optional = true }
 
 # Enterprise features removed for OSS build
 
@@ -90,7 +92,7 @@ criterion = "0.5"
 default = ["vector-db", "keychain"]
 vector-db = []
 embedding-models = ["candle-core", "candle-nn", "candle-transformers", "tokenizers", "hf-hub"]
-http-api = ["axum", "tower", "tower-http", "tokio-tungstenite", "governor"]
+http-api = ["axum", "tower", "tower-http", "tokio-tungstenite", "governor", "utoipa", "utoipa-swagger-ui"]
 http-input = ["axum", "tower", "tower-http"]
 keychain = ["keyring", "security-framework", "secret-service", "winapi"]
 enterprise = []  # Enterprise feature for conditional compilation

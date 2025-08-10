@@ -35,7 +35,7 @@ symbi repl --config custom-config.toml
 
 ### Basic Usage
 
-```symbiont
+```rust
 # Define an agent
 agent GreetingAgent {
   name: "Greeting Agent"
@@ -96,7 +96,7 @@ print(message)
 
 ### Agent Definitions
 
-```symbiont
+```rust
 agent DataAnalyzer {
   name: "Data Analysis Agent"
   version: "2.1.0"
@@ -117,7 +117,7 @@ agent DataAnalyzer {
 
 ### Behavior Definitions
 
-```symbiont
+```rust
 behavior AnalyzeData {
   input { 
     data: DataSet
@@ -156,7 +156,7 @@ behavior AnalyzeData {
 
 ### Data Types
 
-```symbiont
+```rust
 # Basic types
 let name = "Alice"          # String
 let age = 30               # Integer
@@ -223,7 +223,7 @@ The REPL supports JSON-RPC 2.0 for programmatic access:
 
 The REPL enforces capability requirements defined in agent security blocks:
 
-```symbiont
+```rust
 agent SecureAgent {
   name: "Secure Agent"
   security {
@@ -368,7 +368,7 @@ Error: Policy violation: data access denied
 
 ### Debug Commands
 
-```symbiont
+```rust
 # Check agent state
 :agent debug <agent-id>
 
@@ -386,7 +386,7 @@ Error: Policy violation: data access denied
 
 ### Simple Agent
 
-```symbiont
+```rust
 agent Calculator {
   name: "Basic Calculator"
   version: "1.0.0"
@@ -407,7 +407,7 @@ print("5 + 3 =", result)
 
 ### Data Processing Agent
 
-```symbiont
+```rust
 agent DataProcessor {
   name: "Data Processing Agent"
   version: "1.0.0"

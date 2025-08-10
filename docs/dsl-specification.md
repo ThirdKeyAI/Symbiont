@@ -8,7 +8,7 @@ The Symbiont DSL (Domain-Specific Language) provides a declarative syntax for de
 
 ### 1. Agent Definition
 
-```symbiont
+```rust
 agent MyAgent {
     name: "My Test Agent"
     version: "1.0.0"
@@ -41,7 +41,7 @@ agent MyAgent {
 
 ### 2. Behavior Definitions
 
-```symbiont
+```rust
 behavior ProcessFiles {
     input {
         directory: string
@@ -88,7 +88,7 @@ behavior ProcessFiles {
 
 ### 3. Function Definitions
 
-```symbiont
+```rust
 function process_content(content: string) -> string {
     // String operations
     let lines = content.split("\n")
@@ -100,7 +100,7 @@ function process_content(content: string) -> string {
 
 ### 4. Event Handling
 
-```symbiont
+```rust
 on file_changed(path: string) {
     log.info("File changed: {path}")
     
@@ -122,7 +122,7 @@ on timer(interval: 5m) {
 
 ### 5. Variable and Data Types
 
-```symbiont
+```rust
 // Primitive types
 let name: string = "example"
 let count: number = 42
@@ -150,7 +150,7 @@ struct FileInfo {
 
 ### 6. Control Flow
 
-```symbiont
+```rust
 // Conditional statements
 if condition {
     // if block
@@ -190,7 +190,7 @@ try {
 ### 7. Built-in Libraries
 
 #### File System (fs)
-```symbiont
+```rust
 fs.read(path: string) -> string
 fs.write(path: string, content: string) -> void
 fs.exists(path: string) -> boolean
@@ -200,7 +200,7 @@ fs.create_directory(path: string) -> void
 ```
 
 #### HTTP Client (http)
-```symbiont
+```rust
 http.get(url: string, headers: map<string, string> = {}) -> HttpResponse
 http.post(url: string, body: string, headers: map<string, string> = {}) -> HttpResponse
 http.put(url: string, body: string, headers: map<string, string> = {}) -> HttpResponse
@@ -208,7 +208,7 @@ http.delete(url: string, headers: map<string, string> = {}) -> HttpResponse
 ```
 
 #### Logging (log)
-```symbiont
+```rust
 log.debug(message: string, context: map<string, any> = {}) -> void
 log.info(message: string, context: map<string, any> = {}) -> void
 log.warn(message: string, context: map<string, any> = {}) -> void
@@ -216,7 +216,7 @@ log.error(message: string, context: map<string, any> = {}) -> void
 ```
 
 #### Time (time)
-```symbiont
+```rust
 time.now() -> datetime
 time.sleep(duration: duration) -> void
 time.format(dt: datetime, format: string) -> string
@@ -225,7 +225,7 @@ time.parse(input: string, format: string) -> datetime
 
 ### 8. Agent Lifecycle Commands
 
-```symbiont
+```rust
 // Agent management
 agent.start(config: AgentConfig) -> AgentId
 agent.stop(id: AgentId) -> void
@@ -248,7 +248,7 @@ check policy PolicyName
 
 ### 9. REPL Commands
 
-```symbiont
+```rust
 // Agent lifecycle
 :create agent MyAgent
 :start agent MyAgent
@@ -282,20 +282,20 @@ check policy PolicyName
 ## Syntax Rules
 
 ### Comments
-```symbiont
+```rust
 // Single-line comment
 /* Multi-line
    comment */
 ```
 
 ### String Interpolation
-```symbiont
+```rust
 let name = "World"
 let greeting = "Hello, {name}!"  // Result: "Hello, World!"
 ```
 
 ### Duration Literals
-```symbiont
+```rust
 let timeout = 30s      // 30 seconds
 let interval = 5m      // 5 minutes
 let deadline = 2h      // 2 hours
@@ -303,7 +303,7 @@ let period = 1d        // 1 day
 ```
 
 ### Size Literals
-```symbiont
+```rust
 let small_file = 1KB
 let medium_file = 10MB
 let large_file = 1GB
@@ -313,7 +313,7 @@ let large_file = 1GB
 
 The DSL provides structured error handling with try-catch blocks and automatic error propagation:
 
-```symbiont
+```rust
 function safe_operation() -> Result<string, Error> {
     try {
         let result = risky_call()
@@ -336,7 +336,7 @@ function chained_operations() -> Result<string, Error> {
 
 The DSL enforces capability-based security at the language level:
 
-```symbiont
+```rust
 behavior SecureFileOperation {
     steps {
         // This will fail at runtime if FileSystem.Read capability is not granted

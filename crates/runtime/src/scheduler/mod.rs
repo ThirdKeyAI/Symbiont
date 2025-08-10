@@ -13,8 +13,6 @@ use tokio::time::interval;
 use crate::types::*;
 
 #[cfg(feature = "http-api")]
-use crate::api::types::UpdateAgentRequest;
-
 pub mod load_balancer;
 pub mod priority_queue;
 pub mod task_manager;

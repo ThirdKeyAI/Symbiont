@@ -526,6 +526,12 @@ pub struct MockSecretStore {
     secrets: std::collections::HashMap<String, Result<Secret, SecretError>>,
 }
 
+impl Default for MockSecretStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MockSecretStore {
     pub fn new() -> Self {
         Self {

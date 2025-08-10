@@ -13,6 +13,9 @@ use axum::{
 use std::sync::Arc;
 
 #[cfg(feature = "http-api")]
+use utoipa;
+
+#[cfg(feature = "http-api")]
 use super::traits::RuntimeApiProvider;
 
 #[cfg(feature = "http-api")]
@@ -23,6 +26,16 @@ use crate::types::AgentId;
 
 /// Workflow execution endpoint handler
 #[cfg(feature = "http-api")]
+#[utoipa::path(
+    post,
+    path = "/api/v1/workflows/execute",
+    request_body = WorkflowExecutionRequest,
+    responses(
+        (status = 200, description = "Workflow executed successfully", body = serde_json::Value),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "workflows"
+)]
 pub async fn execute_workflow(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Json(request): Json<WorkflowExecutionRequest>,
@@ -42,6 +55,18 @@ pub async fn execute_workflow(
 
 /// Agent status endpoint handler
 #[cfg(feature = "http-api")]
+#[utoipa::path(
+    get,
+    path = "/api/v1/agents/{id}/status",
+    params(
+        ("id" = AgentId, Path, description = "Agent identifier")
+    ),
+    responses(
+        (status = 200, description = "Agent status retrieved successfully", body = AgentStatusResponse),
+        (status = 404, description = "Agent not found", body = ErrorResponse)
+    ),
+    tag = "agents"
+)]
 pub async fn get_agent_status(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Path(agent_id): Path<AgentId>,
@@ -61,6 +86,15 @@ pub async fn get_agent_status(
 
 /// List agents endpoint handler
 #[cfg(feature = "http-api")]
+#[utoipa::path(
+    get,
+    path = "/api/v1/agents",
+    responses(
+        (status = 200, description = "Agents listed successfully", body = Vec<String>),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "agents"
+)]
 pub async fn list_agents(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
 ) -> Result<Json<Vec<String>>, (StatusCode, Json<ErrorResponse>)> {
@@ -82,6 +116,15 @@ pub async fn list_agents(
 
 /// System metrics endpoint handler
 #[cfg(feature = "http-api")]
+#[utoipa::path(
+    get,
+    path = "/api/v1/metrics",
+    responses(
+        (status = 200, description = "Metrics retrieved successfully", body = serde_json::Value),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "system"
+)]
 pub async fn get_metrics(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
@@ -100,6 +143,16 @@ pub async fn get_metrics(
 
 /// Create agent endpoint handler
 #[cfg(feature = "http-api")]
+#[utoipa::path(
+    post,
+    path = "/api/v1/agents",
+    request_body = CreateAgentRequest,
+    responses(
+        (status = 200, description = "Agent created successfully", body = CreateAgentResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "agents"
+)]
 pub async fn create_agent(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Json(request): Json<CreateAgentRequest>,
@@ -119,6 +172,19 @@ pub async fn create_agent(
 
 /// Update agent endpoint handler
 #[cfg(feature = "http-api")]
+#[utoipa::path(
+    put,
+    path = "/api/v1/agents/{id}",
+    params(
+        ("id" = AgentId, Path, description = "Agent identifier")
+    ),
+    request_body = UpdateAgentRequest,
+    responses(
+        (status = 200, description = "Agent updated successfully", body = UpdateAgentResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "agents"
+)]
 pub async fn update_agent(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Path(agent_id): Path<AgentId>,
@@ -139,6 +205,18 @@ pub async fn update_agent(
 
 /// Delete agent endpoint handler
 #[cfg(feature = "http-api")]
+#[utoipa::path(
+    delete,
+    path = "/api/v1/agents/{id}",
+    params(
+        ("id" = AgentId, Path, description = "Agent identifier")
+    ),
+    responses(
+        (status = 200, description = "Agent deleted successfully", body = DeleteAgentResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "agents"
+)]
 pub async fn delete_agent(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Path(agent_id): Path<AgentId>,
@@ -158,6 +236,19 @@ pub async fn delete_agent(
 
 /// Execute agent endpoint handler
 #[cfg(feature = "http-api")]
+#[utoipa::path(
+    post,
+    path = "/api/v1/agents/{id}/execute",
+    params(
+        ("id" = AgentId, Path, description = "Agent identifier")
+    ),
+    request_body = ExecuteAgentRequest,
+    responses(
+        (status = 200, description = "Agent executed successfully", body = ExecuteAgentResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "agents"
+)]
 pub async fn execute_agent(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Path(agent_id): Path<AgentId>,
@@ -178,6 +269,18 @@ pub async fn execute_agent(
 
 /// Get agent execution history endpoint handler
 #[cfg(feature = "http-api")]
+#[utoipa::path(
+    get,
+    path = "/api/v1/agents/{id}/history",
+    params(
+        ("id" = AgentId, Path, description = "Agent identifier")
+    ),
+    responses(
+        (status = 200, description = "Agent history retrieved successfully", body = GetAgentHistoryResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "agents"
+)]
 pub async fn get_agent_history(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Path(agent_id): Path<AgentId>,

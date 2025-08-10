@@ -6,11 +6,14 @@
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "http-api")]
+use utoipa::ToSchema;
+
+#[cfg(feature = "http-api")]
 use crate::types::{AgentId, AgentState};
 
 /// Request structure for workflow execution
 #[cfg(feature = "http-api")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct WorkflowExecutionRequest {
     /// The workflow definition or identifier
     pub workflow_id: String,
@@ -22,7 +25,7 @@ pub struct WorkflowExecutionRequest {
 
 /// Response structure for agent status queries
 #[cfg(feature = "http-api")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AgentStatusResponse {
     /// The agent identifier
     pub agent_id: AgentId,
@@ -36,7 +39,7 @@ pub struct AgentStatusResponse {
 
 /// Resource usage information
 #[cfg(feature = "http-api")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ResourceUsage {
     /// Memory usage in bytes
     pub memory_bytes: u64,
@@ -48,7 +51,7 @@ pub struct ResourceUsage {
 
 /// Health check response
 #[cfg(feature = "http-api")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct HealthResponse {
     /// Overall system status
     pub status: String,
@@ -62,7 +65,7 @@ pub struct HealthResponse {
 
 /// Request structure for creating a new agent
 #[cfg(feature = "http-api")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateAgentRequest {
     /// Name of the agent
     pub name: String,
@@ -72,7 +75,7 @@ pub struct CreateAgentRequest {
 
 /// Response structure for agent creation
 #[cfg(feature = "http-api")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateAgentResponse {
     /// Unique identifier for the created agent
     pub id: String,
@@ -82,7 +85,7 @@ pub struct CreateAgentResponse {
 
 /// Request structure for updating an existing agent
 #[cfg(feature = "http-api")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UpdateAgentRequest {
     /// Optional name of the agent
     pub name: Option<String>,
@@ -92,7 +95,7 @@ pub struct UpdateAgentRequest {
 
 /// Response structure for agent update
 #[cfg(feature = "http-api")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UpdateAgentResponse {
     /// Unique identifier for the updated agent
     pub id: String,
@@ -102,7 +105,7 @@ pub struct UpdateAgentResponse {
 
 /// Response structure for agent deletion
 #[cfg(feature = "http-api")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DeleteAgentResponse {
     /// Unique identifier for the deleted agent
     pub id: String,
@@ -112,14 +115,14 @@ pub struct DeleteAgentResponse {
 
 /// Request structure for executing an agent
 #[cfg(feature = "http-api")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ExecuteAgentRequest {
     // Empty struct for now as specified
 }
 
 /// Response structure for agent execution
 #[cfg(feature = "http-api")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ExecuteAgentResponse {
     /// Unique identifier for the execution
     pub execution_id: String,
@@ -129,7 +132,7 @@ pub struct ExecuteAgentResponse {
 
 /// Agent execution record for history tracking
 #[cfg(feature = "http-api")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AgentExecutionRecord {
     /// Unique identifier for the execution
     pub execution_id: String,
@@ -141,7 +144,7 @@ pub struct AgentExecutionRecord {
 
 /// Response structure for agent execution history
 #[cfg(feature = "http-api")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct GetAgentHistoryResponse {
     /// List of execution records
     pub history: Vec<AgentExecutionRecord>,
@@ -149,7 +152,7 @@ pub struct GetAgentHistoryResponse {
 
 /// Error response structure
 #[cfg(feature = "http-api")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ErrorResponse {
     /// Error message
     pub error: String,

@@ -341,5 +341,5 @@ async fn test_http_input_feature_disabled() {
     // use symbi_runtime::http_input::HttpInputConfig;
     
     // Instead, we just verify the test runs
-    assert!(true);
+    // Test completed successfully
 }

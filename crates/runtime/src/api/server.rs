@@ -18,13 +18,74 @@ use tokio::net::TcpListener;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 #[cfg(feature = "http-api")]
-use super::types::{ErrorResponse, HealthResponse};
+use utoipa::OpenApi;
+
+#[cfg(feature = "http-api")]
+use utoipa_swagger_ui::SwaggerUi;
+
+#[cfg(feature = "http-api")]
+use super::types::{ErrorResponse, HealthResponse, WorkflowExecutionRequest, AgentStatusResponse, CreateAgentRequest, CreateAgentResponse, UpdateAgentRequest, UpdateAgentResponse, DeleteAgentResponse, ExecuteAgentRequest, ExecuteAgentResponse, GetAgentHistoryResponse, AgentExecutionRecord, ResourceUsage};
 
 #[cfg(feature = "http-api")]
 use super::traits::RuntimeApiProvider;
 
 #[cfg(feature = "http-api")]
 use crate::types::RuntimeError;
+
+/// OpenAPI documentation structure
+#[cfg(feature = "http-api")]
+#[derive(OpenApi)]
+#[openapi(
+    paths(
+        super::routes::execute_workflow,
+        super::routes::get_agent_status,
+        super::routes::list_agents,
+        super::routes::get_metrics,
+        super::routes::create_agent,
+        super::routes::update_agent,
+        super::routes::delete_agent,
+        super::routes::execute_agent,
+        super::routes::get_agent_history,
+        health_check
+    ),
+    components(
+        schemas(
+            WorkflowExecutionRequest,
+            AgentStatusResponse,
+            ResourceUsage,
+            HealthResponse,
+            CreateAgentRequest,
+            CreateAgentResponse,
+            UpdateAgentRequest,
+            UpdateAgentResponse,
+            DeleteAgentResponse,
+            ExecuteAgentRequest,
+            ExecuteAgentResponse,
+            GetAgentHistoryResponse,
+            AgentExecutionRecord,
+            ErrorResponse
+        )
+    ),
+    tags(
+        (name = "agents", description = "Agent management endpoints"),
+        (name = "workflows", description = "Workflow execution endpoints"),
+        (name = "system", description = "System monitoring and health endpoints")
+    ),
+    info(
+        title = "Symbiont Runtime API",
+        description = "HTTP API for the Symbiont Agent Runtime System",
+        version = "0.3.0",
+        contact(
+            name = "ThirdKey.ai",
+            url = "https://github.com/thirdkeyai/symbiont"
+        ),
+        license(
+            name = "MIT",
+            url = "https://opensource.org/licenses/MIT"
+        )
+    )
+)]
+pub struct ApiDoc;
 
 /// HTTP API Server configuration
 #[cfg(feature = "http-api")]
@@ -103,6 +164,12 @@ impl HttpApiServer {
             .route("/api/v1/health", get(health_check))
             .with_state(self.start_time);
 
+        // Add Swagger UI
+        router = router.merge(
+            SwaggerUi::new("/swagger-ui")
+                .url("/api-docs/openapi.json", ApiDoc::openapi())
+        );
+
         // Add stateful routes if we have a runtime provider
         if let Some(provider) = &self.runtime_provider {
             use super::routes::{create_agent, delete_agent, execute_agent, execute_workflow, get_agent_history, get_agent_status, list_agents, get_metrics, update_agent};
@@ -146,6 +213,15 @@ impl HttpApiServer {
 
 /// Health check endpoint handler
 #[cfg(feature = "http-api")]
+#[utoipa::path(
+    get,
+    path = "/api/v1/health",
+    responses(
+        (status = 200, description = "Health check successful", body = HealthResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "system"
+)]
 async fn health_check(
     axum::extract::State(start_time): axum::extract::State<Instant>,
 ) -> Result<Json<HealthResponse>, (StatusCode, Json<ErrorResponse>)> {

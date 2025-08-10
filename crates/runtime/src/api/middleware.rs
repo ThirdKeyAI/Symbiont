@@ -55,7 +55,8 @@ pub async fn auth_middleware(request: Request, next: Next) -> Result<Response, S
 
 /// Global rate limiter store for per-IP rate limiting
 #[cfg(feature = "http-api")]
-static RATE_LIMITERS: OnceLock<DashMap<IpAddr, Arc<RateLimiter<NotKeyed, InMemoryState, DefaultClock>>>> = OnceLock::new();
+type IpRateLimiter = Arc<RateLimiter<NotKeyed, InMemoryState, DefaultClock>>;
+static RATE_LIMITERS: OnceLock<DashMap<IpAddr, IpRateLimiter>> = OnceLock::new();
 
 /// Get or create a rate limiter for a specific IP address
 #[cfg(feature = "http-api")]
