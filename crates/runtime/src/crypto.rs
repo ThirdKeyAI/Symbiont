@@ -292,7 +292,7 @@ impl KeyUtils {
         }
 
         // Try environment variable
-        if let Ok(key) = Self::get_key_from_env("SYMBIONT_SECRET_KEY") {
+        if let Ok(key) = Self::get_key_from_env("SYMBIONT_MASTER_KEY") {
             return Ok(key);
         }
 
