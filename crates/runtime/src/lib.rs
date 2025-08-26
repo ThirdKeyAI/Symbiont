@@ -10,8 +10,11 @@ pub mod crypto;
 pub mod error_handler;
 pub mod integrations;
 pub mod lifecycle;
+pub mod logging;
+pub mod models;
 pub mod rag;
 pub mod resource;
+pub mod routing;
 pub mod scheduler;
 pub mod secrets;
 pub mod types;
@@ -31,12 +34,16 @@ pub mod http_input;
 
 // Re-export commonly used types
 pub use communication::{CommunicationBus, CommunicationConfig, DefaultCommunicationBus};
-pub use config::{ConfigManager, ConfigSource, SecurityConfig, AuditConfig};
+pub use config::SecurityConfig;
 pub use context::{ContextManager, ContextManagerConfig, StandardContextManager};
 pub use error_handler::{DefaultErrorHandler, ErrorHandler, ErrorHandlerConfig};
 pub use lifecycle::{DefaultLifecycleController, LifecycleConfig, LifecycleController};
+pub use logging::{ModelLogger, LoggingConfig, ModelInteractionType, RequestData, ResponseData};
+pub use models::{ModelCatalog, ModelCatalogError, SlmRunner, SlmRunnerError};
 pub use resource::{DefaultResourceManager, ResourceManager, ResourceManagerConfig};
+pub use routing::{RoutingEngine, DefaultRoutingEngine, RoutingConfig, RouteDecision, RoutingContext, TaskType};
 pub use scheduler::{AgentScheduler, DefaultAgentScheduler, SchedulerConfig};
+pub use secrets::{SecretStore, SecretsConfig};
 pub use types::*;
 
 use std::sync::Arc;
@@ -51,6 +58,8 @@ pub struct AgentRuntime {
     pub communication: Arc<dyn communication::CommunicationBus + Send + Sync>,
     pub error_handler: Arc<dyn error_handler::ErrorHandler + Send + Sync>,
     pub context_manager: Arc<dyn context::ContextManager + Send + Sync>,
+    pub model_logger: Option<Arc<logging::ModelLogger>>,
+    pub model_catalog: Option<Arc<models::ModelCatalog>>,
     config: Arc<RwLock<RuntimeConfig>>,
 }
 
@@ -100,6 +109,46 @@ impl AgentRuntime {
         // Initialize context manager
         context_manager.initialize().await.map_err(|e| RuntimeError::Internal(format!("Failed to initialize context manager: {}", e)))?;
 
+        // Initialize model logger if enabled
+        let model_logger = if config.read().await.logging.enabled {
+            // For now, initialize without secret store to avoid type conversion issues
+            match logging::ModelLogger::new(config.read().await.logging.clone(), None) {
+                Ok(logger) => {
+                    tracing::info!("Model logging initialized successfully");
+                    Some(Arc::new(logger))
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to initialize model logger: {}", e);
+                    None
+                }
+            }
+        } else {
+            tracing::info!("Model logging is disabled");
+            None
+        };
+
+        // Initialize model catalog if SLM is enabled
+        let model_catalog = if let Some(ref slm_config) = config.read().await.slm {
+            if slm_config.enabled {
+                match models::ModelCatalog::new(slm_config.clone()) {
+                    Ok(catalog) => {
+                        tracing::info!("Model catalog initialized with {} models", catalog.list_models().len());
+                        Some(Arc::new(catalog))
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to initialize model catalog: {}", e);
+                        None
+                    }
+                }
+            } else {
+                tracing::info!("SLM support is disabled");
+                None
+            }
+        } else {
+            tracing::info!("No SLM configuration provided");
+            None
+        };
+
         Ok(Self {
             scheduler,
             lifecycle,
@@ -107,6 +156,8 @@ impl AgentRuntime {
             communication,
             error_handler,
             context_manager,
+            model_logger,
+            model_catalog,
             config,
         })
     }
@@ -174,6 +225,9 @@ pub struct RuntimeConfig {
     pub security: SecurityConfig,
     pub audit: AuditConfig,
     pub error_handler: error_handler::ErrorHandlerConfig,
+    pub logging: logging::LoggingConfig,
+    pub slm: Option<config::Slm>,
+    pub routing: Option<routing::RoutingConfig>,
 }
 
 /// Implementation of RuntimeApiProvider for AgentRuntime

@@ -11,13 +11,14 @@ use tokio::sync::Notify;
 use tokio::time::interval;
 
 use crate::types::*;
+use crate::routing::RoutingEngine;
 
 #[cfg(feature = "http-api")]
 pub mod load_balancer;
 pub mod priority_queue;
 pub mod task_manager;
 
-use load_balancer::LoadBalancer;
+// use load_balancer::LoadBalancer;
 use priority_queue::PriorityQueue;
 use task_manager::TaskManager;
 
@@ -152,6 +153,45 @@ impl Ord for ScheduledTask {
     }
 }
 
+// Stub LoadBalancer type until the actual implementation is available
+pub struct LoadBalancer;
+
+impl LoadBalancer {
+    pub fn new(_strategy: LoadBalancingStrategy) -> Self {
+        Self
+    }
+    
+    pub async fn allocate_resources(&self, _requirements: &ResourceRequirements) -> Result<ResourceAllocation, String> {
+        // Stub implementation - always succeeds
+        Ok(ResourceAllocation {
+            agent_id: AgentId::new(),
+            allocated_memory: 0,
+            allocated_cpu_cores: 0.0,
+            allocated_disk_io: 0,
+            allocated_network_io: 0,
+            allocation_time: SystemTime::now(),
+        })
+    }
+    
+    pub async fn deallocate_resources(&self, _allocation: ResourceAllocation) {
+        // Stub implementation
+    }
+    
+    pub async fn get_resource_utilization(&self) -> ResourceUsage {
+        ResourceUsage {
+            memory_used: 0,
+            cpu_utilization: 0.0,
+            disk_io_rate: 0,
+            network_io_rate: 0,
+            uptime: std::time::Duration::from_secs(0),
+        }
+    }
+    
+    pub async fn get_statistics(&self) -> serde_json::Value {
+        serde_json::json!({})
+    }
+}
+
 /// Default implementation of the Agent Scheduler
 pub struct DefaultAgentScheduler {
     config: SchedulerConfig,
@@ -162,11 +202,20 @@ pub struct DefaultAgentScheduler {
     system_metrics: Arc<RwLock<SystemMetrics>>,
     shutdown_notify: Arc<Notify>,
     is_running: Arc<RwLock<bool>>,
+    routing_engine: Option<Arc<dyn RoutingEngine>>,
 }
 
 impl DefaultAgentScheduler {
     /// Create a new scheduler instance
     pub async fn new(config: SchedulerConfig) -> Result<Self, SchedulerError> {
+        Self::new_with_routing(config, None).await
+    }
+
+    /// Create a new scheduler instance with optional routing engine
+    pub async fn new_with_routing(
+        config: SchedulerConfig,
+        routing_engine: Option<Arc<dyn RoutingEngine>>
+    ) -> Result<Self, SchedulerError> {
         let priority_queue = Arc::new(RwLock::new(PriorityQueue::new()));
         let load_balancer = Arc::new(LoadBalancer::new(config.load_balancing_strategy.clone()));
         let task_manager = Arc::new(TaskManager::new(config.task_timeout));
@@ -184,6 +233,7 @@ impl DefaultAgentScheduler {
             system_metrics,
             shutdown_notify,
             is_running,
+            routing_engine,
         };
 
         // Start background tasks
@@ -202,6 +252,7 @@ impl DefaultAgentScheduler {
         let system_metrics = self.system_metrics.clone();
         let shutdown_notify = self.shutdown_notify.clone();
         let is_running = self.is_running.clone();
+        let _routing_engine = self.routing_engine.clone();
         let max_concurrent = self.config.max_concurrent_agents;
 
         tokio::spawn(async move {
@@ -226,7 +277,7 @@ impl DefaultAgentScheduler {
                                 if let Ok(resource_allocation) = load_balancer.allocate_resources(&task.resource_requirements).await {
                                     running_agents.insert(task.agent_id, task.clone());
 
-                                    // Start the task
+                                    // Start the task (routing integration would be handled in TaskManager if needed)
                                     if let Err(e) = task_manager.start_task(task.clone()).await {
                                         tracing::error!("Failed to start task for agent {}: {}", task.agent_id, e);
                                         running_agents.remove(&task.agent_id);

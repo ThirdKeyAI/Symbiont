@@ -5,8 +5,10 @@
 use super::types::*;
 use crate::context::manager::ContextManager;
 use crate::context::types::{AgentContext, ContextQuery, QueryType};
+use crate::logging::{ModelLogger, ModelInteractionType, RequestData, ResponseData, TokenUsage};
 use crate::types::AgentId;
 use async_trait::async_trait;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 use tokio::time::timeout;
@@ -83,6 +85,7 @@ pub struct StandardRAGEngine {
     context_manager: Arc<dyn ContextManager>,
     config: std::sync::Arc<std::sync::RwLock<Option<RAGConfig>>>,
     stats: RAGStats,
+    model_logger: Option<Arc<ModelLogger>>,
 }
 
 impl StandardRAGEngine {
@@ -99,6 +102,24 @@ impl StandardRAGEngine {
                 validation_pass_rate: 0.0,
                 top_query_types: Vec::new(),
             },
+            model_logger: None,
+        }
+    }
+
+    /// Create a new StandardRAGEngine instance with model logging
+    pub fn with_logger(context_manager: Arc<dyn ContextManager>, logger: Arc<ModelLogger>) -> Self {
+        Self {
+            context_manager,
+            config: std::sync::Arc::new(std::sync::RwLock::new(None)),
+            stats: RAGStats {
+                total_documents: 0,
+                total_queries: 0,
+                avg_response_time: Duration::from_millis(0),
+                cache_hit_rate: 0.0,
+                validation_pass_rate: 0.0,
+                top_query_types: Vec::new(),
+            },
+            model_logger: Some(logger),
         }
     }
 
@@ -551,9 +572,32 @@ impl RAGEngine for StandardRAGEngine {
         &self,
         context: AugmentedContext,
     ) -> Result<GeneratedResponse, RAGError> {
+        let start_time = Instant::now();
+        
+        // Prepare request data for logging
+        let request_data = RequestData {
+            prompt: context.original_query.clone(),
+            tool_name: None,
+            tool_arguments: None,
+            parameters: {
+                let mut params = HashMap::new();
+                params.insert("documents_count".to_string(), serde_json::Value::Number(
+                    serde_json::Number::from(context.retrieved_documents.len())
+                ));
+                if !context.retrieved_documents.is_empty() {
+                    let avg_relevance = context.retrieved_documents.iter()
+                        .map(|d| d.relevance_score).sum::<f32>() / context.retrieved_documents.len() as f32;
+                    params.insert("avg_relevance_score".to_string(), serde_json::Value::Number(
+                        serde_json::Number::from_f64(avg_relevance as f64).unwrap_or(serde_json::Number::from(0))
+                    ));
+                }
+                params
+            },
+        };
+
         // Mock response generation - in a real implementation, this would call an LLM
         let content = if context.retrieved_documents.is_empty() {
-            format!("I couldn't find specific information about '{}' in the available documents. Could you provide more context or rephrase your question?", 
+            format!("I couldn't find specific information about '{}' in the available documents. Could you provide more context or rephrase your question?",
                    context.original_query)
         } else {
             let doc_summaries: Vec<String> = context
@@ -576,13 +620,61 @@ impl RAGEngine for StandardRAGEngine {
                    context.retrieved_documents.iter().map(|d| d.relevance_score).sum::<f32>() / context.retrieved_documents.len() as f32)
         };
 
+        let generation_time = start_time.elapsed();
+        let tokens_used = content.len() / 4; // Rough token estimate
+
+        // Prepare response data for logging
+        let response_data = ResponseData {
+            content: content.clone(),
+            tool_result: None,
+            confidence: Some(0.8),
+            metadata: {
+                let mut metadata = HashMap::new();
+                metadata.insert("sources_consulted".to_string(),
+                    serde_json::Value::Number(serde_json::Number::from(context.retrieved_documents.len())));
+                metadata.insert("model_version".to_string(),
+                    serde_json::Value::String("mock-v1.0".to_string()));
+                metadata
+            },
+        };
+
+        let token_usage = TokenUsage {
+            input_tokens: context.original_query.len() as u32 / 4, // Rough estimate
+            output_tokens: tokens_used as u32,
+            total_tokens: (context.original_query.len() / 4 + tokens_used) as u32,
+        };
+
+        // Log the model interaction if logger is available
+        if let Some(ref logger) = self.model_logger {
+            let metadata = {
+                let mut meta = HashMap::new();
+                meta.insert("rag_pipeline".to_string(), "generate_response".to_string());
+                meta.insert("documents_retrieved".to_string(), context.retrieved_documents.len().to_string());
+                meta
+            };
+
+            if let Err(e) = logger.log_interaction(
+                AgentId::new(), // TODO: Pass actual agent ID from context
+                ModelInteractionType::RagQuery,
+                "mock-rag-model",
+                request_data,
+                response_data,
+                generation_time,
+                metadata,
+                Some(token_usage.clone()),
+                None,
+            ).await {
+                log::warn!("Failed to log RAG model interaction: {}", e);
+            }
+        }
+
         Ok(GeneratedResponse {
             content,
             confidence: 0.8, // Mock confidence
             citations: context.citations,
             metadata: ResponseMetadata {
-                generation_time: Duration::from_millis(100), // Mock generation time
-                tokens_used: 150,                            // Mock token count
+                generation_time,
+                tokens_used,
                 sources_consulted: context.retrieved_documents.len(),
                 model_version: "mock-v1.0".to_string(),
             },

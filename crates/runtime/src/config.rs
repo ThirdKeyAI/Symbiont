@@ -4,6 +4,7 @@
 //! variable abstraction, and secure defaults.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::env;
 use std::path::PathBuf;
 use thiserror::Error;
@@ -28,7 +29,7 @@ pub enum ConfigError {
 }
 
 /// Main application configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
     /// API configuration
     pub api: ApiConfig,
@@ -40,6 +41,10 @@ pub struct Config {
     pub security: SecurityConfig,
     /// Storage configuration
     pub storage: StorageConfig,
+    /// SLM-first configuration
+    pub slm: Option<Slm>,
+    /// Routing configuration
+    pub routing: Option<crate::routing::RoutingConfig>,
 }
 
 /// API configuration
@@ -126,17 +131,210 @@ pub struct StorageConfig {
     pub max_context_size_mb: u64,
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            api: ApiConfig::default(),
-            database: DatabaseConfig::default(),
-            logging: LoggingConfig::default(),
-            security: SecurityConfig::default(),
-            storage: StorageConfig::default(),
-        }
-    }
+/// SLM-first configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Slm {
+    /// Enable SLM-first mode globally
+    pub enabled: bool,
+    /// Model allow list configuration
+    pub model_allow_lists: ModelAllowListConfig,
+    /// Named sandbox profiles for different security tiers
+    pub sandbox_profiles: HashMap<String, SandboxProfile>,
+    /// Default sandbox profile name
+    pub default_sandbox_profile: String,
 }
+
+/// Model allow list configuration with hierarchical overrides
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ModelAllowListConfig {
+    /// Global model definitions available system-wide
+    pub global_models: Vec<Model>,
+    /// Agent-specific model mappings (agent_id -> model_ids)
+    pub agent_model_maps: HashMap<String, Vec<String>>,
+    /// Allow runtime API-based overrides
+    pub allow_runtime_overrides: bool,
+}
+
+/// Individual model definition
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Model {
+    /// Unique model identifier
+    pub id: String,
+    /// Human-readable name
+    pub name: String,
+    /// Model provider/source
+    pub provider: ModelProvider,
+    /// Model capabilities
+    pub capabilities: Vec<ModelCapability>,
+    /// Resource requirements for this model
+    pub resource_requirements: ModelResourceRequirements,
+}
+
+/// Model provider configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ModelProvider {
+    HuggingFace { model_path: String },
+    LocalFile { file_path: PathBuf },
+    OpenAI { model_name: String },
+    Anthropic { model_name: String },
+    Custom { endpoint_url: String },
+}
+
+/// Model capability enumeration
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum ModelCapability {
+    TextGeneration,
+    CodeGeneration,
+    Reasoning,
+    ToolUse,
+    FunctionCalling,
+    Embeddings,
+}
+
+/// Model resource requirements
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelResourceRequirements {
+    /// Minimum memory required in MB
+    pub min_memory_mb: u64,
+    /// Preferred CPU cores
+    pub preferred_cpu_cores: f32,
+    /// GPU requirements
+    pub gpu_requirements: Option<GpuRequirements>,
+}
+
+/// GPU requirements specification
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GpuRequirements {
+    /// Minimum VRAM in MB
+    pub min_vram_mb: u64,
+    /// Required compute capability
+    pub compute_capability: String,
+}
+
+/// Sandbox profile for SLM runners with comprehensive controls
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SandboxProfile {
+    /// Resource allocation and limits
+    pub resources: ResourceConstraints,
+    /// Filesystem access controls
+    pub filesystem: FilesystemControls,
+    /// Process execution limits
+    pub process_limits: ProcessLimits,
+    /// Network access policies
+    pub network: NetworkPolicy,
+    /// Security settings
+    pub security: SecuritySettings,
+}
+
+/// Resource constraints for sandbox
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceConstraints {
+    /// Maximum memory allocation in MB
+    pub max_memory_mb: u64,
+    /// Maximum CPU cores (fractional allowed, e.g., 1.5)
+    pub max_cpu_cores: f32,
+    /// Maximum disk space in MB
+    pub max_disk_mb: u64,
+    /// GPU access configuration
+    pub gpu_access: GpuAccess,
+    /// I/O bandwidth limits
+    pub max_io_bandwidth_mbps: Option<u64>,
+}
+
+/// Filesystem access controls
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilesystemControls {
+    /// Allowed read paths (glob patterns supported)
+    pub read_paths: Vec<String>,
+    /// Allowed write paths (glob patterns supported)
+    pub write_paths: Vec<String>,
+    /// Explicitly denied paths (takes precedence)
+    pub denied_paths: Vec<String>,
+    /// Allow temporary file creation
+    pub allow_temp_files: bool,
+    /// Maximum file size in MB
+    pub max_file_size_mb: u64,
+}
+
+/// Process execution limits
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessLimits {
+    /// Maximum number of child processes
+    pub max_child_processes: u32,
+    /// Maximum execution time in seconds
+    pub max_execution_time_seconds: u64,
+    /// Allowed system calls (seccomp filter)
+    pub allowed_syscalls: Vec<String>,
+    /// Process priority (nice value)
+    pub process_priority: i8,
+}
+
+/// Network access policy
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkPolicy {
+    /// Network access mode
+    pub access_mode: NetworkAccessMode,
+    /// Allowed destinations (when mode is Restricted)
+    pub allowed_destinations: Vec<NetworkDestination>,
+    /// Maximum bandwidth in Mbps
+    pub max_bandwidth_mbps: Option<u64>,
+}
+
+/// Network access mode enumeration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum NetworkAccessMode {
+    /// No network access
+    None,
+    /// Restricted to specific destinations
+    Restricted,
+    /// Full network access
+    Full,
+}
+
+/// Network destination specification
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkDestination {
+    /// Host (can be IP or domain)
+    pub host: String,
+    /// Port (optional, defaults to any)
+    pub port: Option<u16>,
+    /// Protocol restriction
+    pub protocol: Option<NetworkProtocol>,
+}
+
+/// Network protocol enumeration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum NetworkProtocol {
+    TCP,
+    UDP,
+    HTTP,
+    HTTPS,
+}
+
+/// GPU access configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum GpuAccess {
+    /// No GPU access
+    None,
+    /// Shared GPU access with memory limit
+    Shared { max_memory_mb: u64 },
+    /// Exclusive GPU access
+    Exclusive,
+}
+
+/// Security settings for sandbox
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecuritySettings {
+    /// Enable additional syscall filtering
+    pub strict_syscall_filtering: bool,
+    /// Disable debugging interfaces
+    pub disable_debugging: bool,
+    /// Enable audit logging
+    pub enable_audit_logging: bool,
+    /// Encryption requirements
+    pub require_encryption: bool,
+}
+
 
 impl Default for ApiConfig {
     fn default() -> Self {
@@ -192,6 +390,192 @@ impl Default for StorageConfig {
             git_clone_path: PathBuf::from("./temp_repos"),
             backup_path: PathBuf::from("./backups"),
             max_context_size_mb: 100,
+        }
+    }
+}
+
+impl Default for Slm {
+    fn default() -> Self {
+        let mut profiles = HashMap::new();
+        profiles.insert("secure".to_string(), SandboxProfile::secure_default());
+        profiles.insert("standard".to_string(), SandboxProfile::standard_default());
+        
+        Self {
+            enabled: false,
+            model_allow_lists: ModelAllowListConfig::default(),
+            sandbox_profiles: profiles,
+            default_sandbox_profile: "secure".to_string(),
+        }
+    }
+}
+
+
+impl SandboxProfile {
+    /// Create a secure default profile
+    pub fn secure_default() -> Self {
+        Self {
+            resources: ResourceConstraints {
+                max_memory_mb: 512,
+                max_cpu_cores: 1.0,
+                max_disk_mb: 100,
+                gpu_access: GpuAccess::None,
+                max_io_bandwidth_mbps: Some(10),
+            },
+            filesystem: FilesystemControls {
+                read_paths: vec!["/tmp/sandbox/*".to_string()],
+                write_paths: vec!["/tmp/sandbox/output/*".to_string()],
+                denied_paths: vec!["/etc/*".to_string(), "/proc/*".to_string()],
+                allow_temp_files: true,
+                max_file_size_mb: 10,
+            },
+            process_limits: ProcessLimits {
+                max_child_processes: 0,
+                max_execution_time_seconds: 300,
+                allowed_syscalls: vec!["read".to_string(), "write".to_string(), "open".to_string()],
+                process_priority: 19,
+            },
+            network: NetworkPolicy {
+                access_mode: NetworkAccessMode::None,
+                allowed_destinations: vec![],
+                max_bandwidth_mbps: None,
+            },
+            security: SecuritySettings {
+                strict_syscall_filtering: true,
+                disable_debugging: true,
+                enable_audit_logging: true,
+                require_encryption: true,
+            },
+        }
+    }
+
+    /// Create a standard default profile (less restrictive)
+    pub fn standard_default() -> Self {
+        Self {
+            resources: ResourceConstraints {
+                max_memory_mb: 1024,
+                max_cpu_cores: 2.0,
+                max_disk_mb: 500,
+                gpu_access: GpuAccess::Shared { max_memory_mb: 1024 },
+                max_io_bandwidth_mbps: Some(50),
+            },
+            filesystem: FilesystemControls {
+                read_paths: vec!["/tmp/*".to_string(), "/home/sandbox/*".to_string()],
+                write_paths: vec!["/tmp/*".to_string(), "/home/sandbox/*".to_string()],
+                denied_paths: vec!["/etc/passwd".to_string(), "/etc/shadow".to_string()],
+                allow_temp_files: true,
+                max_file_size_mb: 100,
+            },
+            process_limits: ProcessLimits {
+                max_child_processes: 5,
+                max_execution_time_seconds: 600,
+                allowed_syscalls: vec![], // Empty means allow all
+                process_priority: 0,
+            },
+            network: NetworkPolicy {
+                access_mode: NetworkAccessMode::Restricted,
+                allowed_destinations: vec![
+                    NetworkDestination {
+                        host: "api.openai.com".to_string(),
+                        port: Some(443),
+                        protocol: Some(NetworkProtocol::HTTPS),
+                    },
+                ],
+                max_bandwidth_mbps: Some(100),
+            },
+            security: SecuritySettings {
+                strict_syscall_filtering: false,
+                disable_debugging: false,
+                enable_audit_logging: true,
+                require_encryption: false,
+            },
+        }
+    }
+
+    /// Validate sandbox profile configuration
+    pub fn validate(&self) -> Result<(), Box<dyn std::error::Error>> {
+        // Validate resource constraints
+        if self.resources.max_memory_mb == 0 {
+            return Err("max_memory_mb must be > 0".into());
+        }
+        if self.resources.max_cpu_cores <= 0.0 {
+            return Err("max_cpu_cores must be > 0".into());
+        }
+
+        // Validate filesystem paths
+        for path in &self.filesystem.read_paths {
+            if path.is_empty() {
+                return Err("read_paths cannot contain empty strings".into());
+            }
+        }
+
+        // Validate process limits
+        if self.process_limits.max_execution_time_seconds == 0 {
+            return Err("max_execution_time_seconds must be > 0".into());
+        }
+
+        Ok(())
+    }
+}
+
+impl Slm {
+    /// Validate the SLM configuration
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        // Validate default sandbox profile exists
+        if !self.sandbox_profiles.contains_key(&self.default_sandbox_profile) {
+            return Err(ConfigError::InvalidValue {
+                key: "slm.default_sandbox_profile".to_string(),
+                reason: format!("Profile '{}' not found in sandbox_profiles",
+                               self.default_sandbox_profile),
+            });
+        }
+
+        // Validate model definitions have unique IDs
+        let mut model_ids = std::collections::HashSet::new();
+        for model in &self.model_allow_lists.global_models {
+            if !model_ids.insert(&model.id) {
+                return Err(ConfigError::InvalidValue {
+                    key: "slm.model_allow_lists.global_models".to_string(),
+                    reason: format!("Duplicate model ID: {}", model.id),
+                });
+            }
+        }
+
+        // Validate agent model mappings reference existing models
+        for (agent_id, model_ids) in &self.model_allow_lists.agent_model_maps {
+            for model_id in model_ids {
+                if !self.model_allow_lists.global_models
+                    .iter().any(|m| &m.id == model_id) {
+                    return Err(ConfigError::InvalidValue {
+                        key: format!("slm.model_allow_lists.agent_model_maps.{}", agent_id),
+                        reason: format!("Model ID '{}' not found in global_models", model_id),
+                    });
+                }
+            }
+        }
+
+        // Validate sandbox profiles
+        for (profile_name, profile) in &self.sandbox_profiles {
+            profile.validate()
+                .map_err(|e| ConfigError::InvalidValue {
+                    key: format!("slm.sandbox_profiles.{}", profile_name),
+                    reason: e.to_string(),
+                })?;
+        }
+
+        Ok(())
+    }
+
+    /// Get allowed models for a specific agent
+    pub fn get_allowed_models(&self, agent_id: &str) -> Vec<&Model> {
+        // Check agent-specific mappings first
+        if let Some(model_ids) = self.model_allow_lists.agent_model_maps.get(agent_id) {
+            self.model_allow_lists.global_models
+                .iter()
+                .filter(|model| model_ids.contains(&model.id))
+                .collect()
+        } else {
+            // Fall back to all global models if no specific mapping
+            self.model_allow_lists.global_models.iter().collect()
         }
     }
 }
@@ -297,6 +681,13 @@ impl Config {
             });
         }
         
+        // Validate SLM configuration if enabled
+        if let Some(slm) = &self.slm {
+            if slm.enabled {
+                slm.validate()?;
+            }
+        }
+        
         Ok(())
     }
     
@@ -357,6 +748,8 @@ impl Config {
 mod tests {
     use super::*;
     use std::env;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
     
     #[test]
     fn test_default_config() {
@@ -395,5 +788,433 @@ mod tests {
         let mut config = Config::default();
         config.logging.level = "invalid".to_string();
         assert!(config.validate().is_err());
+    }
+
+    // SLM Configuration Tests
+    #[test]
+    fn test_slm_default_config() {
+        let slm = Slm::default();
+        assert!(!slm.enabled);
+        assert_eq!(slm.default_sandbox_profile, "secure");
+        assert!(slm.sandbox_profiles.contains_key("secure"));
+        assert!(slm.sandbox_profiles.contains_key("standard"));
+        assert!(slm.validate().is_ok());
+    }
+
+    #[test]
+    fn test_slm_validation_invalid_default_profile() {
+        let mut slm = Slm::default();
+        slm.default_sandbox_profile = "nonexistent".to_string();
+        
+        let result = slm.validate();
+        assert!(result.is_err());
+        if let Err(ConfigError::InvalidValue { key, reason }) = result {
+            assert_eq!(key, "slm.default_sandbox_profile");
+            assert!(reason.contains("nonexistent"));
+        }
+    }
+
+    #[test]
+    fn test_slm_validation_duplicate_model_ids() {
+        let model1 = Model {
+            id: "duplicate".to_string(),
+            name: "Model 1".to_string(),
+            provider: ModelProvider::LocalFile { file_path: PathBuf::from("/tmp/model1.gguf") },
+            capabilities: vec![ModelCapability::TextGeneration],
+            resource_requirements: ModelResourceRequirements {
+                min_memory_mb: 512,
+                preferred_cpu_cores: 1.0,
+                gpu_requirements: None,
+            },
+        };
+
+        let model2 = Model {
+            id: "duplicate".to_string(), // Same ID
+            name: "Model 2".to_string(),
+            provider: ModelProvider::LocalFile { file_path: PathBuf::from("/tmp/model2.gguf") },
+            capabilities: vec![ModelCapability::CodeGeneration],
+            resource_requirements: ModelResourceRequirements {
+                min_memory_mb: 1024,
+                preferred_cpu_cores: 2.0,
+                gpu_requirements: None,
+            },
+        };
+
+        let mut slm = Slm::default();
+        slm.model_allow_lists.global_models = vec![model1, model2];
+        
+        let result = slm.validate();
+        assert!(result.is_err());
+        if let Err(ConfigError::InvalidValue { key, reason }) = result {
+            assert_eq!(key, "slm.model_allow_lists.global_models");
+            assert!(reason.contains("Duplicate model ID: duplicate"));
+        }
+    }
+
+    #[test]
+    fn test_slm_validation_invalid_agent_model_mapping() {
+        let model = Model {
+            id: "test_model".to_string(),
+            name: "Test Model".to_string(),
+            provider: ModelProvider::LocalFile { file_path: PathBuf::from("/tmp/test.gguf") },
+            capabilities: vec![ModelCapability::TextGeneration],
+            resource_requirements: ModelResourceRequirements {
+                min_memory_mb: 512,
+                preferred_cpu_cores: 1.0,
+                gpu_requirements: None,
+            },
+        };
+
+        let mut slm = Slm::default();
+        slm.model_allow_lists.global_models = vec![model];
+        
+        let mut agent_model_maps = HashMap::new();
+        agent_model_maps.insert("test_agent".to_string(), vec!["nonexistent_model".to_string()]);
+        slm.model_allow_lists.agent_model_maps = agent_model_maps;
+        
+        let result = slm.validate();
+        assert!(result.is_err());
+        if let Err(ConfigError::InvalidValue { key, reason }) = result {
+            assert_eq!(key, "slm.model_allow_lists.agent_model_maps.test_agent");
+            assert!(reason.contains("Model ID 'nonexistent_model' not found"));
+        }
+    }
+
+    #[test]
+    fn test_slm_get_allowed_models_with_agent_mapping() {
+        let model1 = Model {
+            id: "model1".to_string(),
+            name: "Model 1".to_string(),
+            provider: ModelProvider::LocalFile { file_path: PathBuf::from("/tmp/model1.gguf") },
+            capabilities: vec![ModelCapability::TextGeneration],
+            resource_requirements: ModelResourceRequirements {
+                min_memory_mb: 512,
+                preferred_cpu_cores: 1.0,
+                gpu_requirements: None,
+            },
+        };
+
+        let model2 = Model {
+            id: "model2".to_string(),
+            name: "Model 2".to_string(),
+            provider: ModelProvider::LocalFile { file_path: PathBuf::from("/tmp/model2.gguf") },
+            capabilities: vec![ModelCapability::CodeGeneration],
+            resource_requirements: ModelResourceRequirements {
+                min_memory_mb: 1024,
+                preferred_cpu_cores: 2.0,
+                gpu_requirements: None,
+            },
+        };
+
+        let mut slm = Slm::default();
+        slm.model_allow_lists.global_models = vec![model1, model2];
+        
+        let mut agent_model_maps = HashMap::new();
+        agent_model_maps.insert("agent1".to_string(), vec!["model1".to_string()]);
+        slm.model_allow_lists.agent_model_maps = agent_model_maps;
+        
+        // Agent with specific mapping should only get their models
+        let allowed_models = slm.get_allowed_models("agent1");
+        assert_eq!(allowed_models.len(), 1);
+        assert_eq!(allowed_models[0].id, "model1");
+        
+        // Agent without mapping should get all global models
+        let allowed_models = slm.get_allowed_models("agent2");
+        assert_eq!(allowed_models.len(), 2);
+    }
+
+    // Sandbox Profile Tests
+    #[test]
+    fn test_sandbox_profile_secure_default() {
+        let profile = SandboxProfile::secure_default();
+        assert_eq!(profile.resources.max_memory_mb, 512);
+        assert_eq!(profile.resources.max_cpu_cores, 1.0);
+        assert!(matches!(profile.resources.gpu_access, GpuAccess::None));
+        assert!(matches!(profile.network.access_mode, NetworkAccessMode::None));
+        assert!(profile.security.strict_syscall_filtering);
+        assert!(profile.validate().is_ok());
+    }
+
+    #[test]
+    fn test_sandbox_profile_standard_default() {
+        let profile = SandboxProfile::standard_default();
+        assert_eq!(profile.resources.max_memory_mb, 1024);
+        assert_eq!(profile.resources.max_cpu_cores, 2.0);
+        assert!(matches!(profile.resources.gpu_access, GpuAccess::Shared { .. }));
+        assert!(matches!(profile.network.access_mode, NetworkAccessMode::Restricted));
+        assert!(!profile.security.strict_syscall_filtering);
+        assert!(profile.validate().is_ok());
+    }
+
+    #[test]
+    fn test_sandbox_profile_validation_zero_memory() {
+        let mut profile = SandboxProfile::secure_default();
+        profile.resources.max_memory_mb = 0;
+        
+        let result = profile.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("max_memory_mb must be > 0"));
+    }
+
+    #[test]
+    fn test_sandbox_profile_validation_zero_cpu() {
+        let mut profile = SandboxProfile::secure_default();
+        profile.resources.max_cpu_cores = 0.0;
+        
+        let result = profile.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("max_cpu_cores must be > 0"));
+    }
+
+    #[test]
+    fn test_sandbox_profile_validation_empty_read_path() {
+        let mut profile = SandboxProfile::secure_default();
+        profile.filesystem.read_paths.push("".to_string());
+        
+        let result = profile.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("read_paths cannot contain empty strings"));
+    }
+
+    #[test]
+    fn test_sandbox_profile_validation_zero_execution_time() {
+        let mut profile = SandboxProfile::secure_default();
+        profile.process_limits.max_execution_time_seconds = 0;
+        
+        let result = profile.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("max_execution_time_seconds must be > 0"));
+    }
+
+    // Model Configuration Tests
+    #[test]
+    fn test_model_provider_variants() {
+        let huggingface_model = Model {
+            id: "hf_model".to_string(),
+            name: "HuggingFace Model".to_string(),
+            provider: ModelProvider::HuggingFace { model_path: "microsoft/DialoGPT-medium".to_string() },
+            capabilities: vec![ModelCapability::TextGeneration],
+            resource_requirements: ModelResourceRequirements {
+                min_memory_mb: 512,
+                preferred_cpu_cores: 1.0,
+                gpu_requirements: None,
+            },
+        };
+
+        let openai_model = Model {
+            id: "openai_model".to_string(),
+            name: "OpenAI Model".to_string(),
+            provider: ModelProvider::OpenAI { model_name: "gpt-3.5-turbo".to_string() },
+            capabilities: vec![ModelCapability::TextGeneration, ModelCapability::Reasoning],
+            resource_requirements: ModelResourceRequirements {
+                min_memory_mb: 0, // Cloud model
+                preferred_cpu_cores: 0.0,
+                gpu_requirements: None,
+            },
+        };
+
+        assert_eq!(huggingface_model.id, "hf_model");
+        assert_eq!(openai_model.id, "openai_model");
+    }
+
+    #[test]
+    fn test_model_capabilities() {
+        let all_capabilities = vec![
+            ModelCapability::TextGeneration,
+            ModelCapability::CodeGeneration,
+            ModelCapability::Reasoning,
+            ModelCapability::ToolUse,
+            ModelCapability::FunctionCalling,
+            ModelCapability::Embeddings,
+        ];
+
+        let model = Model {
+            id: "full_model".to_string(),
+            name: "Full Capability Model".to_string(),
+            provider: ModelProvider::LocalFile { file_path: PathBuf::from("/tmp/full.gguf") },
+            capabilities: all_capabilities.clone(),
+            resource_requirements: ModelResourceRequirements {
+                min_memory_mb: 2048,
+                preferred_cpu_cores: 4.0,
+                gpu_requirements: Some(GpuRequirements {
+                    min_vram_mb: 8192,
+                    compute_capability: "7.5".to_string(),
+                }),
+            },
+        };
+
+        assert_eq!(model.capabilities.len(), 6);
+        for capability in &all_capabilities {
+            assert!(model.capabilities.contains(capability));
+        }
+    }
+
+    // Configuration File Tests
+    #[test]
+    fn test_config_validation_vector_dimension() {
+        let mut config = Config::default();
+        config.database.vector_dimension = 0;
+        
+        let result = config.validate();
+        assert!(result.is_err());
+        if let Err(ConfigError::InvalidValue { key, reason }) = result {
+            assert_eq!(key, "database.vector_dimension");
+            assert!(reason.contains("Vector dimension must be > 0"));
+        }
+    }
+
+    #[test]
+    fn test_config_validation_with_slm() {
+        let mut config = Config::default();
+        let mut slm = Slm::default();
+        slm.enabled = true;
+        slm.default_sandbox_profile = "invalid".to_string(); // This should cause validation to fail
+        config.slm = Some(slm);
+        
+        let result = config.validate();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_config_secret_key_retrieval() {
+        // Test environment variable key provider
+        env::set_var("TEST_SECRET_KEY", "test_secret_123");
+        
+        let mut config = Config::default();
+        config.security.key_provider = KeyProvider::Environment {
+            var_name: "TEST_SECRET_KEY".to_string()
+        };
+        
+        let key = config.get_secret_key();
+        assert!(key.is_ok());
+        assert_eq!(key.unwrap(), "test_secret_123");
+        
+        env::remove_var("TEST_SECRET_KEY");
+    }
+
+    #[test]
+    fn test_config_secret_key_missing() {
+        let mut config = Config::default();
+        config.security.key_provider = KeyProvider::Environment {
+            var_name: "NONEXISTENT_KEY".to_string()
+        };
+        
+        let result = config.get_secret_key();
+        assert!(result.is_err());
+        if let Err(ConfigError::MissingRequired { key }) = result {
+            assert_eq!(key, "NONEXISTENT_KEY");
+        }
+    }
+
+    #[test]
+    fn test_network_policy_configurations() {
+        // Test restricted network access
+        let destination = NetworkDestination {
+            host: "api.openai.com".to_string(),
+            port: Some(443),
+            protocol: Some(NetworkProtocol::HTTPS),
+        };
+
+        let network_policy = NetworkPolicy {
+            access_mode: NetworkAccessMode::Restricted,
+            allowed_destinations: vec![destination],
+            max_bandwidth_mbps: Some(100),
+        };
+
+        let profile = SandboxProfile {
+            resources: ResourceConstraints {
+                max_memory_mb: 1024,
+                max_cpu_cores: 2.0,
+                max_disk_mb: 500,
+                gpu_access: GpuAccess::None,
+                max_io_bandwidth_mbps: Some(50),
+            },
+            filesystem: FilesystemControls {
+                read_paths: vec!["/tmp/*".to_string()],
+                write_paths: vec!["/tmp/output/*".to_string()],
+                denied_paths: vec!["/etc/*".to_string()],
+                allow_temp_files: true,
+                max_file_size_mb: 10,
+            },
+            process_limits: ProcessLimits {
+                max_child_processes: 2,
+                max_execution_time_seconds: 300,
+                allowed_syscalls: vec!["read".to_string(), "write".to_string()],
+                process_priority: 0,
+            },
+            network: network_policy,
+            security: SecuritySettings {
+                strict_syscall_filtering: true,
+                disable_debugging: true,
+                enable_audit_logging: true,
+                require_encryption: false,
+            },
+        };
+
+        assert!(profile.validate().is_ok());
+        assert!(matches!(profile.network.access_mode, NetworkAccessMode::Restricted));
+        assert_eq!(profile.network.allowed_destinations.len(), 1);
+        assert_eq!(profile.network.allowed_destinations[0].host, "api.openai.com");
+    }
+
+    #[test]
+    fn test_gpu_requirements_configurations() {
+        let gpu_requirements = GpuRequirements {
+            min_vram_mb: 4096,
+            compute_capability: "8.0".to_string(),
+        };
+
+        let model = Model {
+            id: "gpu_model".to_string(),
+            name: "GPU Model".to_string(),
+            provider: ModelProvider::LocalFile { file_path: PathBuf::from("/tmp/gpu.gguf") },
+            capabilities: vec![ModelCapability::TextGeneration],
+            resource_requirements: ModelResourceRequirements {
+                min_memory_mb: 1024,
+                preferred_cpu_cores: 2.0,
+                gpu_requirements: Some(gpu_requirements),
+            },
+        };
+
+        assert!(model.resource_requirements.gpu_requirements.is_some());
+        let gpu_req = model.resource_requirements.gpu_requirements.unwrap();
+        assert_eq!(gpu_req.min_vram_mb, 4096);
+        assert_eq!(gpu_req.compute_capability, "8.0");
+    }
+
+    #[test]
+    fn test_config_from_env_invalid_port() {
+        env::set_var("API_PORT", "invalid");
+        
+        let result = Config::from_env();
+        assert!(result.is_err());
+        if let Err(ConfigError::InvalidValue { key, reason }) = result {
+            assert_eq!(key, "API_PORT");
+            assert!(reason.contains("Invalid port number"));
+        }
+        
+        env::remove_var("API_PORT");
+    }
+
+    #[test]
+    fn test_api_auth_token_missing() {
+        let config = Config::default();
+        
+        let result = config.get_api_auth_token();
+        assert!(result.is_err());
+        if let Err(ConfigError::MissingRequired { key }) = result {
+            assert_eq!(key, "API_AUTH_TOKEN");
+        }
+    }
+
+    #[test]
+    fn test_database_url_missing() {
+        let config = Config::default();
+        
+        let result = config.get_database_url();
+        assert!(result.is_err());
+        if let Err(ConfigError::MissingRequired { key }) = result {
+            assert_eq!(key, "DATABASE_URL");
+        }
     }
 }

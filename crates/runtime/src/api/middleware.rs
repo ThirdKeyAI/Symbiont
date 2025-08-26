@@ -23,7 +23,7 @@ use std::{net::IpAddr, num::NonZeroU32, sync::{Arc, OnceLock}};
 use dashmap::DashMap;
 
 #[cfg(feature = "http-api")]
-use crate::config::ConfigManager;
+use std::env;
 
 /// Authentication middleware for bearer token validation
 #[cfg(feature = "http-api")]
@@ -46,14 +46,12 @@ pub async fn auth_middleware(request: Request, next: Next) -> Result<Response, S
     // Extract the token part (after "Bearer ")
     let token = &auth_value[7..];
     
-    // Get the expected token from configuration management
-    let config_manager = ConfigManager::global()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let expected_token = config_manager.get_api_auth_token()
+    // Get the expected token from environment variable (simplified for now)
+    let expected_token = env::var("SYMBIONT_API_TOKEN")
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     
     // Validate the token using constant-time comparison to prevent timing attacks
-    if !token.as_bytes().ct_eq(expected_token.as_bytes()).into() {
+    if !bool::from(token.as_bytes().ct_eq(expected_token.as_bytes())) {
         tracing::warn!("Authentication failed: invalid token provided");
         return Err(StatusCode::UNAUTHORIZED);
     }

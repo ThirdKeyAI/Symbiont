@@ -6,11 +6,14 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use thiserror::Error;
 
 use crate::integrations::mcp::{McpTool, VerificationStatus};
+use crate::logging::{ModelLogger, ModelInteractionType, RequestData, ResponseData};
+use crate::routing::{RoutingEngine, RoutingContext, ModelRequest, error::TaskType};
 use crate::types::{AgentId, RuntimeError};
+use std::sync::Arc;
 
 /// Tool invocation enforcement errors
 #[derive(Error, Debug, Clone)]
@@ -153,6 +156,8 @@ pub trait ToolInvocationEnforcer: Send + Sync {
 pub struct DefaultToolInvocationEnforcer {
     config: InvocationEnforcementConfig,
     warning_counts: std::sync::RwLock<HashMap<String, usize>>,
+    model_logger: Option<Arc<ModelLogger>>,
+    routing_engine: Option<Arc<dyn RoutingEngine>>,
 }
 
 impl DefaultToolInvocationEnforcer {
@@ -161,6 +166,8 @@ impl DefaultToolInvocationEnforcer {
         Self {
             config: InvocationEnforcementConfig::default(),
             warning_counts: std::sync::RwLock::new(HashMap::new()),
+            model_logger: None,
+            routing_engine: None,
         }
     }
 
@@ -169,6 +176,32 @@ impl DefaultToolInvocationEnforcer {
         Self {
             config,
             warning_counts: std::sync::RwLock::new(HashMap::new()),
+            model_logger: None,
+            routing_engine: None,
+        }
+    }
+
+    /// Create a new tool invocation enforcer with model logging
+    pub fn with_logger(config: InvocationEnforcementConfig, logger: Arc<ModelLogger>) -> Self {
+        Self {
+            config,
+            warning_counts: std::sync::RwLock::new(HashMap::new()),
+            model_logger: Some(logger),
+            routing_engine: None,
+        }
+    }
+
+    /// Create a new tool invocation enforcer with routing engine
+    pub fn with_routing(
+        config: InvocationEnforcementConfig,
+        logger: Option<Arc<ModelLogger>>,
+        routing_engine: Arc<dyn RoutingEngine>,
+    ) -> Self {
+        Self {
+            config,
+            warning_counts: std::sync::RwLock::new(HashMap::new()),
+            model_logger: logger,
+            routing_engine: Some(routing_engine),
         }
     }
 
@@ -283,6 +316,80 @@ impl DefaultToolInvocationEnforcer {
             false
         }
     }
+
+    /// Use routing engine to determine best model for tool execution
+    #[allow(dead_code)]
+    async fn route_tool_execution(
+        &self,
+        tool: &McpTool,
+        context: &InvocationContext,
+    ) -> Result<Option<String>, ToolInvocationError> {
+        if let Some(ref routing_engine) = self.routing_engine {
+            // Classify the tool task type based on tool description and arguments
+            let task_type = self.classify_tool_task(tool, context);
+            
+            // Create routing context
+            let routing_context = RoutingContext::new(
+                context.agent_id,
+                task_type,
+                format!("Tool: {} - {}", tool.name, tool.description),
+            );
+
+            // Create model request
+            let _model_request = ModelRequest::from_task(
+                format!("Execute tool '{}' with arguments: {}", tool.name, context.arguments)
+            );
+
+            // Get routing decision
+            match routing_engine.route_request(&routing_context).await {
+                Ok(decision) => {
+                    tracing::debug!("Routing decision for tool '{}': {:?}", tool.name, decision);
+                    // Return the routing decision info for logging/metadata
+                    Ok(Some(format!("{:?}", decision)))
+                }
+                Err(e) => {
+                    tracing::warn!("Routing failed for tool '{}': {}", tool.name, e);
+                    Ok(None)
+                }
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Classify tool execution into routing task types
+    #[allow(dead_code)]
+    fn classify_tool_task(&self, tool: &McpTool, context: &InvocationContext) -> TaskType {
+        let tool_name_lower = tool.name.to_lowercase();
+        let description_lower = tool.description.to_lowercase();
+        
+        // Analyze tool name and description to determine task type
+        if tool_name_lower.contains("code") || description_lower.contains("code") ||
+           tool_name_lower.contains("program") || description_lower.contains("program") {
+            TaskType::CodeGeneration
+        } else if tool_name_lower.contains("analyze") || description_lower.contains("analy") ||
+                  tool_name_lower.contains("inspect") || description_lower.contains("inspect") {
+            TaskType::Analysis
+        } else if tool_name_lower.contains("extract") || description_lower.contains("extract") ||
+                  tool_name_lower.contains("parse") || description_lower.contains("parse") {
+            TaskType::Extract
+        } else if tool_name_lower.contains("summarize") || description_lower.contains("summar") {
+            TaskType::Summarization
+        } else if tool_name_lower.contains("translate") || description_lower.contains("translat") {
+            TaskType::Translation
+        } else if tool_name_lower.contains("reason") || description_lower.contains("reason") ||
+                  tool_name_lower.contains("logic") || description_lower.contains("logic") {
+            TaskType::Reasoning
+        } else if tool_name_lower.contains("template") || description_lower.contains("template") {
+            TaskType::Template
+        } else if context.arguments.to_string().len() < 100 {
+            // Simple tools with minimal arguments
+            TaskType::Intent
+        } else {
+            // Default to QA for general tools
+            TaskType::QA
+        }
+    }
 }
 
 impl Default for DefaultToolInvocationEnforcer {
@@ -306,26 +413,116 @@ impl ToolInvocationEnforcer for DefaultToolInvocationEnforcer {
         tool: &McpTool,
         context: InvocationContext,
     ) -> Result<InvocationResult, ToolInvocationError> {
+        let start_time = Instant::now();
+        
         // Check if invocation is allowed
         let decision = self.check_invocation_allowed(tool, &context).await?;
 
+        // Prepare request data for logging
+        let request_data = RequestData {
+            prompt: format!("Tool invocation: {}", tool.name),
+            tool_name: Some(tool.name.clone()),
+            tool_arguments: Some(context.arguments.clone()),
+            parameters: {
+                let mut params = HashMap::new();
+                params.insert("verification_status".to_string(),
+                    serde_json::Value::String(format!("{:?}", tool.verification_status)));
+                params.insert("enforcement_policy".to_string(),
+                    serde_json::Value::String(format!("{:?}", self.config.policy)));
+                params
+            },
+        };
+
         match decision {
             EnforcementDecision::Allow => {
+                let execution_time = start_time.elapsed();
+                
+                // Prepare successful response data
+                let response_data = ResponseData {
+                    content: "Tool invocation allowed and executed".to_string(),
+                    tool_result: Some(serde_json::json!({"status": "success", "message": "Tool invocation allowed"})),
+                    confidence: Some(1.0),
+                    metadata: HashMap::new(),
+                };
+
+                // Log the tool invocation if logger is available
+                if let Some(ref logger) = self.model_logger {
+                    let metadata = {
+                        let mut meta = HashMap::new();
+                        meta.insert("tool_provider".to_string(), tool.provider.identifier.clone());
+                        meta.insert("enforcement_decision".to_string(), "allow".to_string());
+                        meta.insert("agent_id".to_string(), context.agent_id.to_string());
+                        meta
+                    };
+
+                    if let Err(e) = logger.log_interaction(
+                        context.agent_id,
+                        ModelInteractionType::ToolCall,
+                        &tool.name,
+                        request_data,
+                        response_data,
+                        execution_time,
+                        metadata,
+                        None, // No token usage for tool calls
+                        None,
+                    ).await {
+                        tracing::warn!("Failed to log tool invocation: {}", e);
+                    }
+                }
+
                 // TODO: Integrate with actual tool execution system
                 // For now, return a mock successful result
                 Ok(InvocationResult {
                     success: true,
                     result: serde_json::json!({"status": "success", "message": "Tool invocation allowed"}),
-                    execution_time: Duration::from_millis(100),
+                    execution_time,
                     warnings: vec![],
                     metadata: HashMap::new(),
                 })
             }
-            EnforcementDecision::Block { reason } => Err(ToolInvocationError::InvocationBlocked {
-                tool_name: tool.name.clone(),
-                reason,
-            }),
+            EnforcementDecision::Block { reason } => {
+                let execution_time = start_time.elapsed();
+                
+                // Log the blocked invocation if logger is available
+                if let Some(ref logger) = self.model_logger {
+                    let response_data = ResponseData {
+                        content: "Tool invocation blocked".to_string(),
+                        tool_result: Some(serde_json::json!({"status": "blocked", "reason": &reason})),
+                        confidence: Some(1.0),
+                        metadata: HashMap::new(),
+                    };
+
+                    let metadata = {
+                        let mut meta = HashMap::new();
+                        meta.insert("tool_provider".to_string(), tool.provider.identifier.clone());
+                        meta.insert("enforcement_decision".to_string(), "block".to_string());
+                        meta.insert("agent_id".to_string(), context.agent_id.to_string());
+                        meta
+                    };
+
+                    if let Err(e) = logger.log_interaction(
+                        context.agent_id,
+                        ModelInteractionType::ToolCall,
+                        &tool.name,
+                        request_data,
+                        response_data,
+                        execution_time,
+                        metadata,
+                        None,
+                        Some(reason.clone()),
+                    ).await {
+                        tracing::warn!("Failed to log blocked tool invocation: {}", e);
+                    }
+                }
+
+                Err(ToolInvocationError::InvocationBlocked {
+                    tool_name: tool.name.clone(),
+                    reason,
+                })
+            }
             EnforcementDecision::AllowWithWarnings { warnings } => {
+                let execution_time = start_time.elapsed();
+                
                 // Handle warnings
                 let mut escalated = false;
                 for warning in &warnings {
@@ -334,12 +531,53 @@ impl ToolInvocationEnforcer for DefaultToolInvocationEnforcer {
                     }
                 }
 
+                // Prepare response data with warnings
+                let response_data = ResponseData {
+                    content: "Tool invocation allowed with warnings".to_string(),
+                    tool_result: Some(serde_json::json!({
+                        "status": "success",
+                        "message": "Tool invocation allowed with warnings",
+                        "warnings": &warnings
+                    })),
+                    confidence: Some(0.8), // Lower confidence due to warnings
+                    metadata: HashMap::new(),
+                };
+
+                // Log the tool invocation with warnings if logger is available
+                if let Some(ref logger) = self.model_logger {
+                    let metadata = {
+                        let mut meta = HashMap::new();
+                        meta.insert("tool_provider".to_string(), tool.provider.identifier.clone());
+                        meta.insert("enforcement_decision".to_string(), "allow_with_warnings".to_string());
+                        meta.insert("agent_id".to_string(), context.agent_id.to_string());
+                        meta.insert("warnings_count".to_string(), warnings.len().to_string());
+                        if escalated {
+                            meta.insert("escalated".to_string(), "true".to_string());
+                        }
+                        meta
+                    };
+
+                    if let Err(e) = logger.log_interaction(
+                        context.agent_id,
+                        ModelInteractionType::ToolCall,
+                        &tool.name,
+                        request_data,
+                        response_data,
+                        execution_time,
+                        metadata,
+                        None,
+                        None,
+                    ).await {
+                        tracing::warn!("Failed to log tool invocation with warnings: {}", e);
+                    }
+                }
+
                 // TODO: Integrate with actual tool execution system
                 // For now, return a mock successful result with warnings
                 Ok(InvocationResult {
                     success: true,
                     result: serde_json::json!({"status": "success", "message": "Tool invocation allowed with warnings"}),
-                    execution_time: Duration::from_millis(100),
+                    execution_time,
                     warnings: warnings.clone(),
                     metadata: if escalated {
                         let mut metadata = HashMap::new();
