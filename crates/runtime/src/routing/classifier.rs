@@ -281,7 +281,7 @@ pub struct ClassificationStatistics {
 mod tests {
     use super::*;
     use crate::types::AgentId;
-    use super::super::decision::{RoutingContext, OutputType, SecurityLevel};
+    use super::super::decision::{RoutingContext, OutputType};
 
     fn create_test_config() -> TaskClassificationConfig {
         let mut patterns = HashMap::new();

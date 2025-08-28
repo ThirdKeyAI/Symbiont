@@ -576,7 +576,7 @@ mod tests {
     }
 
     async fn create_test_engine_with_logger() -> DefaultRoutingEngine {
-        let logger = ModelLogger::new(super::super::super::logging::LoggingConfig::default()).await.unwrap();
+        let logger = ModelLogger::new(super::super::super::logging::LoggingConfig::default(), None).unwrap();
         
         let mut global_models = Vec::new();
         global_models.push(Model {
@@ -692,7 +692,7 @@ mod tests {
         
         let context = create_test_context(
             "This should trigger an error in SLM",
-            super::super::error::TaskType::TextGeneration
+            super::super::error::TaskType::CodeGeneration
         );
         
         let request = create_test_request("error trigger");
@@ -713,7 +713,7 @@ mod tests {
         
         let context = create_test_context(
             "Test prompt",
-            super::super::error::TaskType::TextGeneration
+            super::super::error::TaskType::CodeGeneration
         );
         
         let request = create_test_request("Test prompt");
@@ -722,7 +722,7 @@ mod tests {
             &context,
             &request,
             "test-slm",
-            &super::decision::MonitoringLevel::Basic,
+            &crate::routing::MonitoringLevel::Basic,
             true,
         ).await.unwrap();
         
@@ -737,7 +737,7 @@ mod tests {
         
         let context = create_test_context(
             "Test prompt with monitoring",
-            super::super::error::TaskType::TextGeneration
+            super::super::error::TaskType::CodeGeneration
         );
         
         let request = create_test_request("Test prompt with monitoring");
@@ -746,7 +746,7 @@ mod tests {
             &context,
             &request,
             "test-slm",
-            &super::decision::MonitoringLevel::Enhanced { confidence_threshold: 0.9 },
+            &crate::routing::MonitoringLevel::Enhanced { confidence_threshold: 0.9 },
             true,
         ).await.unwrap();
         
@@ -760,7 +760,7 @@ mod tests {
         
         let context = create_test_context(
             "Test prompt no monitoring",
-            super::super::error::TaskType::TextGeneration
+            super::super::error::TaskType::CodeGeneration
         );
         
         let request = create_test_request("Test prompt no monitoring");
@@ -769,7 +769,7 @@ mod tests {
             &context,
             &request,
             "test-slm",
-            &super::decision::MonitoringLevel::None,
+            &crate::routing::MonitoringLevel::None,
             true,
         ).await.unwrap();
         
@@ -784,7 +784,7 @@ mod tests {
         
         let context = create_test_context(
             "error trigger",
-            super::super::error::TaskType::TextGeneration
+            super::super::error::TaskType::CodeGeneration
         );
         
         let request = create_test_request("error trigger");
@@ -793,7 +793,7 @@ mod tests {
             &context,
             &request,
             "test-slm",
-            &super::decision::MonitoringLevel::Basic,
+            &crate::routing::MonitoringLevel::Basic,
             false, // No fallback
         ).await;
         
@@ -807,7 +807,7 @@ mod tests {
         
         let context = create_test_context(
             "Test prompt",
-            super::super::error::TaskType::TextGeneration
+            super::super::error::TaskType::CodeGeneration
         );
         
         let request = create_test_request("Test prompt");
@@ -816,7 +816,7 @@ mod tests {
             &context,
             &request,
             "nonexistent-model",
-            &super::decision::MonitoringLevel::Basic,
+            &crate::routing::MonitoringLevel::Basic,
             true,
         ).await;
         
@@ -924,12 +924,12 @@ mod tests {
         let engine = create_test_engine().await;
         
         // Execute a few requests to track statistics
-        let context1 = create_test_context("Test 1", super::super::error::TaskType::TextGeneration);
+        let context1 = create_test_context("Test 1", super::super::error::TaskType::CodeGeneration);
         let request1 = create_test_request("Test 1");
         
         let _response1 = engine.execute_with_routing(context1, request1).await.unwrap();
         
-        let context2 = create_test_context("error trigger", super::super::error::TaskType::TextGeneration);
+        let context2 = create_test_context("error trigger", super::super::error::TaskType::CodeGeneration);
         let request2 = create_test_request("error trigger");
         
         let _response2 = engine.execute_with_routing(context2, request2).await.unwrap();
@@ -992,7 +992,7 @@ mod tests {
         
         let context = create_test_context(
             "Test logging integration",
-            super::super::error::TaskType::TextGeneration
+            super::super::error::TaskType::CodeGeneration
         );
         
         let request = create_test_request("Test logging integration");
@@ -1029,7 +1029,7 @@ mod tests {
         
         // Test different task types to ensure policy evaluation works
         let task_types = vec![
-            super::super::error::TaskType::TextGeneration,
+            super::super::error::TaskType::CodeGeneration,
             super::super::error::TaskType::CodeGeneration,
             super::super::error::TaskType::Analysis,
             super::super::error::TaskType::Reasoning,
@@ -1061,7 +1061,7 @@ mod tests {
             let handle = tokio::spawn(async move {
                 let context = create_test_context(
                     &format!("Concurrent request {}", i),
-                    super::super::error::TaskType::TextGeneration
+                    super::super::error::TaskType::CodeGeneration
                 );
                 
                 let request = create_test_request(&format!("Concurrent request {}", i));
@@ -1097,7 +1097,7 @@ mod tests {
         ];
         
         for (prompt, description) in error_scenarios {
-            let context = create_test_context(prompt, super::super::error::TaskType::TextGeneration);
+            let context = create_test_context(prompt, super::super::error::TaskType::CodeGeneration);
             let request = create_test_request(prompt);
             
             let result = engine.execute_with_routing(context, request).await;
@@ -1121,7 +1121,7 @@ mod tests {
         
         let context = create_test_context(
             "Test metadata and token usage",
-            super::super::error::TaskType::TextGeneration
+            super::super::error::TaskType::CodeGeneration
         );
         
         let request = create_test_request("Test metadata and token usage");
@@ -1159,7 +1159,7 @@ mod tests {
         for i in 0..5 {
             let context = create_test_context(
                 &format!("Test request {}", i),
-                super::super::error::TaskType::TextGeneration
+                super::super::error::TaskType::CodeGeneration
             );
             let request = create_test_request(&format!("Test request {}", i));
             

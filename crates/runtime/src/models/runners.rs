@@ -473,7 +473,6 @@ impl SlmRunner for LocalGgufRunner {
 mod tests {
     use super::*;
     use crate::config::SandboxProfile;
-    use std::fs::File;
     use std::io::Write;
     use tempfile::NamedTempFile;
 

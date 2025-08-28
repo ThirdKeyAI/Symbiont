@@ -482,6 +482,8 @@ mod tests {
     use super::*;
     use crate::types::AgentId;
     use crate::config::{Slm, Model, ModelProvider, ModelResourceRequirements, ModelAllowListConfig, SandboxProfile, ResourceConstraints};
+    use crate::routing::config::{RoutingRule, RoutingConditions};
+    use crate::routing::decision::MonitoringLevel;
     use std::path::PathBuf;
     use std::collections::HashMap;
 
@@ -666,7 +668,7 @@ mod tests {
             name: "specific_model_rule".to_string(),
             priority: 100,
             conditions: super::super::config::RoutingConditions {
-                task_types: Some(vec![TaskType::TextGeneration]),
+                task_types: Some(vec![TaskType::CodeGeneration]),
                 agent_ids: None,
                 resource_constraints: None,
                 security_level: None,
@@ -685,7 +687,7 @@ mod tests {
         
         let context = RoutingContext::new(
             AgentId::new(),
-            TaskType::TextGeneration,
+            TaskType::CodeGeneration,
             "Generate some text".to_string(),
         );
         
@@ -727,7 +729,7 @@ mod tests {
         let evaluator = PolicyEvaluator::new(config, classifier, model_catalog).unwrap();
         
         // Test with matching agent
-        let code_agent_id = AgentId::from_string("code-agent".to_string());
+        let code_agent_id = AgentId::new();
         let context = RoutingContext::new(
             code_agent_id,
             TaskType::CodeGeneration,
@@ -772,7 +774,7 @@ mod tests {
             name: "resource_constrained_rule".to_string(),
             priority: 100,
             conditions: super::super::config::RoutingConditions {
-                task_types: Some(vec![TaskType::TextGeneration]),
+                task_types: Some(vec![TaskType::CodeGeneration]),
                 agent_ids: None,
                 resource_constraints: Some(ResourceConstraints {
                     max_memory_mb: 1500, // Only test-slm-1 fits
@@ -797,7 +799,7 @@ mod tests {
         
         let context = create_routing_context_with_resource_limits(
             AgentId::new(),
-            TaskType::TextGeneration,
+            TaskType::CodeGeneration,
             "Generate text with constraints".to_string(),
             1500,
         );
@@ -933,7 +935,7 @@ mod tests {
             name: "low_priority".to_string(),
             priority: 50,
             conditions: super::super::config::RoutingConditions {
-                task_types: Some(vec![TaskType::TextGeneration]),
+                task_types: Some(vec![TaskType::CodeGeneration]),
                 agent_ids: None,
                 resource_constraints: None,
                 security_level: None,
@@ -951,7 +953,7 @@ mod tests {
             name: "high_priority".to_string(),
             priority: 100,
             conditions: super::super::config::RoutingConditions {
-                task_types: Some(vec![TaskType::TextGeneration]),
+                task_types: Some(vec![TaskType::CodeGeneration]),
                 agent_ids: None,
                 resource_constraints: None,
                 security_level: None,
@@ -973,7 +975,7 @@ mod tests {
         
         let context = RoutingContext::new(
             AgentId::new(),
-            TaskType::TextGeneration,
+            TaskType::CodeGeneration,
             "Generate text".to_string(),
         );
         
@@ -1098,7 +1100,7 @@ mod tests {
             name: "impossible_rule".to_string(),
             priority: 100,
             conditions: super::super::config::RoutingConditions {
-                task_types: Some(vec![TaskType::TextGeneration]),
+                task_types: Some(vec![TaskType::CodeGeneration]),
                 agent_ids: None,
                 resource_constraints: None,
                 security_level: None,
@@ -1117,7 +1119,7 @@ mod tests {
         
         let context = RoutingContext::new(
             AgentId::new(),
-            TaskType::TextGeneration,
+            TaskType::CodeGeneration,
             "Generate text".to_string(),
         );
         
