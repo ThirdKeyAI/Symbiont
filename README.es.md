@@ -1,118 +1,93 @@
 <img src="logo-hz.png" alt="Symbi">
 
-**Symbi** es un framework de agentes nativo de IA para construir agentes autónomos y conscientes de políticas que pueden colaborar de forma segura con humanos, otros agentes y modelos de lenguaje grandes. La edición Community proporciona funcionalidad central con características Enterprise opcionales para seguridad avanzada, monitoreo y colaboración.
+[English](README.md) | [中文简体](README.zh-cn.md) | **Español** | [Português](README.pt.md) | [日本語](README.ja.md) | [Deutsch](README.de.md)
 
-## 🚀 Inicio Rápido
+[![Build](https://img.shields.io/github/actions/workflow/status/thirdkeyai/symbiont/docker-build.yml?branch=main)](https://github.com/thirdkeyai/symbiont/actions)
+[![Crates.io](https://img.shields.io/crates/v/symbi)](https://crates.io/crates/symbi)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Docs](https://img.shields.io/badge/docs-online-brightgreen)](https://docs.symbiont.dev)
+
+---
+
+## 🚀 ¿Qué es Symbiont?
+
+**Symbi** es un **framework de agentes nativo de Rust con confianza cero** para construir agentes de IA autónomos y conscientes de políticas.
+Soluciona las mayores fallas de los frameworks existentes como LangChain y AutoGPT al enfocarse en:
+
+* **Seguridad primero**: rastros de auditoría criptográficos, políticas aplicadas y sandboxing.
+* **Confianza cero**: todas las entradas se tratan como no confiables por defecto.
+* **Cumplimiento de nivel empresarial**: diseñado para industrias reguladas (HIPAA, SOC2, finanzas).
+
+Los agentes Symbiont colaboran de forma segura con humanos, herramientas y LLMs — sin sacrificar seguridad o rendimiento.
+
+---
+
+## ⚡ ¿Por qué Symbiont?
+
+| Característica | Symbiont                            | LangChain      | AutoGPT   |
+| -------------- | ----------------------------------- | -------------- | --------- |
+| Lenguaje       | Rust (seguridad, rendimiento)      | Python         | Python    |
+| Seguridad      | Confianza cero, auditoría cripto    | Mínima         | Ninguna   |
+| Motor Políticas| DSL integrado                       | Limitado       | Ninguno   |
+| Despliegue     | REPL, Docker, HTTP API             | Scripts Python | Hacks CLI |
+| Rastros Auditoría | Logs criptográficos              | No             | No        |
+
+---
+
+## 🏁 Inicio Rápido
 
 ### Prerrequisitos
-- Docker (recomendado) o Rust 1.88+
-- Base de datos vectorial Qdrant (para búsqueda semántica)
+
+* Docker (recomendado) o Rust 1.88+
+* Base de datos vectorial Qdrant (para búsqueda semántica)
 
 ### Ejecutar con Contenedores Pre-construidos
 
-**Usando GitHub Container Registry (Recomendado):**
-
 ```bash
-# Ejecutar CLI unificado de symbi
+# Parsear archivo DSL de agente
 docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest dsl parse /workspace/agent.dsl
 
 # Ejecutar MCP Server
 docker run --rm -p 8080:8080 ghcr.io/thirdkeyai/symbi:latest mcp
 
-# Desarrollo interactivo
+# Shell de desarrollo interactivo
 docker run --rm -it -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest bash
 ```
 
-### Construir desde el Código Fuente
+### Construir desde Código Fuente
 
 ```bash
 # Construir entorno de desarrollo
 docker build -t symbi:latest .
 docker run --rm -it -v $(pwd):/workspace symbi:latest bash
 
-# Construir el binario unificado de symbi
+# Construir binario unificado
 cargo build --release
 
-# Probar los componentes
-cargo test
+# Ejecutar REPL
+cargo run -- repl
 
-# Ejecutar agentes de ejemplo (desde crates/runtime)
-cd crates/runtime && cargo run --example basic_agent
-cd crates/runtime && cargo run --example full_system
-cd crates/runtime && cargo run --example rag_example
-
-# Usar el CLI unificado de symbi
+# Parsear DSL y ejecutar MCP
 cargo run -- dsl parse my_agent.dsl
 cargo run -- mcp --port 8080
-
-# Habilitar HTTP API (opcional)
-cd crates/runtime && cargo run --features http-api --example full_system
 ```
 
-### API HTTP Opcional
+---
 
-Habilitar API HTTP RESTful para integración externa:
+## 🔧 Características Clave
 
-```bash
-# Construir con característica HTTP API
-cargo build --features http-api
+* ✅ **Gramática DSL** – Define agentes declarativamente con políticas de seguridad integradas.
+* ✅ **Runtime de Agentes** – Programación de tareas, gestión de recursos y control del ciclo de vida.
+* 🔒 **Sandboxing** – Aislamiento Docker Tier-1 para ejecución de agentes.
+* 🔒 **Seguridad SchemaPin** – Verificación criptográfica de herramientas y esquemas.
+* 🔒 **Gestión de Secretos** – Integración HashiCorp Vault / OpenBao, almacenamiento cifrado AES-256-GCM.
+* 📊 **Motor RAG** – Búsqueda vectorial (Qdrant) con recuperación híbrida semántica + palabra clave.
+* 🧩 **Integración MCP** – Soporte nativo para herramientas del Protocolo de Contexto de Modelo.
+* 📡 **API HTTP Opcional** – Interfaz REST controlada por características para integración externa.
 
-# O agregar a Cargo.toml
-[dependencies]
-symbi-runtime = { version = "0.1.2", features = ["http-api"] }
-```
+---
 
-**Endpoints Principales:**
-- `GET /api/v1/health` - Verificación de salud y estado del sistema
-- `GET /api/v1/agents` - Listar todos los agentes activos
-- `POST /api/v1/workflows/execute` - Ejecutar flujos de trabajo
-- `GET /api/v1/metrics` - Métricas del sistema
-
-## 📁 Estructura del Proyecto
-
-```
-symbi/
-├── src/                   # Binario CLI unificado de symbi
-├── crates/                # Crates del workspace
-│   ├── dsl/              # Implementación del DSL de Symbi
-│   │   ├── src/          # Código del analizador y biblioteca
-│   │   ├── tests/        # Suite de pruebas del DSL
-│   │   └── tree-sitter-symbiont/ # Definición de gramática
-│   └── runtime/          # Sistema de Runtime de Agentes (Community)
-│       ├── src/          # Componentes centrales del runtime
-│       ├── examples/     # Ejemplos de uso
-│       └── tests/        # Pruebas de integración
-├── docs/                 # Documentación
-└── Cargo.toml           # Configuración del workspace
-```
-
-## 🔧 Características
-
-### ✅ Características Community (OSS)
-- **Gramática DSL**: Gramática Tree-sitter completa para definiciones de agentes
-- **Runtime de Agentes**: Programación de tareas, gestión de recursos, control del ciclo de vida
-- **Aislamiento Tier 1**: Aislamiento containerizado con Docker para operaciones de agentes
-- **Integración MCP**: Cliente del Protocolo de Contexto de Modelo para herramientas externas
-- **Seguridad SchemaPin**: Verificación criptográfica básica de herramientas
-- **Motor RAG**: Generación aumentada por recuperación con búsqueda vectorial
-- **Gestión de Contexto**: Memoria persistente de agentes y almacenamiento de conocimiento
-- **Base de Datos Vectorial**: Integración con Qdrant para búsqueda semántica
-- **Gestión Integral de Secretos**: Integración con HashiCorp Vault con múltiples métodos de autenticación
-- **Backend de Archivos Encriptados**: Encriptación AES-256-GCM con integración de llavero del OS
-- **Herramientas CLI de Secretos**: Operaciones completas de encriptar/desencriptar/editar con pistas de auditoría
-- **API HTTP**: Interfaz RESTful opcional (controlada por características)
-
-### 🏢 Características Enterprise (Licencia Requerida)
-- **Aislamiento Avanzado**: Aislamiento gVisor y Firecracker **(Enterprise)**
-- **Revisión de Herramientas IA**: Flujo de trabajo de análisis de seguridad automatizado **(Enterprise)**
-- **Auditoría Criptográfica**: Pistas de auditoría completas con firmas Ed25519 **(Enterprise)**
-- **Comunicación Multi-Agente**: Mensajería encriptada entre agentes **(Enterprise)**
-- **Monitoreo en Tiempo Real**: Métricas SLA y dashboards de rendimiento **(Enterprise)**
-- **Servicios Profesionales y Soporte**: Desarrollo personalizado y soporte **(Enterprise)**
-
-## 📐 DSL Symbiont
-
-Define agentes inteligentes con políticas y capacidades integradas:
+## 📐 Ejemplo de DSL Symbiont
 
 ```symbiont
 metadata {
@@ -141,123 +116,56 @@ agent analyze_data(input: DataSet) -> Result {
 }
 ```
 
-## 🔐 Gestión de Secretos
-
-Symbi proporciona gestión de secretos de nivel empresarial con múltiples opciones de backend:
-
-### Opciones de Backend
-- **HashiCorp Vault**: Gestión de secretos lista para producción con múltiples métodos de autenticación
-  - Autenticación basada en tokens
-  - Autenticación de cuenta de servicio de Kubernetes
-- **Archivos Encriptados**: Almacenamiento local encriptado AES-256-GCM con integración de llavero del OS
-- **Espacios de Nombres de Agentes**: Acceso a secretos con alcance por agente para aislamiento
-
-### Operaciones CLI
-```bash
-# Encriptar archivo de secretos
-symbi secrets encrypt config.json --output config.enc
-
-# Desencriptar archivo de secretos
-symbi secrets decrypt config.enc --output config.json
-
-# Editar secretos encriptados directamente
-symbi secrets edit config.enc
-
-# Configurar backend de Vault
-symbi secrets configure vault --endpoint https://vault.company.com
-```
-
-### Auditoría y Cumplimiento
-- Pistas de auditoría completas para todas las operaciones de secretos
-- Verificación de integridad criptográfica
-- Controles de acceso con alcance por agente
-- Registro a prueba de manipulación
+---
 
 ## 🔒 Modelo de Seguridad
 
-### Seguridad Básica (Community)
-- **Aislamiento Tier 1**: Ejecución de agentes containerizada con Docker
-- **Verificación de Esquemas**: Validación criptográfica de herramientas con SchemaPin
-- **Motor de Políticas**: Control básico de acceso a recursos
-- **Gestión de Secretos**: Integración con Vault y almacenamiento de archivos encriptados
-- **Registro de Auditoría**: Seguimiento de operaciones y cumplimiento
-
-### Seguridad Avanzada (Enterprise)
-- **Aislamiento Mejorado**: Aislamiento gVisor (Tier2) y Firecracker (Tier3) **(Enterprise)**
-- **Revisión de Seguridad IA**: Análisis automatizado de herramientas y aprobación **(Enterprise)**
-- **Comunicación Encriptada**: Mensajería segura entre agentes **(Enterprise)**
-- **Auditorías Integrales**: Garantías de integridad criptográfica **(Enterprise)**
-
-## 🧪 Pruebas
-
-```bash
-# Ejecutar todas las pruebas
-cargo test
-
-# Ejecutar componentes específicos
-cd crates/dsl && cargo test          # Analizador DSL
-cd crates/runtime && cargo test     # Sistema de runtime
-
-# Pruebas de integración
-cd crates/runtime && cargo test --test integration_tests
-cd crates/runtime && cargo test --test rag_integration_tests
-cd crates/runtime && cargo test --test mcp_client_tests
-```
-
-## 📚 Documentación
-
-- **[Primeros Pasos](https://docs.symbiont.dev/getting-started)** - Instalación y primeros pasos
-- **[Guía del DSL](https://docs.symbiont.dev/dsl-guide)** - Referencia completa del lenguaje
-- **[Arquitectura del Runtime](https://docs.symbiont.dev/runtime-architecture)** - Diseño del sistema
-- **[Modelo de Seguridad](https://docs.symbiont.dev/security-model)** - Implementación de seguridad
-- **[Referencia de la API](https://docs.symbiont.dev/api-reference)** - Documentación completa de la API
-- **[Contribuir](https://docs.symbiont.dev/contributing)** - Guías de desarrollo
-
-### Referencias Técnicas
-- [`crates/runtime/README.md`](crates/runtime/README.md) - Documentación específica del runtime
-- [`crates/runtime/API_REFERENCE.md`](crates/runtime/API_REFERENCE.md) - Referencia completa de la API
-- [`crates/dsl/README.md`](crates/dsl/README.md) - Detalles de implementación del DSL
-
-## 🤝 Contribuir
-
-¡Las contribuciones son bienvenidas! Por favor consulta [`docs/contributing.md`](docs/contributing.md) para las guías.
-
-**Principios de Desarrollo:**
-- Seguridad primero - todas las características deben pasar revisión de seguridad
-- Confianza cero - asumir que todas las entradas son potencialmente maliciosas
-- Pruebas integrales - mantener alta cobertura de pruebas
-- Documentación clara - documentar todas las características y APIs
-
-## 🎯 Casos de Uso
-
-### Desarrollo y Automatización
-- Generación segura de código y refactorización
-- Pruebas automatizadas con cumplimiento de políticas
-- Despliegue de agentes IA con verificación de herramientas
-- Gestión de conocimiento con búsqueda semántica
-
-### Empresas e Industrias Reguladas
-- Procesamiento de datos de salud con cumplimiento HIPAA **(Enterprise)**
-- Servicios financieros con requisitos de auditoría **(Enterprise)**
-- Sistemas gubernamentales con autorizaciones de seguridad **(Enterprise)**
-- Análisis de documentos legales con confidencialidad **(Enterprise)**
-
-## 📄 Licencia
-
-**Edición Community**: Licencia MIT  
-**Edición Enterprise**: Licencia comercial requerida
-
-Contacta a [ThirdKey](https://thirdkey.ai) para licenciamiento Enterprise.
-
-## 🔗 Enlaces
-
-- [Sitio Web de ThirdKey](https://thirdkey.ai)
-- [Referencia de la API del Runtime](crates/runtime/API_REFERENCE.md)
+* **Confianza Cero** – todas las entradas de agentes son no confiables por defecto.
+* **Ejecución Sandboxed** – contención basada en Docker para procesos.
+* **Registro de Auditoría** – logs criptográficamente a prueba de manipulación.
+* **Control de Secretos** – backends Vault/OpenBao, almacenamiento local cifrado, namespaces de agentes.
 
 ---
 
-*Symbi permite la colaboración segura entre agentes IA y humanos a través de la aplicación inteligente de políticas, verificación criptográfica y pistas de auditoría integrales.*
+## 📚 Documentación
+
+* [Primeros Pasos](https://docs.symbiont.dev/getting-started)
+* [Guía del DSL](https://docs.symbiont.dev/dsl-guide)
+* [Arquitectura del Runtime](https://docs.symbiont.dev/runtime-architecture)
+* [Modelo de Seguridad](https://docs.symbiont.dev/security-model)
+* [Referencia de la API](https://docs.symbiont.dev/api-reference)
+
+---
+
+## 🎯 Casos de Uso
+
+* **Desarrollo y Automatización**
+
+  * Generación y refactorización segura de código.
+  * Despliegue de agentes IA con políticas aplicadas.
+  * Gestión de conocimiento con búsqueda semántica.
+
+* **Empresas e Industrias Reguladas**
+
+  * Salud (procesamiento conforme con HIPAA).
+  * Finanzas (flujos de trabajo listos para auditoría).
+  * Gobierno (manejo de contexto clasificado).
+  * Legal (análisis confidencial de documentos).
+
+---
+
+## 📄 Licencia
+
+* **Edición Community**: Licencia MIT
+* **Edición Enterprise**: Licencia comercial requerida
+
+Contacta a [ThirdKey](https://thirdkey.ai) para licenciamiento empresarial.
+
+---
+
+*Symbiont permite colaboración segura entre agentes IA y humanos a través de aplicación inteligente de políticas, verificación criptográfica y rastros de auditoría integrales.*
+
 
 <div align="right">
-  <img src="symbi-trans.png" alt="Logo Transparente de Symbi" width="120">
+  <img src="symbi-trans.png" alt="Logo Symbi" width="120">
 </div>

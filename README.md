@@ -2,132 +2,92 @@
 
 [中文简体](README.zh-cn.md) | [Español](README.es.md) | [Português](README.pt.md) | [日本語](README.ja.md) | [Deutsch](README.de.md)
 
-**Symbi** is an AI-native agent framework for building autonomous, policy-aware agents that can safely collaborate with humans, other agents, and large language models. 
+[![Build](https://img.shields.io/github/actions/workflow/status/thirdkeyai/symbiont/docker-build.yml?branch=main)](https://github.com/thirdkeyai/symbiont/actions)
+[![Crates.io](https://img.shields.io/crates/v/symbi)](https://crates.io/crates/symbi)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Docs](https://img.shields.io/badge/docs-online-brightgreen)](https://docs.symbiont.dev)
 
-## 🚀 Quick Start
+---
+
+## 🚀 What is Symbiont?
+
+**Symbi** is a **Rust-native, zero-trust agent framework** for building autonomous, policy-aware AI agents.
+It fixes the biggest flaws in existing frameworks like LangChain and AutoGPT by focusing on:
+
+* **Security-first**: cryptographic audit trails, enforced policies, and sandboxing.
+* **Zero trust**: all inputs are treated as untrusted by default.
+* **Enterprise-grade compliance**: designed for regulated industries (HIPAA, SOC2, finance).
+
+Symbiont agents collaborate safely with humans, tools, and LLMs — without sacrificing security or performance.
+
+---
+
+## ⚡ Why Symbiont?
+
+| Feature       | Symbiont                        | LangChain      | AutoGPT   |
+| ------------- | ------------------------------- | -------------- | --------- |
+| Language      | Rust (safety, performance)      | Python         | Python    |
+| Security      | Zero-trust, cryptographic audit | Minimal        | None      |
+| Policy Engine | Built-in DSL                    | Limited        | None      |
+| Deployment    | REPL, Docker, HTTP API          | Python scripts | CLI hacks |
+| Audit Trails  | Cryptographic logs              | No             | No        |
+
+---
+
+## 🏁 Quick Start
 
 ### Prerequisites
-- Docker (recommended) or Rust 1.88+
-- Qdrant vector database (for semantic search)
 
-### Running with Pre-built Containers
+* Docker (recommended) or Rust 1.88+
+* Qdrant vector database (for semantic search)
 
-**Using GitHub Container Registry (Recommended):**
+### Run with Pre-Built Containers
 
 ```bash
-# Run unified symbi CLI
+# Parse an agent DSL file
 docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest dsl parse /workspace/agent.dsl
 
 # Run MCP Server
 docker run --rm -p 8080:8080 ghcr.io/thirdkeyai/symbi:latest mcp
 
-# Interactive development
+# Interactive development shell
 docker run --rm -it -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest bash
 ```
 
-### Building from Source
+### Build from Source
 
 ```bash
-# Build development environment
+# Build dev environment
 docker build -t symbi:latest .
 docker run --rm -it -v $(pwd):/workspace symbi:latest bash
 
-# Build the unified symbi binary
+# Build unified binary
 cargo build --release
 
-# Test the components
-cargo test
-
-# Run the interactive REPL
+# Run REPL
 cargo run -- repl
 
-# Use the unified symbi CLI
+# Parse DSL & run MCP
 cargo run -- dsl parse my_agent.dsl
 cargo run -- mcp --port 8080
-
-# Run example agents (from crates/runtime)
-cd crates/runtime && cargo run --example basic_agent
-cd crates/runtime && cargo run --example full_system
-cd crates/runtime && cargo run --example rag_example
-
-# Enable HTTP API (optional)
-cd crates/runtime && cargo run --features http-api --example full_system
 ```
 
-### Optional HTTP API
+---
 
-Enable RESTful HTTP API for external integration:
+## 🔧 Key Features
 
-```bash
-# Build with HTTP API feature
-cargo build --features http-api
+* ✅ **DSL Grammar** – Define agents declaratively with built-in security policies.
+* ✅ **Agent Runtime** – Task scheduling, resource management, and lifecycle control.
+* 🔒 **Sandboxing** – Tier-1 Docker isolation for agent execution.
+* 🔒 **SchemaPin Security** – Cryptographic verification of tools and schemas.
+* 🔒 **Secrets Management** – HashiCorp Vault / OpenBao integration, AES-256-GCM encrypted storage.
+* 📊 **RAG Engine** – Vector search (Qdrant) with hybrid semantic + keyword retrieval.
+* 🧩 **MCP Integration** – Native support for Model Context Protocol tools.
+* 📡 **Optional HTTP API** – Feature-gated REST interface for external integration.
 
-# Or add to Cargo.toml
-[dependencies]
-symbi-runtime = { version = "0.1.2", features = ["http-api"] }
-```
+---
 
-**Key Endpoints:**
-- `GET /api/v1/health` - Health check and system status
-- `GET /api/v1/agents` - List all active agents (requires authentication)
-- `GET /api/v1/agents/{id}/status` - Get specific agent status (requires authentication)
-- `POST /api/v1/agents` - Create a new agent (requires authentication)
-- `PUT /api/v1/agents/{id}` - Update an agent (requires authentication)
-- `DELETE /api/v1/agents/{id}` - Delete an agent (requires authentication)
-- `POST /api/v1/agents/{id}/execute` - Execute an agent (requires authentication)
-- `GET /api/v1/agents/{id}/history` - Get agent execution history (requires authentication)
-- `POST /api/v1/workflows/execute` - Execute workflows
-- `GET /api/v1/metrics` - System metrics
-
-> **Note:** All `/api/v1/agents*` endpoints require Bearer token authentication. Set the `API_AUTH_TOKEN` environment variable and use the header:
-> `Authorization: Bearer <your-token>`
-
-## 📁 Project Structure
-
-```
-symbi/
-├── src/                   # Unified symbi CLI binary
-├── crates/                # Workspace crates
-│   ├── dsl/              # Symbi DSL implementation
-│   │   ├── src/          # Parser and library code
-│   │   ├── tests/        # DSL test suite
-│   │   └── tree-sitter-symbiont/ # Grammar definition
-│   ├── runtime/          # Agent Runtime System (Community)
-│   │   ├── src/          # Core runtime components
-│   │   ├── examples/     # Usage examples
-│   │   └── tests/        # Integration tests
-│   ├── repl-core/        # REPL engine and DSL evaluator
-│   ├── repl-cli/         # Interactive REPL and JSON-RPC server
-│   ├── repl-proto/       # REPL protocol definitions
-│   └── repl-lsp/         # Language Server Protocol (LSP)
-├── docs/                 # Documentation
-└── Cargo.toml           # Workspace configuration
-```
-
-## 🔧 Features
-
-### ✅ Community Features (OSS)
-- **DSL Grammar**: Complete Tree-sitter grammar for agent definitions
-- **Agent Runtime**: Task scheduling, resource management, lifecycle control
-- **Task Execution**: Process spawning with comprehensive monitoring and metrics
-- **Graceful Shutdown**: Coordinated shutdown with resource cleanup and timeout handling
-- **Tier 1 Sandboxing**: Docker containerized isolation for agent operations
-- **MCP Integration**: Model Context Protocol client for external tools
-- **SchemaPin Security**: Basic cryptographic tool verification
-- **RAG Engine**: Retrieval-augmented generation with vector search
-- **Advanced Context Management**: Sophisticated memory with importance calculation and search modes
-- **Multi-Modal Search**: Keyword, temporal, similarity, and hybrid search capabilities
-- **Access Control Integration**: Policy engine connected context management with agent-scoped access
-- **Context Archiving**: Automatic archiving with retention policies and compressed storage
-- **Vector Database**: Qdrant integration for semantic search
-- **Comprehensive Secrets Management**: HashiCorp Vault/OpenBao integration with multiple auth methods
-- **Encrypted File Backend**: AES-256-GCM encryption with OS keychain integration
-- **Secrets CLI Tools**: Complete encrypt/decrypt/edit operations with audit trails
-- **HTTP API**: Optional RESTful interface (feature-gated)
-
-## 📐 Symbiont DSL
-
-Define intelligent agents with built-in policies and capabilities:
+## 📐 Symbiont DSL Example
 
 ```symbiont
 metadata {
@@ -156,116 +116,55 @@ agent analyze_data(input: DataSet) -> Result {
 }
 ```
 
-## 🔐 Secrets Management
-
-Symbi provides enterprise-grade secrets management with multiple backend options:
-
-### Backend Options
-- **HashiCorp Vault/OpenBao**: Production-ready secrets management with multiple authentication methods
-  - Token-based authentication
-  - Kubernetes service account authentication
-- **Encrypted Files**: Local AES-256-GCM encrypted storage with OS keychain integration
-- **Agent Namespaces**: Scoped secrets access per agent for isolation
-
-### CLI Operations
-```bash
-# Encrypt secrets file
-symbi secrets encrypt config.json --output config.enc
-
-# Decrypt secrets file
-symbi secrets decrypt config.enc --output config.json
-
-# Edit encrypted secrets directly
-symbi secrets edit config.enc
-
-# Configure Vault backend
-symbi secrets configure vault --endpoint https://vault.company.com
-```
-
-### Audit & Compliance
-- Complete audit trails for all secrets operations
-- Cryptographic integrity verification
-- Agent-scoped access controls
-- Tamper-evident logging
+---
 
 ## 🔒 Security Model
 
-### Basic Security (Community)
-- **Tier 1 Isolation**: Docker containerized agent execution
-- **Schema Verification**: Cryptographic tool validation with SchemaPin
-- **Policy Engine**: Basic resource access control
-- **Secrets Management**: Vault integration and encrypted file storage
-- **Audit Logging**: Operation tracking and compliance
-
-## 🧪 Testing
-
-```bash
-# Run all tests
-cargo test
-
-# Run specific components
-cd crates/dsl && cargo test          # DSL parser
-cd crates/runtime && cargo test     # Runtime system
-
-# Integration tests
-cd crates/runtime && cargo test --test integration_tests
-cd crates/runtime && cargo test --test rag_integration_tests
-cd crates/runtime && cargo test --test mcp_client_tests
-```
-
-## 📚 Documentation
-
-- **[Getting Started](https://docs.symbiont.dev/getting-started)** - Installation and first steps
-- **[DSL Guide](https://docs.symbiont.dev/dsl-guide)** - Complete language reference
-- **[Runtime Architecture](https://docs.symbiont.dev/runtime-architecture)** - System design
-- **[Security Model](https://docs.symbiont.dev/security-model)** - Security implementation
-- **[API Reference](https://docs.symbiont.dev/api-reference)** - Complete API documentation
-- **[Contributing](https://docs.symbiont.dev/contributing)** - Development guidelines
-
-### Technical References
-- [`crates/runtime/README.md`](crates/runtime/README.md) - Runtime-specific docs
-- [`crates/runtime/API_REFERENCE.md`](crates/runtime/API_REFERENCE.md) - Complete API reference
-- [`crates/dsl/README.md`](crates/dsl/README.md) - DSL implementation details
-
-## 🤝 Contributing
-
-Contributions welcome! Please see [`docs/contributing.md`](docs/contributing.md) for guidelines.
-
-**Development Principles:**
-- Security first - all features must pass security review
-- Zero trust - assume all inputs are potentially malicious
-- Comprehensive testing - maintain high test coverage
-- Clear documentation - document all features and APIs
-
-## 🎯 Use Cases
-
-### Development & Automation
-- Secure code generation and refactoring
-- Automated testing with policy compliance
-- AI agent deployment with tool verification
-- Knowledge management with semantic search
-
-### Enterprise & Regulated Industries
-- Healthcare data processing with HIPAA compliance **(Enterprise)**
-- Financial services with audit requirements **(Enterprise)**
-- Government systems with security clearances **(Enterprise)**
-- Legal document analysis with confidentiality **(Enterprise)**
-
-## 📄 License
-
-**Community Edition**: MIT License  
-**Enterprise Edition**: Commercial license required
-
-Contact [ThirdKey](https://thirdkey.ai) for Enterprise licensing.
-
-## 🔗 Links
-
-- [ThirdKey Website](https://thirdkey.ai)
-- [Runtime API Reference](crates/runtime/API_REFERENCE.md)
+* **Zero Trust** – all agent inputs are untrusted by default.
+* **Sandboxed Execution** – Docker-based containment for processes.
+* **Audit Logging** – Cryptographically tamper-evident logs.
+* **Secrets Control** – Vault/OpenBao backends, encrypted local storage, agent namespaces.
 
 ---
 
-*Symbi enables secure collaboration between AI agents and humans through intelligent policy enforcement, cryptographic verification, and comprehensive audit trails.*
+## 📚 Documentation
+
+* [Getting Started](https://docs.symbiont.dev/getting-started)
+* [DSL Guide](https://docs.symbiont.dev/dsl-guide)
+* [Runtime Architecture](https://docs.symbiont.dev/runtime-architecture)
+* [Security Model](https://docs.symbiont.dev/security-model)
+* [API Reference](https://docs.symbiont.dev/api-reference)
+
+---
+
+## 🎯 Use Cases
+
+* **Development & Automation**
+
+  * Secure code generation & refactoring.
+  * AI agent deployment with enforced policies.
+  * Knowledge management with semantic search.
+
+* **Enterprise & Regulated Industries**
+
+  * Healthcare (HIPAA-compliant processing).
+  * Finance (audit-ready workflows).
+  * Government (classified context handling).
+  * Legal (confidential document analysis).
+
+---
+
+## 📄 License
+
+* **Community Edition**: MIT License
+* **Enterprise Edition**: Commercial license required
+
+Contact [ThirdKey](https://thirdkey.ai) for enterprise licensing.
+
+---
+
+*Symbiont enables secure collaboration between AI agents and humans through intelligent policy enforcement, cryptographic verification, and comprehensive audit trails.*
+
 
 <div align="right">
   <img src="symbi-trans.png" alt="Symbi Logo" width="120">
