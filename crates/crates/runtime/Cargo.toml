@@ -1,6 +1,6 @@
 [package]
 name = "symbi-runtime"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 authors = ["Jascha Wanger / ThirdKey.ai"]
 description = "Agent Runtime System for the Symbi platform"
