@@ -1,0 +1,108 @@
+[package]
+name = "symbi-runtime"
+version = "0.4.0"
+edition = "2021"
+authors = ["Jascha Wanger / ThirdKey.ai"]
+description = "Agent Runtime System for the Symbi platform"
+license = "MIT"
+repository = "https://github.com/thirdkeyai/symbiont"
+keywords = ["agent", "runtime", "ai", "symbiont", "automation"]
+categories = ["development-tools", "api-bindings"]
+
+
+[[example]]
+name = "basic_agent"
+path = "examples/basic_agent.rs"
+
+[[example]]
+name = "full_system"
+path = "examples/full_system.rs"
+
+[[bin]]
+name = "symbi-mcp"
+path = "src/bin/symbiont_mcp.rs"
+[dependencies]
+symbi-dsl = { path = "../dsl" }
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+thiserror = "1.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+async-trait = "0.1"
+dashmap = "5.0"
+parking_lot = "0.12"
+crossbeam = "0.8"
+ed25519-dalek = { version = "2.1", features = ["serde"] }
+aes-gcm = "0.10"
+rand = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "5.0"
+futures = "0.3"
+bytes = { version = "1.0", features = ["serde"] }
+tempfile = "3.0"
+qdrant-client = "1.14.0"
+flate2 = "1.0"
+candle-core = { version = "0.9.1", optional = true }
+candle-nn = { version = "0.9.1", optional = true }
+candle-transformers = { version = "0.9.1", optional = true }
+tokenizers = { version = "0.15", optional = true }
+hf-hub = { version = "0.3", optional = true }
+regex = "1.0"
+humantime-serde = "1.1"
+clap = { version = "4.0", features = ["derive"] }
+reqwest = { version = "0.12", features = ["json"] }
+git2 = "0.18"
+octocrab = "0.34"
+toml = "0.8"
+url = "2.4"
+base64 = "0.21"
+base64ct = "=1.6.0"  # Force exact compatible version that doesn't require edition2024
+schemapin = "1.1.4"
+sha2 = "0.10"
+hex = "0.4"
+argon2 = "0.5"
+subtle = "2.5"
+vaultrs = "0.7"
+sysinfo = "0.30"
+# OS keychain access dependencies
+keyring = { version = "2.0", optional = true }
+security-framework = { version = "2.9", optional = true }
+secret-service = { version = "3.0", optional = true }
+winapi = { version = "0.3", features = ["wincred"], optional = true }
+
+# HTTP API dependencies (optional)
+axum = { version = "0.7", optional = true }
+tower = { version = "0.4", optional = true }
+tower-http = { version = "0.5", features = ["cors", "trace"], optional = true }
+tokio-tungstenite = { version = "0.21", optional = true }
+governor = { version = "0.10", optional = true }
+utoipa = { version = "4.2", features = ["axum_extras", "chrono"], optional = true }
+utoipa-swagger-ui = { version = "6.0", features = ["axum"], optional = true }
+
+# Enterprise features removed for OSS build
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3.0"
+criterion = "0.5"
+
+[features]
+default = ["vector-db", "keychain"]
+vector-db = []
+embedding-models = ["candle-core", "candle-nn", "candle-transformers", "tokenizers", "hf-hub"]
+http-api = ["axum", "tower", "tower-http", "tokio-tungstenite", "governor", "utoipa", "utoipa-swagger-ui"]
+http-input = ["axum", "tower", "tower-http"]
+keychain = ["keyring", "security-framework", "secret-service", "winapi"]
+enterprise = []  # Enterprise feature for conditional compilation
+full = ["vector-db", "embedding-models", "http-api", "http-input", "keychain"]
+minimal = ["vector-db"]  # Minimal build for faster CI
+
+
+
+[lib]
+name = "symbi_runtime"
+path = "src/lib.rs"

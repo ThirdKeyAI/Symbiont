@@ -1,0 +1,18 @@
+[package]
+name = "repl-cli"
+version = "0.4.0"
+edition = "2021"
+authors = ["Jascha Wanger / ThirdKey.ai"]
+description = "Command-line REPL interface for the Symbi platform"
+license = "MIT"
+repository = "https://github.com/thirdkeyai/symbiont"
+keywords = ["repl", "cli", "interactive", "symbiont"]
+categories = ["command-line-utilities", "development-tools"]
+
+[dependencies]
+anyhow = "1.0"
+rustyline = "10.0"
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+repl-core = { path = "../repl-core" }
+repl-proto = { path = "../repl-proto" }
