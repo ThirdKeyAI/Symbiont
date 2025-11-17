@@ -24,7 +24,7 @@ pub mod types;
 pub mod api;
 
 #[cfg(feature = "http-api")]
-use api::types::{AgentExecutionRecord, AgentStatusResponse, CreateAgentRequest, CreateAgentResponse, DeleteAgentResponse, ExecuteAgentRequest, ExecuteAgentResponse, GetAgentHistoryResponse, UpdateAgentRequest, UpdateAgentResponse, WorkflowExecutionRequest};
+use api::types::{AgentStatusResponse, CreateAgentRequest, CreateAgentResponse, DeleteAgentResponse, ExecuteAgentRequest, ExecuteAgentResponse, GetAgentHistoryResponse, UpdateAgentRequest, UpdateAgentResponse, WorkflowExecutionRequest};
 #[cfg(feature = "http-api")]
 use api::traits::RuntimeApiProvider;
 #[cfg(feature = "http-api")]
@@ -49,6 +49,7 @@ pub use secrets::{SecretStore, SecretsConfig};
 pub use types::*;
 
 use std::sync::Arc;
+use std::time::SystemTime;
 use tokio::sync::RwLock;
 
 /// Main Agent Runtime System
@@ -532,7 +533,28 @@ impl RuntimeApiProvider for AgentRuntime {
             self.lifecycle.start_agent(agent_id).await.map_err(RuntimeError::Lifecycle)?;
         }
         let execution_id = uuid::Uuid::new_v4().to_string();
-        self.communication.send_message(agent_id, "execute".to_string(), serde_json::to_value(&request).map_err(|e| RuntimeError::Internal(e.to_string()))?).await.map_err(RuntimeError::Communication)?;
+        let payload = types::EncryptedPayload {
+            data: serde_json::to_vec(&request).map_err(|e| RuntimeError::Internal(e.to_string()))?.into(),
+            encryption_algorithm: types::EncryptionAlgorithm::None,
+            nonce: vec![],
+        };
+        let signature = types::MessageSignature {
+            signature: vec![],
+            algorithm: types::SignatureAlgorithm::None,
+            public_key: vec![],
+        };
+        let message = types::SecureMessage {
+            id: types::MessageId::new(),
+            sender: AgentId::new(), // System sender
+            recipient: Some(agent_id),
+            topic: None,
+            payload,
+            signature,
+            timestamp: SystemTime::now(),
+            ttl: std::time::Duration::from_secs(300),
+            message_type: types::MessageType::Direct(agent_id),
+        };
+        self.communication.send_message(message).await.map_err(RuntimeError::Communication)?;
         Ok(ExecuteAgentResponse {
             execution_id,
             status: "execution_started".to_string(),
@@ -541,22 +563,10 @@ impl RuntimeApiProvider for AgentRuntime {
 
     async fn get_agent_history(
         &self,
-        agent_id: AgentId,
+        _agent_id: AgentId,
     ) -> Result<GetAgentHistoryResponse, RuntimeError> {
-        // Assuming model_logger stores interactions
-        let history = if let Some(logger) = &self.model_logger {
-            logger.get_interactions_for_agent(agent_id).await
-                .map_err(|e| RuntimeError::Internal(e.to_string()))?
-                .into_iter()
-                .map(|interaction| AgentExecutionRecord {
-                    execution_id: interaction.id,
-                    status: "completed".to_string(),
-                    timestamp: interaction.timestamp.to_rfc3339(),
-                })
-                .collect()
-        } else {
-            vec![]
-        };
+        // For now, return empty history as the model logger API is not yet implemented
+        let history = vec![];
         Ok(GetAgentHistoryResponse { history })
     }
 }

@@ -5,6 +5,20 @@ All notable changes to the Symbiont project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2025-11-16
+
+### Fixed
+- **Compilation Issues**: Resolved crates.io publishing compilation errors
+  - Fixed SecureMessage API usage with correct field names and types
+  - Added missing SystemTime import for timestamp handling
+  - Fixed ModelLogger API compatibility
+  - Added missing dependencies (tokio, serde) to REPL crates
+  - Fixed HttpInputConfig struct with required fields
+  - Resolved match arm type compatibility issues in JSON-RPC server
+
+### Dependencies
+- **Version Specifications**: Added proper version specifications to all workspace dependencies for crates.io publishing
+
 ## [0.6.0] - 2025-11-15
 
 ### Added

@@ -1,6 +1,6 @@
 [package]
 name = "symbi-runtime"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 authors = ["Jascha Wanger / ThirdKey.ai"]
 description = "Agent Runtime System for the Symbi platform"
@@ -22,7 +22,7 @@ path = "examples/full_system.rs"
 name = "symbi-mcp"
 path = "src/bin/symbiont_mcp.rs"
 [dependencies]
-symbi-dsl = { path = "../dsl" }
+symbi-dsl = { version = "0.6.1", path = "../dsl" }
 tokio = { version = "1.0", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

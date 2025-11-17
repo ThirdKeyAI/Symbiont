@@ -4117,19 +4117,21 @@ checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
 
 [[package]]
 name = "repl-cli"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "anyhow",
  "chrono",
  "repl-core",
  "repl-proto",
  "rustyline",
+ "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
 name = "repl-core"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4147,7 +4149,7 @@ dependencies = [
 
 [[package]]
 name = "repl-lsp"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "repl-core",
  "serde_json",
@@ -4157,7 +4159,7 @@ dependencies = [
 
 [[package]]
 name = "repl-proto"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -4955,7 +4957,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "symbi"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "clap",
  "symbi-runtime",
@@ -4965,7 +4967,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-dsl"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "anyhow",
  "cc",
@@ -4991,7 +4993,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-runtime"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "aes-gcm",
  "anyhow",

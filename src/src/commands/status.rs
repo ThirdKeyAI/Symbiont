@@ -72,7 +72,7 @@ fn list_agents() -> Vec<String> {
 
 fn get_resource_usage() -> Option<(f32, f32)> {
     let mut sys = System::new_all();
-    std::thread::sleep(System::MINIMUM_CPU_UPDATE_INTERVAL);
+    std::thread::sleep(std::time::Duration::from_millis(200));
     sys.refresh_cpu();
     let cpu = sys.global_cpu_info().cpu_usage();
     let mem = sys.used_memory() as f32 / 1024.0 / 1024.0;

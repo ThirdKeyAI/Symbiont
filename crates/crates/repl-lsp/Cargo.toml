@@ -1,6 +1,6 @@
 [package]
 name = "repl-lsp"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 authors = ["Jascha Wanger / ThirdKey.ai"]
 description = "Language Server Protocol implementation for the Symbi platform"
@@ -18,4 +18,4 @@ path = "src/main.rs"
 tokio = { version = "1", features = ["full"] }
 tower-lsp = "0.20"
 serde_json = "1.0"
-repl-core = { path = "../repl-core" }
+repl-core = { version = "0.6.1", path = "../repl-core" }

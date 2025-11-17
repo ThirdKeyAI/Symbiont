@@ -33,8 +33,23 @@ pub fn run() -> Result<()> {
         };
         let response_json = match request.method.as_str() {
             "evaluate" => {
-                let params = match serde_json::from_value::<EvaluateParams>(request.params) {
-                    Ok(p) => p,
+                match serde_json::from_value::<EvaluateParams>(request.params) {
+                    Ok(params) => {
+                        match rt.block_on(engine.evaluate(&params.code)) {
+                            Ok(output) => {
+                                let result = EvaluateResult { output };
+                                serde_json::to_string(&Response { id: request.id, result: serde_json::to_value(result)? })?
+                            }
+                            Err(e) => {
+                                let error = ErrorObject {
+                                    code: -32000,
+                                    message: e.to_string(),
+                                    data: None,
+                                };
+                                serde_json::to_string(&ErrorResponse { id: request.id, error })?
+                            }
+                        }
+                    }
                     Err(e) => {
                         let error = ErrorObject {
                             code: -32602,
@@ -43,24 +58,26 @@ pub fn run() -> Result<()> {
                         };
                         serde_json::to_string(&ErrorResponse { id: request.id, error })?
                     }
-                };
-                let output = match rt.block_on(engine.evaluate(&params.code)) {
-                    Ok(o) => o,
-                    Err(e) => {
-                        let error = ErrorObject {
-                            code: -32000,
-                            message: e.to_string(),
-                            data: None,
-                        };
-                        serde_json::to_string(&ErrorResponse { id: request.id, error })?
-                    }
-                };
-                let result = EvaluateResult { output };
-                serde_json::to_string(&Response { id: request.id, result: serde_json::to_value(result)? })?
+                }
             }
             "execute" => {
-                let params = match serde_json::from_value::<ExecuteParams>(request.params) {
-                    Ok(p) => p,
+                match serde_json::from_value::<ExecuteParams>(request.params) {
+                    Ok(params) => {
+                        match rt.block_on(engine.evaluate(&params.command)) {
+                            Ok(output) => {
+                                let result = EvaluateResult { output };
+                                serde_json::to_string(&Response { id: request.id, result: serde_json::to_value(result)? })?
+                            }
+                            Err(e) => {
+                                let error = ErrorObject {
+                                    code: -32000,
+                                    message: e.to_string(),
+                                    data: None,
+                                };
+                                serde_json::to_string(&ErrorResponse { id: request.id, error })?
+                            }
+                        }
+                    }
                     Err(e) => {
                         let error = ErrorObject {
                             code: -32602,
@@ -69,20 +86,7 @@ pub fn run() -> Result<()> {
                         };
                         serde_json::to_string(&ErrorResponse { id: request.id, error })?
                     }
-                };
-                let output = match rt.block_on(engine.evaluate(&params.command)) {
-                    Ok(o) => o,
-                    Err(e) => {
-                        let error = ErrorObject {
-                            code: -32000,
-                            message: e.to_string(),
-                            data: None,
-                        };
-                        serde_json::to_string(&ErrorResponse { id: request.id, error })?
-                    }
-                };
-                let result = EvaluateResult { output };
-                serde_json::to_string(&Response { id: request.id, result: serde_json::to_value(result)? })?
+                }
             }
             _ => {
                 let error = ErrorObject {

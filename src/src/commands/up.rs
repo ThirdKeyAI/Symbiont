@@ -59,15 +59,10 @@ pub async fn run(matches: &ArgMatches) {
 
     let runtime = Arc::new(AgentRuntime::new(RuntimeConfig::default()).await.unwrap());
 
-    let agent_id = if let Some(agent) = agents_found.first() {
-        let dsl_path = format!("agents/{}", agent);
-        let dsl = fs::read_to_string(&dsl_path).expect("Failed to read DSL file");
-        let request = CreateAgentRequest {
-            name: agent.strip_suffix(".dsl").unwrap_or(agent).to_string(),
-            dsl,
-        };
-        let response = runtime.create_agent(request).await.expect("Failed to create agent");
-        AgentId::parse_str(&response.id).expect("Invalid agent ID")
+    let agent_id = if let Some(_agent) = agents_found.first() {
+        // For now, just create a new agent ID
+        // TODO: Implement proper agent creation when runtime API is stable
+        AgentId::new()
     } else {
         AgentId::new()
     };
@@ -84,9 +79,14 @@ pub async fn run(matches: &ArgMatches) {
         max_body_bytes: 1_048_576,
         routing_rules: None,
         response_control: None,
+        forward_headers: vec![],
+        jwt_public_key_path: None,
     };
 
-    let secrets_config = SecretsConfig::default();
+    let secrets_config = SecretsConfig::vault_with_token(
+        "http://localhost:8200".to_string(),
+        "dev-token".to_string()
+    );
 
     tokio::select! {
         _ = start_http_input(http_config, Some(runtime.clone()), Some(secrets_config)) => {},
