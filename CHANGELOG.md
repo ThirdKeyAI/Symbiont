@@ -8,16 +8,126 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.6.0] - 2025-11-15
 
 ### Added
-- **Release Management**: Version bump to 0.6.0 across all workspace crates
+
+#### 🧠 Complete REPL System (New)
+- **Interactive Development Environment**: Full REPL (Read-Eval-Print Loop) system for Symbiont DSL
+  - [`crates/repl-core`](crates/repl-core): Core REPL engine with DSL evaluation, session management, and policy enforcement
+  - [`crates/repl-cli`](crates/repl-cli): Interactive CLI interface and JSON-RPC server for programmatic access
+  - [`crates/repl-proto`](crates/repl-proto): JSON-RPC protocol definitions for client-server communication
+  - [`crates/repl-lsp`](crates/repl-lsp): Language Server Protocol implementation for IDE integration
+- **Agent Lifecycle Management**: Create, start, stop, pause, resume, and destroy agents through REPL
+- **Real-time Monitoring**: Execution monitoring with statistics, traces, and performance metrics
+- **Session Management**: Snapshot and restore REPL sessions with persistent state
+- **Policy Integration**: Built-in policy checking and capability gating for security
+
+#### 🏢 Enterprise Features (New)
+- **Suspended Agent Tracking**: Enterprise scheduler with advanced agent state management
+  - [`enterprise/src/scheduler.rs`](enterprise/src/scheduler.rs): Enhanced scheduler with suspension tracking
+  - Configurable suspension criteria and automatic resume capabilities
+  - Integration with base runtime scheduler maintaining full compatibility
+- **Retention Policy Scheduler**: Automated data lifecycle management
+  - [`enterprise/docs/RETENTION_POLICY_SCHEDULER.md`](enterprise/docs/RETENTION_POLICY_SCHEDULER.md): Comprehensive retention policy system
+  - Automatic cleanup of expired context items and memories
+  - Configurable retention policies with compliance support
+  - Background task execution with monitoring and metrics
+
+#### 🛡️ AI-Driven Tool Review System (New)
+- **Automated Security Analysis**: Complete workflow for MCP tool review and signing
+  - [`enterprise/src/tool_review/`](enterprise/src/tool_review/): Tool review orchestrator and components
+  - AI-powered security analysis with RAG (Retrieval-Augmented Generation)
+  - Human oversight integration with streamlined review interface
+  - Digital signing and verification of approved tools
+- **Security Assessment**: Risk-based analysis with configurable severity levels
+  - Vulnerability detection and impact assessment
+  - Automated recommendations with confidence scoring
+  - Audit trail and compliance reporting
+
+#### ☁️ E2B Sandbox Integration (New)
+- **Cloud Sandbox Support**: E2B.dev integration for secure code execution
+  - [`crates/runtime/src/sandbox/e2b.rs`](crates/runtime/src/sandbox/e2b.rs): E2B sandbox implementation
+  - Multi-tier sandbox architecture (Docker, gVisor, Firecracker, E2B)
+  - Automatic tier selection based on risk assessment
+  - Remote execution capabilities with enhanced isolation
+
+#### 📊 Enhanced Scheduler Features
+- **Real Task Execution**: Production-grade task processing capabilities
+  - Process spawning with secure execution environments
+  - Resource monitoring (CPU, memory) with 5-second intervals
+  - Health checks and automatic failure detection
+  - Support for ephemeral, persistent, scheduled, and event-driven execution modes
+- **Graceful Shutdown**: Enhanced termination handling
+  - 30-second graceful termination period with force termination fallback
+  - Resource cleanup and metrics persistence
+  - Queue cleanup and state synchronization
+
+#### 📋 Documentation & Architecture
+- **Data Directory Design**: Comprehensive directory structure specification
+  - [`data_directory_structure_design.md`](data_directory_structure_design.md): Enhanced data persistence architecture
+  - Unified management of agent contexts, logs, prompts, and vector database storage
+  - Migration utilities and backward compatibility support
+- **Tool Review Documentation**: Complete workflow documentation
+  - [`docs/tool_review_workflow.md`](docs/tool_review_workflow.md): AI-driven tool review process
+  - Security analysis procedures and human oversight protocols
+- **REPL Guide**: Comprehensive user and developer documentation
+  - [`docs/repl-guide.md`](docs/repl-guide.md): Complete REPL usage guide
+  - Interactive examples and integration patterns
+
+#### 🔧 Release Management
+- **Version Bump**: Updated to 0.6.0 across all workspace crates
 - **Documentation Updates**: Updated version references in documentation and examples
 
 ### Improved
-- **Consistency**: Unified version numbering across all workspace members
-- **Dependencies**: Updated inter-workspace dependency references
+
+#### Developer Experience
+- **Unified Workspace**: Enhanced project organization with REPL crates
+  - Consistent versioning across all workspace members
+  - Improved dependency management between crates
+- **IDE Integration**: Language Server Protocol support for enhanced development
+  - Syntax highlighting and completion for Symbiont DSL
+  - Real-time error checking and validation
+  - Integrated debugging capabilities
+
+#### Enterprise Scheduler
+- **Advanced State Management**: Enhanced agent lifecycle tracking
+  - Suspension and resume capabilities with configurable criteria
+  - Resource optimization during agent suspension periods
+  - Seamless integration with existing scheduler infrastructure
+- **Compliance & Monitoring**: Enterprise-grade operational capabilities
+  - Comprehensive audit trails and compliance reporting
+  - Advanced metrics collection and performance monitoring
+  - Retention policy enforcement with automated cleanup
+
+#### Security & Compliance
+- **Enhanced Tool Security**: AI-driven security analysis and verification
+  - Automated vulnerability detection with high confidence scoring
+  - Human-in-the-loop verification for critical security decisions
+  - Digital signing and integrity verification for tool distribution
+- **Multi-tier Sandboxing**: Advanced isolation capabilities
+  - Automatic risk assessment and tier selection
+  - Enhanced security boundaries with cloud sandbox options
+  - Improved resource management and monitoring
 
 ### Fixed
+- **Scheduler Integration**: Resolved enterprise scheduler compatibility issues
+- **REPL Session Management**: Fixed session persistence and restoration
+- **Tool Review Workflow**: Enhanced error handling and timeout management
+- **E2B Integration**: Improved authentication and endpoint configuration
 - **Version References**: Updated all version references from 0.5.0 to 0.6.0 in documentation
-- **Enterprise Version**: Updated enterprise edition from 0.1.0 to 0.6.0 for consistency
+
+### Breaking Changes
+- **Workspace Structure**: New REPL crates require updated import statements
+- **Enterprise Scheduler**: Enhanced scheduler interface with additional methods
+- **Sandbox Architecture**: Updated sandbox tier enumeration with E2B support
+
+### Dependencies
+- **Added**: REPL system dependencies for interactive development
+- **Updated**: Enterprise features with enhanced scheduling capabilities
+- **Enhanced**: Tool review system with AI-powered analysis
+
+### Performance Improvements
+- **REPL Performance**: Optimized DSL evaluation and session management
+- **Scheduler Throughput**: Enhanced task processing with real execution support
+- **Tool Review Efficiency**: Streamlined security analysis workflow
 
 ## [0.5.0] - 2025-10-14
 
