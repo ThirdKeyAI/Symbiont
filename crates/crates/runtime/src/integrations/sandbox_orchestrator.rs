@@ -9,6 +9,12 @@ use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
 use crate::types::*;
+use crate::sandbox::{SandboxTier, SandboxRunner, ExecutionResult};
+use std::sync::Arc;
+
+// Import audit trail types - conditional compilation for runtime vs enterprise
+#[cfg(feature = "enterprise")]
+use crate::integrations::audit_trail::{AuditTrail, AuditEvent, AuditEventType, AuditSeverity, AuditCategory, AuditDetails, AuditContext, AuditOutcome};
 
 /// Sandbox orchestrator trait for managing agent sandboxes
 #[async_trait]
@@ -88,6 +94,21 @@ pub trait SandboxOrchestrator: Send + Sync {
 
     /// Delete a snapshot
     async fn delete_snapshot(&self, snapshot_id: SnapshotId) -> Result<(), SandboxError>;
+
+    /// Execute code using a specific sandbox tier
+    async fn execute_code(
+        &self,
+        tier: SandboxTier,
+        code: &str,
+        env: HashMap<String, String>,
+    ) -> Result<ExecutionResult, SandboxError>;
+
+    /// Register a sandbox runner for a specific tier
+    async fn register_sandbox_runner(
+        &self,
+        tier: SandboxTier,
+        runner: Arc<dyn SandboxRunner>,
+    ) -> Result<(), SandboxError>;
 }
 
 /// Sandbox creation request
@@ -439,6 +460,7 @@ pub type SnapshotId = uuid::Uuid;
 pub struct MockSandboxOrchestrator {
     sandboxes: std::sync::RwLock<HashMap<SandboxId, SandboxInfo>>,
     snapshots: std::sync::RwLock<HashMap<SnapshotId, SandboxSnapshot>>,
+    sandbox_runners: std::sync::RwLock<HashMap<SandboxTier, Arc<dyn SandboxRunner>>>,
 }
 
 /// Snapshot information
@@ -498,6 +520,7 @@ impl MockSandboxOrchestrator {
         Self {
             sandboxes: std::sync::RwLock::new(HashMap::new()),
             snapshots: std::sync::RwLock::new(HashMap::new()),
+            sandbox_runners: std::sync::RwLock::new(HashMap::new()),
         }
     }
 
@@ -815,6 +838,37 @@ impl SandboxOrchestrator for MockSandboxOrchestrator {
                 id: snapshot_id.to_string(),
             })
         }
+    }
+
+    async fn execute_code(
+        &self,
+        tier: SandboxTier,
+        code: &str,
+        env: HashMap<String, String>,
+    ) -> Result<ExecutionResult, SandboxError> {
+        let runner = {
+            let runners = self.sandbox_runners.read().unwrap();
+            runners.get(&tier).cloned()
+        };
+        
+        if let Some(runner) = runner {
+            runner
+                .execute(code, env)
+                .await
+                .map_err(|e| SandboxError::ExecutionFailed(format!("Code execution failed: {}", e)))
+        } else {
+            Err(SandboxError::UnsupportedTier(format!("{:?}", tier)))
+        }
+    }
+
+    async fn register_sandbox_runner(
+        &self,
+        tier: SandboxTier,
+        runner: Arc<dyn SandboxRunner>,
+    ) -> Result<(), SandboxError> {
+        let mut runners = self.sandbox_runners.write().unwrap();
+        runners.insert(tier, runner);
+        Ok(())
     }
 }
 

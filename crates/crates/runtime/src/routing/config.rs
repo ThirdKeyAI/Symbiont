@@ -57,6 +57,9 @@ pub struct RoutingRule {
     pub conditions: RoutingConditions,
     /// Action to take if conditions match
     pub action: RouteAction,
+    /// Action extensions for additional configuration
+    #[serde(default)]
+    pub action_extension: Option<ActionExtension>,
     /// Whether this rule can be overridden
     pub override_allowed: bool,
 }
@@ -108,6 +111,21 @@ pub enum ModelPreference {
     Specific { model_id: String },
     /// Use best available model for requirements
     BestAvailable,
+}
+
+/// Action extensions for additional routing configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActionExtension {
+    /// Preferred sandbox tier for execution
+    pub sandbox: Option<String>,
+}
+
+impl Default for ActionExtension {
+    fn default() -> Self {
+        Self {
+            sandbox: None,
+        }
+    }
 }
 
 /// Fallback configuration for LLM providers
@@ -326,11 +344,76 @@ impl RoutingRule {
             }
         }
         
-        // TODO: Implement custom condition evaluation
-        // if let Some(ref custom_conditions) = self.conditions.custom_conditions {
-        //     // Evaluate custom expressions
-        // }
+        // Implement custom condition evaluation
+        if let Some(ref custom_conditions) = self.conditions.custom_conditions {
+            for condition_expr in custom_conditions {
+                if !self.evaluate_custom_condition(condition_expr, context) {
+                    return false;
+                }
+            }
+        }
         
+        true
+    }
+
+    /// Evaluate a custom condition expression
+    fn evaluate_custom_condition(&self, condition_expr: &str, context: &super::decision::RoutingContext) -> bool {
+        // Simple expression evaluator for basic conditions
+        // In a real implementation, this could use a proper expression parser
+        
+        // Handle common condition patterns
+        if condition_expr.contains("agent_id") {
+            if let Some(expected_id) = condition_expr.strip_prefix("agent_id == ") {
+                let expected_id = expected_id.trim_matches('"');
+                return context.agent_id.to_string() == expected_id;
+            }
+        }
+        
+        if condition_expr.contains("task_type") {
+            if let Some(expected_type) = condition_expr.strip_prefix("task_type == ") {
+                let expected_type = expected_type.trim_matches('"');
+                return format!("{:?}", context.task_type).to_lowercase().contains(&expected_type.to_lowercase());
+            }
+        }
+        
+        if condition_expr.contains("security_level") {
+            if condition_expr.contains(">=") {
+                if let Some(level_str) = condition_expr.strip_prefix("security_level >= ") {
+                    if let Ok(required_level) = level_str.trim().parse::<u8>() {
+                        let current_level = match context.agent_security_level {
+                            SecurityLevel::Low => 1,
+                            SecurityLevel::Medium => 2,
+                            SecurityLevel::High => 3,
+                            SecurityLevel::Critical => 4,
+                        };
+                        return current_level >= required_level;
+                    }
+                }
+            }
+        }
+        
+        if condition_expr.contains("memory_limit") {
+            if let Some(ref resource_limits) = context.resource_limits {
+                if condition_expr.contains("<=") {
+                    if let Some(limit_str) = condition_expr.strip_prefix("memory_limit <= ") {
+                        if let Ok(max_memory) = limit_str.trim().parse::<u64>() {
+                            return resource_limits.max_memory_mb <= max_memory;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Handle boolean expressions
+        if condition_expr == "true" {
+            return true;
+        }
+        if condition_expr == "false" {
+            return false;
+        }
+        
+        // Default: log unrecognized condition and return true to be permissive
+        tracing::warn!("Unrecognized custom condition: {}", condition_expr);
         true
     }
 }

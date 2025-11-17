@@ -396,25 +396,44 @@ Return ONLY the JSON object, no additional text or formatting."#;
         })
     }
 
-    pub async fn generate_code_changes(&self, _interpretation: &Interpretation, _context: &str) -> Result<String> {
-        // Placeholder for future implementation
-        Ok("Code changes would be generated here".to_string())
+    pub async fn generate_code_changes(&self, interpretation: &Interpretation, context: &str) -> Result<String> {
+        let prompt = format!(
+            "Based on this interpretation: {:?} and context: {}, generate the necessary code changes as a unified diff.",
+            interpretation, context
+        );
+        self.generate_response(&prompt).await
     }
 
-    pub async fn validate_proposed_changes(&self, _changes: &str, _context: &str) -> Result<String> {
-        // Placeholder for future implementation
-        Ok("Validation results would be here".to_string())
+    pub async fn validate_proposed_changes(&self, changes: &str, context: &str) -> Result<String> {
+        let prompt = format!(
+            "Validate these proposed changes: {} in the context of: {}. Provide validation results and any issues found.",
+            changes, context
+        );
+        self.generate_response(&prompt).await
     }
 
-    pub async fn explain_changes(&self, _changes: &str, _rationale: &str) -> Result<String> {
-        // Placeholder for future implementation
-        Ok("Change explanation would be here".to_string())
+    pub async fn explain_changes(&self, changes: &str, rationale: &str) -> Result<String> {
+        let prompt = format!(
+            "Explain these changes: {} with the following rationale: {}. Provide a clear explanation.",
+            changes, rationale
+        );
+        self.generate_response(&prompt).await
     }
 
-    pub async fn assess_risk(&self, _changes: &str, _context: &str) -> Result<String> {
-        // Placeholder for future implementation
-        Ok("Risk assessment would be here".to_string())
+    pub async fn assess_risk(&self, changes: &str, context: &str) -> Result<String> {
+        let prompt = format!(
+            "Assess the risks of these changes: {} in context: {}. Provide a risk assessment report.",
+            changes, context
+        );
+        self.generate_response(&prompt).await
     }
+    pub async fn generate_and_apply_changes(&self, user_prompt: &str, git_repo: GitRepository) -> Result<Vec<crate::modifier::ModificationResult>> {
+        let repo_context = "// Example repo context - in real impl, get from git_repo"; // Placeholder for actual context gathering
+        let plan = self.generate_execution_plan(user_prompt, &repo_context).await?;
+        let modifier = crate::modifier::FileModifier::new(true, true, git_repo).with_openrouter(self.clone());
+        modifier.apply_changes(&plan).await
+    }
+
     pub async fn analyze_architecture(&self, repository_content: &str) -> Result<String> {
         self.analyze_code(
             repository_content,

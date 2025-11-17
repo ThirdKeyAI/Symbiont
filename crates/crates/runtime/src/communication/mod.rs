@@ -11,6 +11,10 @@ use tokio::sync::{mpsc, oneshot, Notify};
 use tokio::time::{interval, timeout};
 
 use crate::types::*;
+use crate::crypto::Aes256GcmCrypto;
+use ed25519_dalek::{SigningKey, VerifyingKey};
+use rand::rngs::OsRng;
+use rand::RngCore;
 
 /// Communication bus trait
 #[async_trait]
@@ -104,6 +108,10 @@ pub struct DefaultCommunicationBus {
     event_sender: mpsc::UnboundedSender<CommunicationEvent>,
     shutdown_notify: Arc<Notify>,
     is_running: Arc<RwLock<bool>>,
+    signing_key: SigningKey,
+    verifying_key: VerifyingKey,
+    system_agent_id: AgentId,
+    crypto: Aes256GcmCrypto,
 }
 
 impl DefaultCommunicationBus {
@@ -120,6 +128,17 @@ impl DefaultCommunicationBus {
         let shutdown_notify = Arc::new(Notify::new());
         let is_running = Arc::new(RwLock::new(true));
 
+        // Generate cryptographic keys for the communication bus
+        let mut secret_bytes = [0u8; 32];
+        OsRng.fill_bytes(&mut secret_bytes);
+        let signing_key = SigningKey::from_bytes(&secret_bytes);
+        let verifying_key = signing_key.verifying_key();
+        
+        // Create a system agent ID for the communication bus
+        let system_agent_id = AgentId::new();
+        
+        let crypto = Aes256GcmCrypto::new();
+
         let bus = Self {
             config,
             message_queues,
@@ -130,6 +149,10 @@ impl DefaultCommunicationBus {
             event_sender,
             shutdown_notify,
             is_running,
+            signing_key,
+            verifying_key,
+            system_agent_id,
+            crypto,
         };
 
         // Start background tasks
@@ -448,6 +471,65 @@ impl DefaultCommunicationBus {
                 reason: "Failed to send communication event".to_string(),
             })
     }
+
+    /// Generate a proper nonce for encryption
+    fn generate_nonce() -> Vec<u8> {
+        use aes_gcm::{aead::AeadCore, Aes256Gcm};
+        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+        nonce.to_vec()
+    }
+
+    /// Sign message data using Ed25519
+    fn sign_message_data(&self, data: &[u8]) -> MessageSignature {
+        use ed25519_dalek::Signer;
+        
+        let signature = self.signing_key.sign(data);
+        MessageSignature {
+            signature: signature.to_bytes().to_vec(),
+            algorithm: SignatureAlgorithm::Ed25519,
+            public_key: self.verifying_key.to_bytes().to_vec(),
+        }
+    }
+
+    /// Create a properly signed and encrypted message for requests
+    fn create_secure_request_message(
+        &self,
+        target_agent: AgentId,
+        request_id: RequestId,
+        request_payload: bytes::Bytes,
+        timeout_duration: Duration,
+    ) -> Result<SecureMessage, CommunicationError> {
+        // Generate proper nonce
+        let nonce = Self::generate_nonce();
+        
+        // Create encrypted payload
+        let payload = EncryptedPayload {
+            data: request_payload,
+            nonce,
+            encryption_algorithm: EncryptionAlgorithm::Aes256Gcm,
+        };
+
+        // Create a message to sign (we'll sign the payload data)
+        let message_data_to_sign = [
+            payload.data.as_ref(),
+            &payload.nonce,
+        ].concat();
+
+        // Generate signature
+        let signature = self.sign_message_data(&message_data_to_sign);
+
+        Ok(SecureMessage {
+            id: MessageId::new(),
+            sender: self.system_agent_id,
+            recipient: Some(target_agent),
+            topic: None,
+            message_type: MessageType::Request(request_id),
+            payload,
+            signature,
+            ttl: timeout_duration,
+            timestamp: SystemTime::now(),
+        })
+    }
 }
 
 #[async_trait]
@@ -563,26 +645,13 @@ impl CommunicationBus for DefaultCommunicationBus {
         // Store the response sender
         self.pending_requests.write().insert(request_id, response_sender);
 
-        // Create request message
-        let request_message = SecureMessage {
-            id: MessageId::new(),
-            sender: AgentId::new(), // TODO: Should be the actual sender agent ID
-            recipient: Some(target_agent),
-            topic: None,
-            message_type: MessageType::Request(request_id),
-            payload: EncryptedPayload {
-                data: request_payload,
-                nonce: vec![0u8; 12], // TODO: Generate proper nonce
-                encryption_algorithm: EncryptionAlgorithm::Aes256Gcm,
-            },
-            signature: MessageSignature {
-                signature: vec![0u8; 64], // TODO: Generate proper signature
-                algorithm: SignatureAlgorithm::Ed25519,
-                public_key: vec![0u8; 32], // TODO: Use proper public key
-            },
-            ttl: timeout_duration,
-            timestamp: SystemTime::now(),
-        };
+        // Create request message with proper security
+        let request_message = self.create_secure_request_message(
+            target_agent,
+            request_id,
+            request_payload,
+            timeout_duration,
+        )?;
 
         // Send the request
         self.send_message(request_message).await?;

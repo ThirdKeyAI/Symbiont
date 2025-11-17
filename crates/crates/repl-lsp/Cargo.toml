@@ -1,6 +1,6 @@
 [package]
 name = "repl-lsp"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 authors = ["Jascha Wanger / ThirdKey.ai"]
 description = "Language Server Protocol implementation for the Symbi platform"

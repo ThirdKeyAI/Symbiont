@@ -5,6 +5,7 @@ use std::time::Duration;
 use std::collections::{HashMap, VecDeque};
 use crate::types::AgentId;
 use crate::config::ResourceConstraints;
+use crate::sandbox::SandboxTier;
 use super::error::TaskType;
 
 /// Routing decision outcome
@@ -15,11 +16,13 @@ pub enum RouteDecision {
         model_id: String,
         monitoring: MonitoringLevel,
         fallback_on_failure: bool,
+        sandbox_tier: Option<SandboxTier>,
     },
     /// Route to LLM provider
     UseLLM {
         provider: LLMProvider,
         reason: String,
+        sandbox_tier: Option<SandboxTier>,
     },
     /// Deny the request
     Deny {

@@ -31,7 +31,7 @@ fn tail_last_n_lines(path: &Path, n: usize) {
     match File::open(path) {
         Ok(file) => {
             let reader = BufReader::new(file);
-            let all_lines: Vec<String> = reader.lines().filter_map(Result::ok).collect();
+            let all_lines: Vec<String> = reader.lines().map_while(Result::ok).collect();
 
             let start = if all_lines.len() > n {
                 all_lines.len() - n
@@ -71,7 +71,7 @@ async fn tail_follow(path: &Path) {
                     let mut file = file;
                     let _ = file.seek(std::io::SeekFrom::Start(last_size));
                     let reader = BufReader::new(file);
-                    for line in reader.lines().filter_map(Result::ok) {
+                    for line in reader.lines().map_while(Result::ok) {
                         println!("{}", colorize_log_line(&line));
                     }
                 }

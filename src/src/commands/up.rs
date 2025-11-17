@@ -1,6 +1,12 @@
 use clap::ArgMatches;
 use std::fs;
 use std::path::Path;
+use symbi_runtime::AgentRuntime;
+use symbi_runtime::http_input::{start_http_input, HttpInputConfig};
+use symbi_runtime::RuntimeConfig;
+use symbi_runtime::SecretsConfig;
+use symbi_runtime::types::AgentId;
+use std::sync::Arc;
 
 pub async fn run(matches: &ArgMatches) {
     let port = matches.get_one::<String>("port").unwrap();
@@ -51,8 +57,43 @@ pub async fn run(matches: &ArgMatches) {
     println!("  • View logs: symbi logs -f");
     println!("\nPress Ctrl+C to stop the runtime");
 
-    // Keep the runtime alive (placeholder - actual runtime would go here)
-    tokio::signal::ctrl_c().await.unwrap();
+    let runtime = Arc::new(AgentRuntime::new(RuntimeConfig::default()).await.unwrap());
+
+    let agent_id = if let Some(agent) = agents_found.first() {
+        let dsl_path = format!("agents/{}", agent);
+        let dsl = fs::read_to_string(&dsl_path).expect("Failed to read DSL file");
+        let request = CreateAgentRequest {
+            name: agent.strip_suffix(".dsl").unwrap_or(agent).to_string(),
+            dsl,
+        };
+        let response = runtime.create_agent(request).await.expect("Failed to create agent");
+        AgentId::parse_str(&response.id).expect("Invalid agent ID")
+    } else {
+        AgentId::new()
+    };
+
+    let http_config = HttpInputConfig {
+        bind_address: "0.0.0.0".to_string(),
+        port: http_port.parse::<u16>().unwrap(),
+        path: "/webhook".to_string(),
+        agent: agent_id,
+        auth_header: http_token.cloned(),
+        cors_enabled: http_cors,
+        audit_enabled: http_audit,
+        concurrency: 10,
+        max_body_bytes: 1_048_576,
+        routing_rules: None,
+        response_control: None,
+    };
+
+    let secrets_config = SecretsConfig::default();
+
+    tokio::select! {
+        _ = start_http_input(http_config, Some(runtime.clone()), Some(secrets_config)) => {},
+        _ = tokio::signal::ctrl_c() => {}
+    }
+
+    runtime.shutdown().await.unwrap();
     println!("\n✓ Runtime stopped");
 }
 

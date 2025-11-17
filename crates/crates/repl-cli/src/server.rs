@@ -1,57 +1,88 @@
 use anyhow::Result;
-use repl_core::{evaluate, parse_policy};
-use repl_proto::{ErrorObject, EvaluateParams, Request, Response};
+use repl_core::{ReplEngine, RuntimeBridge};
+use repl_proto::{ErrorObject, ErrorResponse, EvaluateParams, Request, Response, EvaluateResult};
 use std::io::{self, BufRead};
+use std::sync::Arc;
+use tokio::runtime::Runtime;
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct ExecuteParams {
+    command: String,
+}
 
 pub fn run() -> Result<()> {
+    let rt = Runtime::new()?;
+    let runtime_bridge = Arc::new(RuntimeBridge::new());
+    let engine = ReplEngine::new(runtime_bridge);
     let stdin = io::stdin();
     for line in stdin.lock().lines() {
         let line = line?;
-        let request: Request = serde_json::from_str(&line)?;
-
-        let response = match request.method.as_str() {
+        let request: Request = match serde_json::from_str(&line) {
+            Ok(r) => r,
+            Err(e) => {
+                let error = ErrorObject {
+                    code: -32700,
+                    message: "Parse error".to_string(),
+                    data: Some(serde_json::Value::String(e.to_string())),
+                };
+                let err_resp = ErrorResponse { id: 0, error };
+                println!("{}", serde_json::to_string(&err_resp)?);
+                continue;
+            }
+        };
+        let response_json = match request.method.as_str() {
             "evaluate" => {
-                let params: EvaluateParams = serde_json::from_value(request.params)?;
-                let result = evaluate(&params.code);
-                match result {
-                    Ok(output) => Response {
-                        id: request.id,
-                        result: serde_json::to_value(output)?,
-                    },
+                let params = match serde_json::from_value::<EvaluateParams>(request.params) {
+                    Ok(p) => p,
                     Err(e) => {
-                        // This is a placeholder for a proper error response
+                        let error = ErrorObject {
+                            code: -32602,
+                            message: "Invalid params".to_string(),
+                            data: Some(serde_json::Value::String(e.to_string())),
+                        };
+                        serde_json::to_string(&ErrorResponse { id: request.id, error })?
+                    }
+                };
+                let output = match rt.block_on(engine.evaluate(&params.code)) {
+                    Ok(o) => o,
+                    Err(e) => {
                         let error = ErrorObject {
                             code: -32000,
                             message: e.to_string(),
                             data: None,
                         };
-                        // This part is not fully implemented yet, just logging
-                        eprintln!("Error: {:?}", error);
-                        continue;
+                        serde_json::to_string(&ErrorResponse { id: request.id, error })?
                     }
-                }
+                };
+                let result = EvaluateResult { output };
+                serde_json::to_string(&Response { id: request.id, result: serde_json::to_value(result)? })?
             }
-            "validate_policy" => {
-                // Similar to evaluate, but for policy
-                // Placeholder implementation
-                let params: serde_json::Value = serde_json::from_value(request.params)?;
-                let policy_str = params.get("policy").and_then(|v| v.as_str()).unwrap_or_default();
-                let result = parse_policy(policy_str);
-                 match result {
-                    Ok(_) => Response {
-                        id: request.id,
-                        result: serde_json::to_value("Policy is valid")?,
-                    },
+            "execute" => {
+                let params = match serde_json::from_value::<ExecuteParams>(request.params) {
+                    Ok(p) => p,
                     Err(e) => {
                         let error = ErrorObject {
-                            code: -32001,
+                            code: -32602,
+                            message: "Invalid params".to_string(),
+                            data: Some(serde_json::Value::String(e.to_string())),
+                        };
+                        serde_json::to_string(&ErrorResponse { id: request.id, error })?
+                    }
+                };
+                let output = match rt.block_on(engine.evaluate(&params.command)) {
+                    Ok(o) => o,
+                    Err(e) => {
+                        let error = ErrorObject {
+                            code: -32000,
                             message: e.to_string(),
                             data: None,
                         };
-                        eprintln!("Error: {:?}", error);
-                        continue;
+                        serde_json::to_string(&ErrorResponse { id: request.id, error })?
                     }
-                }
+                };
+                let result = EvaluateResult { output };
+                serde_json::to_string(&Response { id: request.id, result: serde_json::to_value(result)? })?
             }
             _ => {
                 let error = ErrorObject {
@@ -59,12 +90,9 @@ pub fn run() -> Result<()> {
                     message: "Method not found".to_string(),
                     data: None,
                 };
-                eprintln!("Error: {:?}", error);
-                continue;
+                serde_json::to_string(&ErrorResponse { id: request.id, error })?
             }
         };
-
-        let response_json = serde_json::to_string(&response)?;
         println!("{}", response_json);
     }
     Ok(())

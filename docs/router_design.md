@@ -607,12 +607,14 @@ impl ConfidenceMonitor {
         response: &ModelResponse,
         context: &RoutingContext,
     ) -> Result<f64, RoutingError> {
-        // Implement confidence calculation based on:
-        // - Response length vs expected
-        // - Token probabilities (if available)
-        // - Response coherence
-        // - Task-specific validation
-        todo!()
+        // Simple confidence calculation based on response length
+        let base_score = if response.text.len() > 100 { 0.8 } else { 0.4 };
+        // Adjust based on task type
+        let adjustment = match context.task_type {
+            TaskType::Reasoning | TaskType::Analysis => 0.1,
+            _ => 0.0,
+        };
+        Ok(base_score + adjustment)
     }
 }
 

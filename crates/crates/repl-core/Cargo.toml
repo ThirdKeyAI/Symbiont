@@ -1,6 +1,6 @@
 [package]
 name = "repl-core"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 authors = ["Jascha Wanger / ThirdKey.ai"]
 description = "Core REPL engine for the Symbi platform"

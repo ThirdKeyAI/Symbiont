@@ -51,7 +51,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-symbi-runtime = "0.1.0"
+symbi-runtime = "0.6.0"
 tokio = { version = "1.0", features = ["full"] }
 ```
 
@@ -472,7 +472,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-symbi-runtime = { version = "0.1.0", features = ["http-api"] }
+symbi-runtime = { version = "0.6.0", features = ["http-api"] }
 ```
 
 Or build with feature flag:

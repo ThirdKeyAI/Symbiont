@@ -166,7 +166,7 @@ format = "pretty"
     // Create README
     fs::write(
         base.join("README.md"),
-        &format!(r#"# {}
+        format!(r#"# {}
 
 Minimal webhook handler with bearer token authentication and JSON echo.
 
@@ -273,7 +273,7 @@ fn create_webscraper_agent_template(project_name: &str) {
 
     fs::write(
         base.join("README.md"),
-        &format!(r#"# {}
+        format!(r#"# {}
 
 Web scraper agent with URL validation and content extraction.
 
@@ -362,7 +362,7 @@ tasks = ["complex_reasoning", "refactoring"]
 
     fs::write(
         base.join("README.md"),
-        &format!(r#"# {}
+        format!(r#"# {}
 
 SLM-first coding assistant with intelligent routing and LLM fallback.
 
@@ -445,12 +445,76 @@ fn create_rag_lite_template(project_name: &str) {
 
 echo "Ingesting documents..."
 
+# Check if Qdrant is running
+if ! curl -s http://localhost:6333/health >/dev/null 2>&1; then
+    echo "❌ Qdrant is not running. Please start it first:"
+    echo "   docker run -p 6333:6333 qdrant/qdrant"
+    exit 1
+fi
+
+echo "✅ Qdrant is running"
+
+# Create collection if it doesn't exist
+curl -X PUT 'http://localhost:6333/collections/docs' \
+    -H 'Content-Type: application/json' \
+    -d '{
+        "vectors": {
+            "size": 384,
+            "distance": "Cosine"
+        }
+    }' 2>/dev/null
+
+echo "📚 Processing documents..."
+
+# Ingest each markdown file
 for file in docs/*.md; do
-    echo "Processing $file..."
-    # TODO: Implement ingestion logic
+    if [ -f "$file" ]; then
+        echo "Processing $file..."
+        
+        # Extract filename without path and extension
+        filename=$(basename "$file" .md)
+        
+        # Read file content and prepare for embedding
+        content=$(cat "$file")
+        
+        # Simple chunking: split on double newlines
+        echo "$content" | awk 'BEGIN{RS="\n\n"; chunk=1} {
+            if(length($0) > 10) {
+                gsub(/\"/,"\\\""); # Escape quotes
+                gsub(/\n/," ");    # Replace newlines with spaces
+                
+                # Create vector point for Qdrant
+                printf "{\"id\": %d, \"vector\": ", chunk
+                
+                # Generate simple hash-based vector (384 dimensions)
+                for(i=1; i<=384; i++) {
+                    printf "%.6f", (sin(i + length($0)) + 1) / 2
+                    if(i < 384) printf ","
+                }
+                
+                printf "], \"payload\": {\"text\": \"%s\", \"source\": \"%s\", \"chunk\": %d}}\n", $0, "'$filename'", chunk
+                chunk++
+            }
+        }' > "/tmp/${filename}_vectors.json"
+        
+        # Upload to Qdrant
+        if [ -s "/tmp/${filename}_vectors.json" ]; then
+            while IFS= read -r line; do
+                curl -X PUT "http://localhost:6333/collections/docs/points" \
+                    -H 'Content-Type: application/json' \
+                    -d "[$line]" >/dev/null 2>&1
+            done < "/tmp/${filename}_vectors.json"
+            
+            rm "/tmp/${filename}_vectors.json"
+        fi
+        
+        echo "   ✅ Processed $file"
+    fi
 done
 
-echo "Ingestion complete!"
+echo "🎉 Ingestion complete!"
+echo "📊 Collection stats:"
+curl -s 'http://localhost:6333/collections/docs' | jq '.result.vectors_count // "unknown"' | xargs echo "   Documents indexed:"
 "#,
     ).unwrap();
 
@@ -482,7 +546,7 @@ Query the documentation by sending POST requests to the webhook endpoint.
 
     fs::write(
         base.join("README.md"),
-        &format!(r#"# {}
+        format!(r#"# {}
 
 RAG (Retrieval-Augmented Generation) agent for searching documentation.
 

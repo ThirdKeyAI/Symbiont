@@ -1,4 +1,5 @@
 use std::path::Path;
+use sysinfo::System;
 
 pub async fn run() {
     println!("📊 Symbiont Runtime Status\n");
@@ -70,7 +71,10 @@ fn list_agents() -> Vec<String> {
 }
 
 fn get_resource_usage() -> Option<(f32, f32)> {
-    // Placeholder - in production, use sysinfo or similar
-    // For now, return dummy values
-    Some((5.2, 256.8))
+    let mut sys = System::new_all();
+    std::thread::sleep(System::MINIMUM_CPU_UPDATE_INTERVAL);
+    sys.refresh_cpu();
+    let cpu = sys.global_cpu_info().cpu_usage();
+    let mem = sys.used_memory() as f32 / 1024.0 / 1024.0;
+    Some((cpu, mem))
 }

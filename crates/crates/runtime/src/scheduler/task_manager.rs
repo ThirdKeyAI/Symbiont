@@ -710,7 +710,7 @@ struct ExecutionEnvironment {
 }
 
 /// Task statistics for monitoring
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct TaskStatistics {
     pub total_tasks: usize,
     pub healthy_tasks: usize,

@@ -438,11 +438,45 @@ impl VectorDatabase for QdrantClientWrapper {
         let client = self.get_client().await?;
         let vector_id = VectorId::new();
 
+        // Extract agent_id from context - for now use a default agent id based on content hash
+        let agent_id = {
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            
+            let mut hasher = DefaultHasher::new();
+            item.content.hash(&mut hasher);
+            item.id.0.hash(&mut hasher);
+            let hash_value = hasher.finish();
+            
+            // Create a deterministic UUID from hash
+            let uuid_bytes = [
+                (hash_value >> 56) as u8,
+                (hash_value >> 48) as u8,
+                (hash_value >> 40) as u8,
+                (hash_value >> 32) as u8,
+                (hash_value >> 24) as u8,
+                (hash_value >> 16) as u8,
+                (hash_value >> 8) as u8,
+                hash_value as u8,
+                // Fill remaining 8 bytes with more hash data
+                (hash_value >> 56) as u8,
+                (hash_value >> 48) as u8,
+                (hash_value >> 40) as u8,
+                (hash_value >> 32) as u8,
+                (hash_value >> 24) as u8,
+                (hash_value >> 16) as u8,
+                (hash_value >> 8) as u8,
+                hash_value as u8,
+            ];
+            
+            AgentId(uuid::Uuid::from_bytes(uuid_bytes))
+        };
+
         // Create point for Qdrant
         let point = PointStruct::new(
             vector_id.0.to_string(),
             embedding,
-            self.knowledge_item_to_metadata(item, AgentId::new()), // Using new AgentId as placeholder
+            self.knowledge_item_to_metadata(item, agent_id),
         );
 
         let upsert_points = UpsertPoints {

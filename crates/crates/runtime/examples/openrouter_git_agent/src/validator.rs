@@ -23,53 +23,136 @@ impl ChangeValidator {
         }
     }
 
-    pub async fn validate_changes(&self, _changes: &[FileChange]) -> Result<ValidationReport> {
-        // Placeholder implementation for change validation
+    pub async fn validate_changes(&self, changes: &[FileChange]) -> Result<ValidationReport> {
+        let mut safety_issues = vec![];
+        let mut syntax_errors = vec![];
+        let mut dependency_issues = vec![];
+
+        for change in changes {
+            if self.safety_checks_enabled {
+                let safety = self.check_safety(&Path::new(&change.file_path), change.content.as_ref().unwrap_or(&String::new())).await?;
+                safety_issues.extend(safety.issues);
+            }
+            if self.syntax_checks_enabled && change.content.is_some() {
+                let syntax = self.validate_syntax(&Path::new(&change.file_path), change.content.as_ref().unwrap()).await?;
+                syntax_errors.extend(syntax.errors);
+            }
+        }
+
+        let dependency = if self.dependency_checks_enabled {
+            self.check_dependencies(changes).await?
+        } else {
+            DependencyReport { has_issues: false, issues: vec![] }
+        };
+        dependency_issues.extend(dependency.issues);
+
+        let impact = self.analyze_impact(changes).await?;
+
+        let is_safe = safety_issues.is_empty() && syntax_errors.is_empty() && dependency_issues.is_empty() && impact.risk_level != RiskLevel::Critical;
+
         Ok(ValidationReport {
-            is_safe: true,
-            safety_issues: vec![],
-            syntax_errors: vec![],
-            dependency_issues: vec![],
-            impact_analysis: ImpactAnalysis {
-                risk_level: RiskLevel::Low,
-                affected_components: vec![],
-                breaking_changes: vec![],
-                recommendations: vec![],
-            },
+            is_safe,
+            safety_issues,
+            syntax_errors,
+            dependency_issues,
+            impact_analysis: impact,
         })
     }
 
-    pub async fn check_safety(&self, _file_path: &Path, _content: &str) -> Result<SafetyReport> {
-        // Placeholder implementation for safety checking
+    pub async fn check_safety(&self, file_path: &Path, content: &str) -> Result<SafetyReport> {
+        let mut issues = vec![];
+
+        // Check for common safety issues
+        if content.contains("unsafe {") {
+            issues.push(SafetyIssue {
+                severity: Severity::High,
+                description: "Use of unsafe block detected".to_string(),
+                file_path: file_path.to_string_lossy().to_string(),
+                line_number: None,
+            });
+        }
+        if content.contains("panic!") {
+            issues.push(SafetyIssue {
+                severity: Severity::Medium,
+                description: "Potential panic point".to_string(),
+                file_path: file_path.to_string_lossy().to_string(),
+                line_number: None,
+            });
+        }
+
         Ok(SafetyReport {
-            is_safe: true,
-            issues: vec![],
+            is_safe: issues.is_empty(),
+            issues,
         })
     }
 
-    pub async fn validate_syntax(&self, _file_path: &Path, _content: &str) -> Result<SyntaxReport> {
-        // Placeholder implementation for syntax validation
+    pub async fn validate_syntax(&self, file_path: &Path, content: &str) -> Result<SyntaxReport> {
+        let mut errors = vec![];
+
+        // Simple syntax checks; in real scenario, use language-specific parser
+        if file_path.extension().and_then(|s| s.to_str()) == Some("rs") {
+            // Basic Rust syntax checks (simulated)
+            if !content.contains("fn main") && content.contains("pub fn") {
+                // Missing main or something; dummy check
+            }
+            if content.matches("{").count() != content.matches("}").count() {
+                errors.push(SyntaxError {
+                    description: "Mismatched braces".to_string(),
+                    file_path: file_path.to_string_lossy().to_string(),
+                    line_number: None,
+                    column_number: None,
+                });
+            }
+        }
+
         Ok(SyntaxReport {
-            is_valid: true,
-            errors: vec![],
+            is_valid: errors.is_empty(),
+            errors,
         })
     }
 
-    pub async fn check_dependencies(&self, _changes: &[FileChange]) -> Result<DependencyReport> {
-        // Placeholder implementation for dependency checking
+    pub async fn check_dependencies(&self, changes: &[FileChange]) -> Result<DependencyReport> {
+        let mut issues = vec![];
+
+        // Simulated dependency check
+        for change in changes {
+            if let Some(content) = &change.content {
+                if content.contains("extern crate obsolete;") {
+                    issues.push(DependencyIssue {
+                        severity: Severity::High,
+                        description: "Obsolete dependency detected".to_string(),
+                        affected_files: vec![change.file_path.clone()],
+                    });
+                }
+            }
+        }
+
         Ok(DependencyReport {
-            has_issues: false,
-            issues: vec![],
+            has_issues: !issues.is_empty(),
+            issues,
         })
     }
 
-    pub async fn analyze_impact(&self, _changes: &[FileChange]) -> Result<ImpactAnalysis> {
-        // Placeholder implementation for impact analysis
+    pub async fn analyze_impact(&self, changes: &[FileChange]) -> Result<ImpactAnalysis> {
+        let mut affected = vec![];
+        let mut breaking = vec![];
+        let mut recommendations = vec![];
+
+        for change in changes {
+            affected.push(change.file_path.clone());
+            if change.change_type == ChangeType::Delete {
+                breaking.push(format!("Deletion of {}", change.file_path));
+                recommendations.push("Check for dependent code".to_string());
+            }
+        }
+
+        let risk_level = if breaking.is_empty() { RiskLevel::Low } else { RiskLevel::High };
+
         Ok(ImpactAnalysis {
-            risk_level: RiskLevel::Low,
-            affected_components: vec![],
-            breaking_changes: vec![],
-            recommendations: vec![],
+            risk_level,
+            affected_components: affected,
+            breaking_changes: breaking,
+            recommendations,
         })
     }
 }

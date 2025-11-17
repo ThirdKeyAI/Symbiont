@@ -46,6 +46,7 @@ pub struct SecurityConfig {
     pub policy_enforcement_strict: bool,
     pub sandbox_isolation_level: IsolationLevel,
     pub audit_all_operations: bool,
+    pub e2b_api_key: Option<String>,
 }
 
 impl Default for SecurityConfig {
@@ -57,6 +58,7 @@ impl Default for SecurityConfig {
             policy_enforcement_strict: true,
             sandbox_isolation_level: IsolationLevel::High,
             audit_all_operations: true,
+            e2b_api_key: None,
         }
     }
 }

@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 
 // Import the functions we want to test from main.rs
-use dsl::{extract_metadata, parse_dsl, print_ast};
+use dsl::{extract_metadata, extract_with_blocks, parse_dsl, print_ast, WithBlock, SandboxTier};
 
 #[cfg(test)]
 mod parser_tests {
@@ -352,5 +352,156 @@ mod parser_tests {
 
         let result = parse_dsl(&large_dsl);
         assert!(result.is_ok(), "Parser should handle large inputs");
+    }
+
+    #[test]
+    fn test_parse_agent_with_sandbox_tier() {
+        let agent_dsl = r#"agent code_runner(script: String) -> Output {
+    with sandbox = "e2b", timeout = 60.seconds {
+        return execute(script);
+    }
+}"#;
+
+        let result = parse_dsl(agent_dsl);
+        assert!(result.is_ok(), "Agent with sandbox should parse successfully");
+
+        let tree = result.unwrap();
+        let with_blocks = extract_with_blocks(&tree, agent_dsl).expect("Should extract with blocks");
+        
+        assert_eq!(with_blocks.len(), 1, "Should have one with block");
+        let with_block = &with_blocks[0];
+        
+        assert_eq!(with_block.sandbox_tier, Some(SandboxTier::E2B));
+        assert_eq!(with_block.timeout, Some(60));
+        assert_eq!(with_block.attributes.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_agent_with_docker_sandbox() {
+        let agent_dsl = r#"agent data_processor {
+    with sandbox = "docker" {
+        let result = process_data();
+        return result;
+    }
+}"#;
+
+        let tree = parse_dsl(agent_dsl).expect("Should parse successfully");
+        let with_blocks = extract_with_blocks(&tree, agent_dsl).expect("Should extract with blocks");
+        
+        assert_eq!(with_blocks.len(), 1);
+        assert_eq!(with_blocks[0].sandbox_tier, Some(SandboxTier::Docker));
+    }
+
+    #[test]
+    fn test_parse_agent_with_all_sandbox_tiers() {
+        let test_cases = vec![
+            ("docker", SandboxTier::Docker),
+            ("gvisor", SandboxTier::GVisor),
+            ("firecracker", SandboxTier::Firecracker),
+            ("e2b", SandboxTier::E2B),
+        ];
+
+        for (tier_str, expected_tier) in test_cases {
+            let agent_dsl = format!(r#"agent test_agent {{
+    with sandbox = "{}" {{
+        return success();
+    }}
+}}"#, tier_str);
+
+            let tree = parse_dsl(&agent_dsl).expect("Should parse successfully");
+            let with_blocks = extract_with_blocks(&tree, &agent_dsl).expect("Should extract with blocks");
+            
+            assert_eq!(with_blocks.len(), 1);
+            assert_eq!(with_blocks[0].sandbox_tier, Some(expected_tier));
+        }
+    }
+
+    #[test]
+    fn test_sandbox_tier_validation() {
+        assert_eq!(WithBlock::parse_sandbox_tier("docker"), Ok(SandboxTier::Docker));
+        assert_eq!(WithBlock::parse_sandbox_tier("DOCKER"), Ok(SandboxTier::Docker));
+        assert_eq!(WithBlock::parse_sandbox_tier("\"gvisor\""), Ok(SandboxTier::GVisor));
+        assert_eq!(WithBlock::parse_sandbox_tier("firecracker"), Ok(SandboxTier::Firecracker));
+        assert_eq!(WithBlock::parse_sandbox_tier("e2b"), Ok(SandboxTier::E2B));
+        
+        // Test invalid values
+        assert!(WithBlock::parse_sandbox_tier("invalid_tier").is_err());
+        assert!(WithBlock::parse_sandbox_tier("").is_err());
+    }
+
+    #[test]
+    fn test_agent_with_parameters_and_sandbox() {
+        let agent_dsl = r#"agent code_runner(script: String, language: String) -> ExecutionResult {
+    with sandbox = "firecracker", timeout = 120.seconds {
+        return execute_code(script, language);
+    }
+}"#;
+
+        let tree = parse_dsl(agent_dsl).expect("Should parse agent with parameters and sandbox");
+        let with_blocks = extract_with_blocks(&tree, agent_dsl).expect("Should extract with blocks");
+        
+        assert_eq!(with_blocks.len(), 1);
+        assert_eq!(with_blocks[0].sandbox_tier, Some(SandboxTier::Firecracker));
+        assert_eq!(with_blocks[0].timeout, Some(120));
+    }
+
+    #[test]
+    fn test_multiple_with_blocks() {
+        let agent_dsl = r#"agent complex_agent {
+    with sandbox = "docker" {
+        let step1 = process_input();
+    }
+    
+    with sandbox = "e2b", timeout = 30.seconds {
+        let step2 = secure_process(step1);
+        return step2;
+    }
+}"#;
+
+        let tree = parse_dsl(agent_dsl).expect("Should parse agent with multiple with blocks");
+        let with_blocks = extract_with_blocks(&tree, agent_dsl).expect("Should extract with blocks");
+        
+        assert_eq!(with_blocks.len(), 2);
+        assert_eq!(with_blocks[0].sandbox_tier, Some(SandboxTier::Docker));
+        assert_eq!(with_blocks[1].sandbox_tier, Some(SandboxTier::E2B));
+        assert_eq!(with_blocks[1].timeout, Some(30));
+    }
+
+    #[test]
+    fn test_invalid_sandbox_tier_error() {
+        let agent_dsl = r#"agent test_agent {
+    with sandbox = "invalid_sandbox" {
+        return error();
+    }
+}"#;
+
+        let tree = parse_dsl(agent_dsl).expect("Should parse even with invalid sandbox");
+        let result = extract_with_blocks(&tree, agent_dsl);
+        
+        assert!(result.is_err(), "Should return error for invalid sandbox tier");
+        assert!(result.unwrap_err().contains("Invalid sandbox tier"));
+    }
+
+    #[test]
+    fn test_with_block_timeout_parsing() {
+        let test_cases = vec![
+            ("30.seconds", Some(30)),
+            ("60", Some(60)),
+            ("\"120\"", Some(120)),
+        ];
+
+        for (timeout_str, expected) in test_cases {
+            let agent_dsl = format!(r#"agent test_agent {{
+    with timeout = {} {{
+        return result();
+    }}
+}}"#, timeout_str);
+
+            let tree = parse_dsl(&agent_dsl).expect("Should parse successfully");
+            let with_blocks = extract_with_blocks(&tree, &agent_dsl).expect("Should extract with blocks");
+            
+            assert_eq!(with_blocks.len(), 1);
+            assert_eq!(with_blocks[0].timeout, expected);
+        }
     }
 }

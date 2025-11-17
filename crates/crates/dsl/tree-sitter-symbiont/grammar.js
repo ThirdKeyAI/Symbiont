@@ -30,6 +30,8 @@ module.exports = grammar({
     agent_definition: $ => seq(
       'agent',
       $.identifier,
+      optional(seq('(', repeat(seq($.parameter, optional(','))), ')')),
+      optional(seq('->', $.type)),
       '{',
       repeat($._agent_item),
       '}'
@@ -38,7 +40,20 @@ module.exports = grammar({
     _agent_item: $ => choice(
       $.capabilities_declaration,
       $.policy_definition,
-      $.function_definition
+      $.function_definition,
+      $.with_block
+    ),
+
+    with_block: $ => seq(
+      'with',
+      repeat(seq($.with_attribute, optional(','))),
+      $.block
+    ),
+
+    with_attribute: $ => seq(
+      $.identifier,
+      '=',
+      $.value
     ),
 
     capabilities_declaration: $ => seq(
