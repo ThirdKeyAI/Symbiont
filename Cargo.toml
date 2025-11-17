@@ -41,7 +41,7 @@ rust-version = "1.70"
 clap = { version = "4.0", features = ["derive"] }
 tokio = { version = "1.0", features = ["full"] }
 sysinfo = "0.30.13"
-symbi-runtime = { version = "0.6.1", path = "crates/runtime", features = ["http-input", "http-api"] }
+symbi-runtime = { path = "crates/runtime", features = ["http-input", "http-api"] }
 
 [profile.release]
 # Optimize for performance and security
