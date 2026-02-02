@@ -609,7 +609,8 @@ impl StandardContextManager {
             self.load_existing_contexts().await?;
         }
 
-        // TODO: Set up retention policy scheduler
+        // Set up retention policy scheduler
+        self.setup_retention_scheduler().await?;
 
         Ok(())
     }
@@ -743,6 +744,321 @@ impl StandardContextManager {
         }
 
         tracing::info!("All contexts saved successfully");
+        Ok(())
+    }
+
+    /// Set up retention policy scheduler as a background task
+    async fn setup_retention_scheduler(&self) -> Result<(), ContextError> {
+        if !self.config.enable_auto_archiving {
+            tracing::debug!("Auto-archiving disabled, skipping retention scheduler setup");
+            return Ok(());
+        }
+
+        let contexts = self.contexts.clone();
+        let persistence = self.persistence.clone();
+        let config = self.config.clone();
+        let shutdown_flag = self.shutdown_flag.clone();
+        
+        let task = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(config.archiving_interval);
+            
+            tracing::info!("Retention policy scheduler started with interval {:?}", config.archiving_interval);
+            
+            loop {
+                tokio::select! {
+                    _ = interval.tick() => {
+                        // Check if we should shutdown
+                        if *shutdown_flag.read().await {
+                            tracing::info!("Retention scheduler shutting down");
+                            break;
+                        }
+                        
+                        // Run retention check for all agents
+                        Self::run_retention_check(&contexts, &persistence, &config).await;
+                    }
+                }
+            }
+        });
+
+        self.add_background_task(task).await;
+        tracing::info!("Retention policy scheduler initialized successfully");
+        Ok(())
+    }
+
+    /// Run retention check across all agent contexts
+    async fn run_retention_check(
+        contexts: &Arc<RwLock<HashMap<AgentId, AgentContext>>>,
+        persistence: &Arc<dyn ContextPersistence>,
+        config: &ContextManagerConfig,
+    ) {
+        let current_time = SystemTime::now();
+        
+        // Collect agent IDs and stats first to avoid borrowing issues
+        let agents_to_check: Vec<(AgentId, usize)> = {
+            let context_guard = contexts.read().await;
+            let agent_count = context_guard.len();
+            
+            if agent_count == 0 {
+                tracing::debug!("No agent contexts to process for retention");
+                return;
+            }
+            
+            tracing::info!("Starting retention check for {} agent contexts", agent_count);
+            
+            context_guard.iter()
+                .map(|(agent_id, context)| {
+                    let retention_stats = Self::calculate_retention_statistics_static(context);
+                    (*agent_id, retention_stats.items_to_archive)
+                })
+                .collect()
+        };
+        
+        let start_time = std::time::Instant::now();
+        let total_agents = agents_to_check.len();
+        
+        // Process each agent that needs archiving
+        for (agent_id, items_to_archive) in agents_to_check {
+            if items_to_archive > 0 {
+                tracing::debug!(
+                    "Agent {} has {} items eligible for archiving",
+                    agent_id,
+                    items_to_archive
+                );
+                
+                // Archive items for this agent
+                let archive_result = Self::archive_agent_context_static(
+                    agent_id,
+                    current_time,
+                    contexts,
+                    persistence,
+                    config
+                ).await;
+                
+                match archive_result {
+                    Ok(archived_count) => {
+                        tracing::info!("Successfully archived {} items for agent {}", archived_count, agent_id);
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to archive context for agent {}: {}", agent_id, e);
+                    }
+                }
+            }
+        }
+        
+        let elapsed = start_time.elapsed();
+        tracing::info!("Retention check completed for {} agents in {:?}", total_agents, elapsed);
+    }
+
+    /// Static version of calculate_retention_statistics for use in scheduler
+    fn calculate_retention_statistics_static(context: &AgentContext) -> RetentionStatus {
+        let now = SystemTime::now();
+        let retention_policy = &context.retention_policy;
+        
+        let mut items_to_archive = 0;
+        let items_to_delete = 0;
+
+        // Calculate cutoff times based on retention policy
+        let memory_cutoff = now
+            .checked_sub(retention_policy.memory_retention)
+            .unwrap_or(SystemTime::UNIX_EPOCH);
+        
+        let knowledge_cutoff = now
+            .checked_sub(retention_policy.knowledge_retention)
+            .unwrap_or(SystemTime::UNIX_EPOCH);
+        
+        let conversation_cutoff = now
+            .checked_sub(retention_policy.session_retention)
+            .unwrap_or(SystemTime::UNIX_EPOCH);
+
+        // Count memory items eligible for archiving
+        for item in &context.memory.short_term {
+            if item.created_at < memory_cutoff || item.last_accessed < memory_cutoff {
+                items_to_archive += 1;
+            }
+        }
+        
+        for item in &context.memory.long_term {
+            if item.created_at < memory_cutoff || item.last_accessed < memory_cutoff {
+                items_to_archive += 1;
+            }
+        }
+
+        // Count conversation items eligible for archiving
+        for item in &context.conversation_history {
+            if item.timestamp < conversation_cutoff {
+                items_to_archive += 1;
+            }
+        }
+
+        // Count knowledge items eligible for archiving
+        for fact in &context.knowledge_base.facts {
+            if fact.created_at < knowledge_cutoff {
+                items_to_archive += 1;
+            }
+        }
+
+        // Calculate next cleanup time
+        let next_cleanup = now + Duration::from_secs(86400); // 24 hours
+
+        RetentionStatus {
+            items_to_archive,
+            items_to_delete,
+            next_cleanup,
+        }
+    }
+
+    /// Static version of archive_context for use in scheduler
+    async fn archive_agent_context_static(
+        agent_id: AgentId,
+        before: SystemTime,
+        contexts: &Arc<RwLock<HashMap<AgentId, AgentContext>>>,
+        persistence: &Arc<dyn ContextPersistence>,
+        config: &ContextManagerConfig,
+    ) -> Result<u32, ContextError> {
+        let mut total_archived = 0u32;
+        let mut archived_context = ArchivedContext::new(agent_id, before);
+
+        // Get mutable access to contexts
+        let mut contexts_guard = contexts.write().await;
+        if let Some(context) = contexts_guard.get_mut(&agent_id) {
+            // Archive items based on retention policy
+            let retention_policy = &context.retention_policy;
+            
+            // Calculate cutoff times
+            let memory_cutoff = before
+                .checked_sub(retention_policy.memory_retention)
+                .unwrap_or(SystemTime::UNIX_EPOCH);
+            
+            let conversation_cutoff = before
+                .checked_sub(retention_policy.session_retention)
+                .unwrap_or(SystemTime::UNIX_EPOCH);
+            
+            let knowledge_cutoff = before
+                .checked_sub(retention_policy.knowledge_retention)
+                .unwrap_or(SystemTime::UNIX_EPOCH);
+
+            // Archive short-term memory items
+            let mut retained_short_term = Vec::new();
+            for item in context.memory.short_term.drain(..) {
+                if item.created_at < memory_cutoff || item.last_accessed < memory_cutoff {
+                    archived_context.memory.short_term.push(item);
+                    total_archived += 1;
+                } else {
+                    retained_short_term.push(item);
+                }
+            }
+            context.memory.short_term = retained_short_term;
+
+            // Archive long-term memory items
+            let mut retained_long_term = Vec::new();
+            for item in context.memory.long_term.drain(..) {
+                if item.created_at < memory_cutoff || item.last_accessed < memory_cutoff {
+                    archived_context.memory.long_term.push(item);
+                    total_archived += 1;
+                } else {
+                    retained_long_term.push(item);
+                }
+            }
+            context.memory.long_term = retained_long_term;
+
+            // Archive conversation history
+            let mut retained_conversations = Vec::new();
+            for item in context.conversation_history.drain(..) {
+                if item.timestamp < conversation_cutoff {
+                    archived_context.conversation_history.push(item);
+                    total_archived += 1;
+                } else {
+                    retained_conversations.push(item);
+                }
+            }
+            context.conversation_history = retained_conversations;
+
+            // Archive knowledge items
+            let mut retained_facts = Vec::new();
+            for fact in context.knowledge_base.facts.drain(..) {
+                if fact.created_at < knowledge_cutoff {
+                    archived_context.knowledge_base.facts.push(fact);
+                    total_archived += 1;
+                } else {
+                    retained_facts.push(fact);
+                }
+            }
+            context.knowledge_base.facts = retained_facts;
+
+            // Update context metadata
+            if total_archived > 0 {
+                context.updated_at = SystemTime::now();
+                context.metadata.insert(
+                    "last_archived".to_string(),
+                    SystemTime::now()
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs()
+                        .to_string(),
+                );
+                context.metadata.insert(
+                    "archived_count".to_string(),
+                    total_archived.to_string(),
+                );
+
+                // Save archived context to storage
+                if config.enable_persistence {
+                    Self::save_archived_context_static(agent_id, &archived_context, persistence, config).await?;
+                    // Also save updated context
+                    persistence.save_context(agent_id, context).await?;
+                }
+            }
+        }
+
+        Ok(total_archived)
+    }
+
+    /// Static version of save_archived_context for use in scheduler
+    async fn save_archived_context_static(
+        agent_id: AgentId,
+        archived_context: &ArchivedContext,
+        _persistence: &Arc<dyn ContextPersistence>,
+        config: &ContextManagerConfig,
+    ) -> Result<(), ContextError> {
+        let archive_dir = config.persistence_config
+            .agent_contexts_path()
+            .join("archives")
+            .join(agent_id.to_string());
+
+        // Ensure archive directory exists
+        tokio::fs::create_dir_all(&archive_dir)
+            .await
+            .map_err(|e| ContextError::StorageError {
+                reason: format!("Failed to create archive directory: {}", e),
+            })?;
+
+        // Create archive filename with timestamp
+        let timestamp = archived_context.archived_at
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let archive_filename = format!("archive_{}.json", timestamp);
+        let archive_path = archive_dir.join(archive_filename);
+
+        // Serialize archived context
+        let archive_data = serde_json::to_vec_pretty(archived_context)
+            .map_err(|e| ContextError::SerializationError {
+                reason: format!("Failed to serialize archived context: {}", e),
+            })?;
+
+        // Write to archive file
+        tokio::fs::write(&archive_path, &archive_data)
+            .await
+            .map_err(|e| ContextError::StorageError {
+                reason: format!("Failed to write archive file: {}", e),
+            })?;
+
+        tracing::debug!(
+            "Saved archived context for agent {} to {}",
+            agent_id,
+            archive_path.display()
+        );
+
         Ok(())
     }
 

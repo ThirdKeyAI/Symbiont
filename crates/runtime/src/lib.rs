@@ -15,6 +15,7 @@ pub mod models;
 pub mod rag;
 pub mod resource;
 pub mod routing;
+pub mod sandbox;
 pub mod scheduler;
 pub mod secrets;
 pub mod types;
@@ -23,7 +24,7 @@ pub mod types;
 pub mod api;
 
 #[cfg(feature = "http-api")]
-use api::types::{AgentExecutionRecord, AgentStatusResponse, CreateAgentRequest, CreateAgentResponse, DeleteAgentResponse, ExecuteAgentRequest, ExecuteAgentResponse, GetAgentHistoryResponse, UpdateAgentRequest, UpdateAgentResponse, WorkflowExecutionRequest};
+use api::types::{AgentStatusResponse, CreateAgentRequest, CreateAgentResponse, DeleteAgentResponse, ExecuteAgentRequest, ExecuteAgentResponse, GetAgentHistoryResponse, UpdateAgentRequest, UpdateAgentResponse, WorkflowExecutionRequest};
 #[cfg(feature = "http-api")]
 use api::traits::RuntimeApiProvider;
 #[cfg(feature = "http-api")]
@@ -42,11 +43,13 @@ pub use logging::{ModelLogger, LoggingConfig, ModelInteractionType, RequestData,
 pub use models::{ModelCatalog, ModelCatalogError, SlmRunner, SlmRunnerError};
 pub use resource::{DefaultResourceManager, ResourceManager, ResourceManagerConfig};
 pub use routing::{RoutingEngine, DefaultRoutingEngine, RoutingConfig, RouteDecision, RoutingContext, TaskType};
+pub use sandbox::{E2BSandbox, ExecutionResult, SandboxRunner, SandboxTier};
 pub use scheduler::{AgentScheduler, DefaultAgentScheduler, SchedulerConfig};
 pub use secrets::{SecretStore, SecretsConfig};
 pub use types::*;
 
 use std::sync::Arc;
+use std::time::SystemTime;
 use tokio::sync::RwLock;
 
 /// Main Agent Runtime System
@@ -413,18 +416,18 @@ impl RuntimeApiProvider for AgentRuntime {
     }
 
     async fn get_metrics(&self) -> Result<serde_json::Value, RuntimeError> {
-        // Placeholder implementation
+        let status = self.get_status().await;
         Ok(serde_json::json!({
             "agents": {
-                "total": 0,
-                "running": 0,
-                "idle": 0,
+                "total": status.total_agents,
+                "running": status.running_agents,
+                "idle": status.total_agents - status.running_agents,
                 "error": 0
             },
             "system": {
                 "uptime": 0,
-                "memory_usage": 0,
-                "cpu_usage": 0.0
+                "memory_usage": status.resource_utilization.memory_used,
+                "cpu_usage": status.resource_utilization.cpu_utilization
             }
         }))
     }
@@ -522,17 +525,38 @@ impl RuntimeApiProvider for AgentRuntime {
 
     async fn execute_agent(
         &self,
-        _agent_id: AgentId,
-        _request: ExecuteAgentRequest,
+        agent_id: AgentId,
+        request: ExecuteAgentRequest,
     ) -> Result<ExecuteAgentResponse, RuntimeError> {
-        // Placeholder implementation - validate input and return dummy response
-        
-
-        // Generate a dummy execution ID
-        use uuid::Uuid;
-        
+        let status = self.get_agent_status(agent_id).await?;
+        if status.state != AgentState::Running {
+            self.lifecycle.start_agent(agent_id).await.map_err(RuntimeError::Lifecycle)?;
+        }
+        let execution_id = uuid::Uuid::new_v4().to_string();
+        let payload = types::EncryptedPayload {
+            data: serde_json::to_vec(&request).map_err(|e| RuntimeError::Internal(e.to_string()))?.into(),
+            encryption_algorithm: types::EncryptionAlgorithm::None,
+            nonce: vec![],
+        };
+        let signature = types::MessageSignature {
+            signature: vec![],
+            algorithm: types::SignatureAlgorithm::None,
+            public_key: vec![],
+        };
+        let message = types::SecureMessage {
+            id: types::MessageId::new(),
+            sender: AgentId::new(), // System sender
+            recipient: Some(agent_id),
+            topic: None,
+            payload,
+            signature,
+            timestamp: SystemTime::now(),
+            ttl: std::time::Duration::from_secs(300),
+            message_type: types::MessageType::Direct(agent_id),
+        };
+        self.communication.send_message(message).await.map_err(RuntimeError::Communication)?;
         Ok(ExecuteAgentResponse {
-            execution_id: Uuid::new_v4().to_string(),
+            execution_id,
             status: "execution_started".to_string(),
         })
     }
@@ -541,20 +565,8 @@ impl RuntimeApiProvider for AgentRuntime {
         &self,
         _agent_id: AgentId,
     ) -> Result<GetAgentHistoryResponse, RuntimeError> {
-        // Placeholder implementation - validate input and return dummy response
-        
-
-        // Return a dummy history with one sample record
-        use uuid::Uuid;
-        
-        let sample_record = AgentExecutionRecord {
-            execution_id: Uuid::new_v4().to_string(),
-            status: "completed".to_string(),
-            timestamp: chrono::Utc::now().to_rfc3339(),
-        };
-
-        Ok(GetAgentHistoryResponse {
-            history: vec![sample_record],
-        })
+        // For now, return empty history as the model logger API is not yet implemented
+        let history = vec![];
+        Ok(GetAgentHistoryResponse { history })
     }
 }

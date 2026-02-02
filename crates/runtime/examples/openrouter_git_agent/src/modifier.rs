@@ -123,7 +123,18 @@ impl FileModifier {
                             }
                         }
                     } else {
-                        format!("// TODO: Implement {}\n", step.description)
+                        if let Some(client) = &self.openrouter_client {
+                            let prompt = format!("Generate content for new file {} to accomplish: {}. Provide only the content.", file_path, step.description);
+                            match client.generate_response(&prompt).await {
+                                Ok(resp) => resp,
+                                Err(e) => {
+                                    warn!("Failed to generate content: {}", e);
+                                    format!("// Failed to generate: {}", e)
+                                }
+                            }
+                        } else {
+                            "// No AI client available for content generation".to_string()
+                        }
                     };
 
                     let change = FileChange {
@@ -146,10 +157,26 @@ impl FileModifier {
             }
             ActionType::ModifyFile => {
                 for file_path in &step.files {
+                    let full_path = self.git_repo.get_repo_path().join(file_path);
+                    let current_content = std::fs::read_to_string(&full_path).unwrap_or_default();
+
+                    let new_content = if let Some(client) = &self.openrouter_client {
+                        let prompt = format!("Modify the following code in file {} to accomplish: {}. Provide the full modified content.\n\nCurrent content:\n{}", file_path, step.description, current_content);
+                        match client.generate_response(&prompt).await {
+                            Ok(resp) => resp,
+                            Err(e) => {
+                                warn!("Failed to generate modified content: {}", e);
+                                current_content
+                            }
+                        }
+                    } else {
+                        current_content
+                    };
+
                     let change = FileChange {
                         file_path: file_path.clone(),
                         change_type: ChangeType::Modify,
-                        content: Some(format!("// Modified: {}\n", step.description)),
+                        content: Some(new_content),
                         line_range: None,
                     };
                     

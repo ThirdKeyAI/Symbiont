@@ -279,6 +279,7 @@ impl ReplEngine {
                 format!("Agent(id: {}, state: {:?})", agent.id, agent.state)
             }
             DslValue::Function(name) => format!("Function({})", name),
+            DslValue::Lambda(lambda) => format!("Lambda({} params)", lambda.parameters.len()),
         }
     }
 

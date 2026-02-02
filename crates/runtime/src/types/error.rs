@@ -242,6 +242,15 @@ pub enum SchedulerError {
 
     #[error("Scheduler shutdown in progress")]
     ShuttingDown,
+
+    #[error("Serialization failed: {0}")]
+    SerializationFailed(String),
+}
+
+impl From<serde_json::Error> for SchedulerError {
+    fn from(error: serde_json::Error) -> Self {
+        SchedulerError::SerializationFailed(format!("JSON serialization error: {}", error))
+    }
 }
 
 /// Lifecycle management errors

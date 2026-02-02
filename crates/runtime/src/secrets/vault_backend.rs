@@ -197,15 +197,66 @@ impl SecretStore for VaultSecretStore {
         
         let result: Result<Secret, SecretError> = async {
             match kv2::read::<serde_json::Value>(&self.client, &self.config.mount_path, &path).await {
-                Ok(_secret_data) => {
-                    // Simplified implementation for now - just return a placeholder
-                    // In a real implementation, this would extract data from the vault response
+                Ok(secret_response) => {
+                    // Extract the secret data from the Vault KVv2 response structure
+                    let data = secret_response
+                        .get("data")
+                        .and_then(|d| d.get("data"))
+                        .ok_or_else(|| SecretError::BackendError {
+                            message: "Invalid Vault response structure".to_string(),
+                        })?;
+
+                    // Extract the secret value - assume it's stored under a "value" key
+                    let secret_value = data
+                        .get("value")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .or_else(|| {
+                            // Fallback: if no "value" key, try to get the first string value
+                            data.as_object()
+                                .and_then(|obj| obj.values().next())
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string())
+                        })
+                        .ok_or_else(|| SecretError::BackendError {
+                            message: format!("No string value found for key '{}'", key),
+                        })?;
+
+                    // Extract metadata from the Vault response
+                    let mut metadata = std::collections::HashMap::new();
+                    if let Some(metadata_obj) = secret_response.get("data").and_then(|d| d.get("metadata")) {
+                        if let Some(created_time) = metadata_obj.get("created_time").and_then(|v| v.as_str()) {
+                            metadata.insert("created_time".to_string(), created_time.to_string());
+                        }
+                        if let Some(version) = metadata_obj.get("version").and_then(|v| v.as_u64()) {
+                            metadata.insert("version".to_string(), version.to_string());
+                        }
+                        if let Some(destroyed) = metadata_obj.get("destroyed").and_then(|v| v.as_bool()) {
+                            metadata.insert("destroyed".to_string(), destroyed.to_string());
+                        }
+                        if let Some(deletion_time) = metadata_obj.get("deletion_time").and_then(|v| v.as_str()) {
+                            if deletion_time != "" && deletion_time != "null" {
+                                metadata.insert("deletion_time".to_string(), deletion_time.to_string());
+                            }
+                        }
+                    }
+
+                    // Parse created_at timestamp if available - convert to string
+                    let created_at = metadata
+                        .get("created_time")
+                        .map(|ts| ts.clone());
+
+                    // Parse version if available - convert to string
+                    let version = metadata
+                        .get("version")
+                        .map(|v| v.clone());
+
                     Ok(Secret {
                         key: key.to_string(),
-                        value: "vault-secret-placeholder".to_string(),
-                        metadata: Some(std::collections::HashMap::new()),
-                        created_at: None,
-                        version: None,
+                        value: secret_value,
+                        metadata: Some(metadata),
+                        created_at,
+                        version,
                     })
                 }
                 Err(e) => {

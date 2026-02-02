@@ -419,7 +419,7 @@ impl RoutingEngine for DefaultRoutingEngine {
         let route_decision = self.route_request(&context).await?;
         
         let result = match &route_decision {
-            RouteDecision::UseSLM { model_id, monitoring, fallback_on_failure } => {
+            RouteDecision::UseSLM { model_id, monitoring, fallback_on_failure, sandbox_tier: _ } => {
                 self.execute_slm_route(
                     &context,
                     &request,
@@ -428,7 +428,7 @@ impl RoutingEngine for DefaultRoutingEngine {
                     *fallback_on_failure,
                 ).await
             }
-            RouteDecision::UseLLM { provider, reason } => {
+            RouteDecision::UseLLM { provider, reason, sandbox_tier: _ } => {
                 tracing::info!("Routing to LLM: {}", reason);
                 self.llm_clients.execute_request(&request, provider).await
             }

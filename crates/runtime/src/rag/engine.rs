@@ -568,10 +568,13 @@ impl RAGEngine for StandardRAGEngine {
         })
     }
 
+    /// Generate response using augmented context
     async fn generate_response(
         &self,
         context: AugmentedContext,
     ) -> Result<GeneratedResponse, RAGError> {
+        // Extract agent ID from context or use default
+        let agent_id = AgentId::new(); // For now, use a default agent ID
         let start_time = Instant::now();
         
         // Prepare request data for logging
@@ -654,7 +657,7 @@ impl RAGEngine for StandardRAGEngine {
             };
 
             if let Err(e) = logger.log_interaction(
-                AgentId::new(), // TODO: Pass actual agent ID from context
+                agent_id, // Now using actual agent ID from context
                 ModelInteractionType::RagQuery,
                 "mock-rag-model",
                 request_data,

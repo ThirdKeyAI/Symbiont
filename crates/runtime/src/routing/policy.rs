@@ -7,6 +7,7 @@ use super::error::{RoutingError, TaskType};
 use super::classifier::{TaskClassifier, ClassificationResult};
 use crate::models::ModelCatalog;
 use crate::config::{ResourceConstraints, ModelCapability};
+use crate::sandbox::SandboxTier;
 
 /// Policy evaluation engine for making routing decisions
 #[derive(Debug)]
@@ -151,7 +152,7 @@ impl PolicyEvaluator {
         // Evaluate rules in priority order
         for rule in &self.config.rules {
             if rule.matches(&evaluation_context.routing_context) {
-                let decision = self.apply_rule_action(&rule.action, &evaluation_context).await?;
+                let decision = self.apply_rule_action(&rule.action, &evaluation_context, rule.action_extension.as_ref()).await?;
                 
                 // Cache the result
                 self.cache_evaluation(&cache_key, &decision);
@@ -164,6 +165,11 @@ impl PolicyEvaluator {
                         let mut meta = HashMap::new();
                         meta.insert("rule_priority".to_string(), rule.priority.to_string());
                         meta.insert("rule_name".to_string(), rule.name.clone());
+                        if let Some(ref ext) = rule.action_extension {
+                            if let Some(ref sandbox) = ext.sandbox {
+                                meta.insert("sandbox_tier".to_string(), sandbox.clone());
+                            }
+                        }
                         meta
                     },
                 });
@@ -191,7 +197,14 @@ impl PolicyEvaluator {
         &self,
         action: &RouteAction,
         context: &PolicyContext,
+        action_extension: Option<&super::config::ActionExtension>,
     ) -> Result<RouteDecision, RoutingError> {
+        // Parse sandbox preference from action extension
+        let sandbox_tier = action_extension
+            .and_then(|ext| ext.sandbox.as_ref())
+            .map(|s| self.parse_sandbox_tier(s))
+            .transpose()?;
+
         match action {
             RouteAction::UseSLM {
                 model_preference,
@@ -210,12 +223,14 @@ impl PolicyEvaluator {
                     model_id: model.id.clone(),
                     monitoring: monitoring_level.clone(),
                     fallback_on_failure: *fallback_on_low_confidence,
+                    sandbox_tier,
                 })
             }
             RouteAction::UseLLM { provider, model: _ } => {
                 Ok(RouteDecision::UseLLM {
                     provider: provider.clone(),
                     reason: "Policy rule matched".to_string(),
+                    sandbox_tier,
                 })
             }
             RouteAction::Deny { reason } => {
@@ -235,12 +250,14 @@ impl PolicyEvaluator {
                 Ok(RouteDecision::UseLLM {
                     provider: LLMProvider::OpenAI { model: None },
                     reason: "Default action - no SLM available".to_string(),
+                    sandbox_tier: None,
                 })
             }
             RouteAction::UseLLM { provider, .. } => {
                 Ok(RouteDecision::UseLLM {
                     provider: provider.clone(),
                     reason: "Default action".to_string(),
+                    sandbox_tier: None,
                 })
             }
             RouteAction::Deny { reason } => {
@@ -249,6 +266,20 @@ impl PolicyEvaluator {
                     policy_violated: "Default deny policy".to_string(),
                 })
             }
+        }
+    }
+    
+    /// Parse sandbox tier string into SandboxTier enum
+    fn parse_sandbox_tier(&self, sandbox_str: &str) -> Result<SandboxTier, RoutingError> {
+        match sandbox_str.to_lowercase().as_str() {
+            "docker" => Ok(SandboxTier::Docker),
+            "gvisor" => Ok(SandboxTier::GVisor),
+            "firecracker" => Ok(SandboxTier::Firecracker),
+            "e2b" => Ok(SandboxTier::E2B),
+            _ => Err(RoutingError::ConfigurationError {
+                key: "action_extension.sandbox".to_string(),
+                reason: format!("Invalid sandbox tier: {}. Valid options are: docker, gvisor, firecracker, e2b", sandbox_str),
+            }),
         }
     }
     
@@ -482,7 +513,7 @@ mod tests {
     use super::*;
     use crate::types::AgentId;
     use crate::config::{Slm, Model, ModelProvider, ModelResourceRequirements, ModelAllowListConfig, SandboxProfile, ResourceConstraints};
-    use crate::routing::config::{RoutingRule, RoutingConditions};
+    use crate::routing::config::RoutingRule;
     use crate::routing::decision::MonitoringLevel;
     use std::path::PathBuf;
     use std::collections::HashMap;
@@ -593,6 +624,7 @@ mod tests {
                 confidence_threshold: Some(0.8),
             },
             override_allowed: true,
+            action_extension: None,
         });
         
         let evaluator = PolicyEvaluator::new(config, classifier, model_catalog).unwrap();
@@ -638,6 +670,7 @@ mod tests {
                 confidence_threshold: Some(0.9),
             },
             override_allowed: true,
+            action_extension: None,
         });
         
         let evaluator = PolicyEvaluator::new(config, classifier, model_catalog).unwrap();
@@ -681,6 +714,7 @@ mod tests {
                 confidence_threshold: None,
             },
             override_allowed: false,
+            action_extension: None,
         });
         
         let evaluator = PolicyEvaluator::new(config, classifier, model_catalog).unwrap();
@@ -724,6 +758,7 @@ mod tests {
                 confidence_threshold: Some(0.8),
             },
             override_allowed: true,
+            action_extension: None,
         });
         
         let evaluator = PolicyEvaluator::new(config, classifier, model_catalog).unwrap();
@@ -793,6 +828,7 @@ mod tests {
                 confidence_threshold: None,
             },
             override_allowed: true,
+            action_extension: None,
         });
         
         let evaluator = PolicyEvaluator::new(config, classifier, model_catalog).unwrap();
@@ -835,6 +871,7 @@ mod tests {
                 model: Some("gpt-4".to_string()),
             },
             override_allowed: false,
+            action_extension: None,
         });
         
         let evaluator = PolicyEvaluator::new(config, classifier, model_catalog).unwrap();
@@ -848,7 +885,7 @@ mod tests {
         let result = evaluator.evaluate_policies(&context).await.unwrap();
         
         match result.decision {
-            RouteDecision::UseLLM { provider, reason } => {
+            RouteDecision::UseLLM { provider, reason, .. } => {
                 assert!(matches!(provider, LLMProvider::OpenAI { .. }));
                 assert!(reason.contains("Policy rule matched"));
             }
@@ -876,6 +913,7 @@ mod tests {
                 reason: "Forbidden task type".to_string(),
             },
             override_allowed: false,
+            action_extension: None,
         });
         
         let evaluator = PolicyEvaluator::new(config, classifier, model_catalog).unwrap();
@@ -946,6 +984,7 @@ mod tests {
                 model: None,
             },
             override_allowed: true,
+            action_extension: None,
         });
 
         // Add higher priority rule second
@@ -966,6 +1005,7 @@ mod tests {
                 confidence_threshold: None,
             },
             override_allowed: true,
+            action_extension: None,
         });
 
         // Sort rules by priority (should be done automatically)
@@ -1011,6 +1051,7 @@ mod tests {
                 confidence_threshold: Some(0.8),
             },
             override_allowed: true,
+            action_extension: None,
         });
         
         let evaluator = PolicyEvaluator::new(config, classifier, model_catalog).unwrap();
@@ -1025,7 +1066,7 @@ mod tests {
         
         // Should use default action instead of SLM rules when globally disabled
         match result.decision {
-            RouteDecision::UseLLM { reason, .. } => {
+            RouteDecision::UseLLM { .. } => {
                 // Expected fallback to LLM
             }
             _ => panic!("Expected LLM fallback when SLM routing disabled"),
@@ -1058,6 +1099,7 @@ mod tests {
                 confidence_threshold: Some(0.8),
             },
             override_allowed: true,
+            action_extension: None,
         });
         
         let evaluator = PolicyEvaluator::new(config, classifier, model_catalog).unwrap();
@@ -1113,6 +1155,7 @@ mod tests {
                 confidence_threshold: Some(0.8),
             },
             override_allowed: true,
+            action_extension: None,
         });
         
         let evaluator = PolicyEvaluator::new(config, classifier, model_catalog).unwrap();
@@ -1151,12 +1194,13 @@ mod tests {
                 confidence_threshold: Some(0.8),
             },
             override_allowed: true,
+            action_extension: None,
         });
         
         let evaluator = PolicyEvaluator::new(config, classifier, model_catalog).unwrap();
         
         // Create context with unknown task type that should be classified
-        let mut context = RoutingContext::new(
+        let context = RoutingContext::new(
             AgentId::new(),
             TaskType::Custom("unknown".to_string()),
             "Write a function to implement quicksort algorithm".to_string(),
