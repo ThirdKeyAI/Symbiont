@@ -24,7 +24,7 @@ serde_json = "1.0"
 uuid = { version = "1.0", features = ["v4", "serde"] }
 tokio = { version = "1.0", features = ["sync"] }
 tracing = "0.1"
-symbi-runtime = { path = "../runtime" }
+symbi-runtime = { path = "../runtime", version = "1.0.0" }
 
 [dev-dependencies]
 tokio-test = "0.4"

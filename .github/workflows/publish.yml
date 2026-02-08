@@ -1,0 +1,60 @@
+name: Publish to crates.io
+
+on:
+  release:
+    types: [published]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish:
+    name: Publish crates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-publish-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Publish symbi-dsl
+        run: cargo publish -p symbi-dsl --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || echo "symbi-dsl already published"
+
+      - name: Publish repl-proto
+        run: cargo publish -p repl-proto --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || echo "repl-proto already published"
+
+      - name: Wait for crates.io index
+        run: sleep 30
+
+      - name: Publish symbi-runtime
+        run: cargo publish -p symbi-runtime --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || echo "symbi-runtime already published"
+
+      - name: Wait for crates.io index
+        run: sleep 30
+
+      - name: Publish repl-core
+        run: cargo publish -p repl-core --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || echo "repl-core already published"
+
+      - name: Wait for crates.io index
+        run: sleep 30
+
+      - name: Publish repl-cli
+        run: cargo publish -p repl-cli --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || echo "repl-cli already published"
+
+      - name: Publish repl-lsp
+        run: cargo publish -p repl-lsp --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || echo "repl-lsp already published"
+
+      - name: Wait for crates.io index
+        run: sleep 30
+
+      - name: Publish symbi
+        run: cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || echo "symbi already published"
