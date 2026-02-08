@@ -78,12 +78,15 @@ cargo run -- mcp --port 8080
 
 * ✅ **DSL Grammar** – Define agents declaratively with built-in security policies.
 * ✅ **Agent Runtime** – Task scheduling, resource management, and lifecycle control.
+* ⏰ **Cron Scheduling** – Persistent SQLite-backed cron engine with jitter, concurrency guards, dead-letter queues, and heartbeat pattern.
 * 🔒 **Sandboxing** – Tier-1 Docker isolation for agent execution.
 * 🔒 **SchemaPin Security** – Cryptographic verification of tools and schemas.
+* 🔒 **AgentPin Identity** – Domain-anchored cryptographic identity for scheduled agents.
 * 🔒 **Secrets Management** – HashiCorp Vault / OpenBao integration, AES-256-GCM encrypted storage.
 * 📊 **RAG Engine** – Vector search (Qdrant) with hybrid semantic + keyword retrieval.
 * 🧩 **MCP Integration** – Native support for Model Context Protocol tools.
 * 📡 **Optional HTTP API** – Feature-gated REST interface for external integration.
+* 📋 **Delivery Routing** – Route scheduled agent output to webhooks, Slack, email, or custom channels.
 
 ---
 

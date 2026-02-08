@@ -11,9 +11,7 @@ pub mod config;
 pub mod server;
 
 #[cfg(feature = "http-input")]
-pub use config::{
-    AgentRoutingRule, HttpInputConfig, ResponseControlConfig, RouteMatch,
-};
+pub use config::{AgentRoutingRule, HttpInputConfig, ResponseControlConfig, RouteMatch};
 
 #[cfg(feature = "http-input")]
-pub use server::{HttpInputServer, start_http_input};
+pub use server::{start_http_input, HttpInputServer};

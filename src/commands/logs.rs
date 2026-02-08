@@ -55,9 +55,7 @@ async fn tail_follow(path: &Path) {
 
     // Simple implementation - in production, use notify or similar
     // For now, just poll the file
-    let mut last_size = std::fs::metadata(path)
-        .map(|m| m.len())
-        .unwrap_or(0);
+    let mut last_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
 
     loop {
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;

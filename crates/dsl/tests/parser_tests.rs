@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 
 // Import the functions we want to test from main.rs
-use dsl::{extract_metadata, extract_with_blocks, parse_dsl, print_ast, WithBlock, SandboxTier};
+use dsl::{extract_metadata, extract_with_blocks, parse_dsl, print_ast, SandboxTier, WithBlock};
 
 #[cfg(test)]
 mod parser_tests {
@@ -217,7 +217,11 @@ mod parser_tests {
                 let entry = entry.expect("Should read directory entry");
                 let path = entry.path();
 
-                if path.extension().and_then(|s| s.to_str()).is_some_and(|ext| ext == "dsl" || ext == "symbi") {
+                if path
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .is_some_and(|ext| ext == "dsl" || ext == "symbi")
+                {
                     let filename = path.file_name().unwrap().to_str().unwrap();
 
                     if filename.starts_with("valid_") {
@@ -244,7 +248,11 @@ mod parser_tests {
                 let entry = entry.expect("Should read directory entry");
                 let path = entry.path();
 
-                if path.extension().and_then(|s| s.to_str()).is_some_and(|ext| ext == "dsl" || ext == "symbi") {
+                if path
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .is_some_and(|ext| ext == "dsl" || ext == "symbi")
+                {
                     let filename = path.file_name().unwrap().to_str().unwrap();
 
                     if filename.starts_with("invalid_") {
@@ -363,14 +371,18 @@ mod parser_tests {
 }"#;
 
         let result = parse_dsl(agent_dsl);
-        assert!(result.is_ok(), "Agent with sandbox should parse successfully");
+        assert!(
+            result.is_ok(),
+            "Agent with sandbox should parse successfully"
+        );
 
         let tree = result.unwrap();
-        let with_blocks = extract_with_blocks(&tree, agent_dsl).expect("Should extract with blocks");
-        
+        let with_blocks =
+            extract_with_blocks(&tree, agent_dsl).expect("Should extract with blocks");
+
         assert_eq!(with_blocks.len(), 1, "Should have one with block");
         let with_block = &with_blocks[0];
-        
+
         assert_eq!(with_block.sandbox_tier, Some(SandboxTier::E2B));
         assert_eq!(with_block.timeout, Some(60));
         assert_eq!(with_block.attributes.len(), 2);
@@ -386,8 +398,9 @@ mod parser_tests {
 }"#;
 
         let tree = parse_dsl(agent_dsl).expect("Should parse successfully");
-        let with_blocks = extract_with_blocks(&tree, agent_dsl).expect("Should extract with blocks");
-        
+        let with_blocks =
+            extract_with_blocks(&tree, agent_dsl).expect("Should extract with blocks");
+
         assert_eq!(with_blocks.len(), 1);
         assert_eq!(with_blocks[0].sandbox_tier, Some(SandboxTier::Docker));
     }
@@ -402,15 +415,19 @@ mod parser_tests {
         ];
 
         for (tier_str, expected_tier) in test_cases {
-            let agent_dsl = format!(r#"agent test_agent {{
+            let agent_dsl = format!(
+                r#"agent test_agent {{
     with sandbox = "{}" {{
         return success();
     }}
-}}"#, tier_str);
+}}"#,
+                tier_str
+            );
 
             let tree = parse_dsl(&agent_dsl).expect("Should parse successfully");
-            let with_blocks = extract_with_blocks(&tree, &agent_dsl).expect("Should extract with blocks");
-            
+            let with_blocks =
+                extract_with_blocks(&tree, &agent_dsl).expect("Should extract with blocks");
+
             assert_eq!(with_blocks.len(), 1);
             assert_eq!(with_blocks[0].sandbox_tier, Some(expected_tier));
         }
@@ -418,12 +435,24 @@ mod parser_tests {
 
     #[test]
     fn test_sandbox_tier_validation() {
-        assert_eq!(WithBlock::parse_sandbox_tier("docker"), Ok(SandboxTier::Docker));
-        assert_eq!(WithBlock::parse_sandbox_tier("DOCKER"), Ok(SandboxTier::Docker));
-        assert_eq!(WithBlock::parse_sandbox_tier("\"gvisor\""), Ok(SandboxTier::GVisor));
-        assert_eq!(WithBlock::parse_sandbox_tier("firecracker"), Ok(SandboxTier::Firecracker));
+        assert_eq!(
+            WithBlock::parse_sandbox_tier("docker"),
+            Ok(SandboxTier::Docker)
+        );
+        assert_eq!(
+            WithBlock::parse_sandbox_tier("DOCKER"),
+            Ok(SandboxTier::Docker)
+        );
+        assert_eq!(
+            WithBlock::parse_sandbox_tier("\"gvisor\""),
+            Ok(SandboxTier::GVisor)
+        );
+        assert_eq!(
+            WithBlock::parse_sandbox_tier("firecracker"),
+            Ok(SandboxTier::Firecracker)
+        );
         assert_eq!(WithBlock::parse_sandbox_tier("e2b"), Ok(SandboxTier::E2B));
-        
+
         // Test invalid values
         assert!(WithBlock::parse_sandbox_tier("invalid_tier").is_err());
         assert!(WithBlock::parse_sandbox_tier("").is_err());
@@ -438,8 +467,9 @@ mod parser_tests {
 }"#;
 
         let tree = parse_dsl(agent_dsl).expect("Should parse agent with parameters and sandbox");
-        let with_blocks = extract_with_blocks(&tree, agent_dsl).expect("Should extract with blocks");
-        
+        let with_blocks =
+            extract_with_blocks(&tree, agent_dsl).expect("Should extract with blocks");
+
         assert_eq!(with_blocks.len(), 1);
         assert_eq!(with_blocks[0].sandbox_tier, Some(SandboxTier::Firecracker));
         assert_eq!(with_blocks[0].timeout, Some(120));
@@ -459,8 +489,9 @@ mod parser_tests {
 }"#;
 
         let tree = parse_dsl(agent_dsl).expect("Should parse agent with multiple with blocks");
-        let with_blocks = extract_with_blocks(&tree, agent_dsl).expect("Should extract with blocks");
-        
+        let with_blocks =
+            extract_with_blocks(&tree, agent_dsl).expect("Should extract with blocks");
+
         assert_eq!(with_blocks.len(), 2);
         assert_eq!(with_blocks[0].sandbox_tier, Some(SandboxTier::Docker));
         assert_eq!(with_blocks[1].sandbox_tier, Some(SandboxTier::E2B));
@@ -477,8 +508,11 @@ mod parser_tests {
 
         let tree = parse_dsl(agent_dsl).expect("Should parse even with invalid sandbox");
         let result = extract_with_blocks(&tree, agent_dsl);
-        
-        assert!(result.is_err(), "Should return error for invalid sandbox tier");
+
+        assert!(
+            result.is_err(),
+            "Should return error for invalid sandbox tier"
+        );
         assert!(result.unwrap_err().contains("Invalid sandbox tier"));
     }
 
@@ -491,15 +525,19 @@ mod parser_tests {
         ];
 
         for (timeout_str, expected) in test_cases {
-            let agent_dsl = format!(r#"agent test_agent {{
+            let agent_dsl = format!(
+                r#"agent test_agent {{
     with timeout = {} {{
         return result();
     }}
-}}"#, timeout_str);
+}}"#,
+                timeout_str
+            );
 
             let tree = parse_dsl(&agent_dsl).expect("Should parse successfully");
-            let with_blocks = extract_with_blocks(&tree, &agent_dsl).expect("Should extract with blocks");
-            
+            let with_blocks =
+                extract_with_blocks(&tree, &agent_dsl).expect("Should extract with blocks");
+
             assert_eq!(with_blocks.len(), 1);
             assert_eq!(with_blocks[0].timeout, expected);
         }

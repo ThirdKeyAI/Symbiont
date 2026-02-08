@@ -7,9 +7,9 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-use crate::context::AgentContext as Context;
 use super::decision::{ModelRequest, ModelResponse, RoutingContext};
 use super::error::TaskType;
+use crate::context::AgentContext as Context;
 
 /// Configuration for confidence monitoring
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]

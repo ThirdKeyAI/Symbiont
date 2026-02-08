@@ -19,7 +19,14 @@ use utoipa;
 use super::traits::RuntimeApiProvider;
 
 #[cfg(feature = "http-api")]
-use super::types::{AgentStatusResponse, CreateAgentRequest, CreateAgentResponse, DeleteAgentResponse, ErrorResponse, ExecuteAgentRequest, ExecuteAgentResponse, GetAgentHistoryResponse, UpdateAgentRequest, UpdateAgentResponse, WorkflowExecutionRequest};
+use super::types::{
+    AgentStatusResponse, CreateAgentRequest, CreateAgentResponse, CreateScheduleRequest,
+    CreateScheduleResponse, DeleteAgentResponse, DeleteScheduleResponse, ErrorResponse,
+    ExecuteAgentRequest, ExecuteAgentResponse, GetAgentHistoryResponse, NextRunsResponse,
+    ScheduleActionResponse, ScheduleDetail, ScheduleHistoryResponse, ScheduleSummary,
+    SchedulerHealthResponse, UpdateAgentRequest, UpdateAgentResponse, UpdateScheduleRequest,
+    WorkflowExecutionRequest,
+};
 
 #[cfg(feature = "http-api")]
 use crate::types::AgentId;
@@ -296,4 +303,333 @@ pub async fn get_agent_history(
             }),
         )),
     }
+}
+
+// ── Schedule / Cron endpoints ──────────────────────────────────────────
+
+/// List all scheduled jobs
+#[cfg(feature = "http-api")]
+#[utoipa::path(
+    get,
+    path = "/api/v1/schedules",
+    responses(
+        (status = 200, description = "Schedules listed", body = Vec<ScheduleSummary>),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "schedules"
+)]
+pub async fn list_schedules(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+) -> Result<Json<Vec<ScheduleSummary>>, (StatusCode, Json<ErrorResponse>)> {
+    provider.list_schedules().await.map(Json).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "LIST_SCHEDULES_FAILED".to_string(),
+                details: None,
+            }),
+        )
+    })
+}
+
+/// Create a new scheduled job
+#[cfg(feature = "http-api")]
+#[utoipa::path(
+    post,
+    path = "/api/v1/schedules",
+    request_body = CreateScheduleRequest,
+    responses(
+        (status = 201, description = "Schedule created", body = CreateScheduleResponse),
+        (status = 400, description = "Bad request", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "schedules"
+)]
+pub async fn create_schedule(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    Json(request): Json<CreateScheduleRequest>,
+) -> Result<(StatusCode, Json<CreateScheduleResponse>), (StatusCode, Json<ErrorResponse>)> {
+    provider
+        .create_schedule(request)
+        .await
+        .map(|r| (StatusCode::CREATED, Json(r)))
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                    code: "CREATE_SCHEDULE_FAILED".to_string(),
+                    details: None,
+                }),
+            )
+        })
+}
+
+/// Get details of a scheduled job
+#[cfg(feature = "http-api")]
+#[utoipa::path(
+    get,
+    path = "/api/v1/schedules/{id}",
+    params(("id" = String, Path, description = "Job UUID")),
+    responses(
+        (status = 200, description = "Schedule details", body = ScheduleDetail),
+        (status = 404, description = "Not found", body = ErrorResponse)
+    ),
+    tag = "schedules"
+)]
+pub async fn get_schedule(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    Path(id): Path<String>,
+) -> Result<Json<ScheduleDetail>, (StatusCode, Json<ErrorResponse>)> {
+    provider.get_schedule(&id).await.map(Json).map_err(|e| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "SCHEDULE_NOT_FOUND".to_string(),
+                details: None,
+            }),
+        )
+    })
+}
+
+/// Update a scheduled job
+#[cfg(feature = "http-api")]
+#[utoipa::path(
+    put,
+    path = "/api/v1/schedules/{id}",
+    params(("id" = String, Path, description = "Job UUID")),
+    request_body = UpdateScheduleRequest,
+    responses(
+        (status = 200, description = "Schedule updated", body = ScheduleDetail),
+        (status = 404, description = "Not found", body = ErrorResponse)
+    ),
+    tag = "schedules"
+)]
+pub async fn update_schedule(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    Path(id): Path<String>,
+    Json(request): Json<UpdateScheduleRequest>,
+) -> Result<Json<ScheduleDetail>, (StatusCode, Json<ErrorResponse>)> {
+    provider
+        .update_schedule(&id, request)
+        .await
+        .map(Json)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                    code: "UPDATE_SCHEDULE_FAILED".to_string(),
+                    details: None,
+                }),
+            )
+        })
+}
+
+/// Delete a scheduled job
+#[cfg(feature = "http-api")]
+#[utoipa::path(
+    delete,
+    path = "/api/v1/schedules/{id}",
+    params(("id" = String, Path, description = "Job UUID")),
+    responses(
+        (status = 200, description = "Schedule deleted", body = DeleteScheduleResponse),
+        (status = 404, description = "Not found", body = ErrorResponse)
+    ),
+    tag = "schedules"
+)]
+pub async fn delete_schedule(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    Path(id): Path<String>,
+) -> Result<Json<DeleteScheduleResponse>, (StatusCode, Json<ErrorResponse>)> {
+    provider.delete_schedule(&id).await.map(Json).map_err(|e| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "SCHEDULE_NOT_FOUND".to_string(),
+                details: None,
+            }),
+        )
+    })
+}
+
+/// Pause a scheduled job
+#[cfg(feature = "http-api")]
+#[utoipa::path(
+    post,
+    path = "/api/v1/schedules/{id}/pause",
+    params(("id" = String, Path, description = "Job UUID")),
+    responses(
+        (status = 200, description = "Schedule paused", body = ScheduleActionResponse),
+        (status = 404, description = "Not found", body = ErrorResponse)
+    ),
+    tag = "schedules"
+)]
+pub async fn pause_schedule(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    Path(id): Path<String>,
+) -> Result<Json<ScheduleActionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    provider.pause_schedule(&id).await.map(Json).map_err(|e| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "SCHEDULE_PAUSE_FAILED".to_string(),
+                details: None,
+            }),
+        )
+    })
+}
+
+/// Resume a paused scheduled job
+#[cfg(feature = "http-api")]
+#[utoipa::path(
+    post,
+    path = "/api/v1/schedules/{id}/resume",
+    params(("id" = String, Path, description = "Job UUID")),
+    responses(
+        (status = 200, description = "Schedule resumed", body = ScheduleActionResponse),
+        (status = 404, description = "Not found", body = ErrorResponse)
+    ),
+    tag = "schedules"
+)]
+pub async fn resume_schedule(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    Path(id): Path<String>,
+) -> Result<Json<ScheduleActionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    provider.resume_schedule(&id).await.map(Json).map_err(|e| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "SCHEDULE_RESUME_FAILED".to_string(),
+                details: None,
+            }),
+        )
+    })
+}
+
+/// Force-trigger a scheduled job immediately
+#[cfg(feature = "http-api")]
+#[utoipa::path(
+    post,
+    path = "/api/v1/schedules/{id}/trigger",
+    params(("id" = String, Path, description = "Job UUID")),
+    responses(
+        (status = 200, description = "Schedule triggered", body = ScheduleActionResponse),
+        (status = 404, description = "Not found", body = ErrorResponse)
+    ),
+    tag = "schedules"
+)]
+pub async fn trigger_schedule(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    Path(id): Path<String>,
+) -> Result<Json<ScheduleActionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    provider.trigger_schedule(&id).await.map(Json).map_err(|e| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "SCHEDULE_TRIGGER_FAILED".to_string(),
+                details: None,
+            }),
+        )
+    })
+}
+
+/// Get run history for a scheduled job
+#[cfg(feature = "http-api")]
+#[utoipa::path(
+    get,
+    path = "/api/v1/schedules/{id}/history",
+    params(("id" = String, Path, description = "Job UUID")),
+    responses(
+        (status = 200, description = "Schedule history", body = ScheduleHistoryResponse),
+        (status = 404, description = "Not found", body = ErrorResponse)
+    ),
+    tag = "schedules"
+)]
+pub async fn get_schedule_history(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    Path(id): Path<String>,
+) -> Result<Json<ScheduleHistoryResponse>, (StatusCode, Json<ErrorResponse>)> {
+    provider
+        .get_schedule_history(&id, 50)
+        .await
+        .map(Json)
+        .map_err(|e| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                    code: "SCHEDULE_HISTORY_FAILED".to_string(),
+                    details: None,
+                }),
+            )
+        })
+}
+
+/// Get next N run times for a scheduled job
+#[cfg(feature = "http-api")]
+#[utoipa::path(
+    get,
+    path = "/api/v1/schedules/{id}/next-runs",
+    params(("id" = String, Path, description = "Job UUID")),
+    responses(
+        (status = 200, description = "Next runs", body = NextRunsResponse),
+        (status = 404, description = "Not found", body = ErrorResponse)
+    ),
+    tag = "schedules"
+)]
+pub async fn get_schedule_next_runs(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    Path(id): Path<String>,
+) -> Result<Json<NextRunsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    provider
+        .get_schedule_next_runs(&id, 10)
+        .await
+        .map(Json)
+        .map_err(|e| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                    code: "SCHEDULE_NEXT_RUNS_FAILED".to_string(),
+                    details: None,
+                }),
+            )
+        })
+}
+
+/// Get scheduler health and metrics
+#[cfg(feature = "http-api")]
+#[utoipa::path(
+    get,
+    path = "/api/v1/health/scheduler",
+    responses(
+        (status = 200, description = "Scheduler health", body = SchedulerHealthResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "system"
+)]
+pub async fn get_scheduler_health(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+) -> Result<Json<SchedulerHealthResponse>, (StatusCode, Json<ErrorResponse>)> {
+    provider
+        .get_scheduler_health()
+        .await
+        .map(Json)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                    code: "SCHEDULER_HEALTH_FAILED".to_string(),
+                    details: None,
+                }),
+            )
+        })
 }

@@ -1,10 +1,13 @@
 use super::*;
-use crate::runtime_bridge::RuntimeBridge;
+use crate::dsl::ast::{AgentDefinition, AgentMetadata, SourceLocation, Span};
+use crate::dsl::evaluator::AgentState;
+use crate::dsl::evaluator::{
+    builtin_len, builtin_lower, builtin_upper, DslEvaluator, DslValue, ExecutionContext,
+    ExecutionResult,
+};
 use crate::dsl::lexer::{Lexer, TokenType};
 use crate::dsl::parser::Parser;
-use crate::dsl::evaluator::{DslEvaluator, DslValue, ExecutionContext, ExecutionResult, builtin_len, builtin_upper, builtin_lower};
-use crate::dsl::ast::{SourceLocation, Span, AgentDefinition, AgentMetadata};
-use crate::dsl::evaluator::AgentState;
+use crate::runtime_bridge::RuntimeBridge;
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -20,12 +23,15 @@ mod tests {
     async fn test_lexer_basic_tokens() {
         let input = "agent test_agent {}";
         let mut lexer = Lexer::new(input);
-        
+
         let tokens = lexer.tokenize().unwrap();
         assert!(!tokens.is_empty());
-        
+
         if let Some(first_token) = tokens.get(0) {
-            assert_eq!(first_token.token_type, TokenType::Keyword(crate::dsl::lexer::Keyword::Agent));
+            assert_eq!(
+                first_token.token_type,
+                TokenType::Keyword(crate::dsl::lexer::Keyword::Agent)
+            );
         }
     }
 
@@ -35,20 +41,20 @@ mod tests {
             agent test_agent {
             }
         "#;
-        
+
         let mut lexer = Lexer::new(input);
         let tokens = lexer.tokenize().unwrap();
         let mut parser = Parser::new(tokens);
-        
+
         let program = parser.parse();
         if let Err(ref e) = program {
             println!("Parser error: {:?}", e);
         }
         assert!(program.is_ok());
-        
+
         let program = program.unwrap();
         assert_eq!(program.declarations.len(), 1);
-        
+
         if let Declaration::Agent(agent) = &program.declarations[0] {
             assert_eq!(agent.name, "test_agent");
         } else {
@@ -103,7 +109,7 @@ mod tests {
     #[tokio::test]
     async fn test_agent_lifecycle() {
         let evaluator = create_test_evaluator();
-        
+
         // Create a simple agent definition
         let agent_def = AgentDefinition {
             name: "test_agent".to_string(),
@@ -117,8 +123,16 @@ mod tests {
             security: None,
             policies: None,
             span: Span {
-                start: SourceLocation { line: 1, column: 1, offset: 0 },
-                end: SourceLocation { line: 1, column: 1, offset: 0 }
+                start: SourceLocation {
+                    line: 1,
+                    column: 1,
+                    offset: 0,
+                },
+                end: SourceLocation {
+                    line: 1,
+                    column: 1,
+                    offset: 0,
+                },
             },
         };
 
@@ -143,9 +157,11 @@ mod tests {
     #[tokio::test]
     async fn test_execution_context() {
         let mut context = ExecutionContext::default();
-        
+
         // Test variable storage
-        context.variables.insert("test_var".to_string(), DslValue::Number(42.0));
+        context
+            .variables
+            .insert("test_var".to_string(), DslValue::Number(42.0));
         let retrieved = context.variables.get("test_var");
         assert!(retrieved.is_some());
         assert_eq!(*retrieved.unwrap(), DslValue::Number(42.0));
@@ -158,7 +174,7 @@ mod tests {
     #[tokio::test]
     async fn test_literal_evaluation() {
         let evaluator = create_test_evaluator();
-        
+
         // Test string literal
         let literal = Literal::String("hello".to_string());
         let result = evaluator.evaluate_literal(&literal);
@@ -182,7 +198,7 @@ mod tests {
     async fn test_snapshot_creation() {
         let evaluator = create_test_evaluator();
         let snapshot = evaluator.create_snapshot().await;
-        
+
         assert!(snapshot.data.is_object());
         assert!(snapshot.data.get("agents").is_some());
         assert!(snapshot.data.get("context").is_some());

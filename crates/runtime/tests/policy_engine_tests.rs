@@ -6,11 +6,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
+use async_trait::async_trait;
 use symbi_runtime::integrations::policy_engine::types::AccessResult;
 use symbi_runtime::integrations::policy_engine::*;
-use symbi_runtime::secrets::{SecretStore, Secret, SecretError};
+use symbi_runtime::secrets::{Secret, SecretError, SecretStore};
 use symbi_runtime::types::*;
-use async_trait::async_trait;
 
 /// Helper function to create test agent metadata
 fn create_test_agent_metadata() -> AgentMetadata {
@@ -519,7 +519,6 @@ async fn test_error_handling() {
     assert!(decision.is_ok() || decision.is_err()); // Either result is acceptable for mock
 }
 
-
 /// Mock SecretStore for testing secret requirements
 #[derive(Debug, Clone)]
 pub struct MockSecretStore {
@@ -586,8 +585,10 @@ impl SecretStore for MockSecretStore {
 
 #[tokio::test]
 async fn test_policy_with_secret_requirement_success() {
-    use symbi_runtime::integrations::policy_engine::{DefaultPolicyEnforcementPoint, ResourceAccessConfig};
-    
+    use symbi_runtime::integrations::policy_engine::{
+        DefaultPolicyEnforcementPoint, ResourceAccessConfig,
+    };
+
     let config = ResourceAccessConfig::default();
     let mut enforcement_point = DefaultPolicyEnforcementPoint::new(config).await.unwrap();
 
@@ -611,13 +612,18 @@ async fn test_policy_with_secret_requirement_success() {
 
     // For this simplified test, we just verify it doesn't error
     // In a full implementation, we would test the secret validation logic
-    assert!(matches!(decision.decision, AccessResult::Allow | AccessResult::Deny));
+    assert!(matches!(
+        decision.decision,
+        AccessResult::Allow | AccessResult::Deny
+    ));
 }
 
 #[tokio::test]
 async fn test_policy_with_secret_requirement_not_found() {
-    use symbi_runtime::integrations::policy_engine::{DefaultPolicyEnforcementPoint, ResourceAccessConfig};
-    
+    use symbi_runtime::integrations::policy_engine::{
+        DefaultPolicyEnforcementPoint, ResourceAccessConfig,
+    };
+
     let config = ResourceAccessConfig::default();
     let mut enforcement_point = DefaultPolicyEnforcementPoint::new(config).await.unwrap();
 
@@ -640,5 +646,8 @@ async fn test_policy_with_secret_requirement_not_found() {
         .unwrap();
 
     // For this simplified test, we just verify it doesn't error
-    assert!(matches!(decision.decision, AccessResult::Allow | AccessResult::Deny));
+    assert!(matches!(
+        decision.decision,
+        AccessResult::Allow | AccessResult::Deny
+    ));
 }

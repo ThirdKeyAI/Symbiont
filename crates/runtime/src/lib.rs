@@ -24,11 +24,19 @@ pub mod types;
 pub mod api;
 
 #[cfg(feature = "http-api")]
-use api::types::{AgentStatusResponse, CreateAgentRequest, CreateAgentResponse, DeleteAgentResponse, ExecuteAgentRequest, ExecuteAgentResponse, GetAgentHistoryResponse, UpdateAgentRequest, UpdateAgentResponse, WorkflowExecutionRequest};
-#[cfg(feature = "http-api")]
 use api::traits::RuntimeApiProvider;
 #[cfg(feature = "http-api")]
+use api::types::{
+    AgentStatusResponse, CreateAgentRequest, CreateAgentResponse, CreateScheduleRequest,
+    CreateScheduleResponse, DeleteAgentResponse, DeleteScheduleResponse, ExecuteAgentRequest,
+    ExecuteAgentResponse, GetAgentHistoryResponse, NextRunsResponse, ScheduleActionResponse,
+    ScheduleDetail, ScheduleHistoryResponse, ScheduleSummary, UpdateAgentRequest,
+    UpdateAgentResponse, UpdateScheduleRequest, WorkflowExecutionRequest,
+};
+#[cfg(feature = "http-api")]
 use async_trait::async_trait;
+#[cfg(feature = "http-api")]
+use std::time::SystemTime;
 
 #[cfg(feature = "http-input")]
 pub mod http_input;
@@ -39,17 +47,38 @@ pub use config::SecurityConfig;
 pub use context::{ContextManager, ContextManagerConfig, StandardContextManager};
 pub use error_handler::{DefaultErrorHandler, ErrorHandler, ErrorHandlerConfig};
 pub use lifecycle::{DefaultLifecycleController, LifecycleConfig, LifecycleController};
-pub use logging::{ModelLogger, LoggingConfig, ModelInteractionType, RequestData, ResponseData};
+pub use logging::{LoggingConfig, ModelInteractionType, ModelLogger, RequestData, ResponseData};
 pub use models::{ModelCatalog, ModelCatalogError, SlmRunner, SlmRunnerError};
 pub use resource::{DefaultResourceManager, ResourceManager, ResourceManagerConfig};
-pub use routing::{RoutingEngine, DefaultRoutingEngine, RoutingConfig, RouteDecision, RoutingContext, TaskType};
+pub use routing::{
+    DefaultRoutingEngine, RouteDecision, RoutingConfig, RoutingContext, RoutingEngine, TaskType,
+};
 pub use sandbox::{E2BSandbox, ExecutionResult, SandboxRunner, SandboxTier};
+#[cfg(feature = "cron")]
+pub use scheduler::{
+    cron_scheduler::{
+        CronMetrics, CronScheduler, CronSchedulerConfig, CronSchedulerError, CronSchedulerHealth,
+    },
+    cron_types::{
+        AuditLevel, CronJobDefinition, CronJobId, CronJobStatus, DeliveryChannel, DeliveryConfig,
+        DeliveryReceipt, JobRunRecord, JobRunStatus,
+    },
+    delivery::{CustomDeliveryHandler, DefaultDeliveryRouter, DeliveryResult, DeliveryRouter},
+    heartbeat::{
+        HeartbeatAssessment, HeartbeatConfig, HeartbeatContextMode, HeartbeatSeverity,
+        HeartbeatState,
+    },
+    job_store::{JobStore, JobStoreError, SqliteJobStore},
+    policy_gate::{
+        PolicyGate, ScheduleContext, SchedulePolicyCondition, SchedulePolicyDecision,
+        SchedulePolicyEffect, SchedulePolicyRule,
+    },
+};
 pub use scheduler::{AgentScheduler, DefaultAgentScheduler, SchedulerConfig};
 pub use secrets::{SecretStore, SecretsConfig};
 pub use types::*;
 
 use std::sync::Arc;
-use std::time::SystemTime;
 use tokio::sync::RwLock;
 
 /// Main Agent Runtime System
@@ -105,12 +134,18 @@ impl AgentRuntime {
         let context_manager = Arc::new(
             context::StandardContextManager::new(
                 config.read().await.context_manager.clone(),
-                "runtime-system"
-            ).await.map_err(|e| RuntimeError::Internal(format!("Failed to create context manager: {}", e)))?
+                "runtime-system",
+            )
+            .await
+            .map_err(|e| {
+                RuntimeError::Internal(format!("Failed to create context manager: {}", e))
+            })?,
         );
 
         // Initialize context manager
-        context_manager.initialize().await.map_err(|e| RuntimeError::Internal(format!("Failed to initialize context manager: {}", e)))?;
+        context_manager.initialize().await.map_err(|e| {
+            RuntimeError::Internal(format!("Failed to initialize context manager: {}", e))
+        })?;
 
         // Initialize model logger if enabled
         let model_logger = if config.read().await.logging.enabled {
@@ -135,7 +170,10 @@ impl AgentRuntime {
             if slm_config.enabled {
                 match models::ModelCatalog::new(slm_config.clone()) {
                     Ok(catalog) => {
-                        tracing::info!("Model catalog initialized with {} models", catalog.list_models().len());
+                        tracing::info!(
+                            "Model catalog initialized with {} models",
+                            catalog.list_models().len()
+                        );
                         Some(Arc::new(catalog))
                     }
                     Err(e) => {
@@ -179,7 +217,7 @@ impl AgentRuntime {
     /// Shutdown the runtime system gracefully
     pub async fn shutdown(&self) -> Result<(), RuntimeError> {
         tracing::info!("Starting Agent Runtime shutdown sequence");
-        
+
         // Shutdown components in reverse order of initialization
         self.lifecycle
             .shutdown()
@@ -201,12 +239,11 @@ impl AgentRuntime {
             .shutdown()
             .await
             .map_err(RuntimeError::ErrorHandler)?;
-        
+
         // Shutdown context manager last to ensure all contexts are saved
-        self.context_manager
-            .shutdown()
-            .await
-            .map_err(|e| RuntimeError::Internal(format!("Context manager shutdown failed: {}", e)))?;
+        self.context_manager.shutdown().await.map_err(|e| {
+            RuntimeError::Internal(format!("Context manager shutdown failed: {}", e))
+        })?;
 
         tracing::info!("Agent Runtime shutdown completed successfully");
         Ok(())
@@ -251,18 +288,23 @@ impl RuntimeApiProvider for AgentRuntime {
 
             // Extract metadata from the parsed workflow
             let metadata = dsl::extract_metadata(&parsed_tree, workflow_dsl);
-            
+
             // Check for parsing errors
             let root_node = parsed_tree.root_node();
             if root_node.has_error() {
-                return Err(RuntimeError::Internal("DSL contains syntax errors".to_string()));
+                return Err(RuntimeError::Internal(
+                    "DSL contains syntax errors".to_string(),
+                ));
             }
 
             // Create agent configuration from the workflow
             let agent_id = request.agent_id.unwrap_or_default();
             let agent_config = AgentConfig {
                 id: agent_id,
-                name: metadata.get("name").cloned().unwrap_or_else(|| "workflow_agent".to_string()),
+                name: metadata
+                    .get("name")
+                    .cloned()
+                    .unwrap_or_else(|| "workflow_agent".to_string()),
                 dsl_source: workflow_dsl.to_string(),
                 execution_mode: ExecutionMode::Ephemeral,
                 security_tier: SecurityTier::Tier1,
@@ -277,17 +319,18 @@ impl RuntimeApiProvider for AgentRuntime {
         };
 
         // Step 2: Schedule the agent for execution
-        let scheduled_agent_id = self.scheduler
+        let scheduled_agent_id = self
+            .scheduler
             .schedule_agent(agent_config)
             .await
             .map_err(RuntimeError::Scheduler)?;
 
         // Step 3: Wait briefly and check initial status (simple implementation)
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        
+
         // Step 4: Collect basic execution information
         let system_status = self.scheduler.get_system_status().await;
-        
+
         // Step 5: Prepare and return result
         let mut result = serde_json::json!({
             "status": "success",
@@ -312,7 +355,10 @@ impl RuntimeApiProvider for AgentRuntime {
             result["parameters"] = request.parameters;
         }
 
-        tracing::info!("Workflow execution initiated for agent: {}", scheduled_agent_id);
+        tracing::info!(
+            "Workflow execution initiated for agent: {}",
+            scheduled_agent_id
+        );
         Ok(result)
     }
 
@@ -324,8 +370,9 @@ impl RuntimeApiProvider for AgentRuntime {
         match self.scheduler.get_agent_status(agent_id).await {
             Ok(agent_status) => {
                 // Convert SystemTime to DateTime<Utc>
-                let last_activity = chrono::DateTime::<chrono::Utc>::from(agent_status.last_activity);
-                
+                let last_activity =
+                    chrono::DateTime::<chrono::Utc>::from(agent_status.last_activity);
+
                 Ok(AgentStatusResponse {
                     agent_id: agent_status.agent_id,
                     state: agent_status.state,
@@ -336,27 +383,40 @@ impl RuntimeApiProvider for AgentRuntime {
                         active_tasks: agent_status.active_tasks,
                     },
                 })
-            },
+            }
             Err(scheduler_error) => {
-                tracing::warn!("Failed to get agent status for {}: {}", agent_id, scheduler_error);
-                Err(RuntimeError::Internal(format!("Agent {} not found", agent_id)))
+                tracing::warn!(
+                    "Failed to get agent status for {}: {}",
+                    agent_id,
+                    scheduler_error
+                );
+                Err(RuntimeError::Internal(format!(
+                    "Agent {} not found",
+                    agent_id
+                )))
             }
         }
     }
 
     async fn get_system_health(&self) -> Result<serde_json::Value, RuntimeError> {
         // Check health of all components
-        let scheduler_health = self.scheduler.check_health().await
-            .map_err(|e| RuntimeError::Internal(format!("Scheduler health check failed: {}", e)))?;
-        
-        let lifecycle_health = self.lifecycle.check_health().await
-            .map_err(|e| RuntimeError::Internal(format!("Lifecycle health check failed: {}", e)))?;
-        
-        let resource_health = self.resource_manager.check_health().await
-            .map_err(|e| RuntimeError::Internal(format!("Resource manager health check failed: {}", e)))?;
-        
-        let communication_health = self.communication.check_health().await
-            .map_err(|e| RuntimeError::Internal(format!("Communication health check failed: {}", e)))?;
+        let scheduler_health =
+            self.scheduler.check_health().await.map_err(|e| {
+                RuntimeError::Internal(format!("Scheduler health check failed: {}", e))
+            })?;
+
+        let lifecycle_health =
+            self.lifecycle.check_health().await.map_err(|e| {
+                RuntimeError::Internal(format!("Lifecycle health check failed: {}", e))
+            })?;
+
+        let resource_health = self.resource_manager.check_health().await.map_err(|e| {
+            RuntimeError::Internal(format!("Resource manager health check failed: {}", e))
+        })?;
+
+        let communication_health = self.communication.check_health().await.map_err(|e| {
+            RuntimeError::Internal(format!("Communication health check failed: {}", e))
+        })?;
 
         // Determine overall system status
         let component_healths = vec![
@@ -366,9 +426,15 @@ impl RuntimeApiProvider for AgentRuntime {
             ("communication", &communication_health),
         ];
 
-        let overall_status = if component_healths.iter().all(|(_, h)| h.status == HealthStatus::Healthy) {
+        let overall_status = if component_healths
+            .iter()
+            .all(|(_, h)| h.status == HealthStatus::Healthy)
+        {
             "healthy"
-        } else if component_healths.iter().any(|(_, h)| h.status == HealthStatus::Unhealthy) {
+        } else if component_healths
+            .iter()
+            .any(|(_, h)| h.status == HealthStatus::Unhealthy)
+        {
             "unhealthy"
         } else {
             "degraded"
@@ -438,11 +504,15 @@ impl RuntimeApiProvider for AgentRuntime {
     ) -> Result<CreateAgentResponse, RuntimeError> {
         // Validate input
         if request.name.is_empty() {
-            return Err(RuntimeError::Internal("Agent name cannot be empty".to_string()));
+            return Err(RuntimeError::Internal(
+                "Agent name cannot be empty".to_string(),
+            ));
         }
-        
+
         if request.dsl.is_empty() {
-            return Err(RuntimeError::Internal("Agent DSL cannot be empty".to_string()));
+            return Err(RuntimeError::Internal(
+                "Agent DSL cannot be empty".to_string(),
+            ));
         }
 
         // Create agent configuration
@@ -461,7 +531,8 @@ impl RuntimeApiProvider for AgentRuntime {
         };
 
         // Schedule the agent for execution
-        let scheduled_agent_id = self.scheduler
+        let scheduled_agent_id = self
+            .scheduler
             .schedule_agent(agent_config)
             .await
             .map_err(RuntimeError::Scheduler)?;
@@ -481,19 +552,25 @@ impl RuntimeApiProvider for AgentRuntime {
     ) -> Result<UpdateAgentResponse, RuntimeError> {
         // Validate that at least one field is provided for update
         if request.name.is_none() && request.dsl.is_none() {
-            return Err(RuntimeError::Internal("At least one field (name or dsl) must be provided for update".to_string()));
+            return Err(RuntimeError::Internal(
+                "At least one field (name or dsl) must be provided for update".to_string(),
+            ));
         }
-        
+
         // Validate optional fields if provided
         if let Some(ref name) = request.name {
             if name.is_empty() {
-                return Err(RuntimeError::Internal("Agent name cannot be empty".to_string()));
+                return Err(RuntimeError::Internal(
+                    "Agent name cannot be empty".to_string(),
+                ));
             }
         }
-        
+
         if let Some(ref dsl) = request.dsl {
             if dsl.is_empty() {
-                return Err(RuntimeError::Internal("Agent DSL cannot be empty".to_string()));
+                return Err(RuntimeError::Internal(
+                    "Agent DSL cannot be empty".to_string(),
+                ));
             }
         }
 
@@ -511,12 +588,9 @@ impl RuntimeApiProvider for AgentRuntime {
         })
     }
 
-    async fn delete_agent(
-        &self,
-        agent_id: AgentId,
-    ) -> Result<DeleteAgentResponse, RuntimeError> {
+    async fn delete_agent(&self, agent_id: AgentId) -> Result<DeleteAgentResponse, RuntimeError> {
         // Placeholder implementation - validate input and return success
-        
+
         Ok(DeleteAgentResponse {
             id: agent_id.to_string(),
             status: "deleted".to_string(),
@@ -530,11 +604,16 @@ impl RuntimeApiProvider for AgentRuntime {
     ) -> Result<ExecuteAgentResponse, RuntimeError> {
         let status = self.get_agent_status(agent_id).await?;
         if status.state != AgentState::Running {
-            self.lifecycle.start_agent(agent_id).await.map_err(RuntimeError::Lifecycle)?;
+            self.lifecycle
+                .start_agent(agent_id)
+                .await
+                .map_err(RuntimeError::Lifecycle)?;
         }
         let execution_id = uuid::Uuid::new_v4().to_string();
         let payload = types::EncryptedPayload {
-            data: serde_json::to_vec(&request).map_err(|e| RuntimeError::Internal(e.to_string()))?.into(),
+            data: serde_json::to_vec(&request)
+                .map_err(|e| RuntimeError::Internal(e.to_string()))?
+                .into(),
             encryption_algorithm: types::EncryptionAlgorithm::None,
             nonce: vec![],
         };
@@ -554,7 +633,10 @@ impl RuntimeApiProvider for AgentRuntime {
             ttl: std::time::Duration::from_secs(300),
             message_type: types::MessageType::Direct(agent_id),
         };
-        self.communication.send_message(message).await.map_err(RuntimeError::Communication)?;
+        self.communication
+            .send_message(message)
+            .await
+            .map_err(RuntimeError::Communication)?;
         Ok(ExecuteAgentResponse {
             execution_id,
             status: "execution_started".to_string(),
@@ -568,5 +650,107 @@ impl RuntimeApiProvider for AgentRuntime {
         // For now, return empty history as the model logger API is not yet implemented
         let history = vec![];
         Ok(GetAgentHistoryResponse { history })
+    }
+
+    // ── Schedule endpoints ──────────────────────────────────────────
+
+    async fn list_schedules(&self) -> Result<Vec<ScheduleSummary>, RuntimeError> {
+        Err(RuntimeError::Internal(
+            "Schedule API requires a running CronScheduler (use `symbi up` with --features cron)"
+                .to_string(),
+        ))
+    }
+
+    async fn create_schedule(
+        &self,
+        _request: CreateScheduleRequest,
+    ) -> Result<CreateScheduleResponse, RuntimeError> {
+        Err(RuntimeError::Internal(
+            "Schedule API requires a running CronScheduler".to_string(),
+        ))
+    }
+
+    async fn get_schedule(&self, _job_id: &str) -> Result<ScheduleDetail, RuntimeError> {
+        Err(RuntimeError::Internal(
+            "Schedule API requires a running CronScheduler".to_string(),
+        ))
+    }
+
+    async fn update_schedule(
+        &self,
+        _job_id: &str,
+        _request: UpdateScheduleRequest,
+    ) -> Result<ScheduleDetail, RuntimeError> {
+        Err(RuntimeError::Internal(
+            "Schedule API requires a running CronScheduler".to_string(),
+        ))
+    }
+
+    async fn delete_schedule(&self, _job_id: &str) -> Result<DeleteScheduleResponse, RuntimeError> {
+        Err(RuntimeError::Internal(
+            "Schedule API requires a running CronScheduler".to_string(),
+        ))
+    }
+
+    async fn pause_schedule(&self, _job_id: &str) -> Result<ScheduleActionResponse, RuntimeError> {
+        Err(RuntimeError::Internal(
+            "Schedule API requires a running CronScheduler".to_string(),
+        ))
+    }
+
+    async fn resume_schedule(&self, _job_id: &str) -> Result<ScheduleActionResponse, RuntimeError> {
+        Err(RuntimeError::Internal(
+            "Schedule API requires a running CronScheduler".to_string(),
+        ))
+    }
+
+    async fn trigger_schedule(
+        &self,
+        _job_id: &str,
+    ) -> Result<ScheduleActionResponse, RuntimeError> {
+        Err(RuntimeError::Internal(
+            "Schedule API requires a running CronScheduler".to_string(),
+        ))
+    }
+
+    async fn get_schedule_history(
+        &self,
+        _job_id: &str,
+        _limit: usize,
+    ) -> Result<ScheduleHistoryResponse, RuntimeError> {
+        Err(RuntimeError::Internal(
+            "Schedule API requires a running CronScheduler".to_string(),
+        ))
+    }
+
+    async fn get_schedule_next_runs(
+        &self,
+        _job_id: &str,
+        _count: usize,
+    ) -> Result<NextRunsResponse, RuntimeError> {
+        Err(RuntimeError::Internal(
+            "Schedule API requires a running CronScheduler".to_string(),
+        ))
+    }
+
+    async fn get_scheduler_health(
+        &self,
+    ) -> Result<api::types::SchedulerHealthResponse, RuntimeError> {
+        // Without a CronScheduler instance, return a minimal response.
+        Ok(api::types::SchedulerHealthResponse {
+            is_running: false,
+            store_accessible: false,
+            jobs_total: 0,
+            jobs_active: 0,
+            jobs_paused: 0,
+            jobs_dead_letter: 0,
+            global_active_runs: 0,
+            max_concurrent: 0,
+            runs_total: 0,
+            runs_succeeded: 0,
+            runs_failed: 0,
+            average_execution_time_ms: 0.0,
+            longest_run_ms: 0,
+        })
     }
 }

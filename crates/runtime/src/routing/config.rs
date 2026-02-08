@@ -1,11 +1,11 @@
 //! Configuration types for the routing module
 
+use super::decision::{LLMProvider, MonitoringLevel, SecurityLevel};
+use super::error::TaskType;
+use crate::config::ResourceConstraints;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
-use crate::config::ResourceConstraints;
-use super::decision::{LLMProvider, MonitoringLevel, SecurityLevel};
-use super::error::TaskType;
 
 /// Complete routing configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,9 +95,7 @@ pub enum RouteAction {
         model: Option<String>,
     },
     /// Deny request
-    Deny {
-        reason: String,
-    },
+    Deny { reason: String },
 }
 
 /// Model preference for SLM selection
@@ -114,18 +112,10 @@ pub enum ModelPreference {
 }
 
 /// Action extensions for additional routing configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ActionExtension {
     /// Preferred sandbox tier for execution
     pub sandbox: Option<String>,
-}
-
-impl Default for ActionExtension {
-    fn default() -> Self {
-        Self {
-            sandbox: None,
-        }
-    }
 }
 
 /// Fallback configuration for LLM providers
@@ -198,32 +188,38 @@ pub struct ClassificationPattern {
 impl Default for RoutingConfig {
     fn default() -> Self {
         let mut llm_providers = HashMap::new();
-        
-        llm_providers.insert("openai".to_string(), LLMProviderConfig {
-            api_key_env: "OPENAI_API_KEY".to_string(),
-            base_url: "https://api.openai.com/v1".to_string(),
-            default_model: "gpt-3.5-turbo".to_string(),
-            timeout: Duration::from_secs(60),
-            max_retries: 3,
-            rate_limit: Some(RateLimitConfig {
-                requests_per_minute: 60,
-                tokens_per_minute: Some(10000),
-                burst_allowance: Some(10),
-            }),
-        });
-        
-        llm_providers.insert("anthropic".to_string(), LLMProviderConfig {
-            api_key_env: "ANTHROPIC_API_KEY".to_string(),
-            base_url: "https://api.anthropic.com".to_string(),
-            default_model: "claude-3-sonnet-20240229".to_string(),
-            timeout: Duration::from_secs(60),
-            max_retries: 3,
-            rate_limit: Some(RateLimitConfig {
-                requests_per_minute: 60,
-                tokens_per_minute: Some(10000),
-                burst_allowance: Some(10),
-            }),
-        });
+
+        llm_providers.insert(
+            "openai".to_string(),
+            LLMProviderConfig {
+                api_key_env: "OPENAI_API_KEY".to_string(),
+                base_url: "https://api.openai.com/v1".to_string(),
+                default_model: "gpt-3.5-turbo".to_string(),
+                timeout: Duration::from_secs(60),
+                max_retries: 3,
+                rate_limit: Some(RateLimitConfig {
+                    requests_per_minute: 60,
+                    tokens_per_minute: Some(10000),
+                    burst_allowance: Some(10),
+                }),
+            },
+        );
+
+        llm_providers.insert(
+            "anthropic".to_string(),
+            LLMProviderConfig {
+                api_key_env: "ANTHROPIC_API_KEY".to_string(),
+                base_url: "https://api.anthropic.com".to_string(),
+                default_model: "claude-3-sonnet-20240229".to_string(),
+                timeout: Duration::from_secs(60),
+                max_retries: 3,
+                rate_limit: Some(RateLimitConfig {
+                    requests_per_minute: 60,
+                    tokens_per_minute: Some(10000),
+                    burst_allowance: Some(10),
+                }),
+            },
+        );
 
         Self {
             enabled: true,
@@ -262,15 +258,18 @@ impl Default for GlobalRoutingSettings {
 impl Default for FallbackConfig {
     fn default() -> Self {
         let mut providers = HashMap::new();
-        providers.insert("primary".to_string(), LLMProviderConfig {
-            api_key_env: "OPENAI_API_KEY".to_string(),
-            base_url: "https://api.openai.com/v1".to_string(),
-            default_model: "gpt-3.5-turbo".to_string(),
-            timeout: Duration::from_secs(60),
-            max_retries: 3,
-            rate_limit: None,
-        });
-        
+        providers.insert(
+            "primary".to_string(),
+            LLMProviderConfig {
+                api_key_env: "OPENAI_API_KEY".to_string(),
+                base_url: "https://api.openai.com/v1".to_string(),
+                default_model: "gpt-3.5-turbo".to_string(),
+                timeout: Duration::from_secs(60),
+                max_retries: 3,
+                rate_limit: None,
+            },
+        );
+
         Self {
             enabled: true,
             max_attempts: 3,
@@ -283,24 +282,53 @@ impl Default for FallbackConfig {
 impl Default for TaskClassificationConfig {
     fn default() -> Self {
         let mut patterns = HashMap::new();
-        
-        patterns.insert(TaskType::Intent, ClassificationPattern {
-            keywords: vec!["intent".to_string(), "intention".to_string(), "purpose".to_string()],
-            patterns: vec![r"what.*intent".to_string(), r"user.*wants".to_string()],
-            weight: 1.0,
-        });
-        
-        patterns.insert(TaskType::CodeGeneration, ClassificationPattern {
-            keywords: vec!["code".to_string(), "function".to_string(), "implement".to_string(), "generate".to_string()],
-            patterns: vec![r"write.*code".to_string(), r"implement.*function".to_string()],
-            weight: 1.0,
-        });
-        
-        patterns.insert(TaskType::Analysis, ClassificationPattern {
-            keywords: vec!["analyze".to_string(), "analysis".to_string(), "examine".to_string(), "review".to_string()],
-            patterns: vec![r"analyze.*data".to_string(), r"perform.*analysis".to_string()],
-            weight: 1.0,
-        });
+
+        patterns.insert(
+            TaskType::Intent,
+            ClassificationPattern {
+                keywords: vec![
+                    "intent".to_string(),
+                    "intention".to_string(),
+                    "purpose".to_string(),
+                ],
+                patterns: vec![r"what.*intent".to_string(), r"user.*wants".to_string()],
+                weight: 1.0,
+            },
+        );
+
+        patterns.insert(
+            TaskType::CodeGeneration,
+            ClassificationPattern {
+                keywords: vec![
+                    "code".to_string(),
+                    "function".to_string(),
+                    "implement".to_string(),
+                    "generate".to_string(),
+                ],
+                patterns: vec![
+                    r"write.*code".to_string(),
+                    r"implement.*function".to_string(),
+                ],
+                weight: 1.0,
+            },
+        );
+
+        patterns.insert(
+            TaskType::Analysis,
+            ClassificationPattern {
+                keywords: vec![
+                    "analyze".to_string(),
+                    "analysis".to_string(),
+                    "examine".to_string(),
+                    "review".to_string(),
+                ],
+                patterns: vec![
+                    r"analyze.*data".to_string(),
+                    r"perform.*analysis".to_string(),
+                ],
+                weight: 1.0,
+            },
+        );
 
         Self {
             enabled: true,
@@ -320,21 +348,21 @@ impl RoutingRule {
                 return false;
             }
         }
-        
+
         // Check agent IDs
         if let Some(ref agent_ids) = self.conditions.agent_ids {
             if !agent_ids.contains(&context.agent_id.to_string()) {
                 return false;
             }
         }
-        
+
         // Check security level
         if let Some(ref required_level) = self.conditions.security_level {
             if context.agent_security_level < *required_level {
                 return false;
             }
         }
-        
+
         // Check resource constraints
         if let Some(ref rule_constraints) = self.conditions.resource_constraints {
             if let Some(ref context_limits) = context.resource_limits {
@@ -343,7 +371,7 @@ impl RoutingRule {
                 }
             }
         }
-        
+
         // Implement custom condition evaluation
         if let Some(ref custom_conditions) = self.conditions.custom_conditions {
             for condition_expr in custom_conditions {
@@ -352,15 +380,19 @@ impl RoutingRule {
                 }
             }
         }
-        
+
         true
     }
 
     /// Evaluate a custom condition expression
-    fn evaluate_custom_condition(&self, condition_expr: &str, context: &super::decision::RoutingContext) -> bool {
+    fn evaluate_custom_condition(
+        &self,
+        condition_expr: &str,
+        context: &super::decision::RoutingContext,
+    ) -> bool {
         // Simple expression evaluator for basic conditions
         // In a real implementation, this could use a proper expression parser
-        
+
         // Handle common condition patterns
         if condition_expr.contains("agent_id") {
             if let Some(expected_id) = condition_expr.strip_prefix("agent_id == ") {
@@ -368,30 +400,30 @@ impl RoutingRule {
                 return context.agent_id.to_string() == expected_id;
             }
         }
-        
+
         if condition_expr.contains("task_type") {
             if let Some(expected_type) = condition_expr.strip_prefix("task_type == ") {
                 let expected_type = expected_type.trim_matches('"');
-                return format!("{:?}", context.task_type).to_lowercase().contains(&expected_type.to_lowercase());
+                return format!("{:?}", context.task_type)
+                    .to_lowercase()
+                    .contains(&expected_type.to_lowercase());
             }
         }
-        
-        if condition_expr.contains("security_level") {
-            if condition_expr.contains(">=") {
-                if let Some(level_str) = condition_expr.strip_prefix("security_level >= ") {
-                    if let Ok(required_level) = level_str.trim().parse::<u8>() {
-                        let current_level = match context.agent_security_level {
-                            SecurityLevel::Low => 1,
-                            SecurityLevel::Medium => 2,
-                            SecurityLevel::High => 3,
-                            SecurityLevel::Critical => 4,
-                        };
-                        return current_level >= required_level;
-                    }
+
+        if condition_expr.contains("security_level") && condition_expr.contains(">=") {
+            if let Some(level_str) = condition_expr.strip_prefix("security_level >= ") {
+                if let Ok(required_level) = level_str.trim().parse::<u8>() {
+                    let current_level = match context.agent_security_level {
+                        SecurityLevel::Low => 1,
+                        SecurityLevel::Medium => 2,
+                        SecurityLevel::High => 3,
+                        SecurityLevel::Critical => 4,
+                    };
+                    return current_level >= required_level;
                 }
             }
         }
-        
+
         if condition_expr.contains("memory_limit") {
             if let Some(ref resource_limits) = context.resource_limits {
                 if condition_expr.contains("<=") {
@@ -403,7 +435,7 @@ impl RoutingRule {
                 }
             }
         }
-        
+
         // Handle boolean expressions
         if condition_expr == "true" {
             return true;
@@ -411,7 +443,7 @@ impl RoutingRule {
         if condition_expr == "false" {
             return false;
         }
-        
+
         // Default: log unrecognized condition and return true to be permissive
         tracing::warn!("Unrecognized custom condition: {}", condition_expr);
         true
@@ -432,16 +464,17 @@ impl RoutingPolicyConfig {
             }
             prev_priority = rule.priority;
         }
-        
+
         // Validate confidence thresholds
-        if self.global_settings.global_confidence_threshold < 0.0 || 
-           self.global_settings.global_confidence_threshold > 1.0 {
+        if self.global_settings.global_confidence_threshold < 0.0
+            || self.global_settings.global_confidence_threshold > 1.0
+        {
             return Err(super::error::RoutingError::ConfigurationError {
                 key: "policy.global_settings.global_confidence_threshold".to_string(),
                 reason: "Confidence threshold must be between 0.0 and 1.0".to_string(),
             });
         }
-        
+
         Ok(())
     }
 }

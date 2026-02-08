@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc, Duration};
+use chrono::{DateTime, Duration, Utc};
 use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
 

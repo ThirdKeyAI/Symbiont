@@ -85,7 +85,7 @@ metadata {
     description = "Healthcare data analysis agent with HIPAA compliance"
     license = "Proprietary"
     tags = ["healthcare", "hipaa", "analysis"]
-    min_runtime_version = "0.6.0"
+    min_runtime_version = "1.0.0"
     dependencies = ["medical_nlp", "privacy_tools"]
 }
 ```
@@ -734,6 +734,7 @@ agent fraud_detector(transaction: Transaction) -> FraudAssessment {
 
 ## Next Steps
 
+- **[DSL Specification](dsl-specification.md)** - Full language specification reference
 - **[Runtime Architecture](/runtime-architecture)** - Understand how agents execute
 - **[Security Model](/security-model)** - Learn about security implementation
 - **[API Reference](/api-reference)** - Complete function and type reference

@@ -3,11 +3,11 @@
 //! This module provides a Vault-based secrets store that supports multiple authentication
 //! methods and interacts with Vault's KV v2 secrets engine.
 
-use super::{Secret, SecretError, SecretStore, BoxedAuditSink, SecretAuditEvent};
+use super::{BoxedAuditSink, Secret, SecretAuditEvent, SecretError, SecretStore};
 use crate::secrets::config::{VaultAuthConfig, VaultConfig};
 use async_trait::async_trait;
 use std::time::Duration;
-use vaultrs::client::{VaultClient, VaultClientSettingsBuilder, Client};
+use vaultrs::client::{Client, VaultClient, VaultClientSettingsBuilder};
 use vaultrs::error::ClientError;
 use vaultrs::kv2;
 use vaultrs::token;
@@ -28,7 +28,7 @@ impl VaultSecretStore {
         audit_sink: Option<BoxedAuditSink>,
     ) -> Result<Self, SecretError> {
         let client = Self::create_vault_client(&config).await?;
-        
+
         Ok(Self {
             client,
             config,
@@ -56,15 +56,15 @@ impl VaultSecretStore {
         let connection_timeout = Duration::from_secs(config.connection.connection_timeout_seconds);
         settings_builder.timeout(Some(connection_timeout));
 
-        let settings = settings_builder.build()
+        let settings = settings_builder
+            .build()
             .map_err(|e| SecretError::ConfigurationError {
                 message: format!("Failed to build Vault client settings: {}", e),
             })?;
 
-        let client = VaultClient::new(settings)
-            .map_err(|e| SecretError::ConnectionError {
-                message: format!("Failed to create Vault client: {}", e),
-            })?;
+        let client = VaultClient::new(settings).map_err(|e| SecretError::ConnectionError {
+            message: format!("Failed to create Vault client: {}", e),
+        })?;
 
         Ok(client)
     }
@@ -78,14 +78,26 @@ impl VaultSecretStore {
                 // Verify token by checking our own capabilities
                 self.verify_token().await
             }
-            VaultAuthConfig::Kubernetes { token_path, role, mount_path } => {
-                self.authenticate_kubernetes(&token_path, &role, &mount_path).await
+            VaultAuthConfig::Kubernetes {
+                token_path,
+                role,
+                mount_path,
+            } => {
+                self.authenticate_kubernetes(&token_path, &role, &mount_path)
+                    .await
             }
-            VaultAuthConfig::Aws { region, role, mount_path } => {
-                self.authenticate_aws(&region, &role, &mount_path).await
-            }
-            VaultAuthConfig::AppRole { role_id, secret_id, mount_path } => {
-                self.authenticate_approle(&role_id, &secret_id, &mount_path).await
+            VaultAuthConfig::Aws {
+                region,
+                role,
+                mount_path,
+            } => self.authenticate_aws(&region, &role, &mount_path).await,
+            VaultAuthConfig::AppRole {
+                role_id,
+                secret_id,
+                mount_path,
+            } => {
+                self.authenticate_approle(&role_id, &secret_id, &mount_path)
+                    .await
             }
         }
     }
@@ -99,13 +111,18 @@ impl VaultSecretStore {
     }
 
     /// Authenticate using Kubernetes service account token
-    async fn authenticate_kubernetes(&mut self, token_path: &str, role: &str, mount_path: &str) -> Result<(), SecretError> {
+    async fn authenticate_kubernetes(
+        &mut self,
+        token_path: &str,
+        role: &str,
+        mount_path: &str,
+    ) -> Result<(), SecretError> {
         // Read the service account token
-        let jwt = tokio::fs::read_to_string(token_path)
-            .await
-            .map_err(|e| SecretError::AuthenticationFailed {
+        let jwt = tokio::fs::read_to_string(token_path).await.map_err(|e| {
+            SecretError::AuthenticationFailed {
                 message: format!("Failed to read Kubernetes token from {}: {}", token_path, e),
-            })?;
+            }
+        })?;
 
         // Authenticate with Vault
         let auth_info = vaultrs::auth::kubernetes::login(&self.client, mount_path, role, &jwt)
@@ -119,21 +136,34 @@ impl VaultSecretStore {
     }
 
     /// Authenticate using AWS IAM role
-    async fn authenticate_aws(&mut self, _region: &str, role: &str, _mount_path: &str) -> Result<(), SecretError> {
+    async fn authenticate_aws(
+        &mut self,
+        _region: &str,
+        role: &str,
+        _mount_path: &str,
+    ) -> Result<(), SecretError> {
         // For AWS authentication, we need to use the AWS SDK to get credentials
         // and create a signed request. This is a simplified implementation.
         // In a production environment, you would use the AWS SDK to properly
         // generate the required authentication data.
-        
+
         // This would require additional dependencies and AWS credential configuration
         // For now, return an error indicating this needs to be implemented
         Err(SecretError::UnsupportedOperation {
-            operation: format!("AWS IAM authentication not yet implemented for role: {}", role),
+            operation: format!(
+                "AWS IAM authentication not yet implemented for role: {}",
+                role
+            ),
         })
     }
 
     /// Authenticate using AppRole
-    async fn authenticate_approle(&mut self, role_id: &str, secret_id: &str, mount_path: &str) -> Result<(), SecretError> {
+    async fn authenticate_approle(
+        &mut self,
+        role_id: &str,
+        secret_id: &str,
+        mount_path: &str,
+    ) -> Result<(), SecretError> {
         let auth_info = vaultrs::auth::approle::login(&self.client, mount_path, role_id, secret_id)
             .await
             .map_err(|e| SecretError::AuthenticationFailed {
@@ -194,9 +224,10 @@ impl SecretStore for VaultSecretStore {
     /// Retrieve a secret by key from Vault KV v2
     async fn get_secret(&self, key: &str) -> Result<Secret, SecretError> {
         let path = self.get_secret_path(key);
-        
+
         let result: Result<Secret, SecretError> = async {
-            match kv2::read::<serde_json::Value>(&self.client, &self.config.mount_path, &path).await {
+            match kv2::read::<serde_json::Value>(&self.client, &self.config.mount_path, &path).await
+            {
                 Ok(secret_response) => {
                     // Extract the secret data from the Vault KVv2 response structure
                     let data = secret_response
@@ -224,32 +255,38 @@ impl SecretStore for VaultSecretStore {
 
                     // Extract metadata from the Vault response
                     let mut metadata = std::collections::HashMap::new();
-                    if let Some(metadata_obj) = secret_response.get("data").and_then(|d| d.get("metadata")) {
-                        if let Some(created_time) = metadata_obj.get("created_time").and_then(|v| v.as_str()) {
+                    if let Some(metadata_obj) =
+                        secret_response.get("data").and_then(|d| d.get("metadata"))
+                    {
+                        if let Some(created_time) =
+                            metadata_obj.get("created_time").and_then(|v| v.as_str())
+                        {
                             metadata.insert("created_time".to_string(), created_time.to_string());
                         }
-                        if let Some(version) = metadata_obj.get("version").and_then(|v| v.as_u64()) {
+                        if let Some(version) = metadata_obj.get("version").and_then(|v| v.as_u64())
+                        {
                             metadata.insert("version".to_string(), version.to_string());
                         }
-                        if let Some(destroyed) = metadata_obj.get("destroyed").and_then(|v| v.as_bool()) {
+                        if let Some(destroyed) =
+                            metadata_obj.get("destroyed").and_then(|v| v.as_bool())
+                        {
                             metadata.insert("destroyed".to_string(), destroyed.to_string());
                         }
-                        if let Some(deletion_time) = metadata_obj.get("deletion_time").and_then(|v| v.as_str()) {
-                            if deletion_time != "" && deletion_time != "null" {
-                                metadata.insert("deletion_time".to_string(), deletion_time.to_string());
+                        if let Some(deletion_time) =
+                            metadata_obj.get("deletion_time").and_then(|v| v.as_str())
+                        {
+                            if !deletion_time.is_empty() && deletion_time != "null" {
+                                metadata
+                                    .insert("deletion_time".to_string(), deletion_time.to_string());
                             }
                         }
                     }
 
                     // Parse created_at timestamp if available - convert to string
-                    let created_at = metadata
-                        .get("created_time")
-                        .map(|ts| ts.clone());
+                    let created_at = metadata.get("created_time").cloned();
 
                     // Parse version if available - convert to string
-                    let version = metadata
-                        .get("version")
-                        .map(|v| v.clone());
+                    let version = metadata.get("version").cloned();
 
                     Ok(Secret {
                         key: key.to_string(),
@@ -266,14 +303,17 @@ impl SecretStore for VaultSecretStore {
                         SecretError::NotFound { .. } => Err(SecretError::NotFound {
                             key: key.to_string(),
                         }),
-                        SecretError::PermissionDenied { .. } => Err(SecretError::PermissionDenied {
-                            key: key.to_string(),
-                        }),
+                        SecretError::PermissionDenied { .. } => {
+                            Err(SecretError::PermissionDenied {
+                                key: key.to_string(),
+                            })
+                        }
                         other => Err(other),
                     }
                 }
             }
-        }.await;
+        }
+        .await;
 
         // Log audit event
         let audit_event = match &result {
@@ -297,7 +337,7 @@ impl SecretStore for VaultSecretStore {
     /// List all secret keys under the agent's secrets path
     async fn list_secrets(&self) -> Result<Vec<String>, SecretError> {
         let base_path = self.get_base_path();
-        
+
         let result: Result<Vec<String>, SecretError> = async {
             match kv2::list(&self.client, &self.config.mount_path, &base_path).await {
                 Ok(list_response) => {
@@ -313,17 +353,17 @@ impl SecretStore for VaultSecretStore {
                     }
                 }
             }
-        }.await;
+        }
+        .await;
 
         // Log audit event
         let audit_event = match &result {
-            Ok(keys) => SecretAuditEvent::success(
-                self.agent_id.clone(),
-                "list_secrets".to_string(),
-                None,
-            ).with_metadata(serde_json::json!({
-                "secrets_count": keys.len()
-            })),
+            Ok(keys) => {
+                SecretAuditEvent::success(self.agent_id.clone(), "list_secrets".to_string(), None)
+                    .with_metadata(serde_json::json!({
+                        "secrets_count": keys.len()
+                    }))
+            }
             Err(e) => SecretAuditEvent::failure(
                 self.agent_id.clone(),
                 "list_secrets".to_string(),
@@ -380,7 +420,7 @@ mod tests {
         // but we can test path generation logic
         let agent_id = "test-agent-123";
         let expected_path = format!("agents/{}/secrets/my-key", agent_id);
-        
+
         // This would normally be done in the VaultSecretStore
         let path = format!("agents/{}/secrets/{}", agent_id, "my-key");
         assert_eq!(path, expected_path);
@@ -390,7 +430,7 @@ mod tests {
     fn test_base_path_generation() {
         let agent_id = "test-agent-123";
         let expected_base = format!("agents/{}/secrets", agent_id);
-        
+
         let base_path = format!("agents/{}/secrets", agent_id);
         assert_eq!(base_path, expected_base);
     }

@@ -16,4 +16,4 @@ pub mod catalog;
 pub mod runners;
 
 pub use catalog::{ModelCatalog, ModelCatalogError};
-pub use runners::{SlmRunner, SlmRunnerError, LocalGgufRunner};
+pub use runners::{LocalGgufRunner, SlmRunner, SlmRunnerError};

@@ -2,6 +2,7 @@
 //!
 //! Provides interfaces for integrating with external security and policy components
 
+pub mod agentpin;
 pub mod mcp;
 pub mod policy_engine;
 pub mod sandbox_orchestrator;
@@ -35,6 +36,10 @@ pub use sandbox_orchestrator::{
 //     AuditEventType, AuditSeverity, AuditCategory, AuditOutcome,
 //     SnapshotId as AuditSnapshotId
 // };
+pub use agentpin::{
+    AgentPinConfig, AgentPinError, AgentPinKeyStore, AgentPinVerifier, AgentVerificationResult,
+    DefaultAgentPinVerifier, MockAgentPinVerifier,
+};
 pub use mcp::{
     McpClient, McpClientConfig, McpClientError, McpTool, MockMcpClient, SecureMcpClient,
     ToolDiscoveryEvent, ToolProvider, ToolVerificationRequest, ToolVerificationResponse,

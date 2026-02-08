@@ -3,7 +3,7 @@
 //! This module provides a file-based secrets store that supports encrypted storage
 //! using AES-256-GCM with various key providers (environment variables, OS keychain).
 
-use super::{Secret, SecretError, SecretStore, BoxedAuditSink, SecretAuditEvent};
+use super::{BoxedAuditSink, Secret, SecretAuditEvent, SecretError, SecretStore};
 use crate::crypto::{Aes256GcmCrypto, CryptoError, EncryptedData, KeyUtils};
 use crate::secrets::config::{FileConfig, FileFormat};
 use async_trait::async_trait;
@@ -46,11 +46,12 @@ impl FileSecretStore {
     /// Load and decrypt secrets from the file
     async fn load_secrets(&self) -> Result<HashMap<String, String>, SecretError> {
         // Read the file content
-        let file_content = async_fs::read(&self.config.path)
-            .await
-            .map_err(|e| SecretError::IoError {
-                message: format!("Failed to read secrets file: {}", e),
-            })?;
+        let file_content =
+            async_fs::read(&self.config.path)
+                .await
+                .map_err(|e| SecretError::IoError {
+                    message: format!("Failed to read secrets file: {}", e),
+                })?;
 
         let secrets_data = if self.config.encryption.enabled {
             // Decrypt the content
@@ -72,8 +73,8 @@ impl FileSecretStore {
         let key = self.get_decryption_key().await?;
 
         // Parse the encrypted content as JSON to get the EncryptedData structure
-        let encrypted_data: EncryptedData = serde_json::from_slice(encrypted_content)
-            .map_err(|e| SecretError::ParseError {
+        let encrypted_data: EncryptedData =
+            serde_json::from_slice(encrypted_content).map_err(|e| SecretError::ParseError {
                 message: format!("Failed to parse encrypted data: {}", e),
             })?;
 
@@ -100,35 +101,46 @@ impl FileSecretStore {
     async fn get_decryption_key(&self) -> Result<String, SecretError> {
         match self.config.encryption.key.provider.as_str() {
             "env" => {
-                let env_var = self.config.encryption.key.env_var.as_ref()
-                    .ok_or_else(|| SecretError::ConfigurationError {
-                        message: "Environment variable name not specified for 'env' key provider".to_string(),
-                    })?;
-                
-                KeyUtils::get_key_from_env(env_var)
-                    .map_err(|e| self.map_crypto_error(e))
+                let env_var = self.config.encryption.key.env_var.as_ref().ok_or_else(|| {
+                    SecretError::ConfigurationError {
+                        message: "Environment variable name not specified for 'env' key provider"
+                            .to_string(),
+                    }
+                })?;
+
+                KeyUtils::get_key_from_env(env_var).map_err(|e| self.map_crypto_error(e))
             }
             "os_keychain" => {
-                let service = self.config.encryption.key.service.as_ref()
-                    .ok_or_else(|| SecretError::ConfigurationError {
-                        message: "Service name not specified for 'os_keychain' key provider".to_string(),
-                    })?;
-                
-                let account = self.config.encryption.key.account.as_ref()
-                    .ok_or_else(|| SecretError::ConfigurationError {
-                        message: "Account name not specified for 'os_keychain' key provider".to_string(),
-                    })?;
-                
+                let service = self.config.encryption.key.service.as_ref().ok_or_else(|| {
+                    SecretError::ConfigurationError {
+                        message: "Service name not specified for 'os_keychain' key provider"
+                            .to_string(),
+                    }
+                })?;
+
+                let account = self.config.encryption.key.account.as_ref().ok_or_else(|| {
+                    SecretError::ConfigurationError {
+                        message: "Account name not specified for 'os_keychain' key provider"
+                            .to_string(),
+                    }
+                })?;
+
                 let key_utils = KeyUtils::new();
-                key_utils.get_key_from_keychain(service, account)
+                key_utils
+                    .get_key_from_keychain(service, account)
                     .map_err(|e| self.map_crypto_error(e))
             }
             "file" => {
-                let file_path = self.config.encryption.key.file_path.as_ref()
+                let file_path = self
+                    .config
+                    .encryption
+                    .key
+                    .file_path
+                    .as_ref()
                     .ok_or_else(|| SecretError::ConfigurationError {
                         message: "File path not specified for 'file' key provider".to_string(),
                     })?;
-                
+
                 fs::read_to_string(file_path)
                     .map(|content| content.trim().to_string())
                     .map_err(|e| SecretError::IoError {
@@ -136,7 +148,10 @@ impl FileSecretStore {
                     })
             }
             _ => Err(SecretError::ConfigurationError {
-                message: format!("Unsupported key provider: {}", self.config.encryption.key.provider),
+                message: format!(
+                    "Unsupported key provider: {}",
+                    self.config.encryption.key.provider
+                ),
             }),
         }
     }
@@ -153,10 +168,9 @@ impl FileSecretStore {
 
     /// Parse JSON format secrets
     fn parse_json_secrets(&self, data: &str) -> Result<HashMap<String, String>, SecretError> {
-        let value: Value = serde_json::from_str(data)
-            .map_err(|e| SecretError::ParseError {
-                message: format!("Failed to parse JSON: {}", e),
-            })?;
+        let value: Value = serde_json::from_str(data).map_err(|e| SecretError::ParseError {
+            message: format!("Failed to parse JSON: {}", e),
+        })?;
 
         let mut secrets = HashMap::new();
         if let Value::Object(map) = value {
@@ -178,8 +192,8 @@ impl FileSecretStore {
 
     /// Parse YAML format secrets
     fn parse_yaml_secrets(&self, data: &str) -> Result<HashMap<String, String>, SecretError> {
-        let value: serde_yaml::Value = serde_yaml::from_str(data)
-            .map_err(|e| SecretError::ParseError {
+        let value: serde_yaml::Value =
+            serde_yaml::from_str(data).map_err(|e| SecretError::ParseError {
                 message: format!("Failed to parse YAML: {}", e),
             })?;
 
@@ -189,10 +203,11 @@ impl FileSecretStore {
                 if let serde_yaml::Value::String(key_str) = key {
                     let secret_value = match value {
                         serde_yaml::Value::String(s) => s,
-                        _ => serde_yaml::to_string(&value)
-                            .map_err(|e| SecretError::ParseError {
+                        _ => {
+                            serde_yaml::to_string(&value).map_err(|e| SecretError::ParseError {
                                 message: format!("Failed to serialize YAML value: {}", e),
-                            })?,
+                            })?
+                        }
                     };
                     secrets.insert(key_str, secret_value);
                 }
@@ -208,10 +223,9 @@ impl FileSecretStore {
 
     /// Parse TOML format secrets
     fn parse_toml_secrets(&self, data: &str) -> Result<HashMap<String, String>, SecretError> {
-        let value: toml::Value = toml::from_str(data)
-            .map_err(|e| SecretError::ParseError {
-                message: format!("Failed to parse TOML: {}", e),
-            })?;
+        let value: toml::Value = toml::from_str(data).map_err(|e| SecretError::ParseError {
+            message: format!("Failed to parse TOML: {}", e),
+        })?;
 
         let mut secrets = HashMap::new();
         if let toml::Value::Table(table) = value {
@@ -234,25 +248,26 @@ impl FileSecretStore {
     /// Parse environment file format secrets (key=value pairs)
     fn parse_env_secrets(&self, data: &str) -> Result<HashMap<String, String>, SecretError> {
         let mut secrets = HashMap::new();
-        
+
         for line in data.lines() {
             let line = line.trim();
             if line.is_empty() || line.starts_with('#') {
                 continue; // Skip empty lines and comments
             }
-            
+
             if let Some(eq_pos) = line.find('=') {
                 let key = line[..eq_pos].trim().to_string();
                 let value = line[eq_pos + 1..].trim().to_string();
-                
+
                 // Remove quotes if present
-                let value = if (value.starts_with('"') && value.ends_with('"')) ||
-                              (value.starts_with('\'') && value.ends_with('\'')) {
+                let value = if (value.starts_with('"') && value.ends_with('"'))
+                    || (value.starts_with('\'') && value.ends_with('\''))
+                {
                     value[1..value.len() - 1].to_string()
                 } else {
                     value
                 };
-                
+
                 secrets.insert(key, value);
             } else {
                 return Err(SecretError::ParseError {
@@ -278,14 +293,15 @@ impl SecretStore for FileSecretStore {
     async fn get_secret(&self, key: &str) -> Result<Secret, SecretError> {
         let result: Result<Secret, SecretError> = async {
             let secrets = self.load_secrets().await?;
-            
+
             match secrets.get(key) {
                 Some(value) => Ok(Secret::new(key.to_string(), value.clone())),
                 None => Err(SecretError::NotFound {
                     key: key.to_string(),
                 }),
             }
-        }.await;
+        }
+        .await;
 
         // Log audit event
         let audit_event = match &result {
@@ -311,17 +327,17 @@ impl SecretStore for FileSecretStore {
         let result: Result<Vec<String>, SecretError> = async {
             let secrets = self.load_secrets().await?;
             Ok(secrets.keys().cloned().collect())
-        }.await;
+        }
+        .await;
 
         // Log audit event
         let audit_event = match &result {
-            Ok(keys) => SecretAuditEvent::success(
-                self.agent_id.clone(),
-                "list_secrets".to_string(),
-                None,
-            ).with_metadata(serde_json::json!({
-                "secrets_count": keys.len()
-            })),
+            Ok(keys) => {
+                SecretAuditEvent::success(self.agent_id.clone(), "list_secrets".to_string(), None)
+                    .with_metadata(serde_json::json!({
+                        "secrets_count": keys.len()
+                    }))
+            }
             Err(e) => SecretAuditEvent::failure(
                 self.agent_id.clone(),
                 "list_secrets".to_string(),
@@ -351,9 +367,9 @@ impl FileSecretStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
     use std::path::PathBuf;
     use tempfile::NamedTempFile;
-    use std::io::Write;
 
     fn create_test_config(path: PathBuf) -> FileConfig {
         FileConfig {
@@ -381,13 +397,15 @@ mod tests {
     async fn test_parse_json_secrets() {
         let mut temp_file = NamedTempFile::new().unwrap();
         writeln!(temp_file, r#"{{"key1": "value1", "key2": "value2"}}"#).unwrap();
-        
+
         let config = create_test_config(temp_file.path().to_path_buf());
-        let store = FileSecretStore::new(config, None, "test-agent".to_string()).await.unwrap();
-        
+        let store = FileSecretStore::new(config, None, "test-agent".to_string())
+            .await
+            .unwrap();
+
         let secret = store.get_secret("key1").await.unwrap();
         assert_eq!(secret.value(), "value1");
-        
+
         let keys = store.list_secrets().await.unwrap();
         assert!(keys.contains(&"key1".to_string()));
         assert!(keys.contains(&"key2".to_string()));
@@ -397,10 +415,12 @@ mod tests {
     async fn test_secret_not_found() {
         let mut temp_file = NamedTempFile::new().unwrap();
         writeln!(temp_file, r#"{{"key1": "value1"}}"#).unwrap();
-        
+
         let config = create_test_config(temp_file.path().to_path_buf());
-        let store = FileSecretStore::new(config, None, "test-agent".to_string()).await.unwrap();
-        
+        let store = FileSecretStore::new(config, None, "test-agent".to_string())
+            .await
+            .unwrap();
+
         let result = store.get_secret("nonexistent").await;
         assert!(matches!(result, Err(SecretError::NotFound { .. })));
     }
@@ -408,11 +428,17 @@ mod tests {
     #[tokio::test]
     async fn test_list_secrets_with_prefix() {
         let mut temp_file = NamedTempFile::new().unwrap();
-        writeln!(temp_file, r#"{{"app_key1": "value1", "app_key2": "value2", "other_key": "value3"}}"#).unwrap();
-        
+        writeln!(
+            temp_file,
+            r#"{{"app_key1": "value1", "app_key2": "value2", "other_key": "value3"}}"#
+        )
+        .unwrap();
+
         let config = create_test_config(temp_file.path().to_path_buf());
-        let store = FileSecretStore::new(config, None, "test-agent".to_string()).await.unwrap();
-        
+        let store = FileSecretStore::new(config, None, "test-agent".to_string())
+            .await
+            .unwrap();
+
         let keys = store.list_secrets_with_prefix("app_").await.unwrap();
         assert_eq!(keys.len(), 2);
         assert!(keys.contains(&"app_key1".to_string()));

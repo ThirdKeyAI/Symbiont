@@ -1,7 +1,7 @@
 ---
 layout: default
 title: Contributing
-nav_order: 6
+nav_order: 12
 description: "How to contribute to the Symbiont project"
 ---
 
@@ -216,7 +216,7 @@ What actually happens
 ## Environment
 - OS: [e.g., Ubuntu 22.04]
 - Rust version: [e.g., 1.88.0]
-- Symbiont version: [e.g., 0.5.0]
+- Symbiont version: [e.g., 1.0.0]
 - Docker version: [if applicable]
 
 ## Additional Context

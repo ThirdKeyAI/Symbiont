@@ -174,12 +174,15 @@ pub struct ModelLogger {
 
 impl ModelLogger {
     /// Create a new model logger with the given configuration and secret store
-    pub fn new(config: LoggingConfig, secret_store: Option<Arc<dyn SecretStore>>) -> Result<Self, LoggingError> {
+    pub fn new(
+        config: LoggingConfig,
+        secret_store: Option<Arc<dyn SecretStore>>,
+    ) -> Result<Self, LoggingError> {
         let crypto = Aes256GcmCrypto::new();
-        
+
         // Get encryption key
         let encryption_key = Self::get_encryption_key(&config, &secret_store)?;
-        
+
         Ok(Self {
             config,
             crypto,
@@ -196,11 +199,13 @@ impl ModelLogger {
     /// Get encryption key from SecretStore, environment variable, or generate new one
     fn get_encryption_key(
         config: &LoggingConfig,
-        secret_store: &Option<Arc<dyn SecretStore>>
+        secret_store: &Option<Arc<dyn SecretStore>>,
     ) -> Result<String, LoggingError> {
         // Try SecretStore first if available
         if let Some(store) = secret_store {
-            if let Ok(secret) = futures::executor::block_on(store.get_secret(&config.encryption_key_name)) {
+            if let Ok(secret) =
+                futures::executor::block_on(store.get_secret(&config.encryption_key_name))
+            {
                 log::debug!("Retrieved logging encryption key from SecretStore");
                 return Ok(secret.value().to_string());
             } else {
@@ -218,9 +223,11 @@ impl ModelLogger {
 
         // Final fallback: generate or retrieve from keychain
         let key_utils = KeyUtils::new();
-        key_utils.get_or_create_key().map_err(|e| LoggingError::KeyManagementError {
-            message: format!("Failed to get encryption key: {}", e),
-        })
+        key_utils
+            .get_or_create_key()
+            .map_err(|e| LoggingError::KeyManagementError {
+                message: format!("Failed to get encryption key: {}", e),
+            })
     }
 
     /// Log a model request (before execution)
@@ -371,12 +378,11 @@ impl ModelLogger {
     /// Encrypt request data
     fn encrypt_request_data(&self, data: &RequestData) -> Result<EncryptedData, LoggingError> {
         let json_data = serde_json::to_string(data)?;
-        let encrypted = Aes256GcmCrypto::encrypt_with_password(
-            json_data.as_bytes(),
-            &self.encryption_key,
-        ).map_err(|e| LoggingError::EncryptionFailed {
-            message: format!("Failed to encrypt request data: {}", e),
-        })?;
+        let encrypted =
+            Aes256GcmCrypto::encrypt_with_password(json_data.as_bytes(), &self.encryption_key)
+                .map_err(|e| LoggingError::EncryptionFailed {
+                    message: format!("Failed to encrypt request data: {}", e),
+                })?;
 
         Ok(encrypted)
     }
@@ -384,12 +390,11 @@ impl ModelLogger {
     /// Encrypt response data
     fn encrypt_response_data(&self, data: &ResponseData) -> Result<EncryptedData, LoggingError> {
         let json_data = serde_json::to_string(data)?;
-        let encrypted = Aes256GcmCrypto::encrypt_with_password(
-            json_data.as_bytes(),
-            &self.encryption_key,
-        ).map_err(|e| LoggingError::EncryptionFailed {
-            message: format!("Failed to encrypt response data: {}", e),
-        })?;
+        let encrypted =
+            Aes256GcmCrypto::encrypt_with_password(json_data.as_bytes(), &self.encryption_key)
+                .map_err(|e| LoggingError::EncryptionFailed {
+                    message: format!("Failed to encrypt response data: {}", e),
+                })?;
 
         Ok(encrypted)
     }
@@ -436,8 +441,14 @@ impl ModelLogger {
         // Common patterns to mask
         let patterns = [
             (r"\b\d{3}-\d{2}-\d{4}\b", "***-**-****"), // SSN
-            (r"\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b", "****-****-****-****"), // Credit card
-            (r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b", "***@***.***"), // Email
+            (
+                r"\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b",
+                "****-****-****-****",
+            ), // Credit card
+            (
+                r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
+                "***@***.***",
+            ), // Email
             (r"\b\d{3}[\s-]?\d{3}[\s-]?\d{4}\b", "***-***-****"), // Phone
             (r"\bAPI[_\s]*KEY[\s:=]*[A-Za-z0-9+/]{20,}\b", "API_KEY=***"), // API keys
             (r"\bTOKEN[\s:=]*[A-Za-z0-9+/]{20,}\b", "TOKEN=***"), // Tokens
@@ -470,11 +481,9 @@ impl ModelLogger {
                 }
                 serde_json::Value::Object(map)
             }
-            serde_json::Value::Array(arr) => {
-                serde_json::Value::Array(
-                    arr.into_iter().map(|v| self.mask_json_values(v)).collect()
-                )
-            }
+            serde_json::Value::Array(arr) => serde_json::Value::Array(
+                arr.into_iter().map(|v| self.mask_json_values(v)).collect(),
+            ),
             _ => value,
         }
     }
@@ -482,13 +491,26 @@ impl ModelLogger {
     /// Check if a key name indicates sensitive data
     fn is_sensitive_key(&self, key: &str) -> bool {
         let sensitive_keys = [
-            "password", "token", "key", "secret", "credential",
-            "api_key", "auth", "authorization", "ssn", "social_security",
-            "credit_card", "card_number", "cvv", "pin"
+            "password",
+            "token",
+            "key",
+            "secret",
+            "credential",
+            "api_key",
+            "auth",
+            "authorization",
+            "ssn",
+            "social_security",
+            "credit_card",
+            "card_number",
+            "cvv",
+            "pin",
         ];
 
         let key_lower = key.to_lowercase();
-        sensitive_keys.iter().any(|&sensitive| key_lower.contains(sensitive))
+        sensitive_keys
+            .iter()
+            .any(|&sensitive| key_lower.contains(sensitive))
     }
 
     /// Write a log entry to storage
@@ -512,14 +534,14 @@ impl ModelLogger {
         // In a production implementation, this would update the existing entry
         // For now, we'll append an update record
         let update_line = format!("UPDATE: {}\n", serde_json::to_string(update)?);
-        
+
         use tokio::io::AsyncWriteExt;
         let mut file = tokio::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(&self.config.log_file_path)
             .await?;
-        
+
         file.write_all(update_line.as_bytes()).await?;
         file.flush().await?;
 
@@ -527,12 +549,16 @@ impl ModelLogger {
     }
 
     /// Decrypt and read log entries (for debugging/analysis)
-    pub async fn decrypt_log_entry(&self, encrypted_entry: &ModelLogEntry) -> Result<(RequestData, Option<ResponseData>), LoggingError> {
+    pub async fn decrypt_log_entry(
+        &self,
+        encrypted_entry: &ModelLogEntry,
+    ) -> Result<(RequestData, Option<ResponseData>), LoggingError> {
         // Decrypt request data
         let request_json = Aes256GcmCrypto::decrypt_with_password(
             &encrypted_entry.request_data,
             &self.encryption_key,
-        ).map_err(|e| LoggingError::EncryptionFailed {
+        )
+        .map_err(|e| LoggingError::EncryptionFailed {
             message: format!("Failed to decrypt request data: {}", e),
         })?;
 
@@ -540,12 +566,11 @@ impl ModelLogger {
 
         // Decrypt response data if present
         let response_data = if let Some(ref encrypted_response) = encrypted_entry.response_data {
-            let response_json = Aes256GcmCrypto::decrypt_with_password(
-                encrypted_response,
-                &self.encryption_key,
-            ).map_err(|e| LoggingError::EncryptionFailed {
-                message: format!("Failed to decrypt response data: {}", e),
-            })?;
+            let response_json =
+                Aes256GcmCrypto::decrypt_with_password(encrypted_response, &self.encryption_key)
+                    .map_err(|e| LoggingError::EncryptionFailed {
+                        message: format!("Failed to decrypt response data: {}", e),
+                    })?;
 
             Some(serde_json::from_slice(&response_json)?)
         } else {
@@ -580,10 +605,10 @@ impl TimedOperation for ModelLogger {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::AgentId;
     use std::collections::HashMap;
     use std::sync::Arc;
     use tempfile::tempdir;
-    use crate::types::AgentId;
 
     // Mock SecretStore for testing
     #[derive(Debug, Clone)]
@@ -595,7 +620,10 @@ mod tests {
     impl MockSecretStore {
         fn new() -> Self {
             let mut secrets = HashMap::new();
-            secrets.insert("symbiont/logging/encryption_key".to_string(), "test_key_123".to_string());
+            secrets.insert(
+                "symbiont/logging/encryption_key".to_string(),
+                "test_key_123".to_string(),
+            );
             Self {
                 secrets,
                 should_fail: false,
@@ -612,15 +640,22 @@ mod tests {
 
     #[async_trait::async_trait]
     impl crate::secrets::SecretStore for MockSecretStore {
-        async fn get_secret(&self, key: &str) -> Result<crate::secrets::Secret, crate::secrets::SecretError> {
+        async fn get_secret(
+            &self,
+            key: &str,
+        ) -> Result<crate::secrets::Secret, crate::secrets::SecretError> {
             if self.should_fail {
-                return Err(crate::secrets::SecretError::NotFound { key: key.to_string() });
+                return Err(crate::secrets::SecretError::NotFound {
+                    key: key.to_string(),
+                });
             }
-            
+
             if let Some(value) = self.secrets.get(key) {
                 Ok(crate::secrets::Secret::new(key.to_string(), value.clone()))
             } else {
-                Err(crate::secrets::SecretError::NotFound { key: key.to_string() })
+                Err(crate::secrets::SecretError::NotFound {
+                    key: key.to_string(),
+                })
             }
         }
 
@@ -691,7 +726,8 @@ mod tests {
             ..Default::default()
         };
 
-        let secret_store: Arc<dyn crate::secrets::SecretStore> = Arc::new(MockSecretStore::new_failing());
+        let secret_store: Arc<dyn crate::secrets::SecretStore> =
+            Arc::new(MockSecretStore::new_failing());
         std::env::set_var("TEST_FALLBACK_KEY", "fallback_env_key");
 
         let key = ModelLogger::get_encryption_key(&config, &Some(secret_store));
@@ -703,7 +739,7 @@ mod tests {
     #[tokio::test]
     async fn test_encryption_decryption_roundtrip() {
         let logger = ModelLogger::with_defaults().unwrap();
-        
+
         let request_data = RequestData {
             prompt: "Test prompt".to_string(),
             tool_name: Some("test_tool".to_string()),
@@ -745,11 +781,12 @@ mod tests {
             token_usage: None,
         };
 
-        let (decrypted_request, decrypted_response) = logger.decrypt_log_entry(&log_entry).await.unwrap();
-        
+        let (decrypted_request, decrypted_response) =
+            logger.decrypt_log_entry(&log_entry).await.unwrap();
+
         assert_eq!(decrypted_request.prompt, request_data.prompt);
         assert_eq!(decrypted_request.tool_name, request_data.tool_name);
-        
+
         let decrypted_resp = decrypted_response.unwrap();
         assert_eq!(decrypted_resp.content, response_data.content);
         assert_eq!(decrypted_resp.confidence, response_data.confidence);
@@ -758,7 +795,7 @@ mod tests {
     #[tokio::test]
     async fn test_pii_masking_comprehensive() {
         let logger = ModelLogger::with_defaults().unwrap();
-        
+
         // Test various PII patterns
         let test_cases = vec![
             ("SSN: 123-45-6789", "***-**-****"),
@@ -771,15 +808,19 @@ mod tests {
 
         for (input, expected_pattern) in test_cases {
             let masked = logger.mask_sensitive_patterns(input);
-            assert!(masked.contains(expected_pattern),
-                "Failed to mask '{}', got '{}'", input, masked);
+            assert!(
+                masked.contains(expected_pattern),
+                "Failed to mask '{}', got '{}'",
+                input,
+                masked
+            );
         }
     }
 
     #[tokio::test]
     async fn test_pii_masking_json_values() {
         let logger = ModelLogger::with_defaults().unwrap();
-        
+
         let json_data = serde_json::json!({
             "password": "secret123",
             "api_key": "abc123def456",
@@ -792,12 +833,12 @@ mod tests {
         });
 
         let masked_json = logger.mask_json_values(json_data);
-        
+
         // Sensitive keys should be masked
         assert_eq!(masked_json["password"], "***");
         assert_eq!(masked_json["api_key"], "***");
         assert_eq!(masked_json["nested"]["token"], "***");
-        
+
         // Non-sensitive keys should remain
         assert_eq!(masked_json["username"], "john_doe");
         assert_eq!(masked_json["data"], "safe_content");
@@ -807,32 +848,58 @@ mod tests {
     #[tokio::test]
     async fn test_sensitive_key_detection() {
         let logger = ModelLogger::with_defaults().unwrap();
-        
+
         // Sensitive keys
         let sensitive_keys = vec![
-            "password", "PASSWORD", "Password",
-            "token", "TOKEN", "auth_token",
-            "key", "api_key", "API_KEY",
-            "secret", "SECRET", "client_secret",
-            "credential", "credentials",
-            "ssn", "social_security",
-            "credit_card", "card_number",
-            "cvv", "pin"
+            "password",
+            "PASSWORD",
+            "Password",
+            "token",
+            "TOKEN",
+            "auth_token",
+            "key",
+            "api_key",
+            "API_KEY",
+            "secret",
+            "SECRET",
+            "client_secret",
+            "credential",
+            "credentials",
+            "ssn",
+            "social_security",
+            "credit_card",
+            "card_number",
+            "cvv",
+            "pin",
         ];
 
         for key in sensitive_keys {
-            assert!(logger.is_sensitive_key(key), "Should detect '{}' as sensitive", key);
+            assert!(
+                logger.is_sensitive_key(key),
+                "Should detect '{}' as sensitive",
+                key
+            );
         }
 
         // Non-sensitive keys
         let safe_keys = vec![
-            "username", "user_id", "name",
-            "data", "content", "message",
-            "timestamp", "id", "status"
+            "username",
+            "user_id",
+            "name",
+            "data",
+            "content",
+            "message",
+            "timestamp",
+            "id",
+            "status",
         ];
 
         for key in safe_keys {
-            assert!(!logger.is_sensitive_key(key), "Should not detect '{}' as sensitive", key);
+            assert!(
+                !logger.is_sensitive_key(key),
+                "Should not detect '{}' as sensitive",
+                key
+            );
         }
     }
 
@@ -840,7 +907,7 @@ mod tests {
     async fn test_log_request_and_response() {
         let temp_dir = tempdir().unwrap();
         let log_path = temp_dir.path().join("test_request_response.json");
-        
+
         let config = LoggingConfig {
             log_file_path: log_path.to_string_lossy().to_string(),
             ..Default::default()
@@ -857,13 +924,16 @@ mod tests {
         };
 
         // Log request
-        let entry_id = logger.log_request(
-            agent_id,
-            ModelInteractionType::Completion,
-            "test-model",
-            request_data,
-            HashMap::new(),
-        ).await.unwrap();
+        let entry_id = logger
+            .log_request(
+                agent_id,
+                ModelInteractionType::Completion,
+                "test-model",
+                request_data,
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
 
         assert!(!entry_id.is_empty());
 
@@ -875,20 +945,22 @@ mod tests {
             metadata: HashMap::new(),
         };
 
-        let result = logger.log_response(
-            &entry_id,
-            response_data,
-            Duration::from_millis(150),
-            Some(TokenUsage {
-                input_tokens: 10,
-                output_tokens: 15,
-                total_tokens: 25,
-            }),
-            None,
-        ).await;
+        let result = logger
+            .log_response(
+                &entry_id,
+                response_data,
+                Duration::from_millis(150),
+                Some(TokenUsage {
+                    input_tokens: 10,
+                    output_tokens: 15,
+                    total_tokens: 25,
+                }),
+                None,
+            )
+            .await;
 
         assert!(result.is_ok());
-        
+
         // Verify log file was created and updated
         assert!(tokio::fs::metadata(&log_path).await.is_ok());
     }
@@ -897,7 +969,7 @@ mod tests {
     async fn test_complete_interaction_logging() {
         let temp_dir = tempdir().unwrap();
         let log_path = temp_dir.path().join("test_complete_interaction.json");
-        
+
         let config = LoggingConfig {
             log_file_path: log_path.to_string_lossy().to_string(),
             ..Default::default()
@@ -928,25 +1000,27 @@ mod tests {
             },
         };
 
-        let result = logger.log_interaction(
-            agent_id,
-            ModelInteractionType::ToolCall,
-            "test-code-model",
-            request_data,
-            response_data,
-            Duration::from_millis(350),
-            {
-                let mut meta = HashMap::new();
-                meta.insert("session_id".to_string(), "test_session".to_string());
-                meta
-            },
-            Some(TokenUsage {
-                input_tokens: 25,
-                output_tokens: 40,
-                total_tokens: 65,
-            }),
-            None,
-        ).await;
+        let result = logger
+            .log_interaction(
+                agent_id,
+                ModelInteractionType::ToolCall,
+                "test-code-model",
+                request_data,
+                response_data,
+                Duration::from_millis(350),
+                {
+                    let mut meta = HashMap::new();
+                    meta.insert("session_id".to_string(), "test_session".to_string());
+                    meta
+                },
+                Some(TokenUsage {
+                    input_tokens: 25,
+                    output_tokens: 40,
+                    total_tokens: 65,
+                }),
+                None,
+            )
+            .await;
 
         assert!(result.is_ok());
 
@@ -972,13 +1046,16 @@ mod tests {
         };
 
         // When logging is disabled, should return empty string
-        let entry_id = logger.log_request(
-            agent_id,
-            ModelInteractionType::Completion,
-            "test-model",
-            request_data,
-            HashMap::new(),
-        ).await.unwrap();
+        let entry_id = logger
+            .log_request(
+                agent_id,
+                ModelInteractionType::Completion,
+                "test-model",
+                request_data,
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
 
         assert!(entry_id.is_empty());
     }
@@ -987,7 +1064,7 @@ mod tests {
     async fn test_logging_with_error() {
         let temp_dir = tempdir().unwrap();
         let log_path = temp_dir.path().join("test_error_logging.json");
-        
+
         let config = LoggingConfig {
             log_file_path: log_path.to_string_lossy().to_string(),
             ..Default::default()
@@ -1010,17 +1087,19 @@ mod tests {
             metadata: HashMap::new(),
         };
 
-        let result = logger.log_interaction(
-            agent_id,
-            ModelInteractionType::Completion,
-            "test-model",
-            request_data,
-            response_data,
-            Duration::from_millis(50),
-            HashMap::new(),
-            None,
-            Some("Model execution failed".to_string()),
-        ).await;
+        let result = logger
+            .log_interaction(
+                agent_id,
+                ModelInteractionType::Completion,
+                "test-model",
+                request_data,
+                response_data,
+                Duration::from_millis(50),
+                HashMap::new(),
+                None,
+                Some("Model execution failed".to_string()),
+            )
+            .await;
 
         assert!(result.is_ok());
         assert!(tokio::fs::metadata(&log_path).await.is_ok());
@@ -1032,7 +1111,10 @@ mod tests {
         let config = LoggingConfig::default();
         assert!(config.enabled);
         assert_eq!(config.log_file_path, "logs/model_io.encrypted.log");
-        assert_eq!(config.encryption_key_name, "symbiont/logging/encryption_key");
+        assert_eq!(
+            config.encryption_key_name,
+            "symbiont/logging/encryption_key"
+        );
         assert_eq!(config.max_entry_size, 1024 * 1024);
         assert_eq!(config.retention_days, 90);
         assert!(config.enable_pii_masking);
@@ -1068,7 +1150,7 @@ mod tests {
         // Test serialization
         let serialized = serde_json::to_string(&token_usage).unwrap();
         let deserialized: TokenUsage = serde_json::from_str(&serialized).unwrap();
-        
+
         assert_eq!(token_usage.input_tokens, deserialized.input_tokens);
         assert_eq!(token_usage.output_tokens, deserialized.output_tokens);
         assert_eq!(token_usage.total_tokens, deserialized.total_tokens);
@@ -1111,7 +1193,7 @@ mod tests {
     #[tokio::test]
     async fn test_pii_masking_request_data() {
         let logger = ModelLogger::with_defaults().unwrap();
-        
+
         let request_data = RequestData {
             prompt: "My SSN is 123-45-6789 and API key is abc123def456".to_string(),
             tool_name: Some("sensitive_tool".to_string()),
@@ -1129,18 +1211,18 @@ mod tests {
         };
 
         let masked_request = logger.mask_pii_in_request(request_data).unwrap();
-        
+
         // Check prompt masking
         assert!(!masked_request.prompt.contains("123-45-6789"));
         assert!(!masked_request.prompt.contains("abc123def456"));
-        
+
         // Check tool arguments masking
         if let Some(args) = &masked_request.tool_arguments {
             assert_eq!(args["user_password"], "***");
             assert_eq!(args["api_token"], "***");
             assert_eq!(args["safe_data"], "public_info");
         }
-        
+
         // Check parameters masking
         assert_eq!(masked_request.parameters["auth_key"], "***");
         assert_eq!(masked_request.parameters["username"], "john_doe");
@@ -1149,7 +1231,7 @@ mod tests {
     #[tokio::test]
     async fn test_pii_masking_response_data() {
         let logger = ModelLogger::with_defaults().unwrap();
-        
+
         let response_data = ResponseData {
             content: "Your password is secret123 and token xyz789".to_string(),
             tool_result: Some(serde_json::json!({
@@ -1166,17 +1248,17 @@ mod tests {
         };
 
         let masked_response = logger.mask_pii_in_response(response_data).unwrap();
-        
+
         // Check content masking
         assert!(!masked_response.content.contains("secret123"));
         assert!(!masked_response.content.contains("xyz789"));
-        
+
         // Check tool result masking
         if let Some(result) = &masked_response.tool_result {
             assert_eq!(result["password"], "***");
             assert_eq!(result["result"], "success");
         }
-        
+
         // Check metadata masking
         assert_eq!(masked_response.metadata["secret"], "***");
         assert_eq!(masked_response.metadata["public"], "open");

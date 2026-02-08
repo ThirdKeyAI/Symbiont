@@ -11,7 +11,9 @@ mod rag_tests {
 
     async fn create_test_context_manager() -> Arc<dyn ContextManager> {
         let config = ContextManagerConfig::default();
-        let manager = StandardContextManager::new(config, "test-agent").await.unwrap();
+        let manager = StandardContextManager::new(config, "test-agent")
+            .await
+            .unwrap();
         Arc::new(manager)
     }
 

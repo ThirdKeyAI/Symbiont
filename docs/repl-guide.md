@@ -1,7 +1,7 @@
 ---
 layout: default
 title: REPL Guide
-nav_order: 6
+nav_order: 9
 ---
 
 # Symbiont REPL Guide

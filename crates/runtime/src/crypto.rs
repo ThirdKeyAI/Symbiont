@@ -83,10 +83,8 @@ impl Aes256GcmCrypto {
     /// Encrypt data using AES-256-GCM with a direct key (for CLI usage)
     pub fn encrypt(&self, plaintext: &[u8], key: &str) -> Result<Vec<u8>, CryptoError> {
         // Decode the base64 key
-        let key_bytes = BASE64.decode(key).map_err(|e| {
-            CryptoError::InvalidKey {
-                message: format!("Invalid base64 key: {}", e),
-            }
+        let key_bytes = BASE64.decode(key).map_err(|e| CryptoError::InvalidKey {
+            message: format!("Invalid base64 key: {}", e),
         })?;
 
         if key_bytes.len() != 32 {
@@ -102,11 +100,12 @@ impl Aes256GcmCrypto {
         let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
 
         // Encrypt
-        let ciphertext = cipher.encrypt(&nonce, plaintext).map_err(|e| {
-            CryptoError::EncryptionFailed {
-                message: e.to_string(),
-            }
-        })?;
+        let ciphertext =
+            cipher
+                .encrypt(&nonce, plaintext)
+                .map_err(|e| CryptoError::EncryptionFailed {
+                    message: e.to_string(),
+                })?;
 
         // Combine nonce + ciphertext
         let mut result = Vec::with_capacity(12 + ciphertext.len());
@@ -125,10 +124,8 @@ impl Aes256GcmCrypto {
         }
 
         // Decode the base64 key
-        let key_bytes = BASE64.decode(key).map_err(|e| {
-            CryptoError::InvalidKey {
-                message: format!("Invalid base64 key: {}", e),
-            }
+        let key_bytes = BASE64.decode(key).map_err(|e| CryptoError::InvalidKey {
+            message: format!("Invalid base64 key: {}", e),
         })?;
 
         if key_bytes.len() != 32 {
@@ -145,22 +142,26 @@ impl Aes256GcmCrypto {
         let nonce = Nonce::from_slice(nonce_bytes);
 
         // Decrypt
-        let plaintext = cipher.decrypt(nonce, ciphertext).map_err(|e| {
-            CryptoError::DecryptionFailed {
-                message: e.to_string(),
-            }
-        })?;
+        let plaintext =
+            cipher
+                .decrypt(nonce, ciphertext)
+                .map_err(|e| CryptoError::DecryptionFailed {
+                    message: e.to_string(),
+                })?;
 
         Ok(plaintext)
     }
 
     /// Encrypt data using AES-256-GCM with Argon2 key derivation (original method)
-    pub fn encrypt_with_password(plaintext: &[u8], password: &str) -> Result<EncryptedData, CryptoError> {
+    pub fn encrypt_with_password(
+        plaintext: &[u8],
+        password: &str,
+    ) -> Result<EncryptedData, CryptoError> {
         // Generate random salt
         let mut salt = [0u8; 32];
         OsRng.fill_bytes(&mut salt);
-        let salt_string = SaltString::encode_b64(&salt)
-            .map_err(|e| CryptoError::KeyDerivationFailed {
+        let salt_string =
+            SaltString::encode_b64(&salt).map_err(|e| CryptoError::KeyDerivationFailed {
                 message: e.to_string(),
             })?;
 
@@ -173,7 +174,11 @@ impl Aes256GcmCrypto {
             })?;
 
         // Extract the hash bytes for the encryption key
-        let hash_binding = password_hash.hash.unwrap();
+        let hash_binding = password_hash
+            .hash
+            .ok_or_else(|| CryptoError::KeyDerivationFailed {
+                message: "Password hash generation returned None".to_string(),
+            })?;
         let key_bytes = hash_binding.as_bytes();
         if key_bytes.len() < 32 {
             return Err(CryptoError::InvalidKey {
@@ -188,11 +193,12 @@ impl Aes256GcmCrypto {
         let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
 
         // Encrypt
-        let ciphertext = cipher.encrypt(&nonce, plaintext).map_err(|e| {
-            CryptoError::EncryptionFailed {
-                message: e.to_string(),
-            }
-        })?;
+        let ciphertext =
+            cipher
+                .encrypt(&nonce, plaintext)
+                .map_err(|e| CryptoError::EncryptionFailed {
+                    message: e.to_string(),
+                })?;
 
         Ok(EncryptedData {
             ciphertext: BASE64.encode(&ciphertext),
@@ -204,32 +210,36 @@ impl Aes256GcmCrypto {
     }
 
     /// Decrypt data using AES-256-GCM with Argon2 key derivation (static method)
-    pub fn decrypt_with_password(encrypted_data: &EncryptedData, password: &str) -> Result<Vec<u8>, CryptoError> {
+    pub fn decrypt_with_password(
+        encrypted_data: &EncryptedData,
+        password: &str,
+    ) -> Result<Vec<u8>, CryptoError> {
         // Decode base64 components
-        let ciphertext = BASE64.decode(&encrypted_data.ciphertext).map_err(|e| {
-            CryptoError::Base64Error {
-                message: e.to_string(),
-            }
-        })?;
+        let ciphertext =
+            BASE64
+                .decode(&encrypted_data.ciphertext)
+                .map_err(|e| CryptoError::Base64Error {
+                    message: e.to_string(),
+                })?;
 
-        let nonce_bytes = BASE64.decode(&encrypted_data.nonce).map_err(|e| {
-            CryptoError::Base64Error {
-                message: e.to_string(),
-            }
-        })?;
+        let nonce_bytes =
+            BASE64
+                .decode(&encrypted_data.nonce)
+                .map_err(|e| CryptoError::Base64Error {
+                    message: e.to_string(),
+                })?;
 
-        let salt = BASE64.decode(&encrypted_data.salt).map_err(|e| {
-            CryptoError::Base64Error {
+        let salt = BASE64
+            .decode(&encrypted_data.salt)
+            .map_err(|e| CryptoError::Base64Error {
                 message: e.to_string(),
-            }
-        })?;
+            })?;
 
         // Reconstruct salt string
-        let salt_string = SaltString::encode_b64(&salt).map_err(|e| {
-            CryptoError::KeyDerivationFailed {
+        let salt_string =
+            SaltString::encode_b64(&salt).map_err(|e| CryptoError::KeyDerivationFailed {
                 message: e.to_string(),
-            }
-        })?;
+            })?;
 
         // Derive key using the same parameters
         let argon2 = Argon2::default();
@@ -239,7 +249,11 @@ impl Aes256GcmCrypto {
                 message: e.to_string(),
             })?;
 
-        let hash_binding = password_hash.hash.unwrap();
+        let hash_binding = password_hash
+            .hash
+            .ok_or_else(|| CryptoError::KeyDerivationFailed {
+                message: "Password hash generation returned None".to_string(),
+            })?;
         let key_bytes = hash_binding.as_bytes();
         if key_bytes.len() < 32 {
             return Err(CryptoError::InvalidKey {
@@ -285,23 +299,76 @@ impl KeyUtils {
     }
 
     /// Get or create a key, prioritizing keychain, then environment, then generating new
+    ///
+    /// # Security Warning
+    ///
+    /// This method will generate a new encryption key if none is found. This can lead to
+    /// data loss if you have existing encrypted data that was encrypted with a different key.
+    ///
+    /// Key priority order:
+    /// 1. System keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service)
+    /// 2. Environment variable SYMBIONT_MASTER_KEY
+    /// 3. Generate new random key (⚠️ will make old encrypted data unrecoverable)
+    ///
+    /// # Recommendations
+    ///
+    /// For production deployments:
+    /// - Use a secrets management system (HashiCorp Vault, AWS Secrets Manager)
+    /// - Set SYMBIONT_MASTER_KEY environment variable with a secure key
+    /// - Ensure proper key backup and rotation procedures
     pub fn get_or_create_key(&self) -> Result<String, CryptoError> {
         // Try keychain first
         if let Ok(key) = self.get_key_from_keychain("symbiont", "secrets") {
+            tracing::debug!("Using encryption key from system keychain");
             return Ok(key);
         }
 
         // Try environment variable
         if let Ok(key) = Self::get_key_from_env("SYMBIONT_MASTER_KEY") {
+            tracing::info!("Using encryption key from SYMBIONT_MASTER_KEY environment variable");
             return Ok(key);
         }
 
-        // Generate a new key and store it in keychain
+        // ⚠️ SECURITY WARNING: No existing key found, generating new one
+        tracing::warn!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        tracing::warn!("⚠️  SECURITY WARNING: No encryption key found!");
+        tracing::warn!("⚠️  Generating a new random encryption key.");
+        tracing::warn!("⚠️  If you have existing encrypted data, it will be UNRECOVERABLE!");
+        tracing::warn!("⚠️  The new key will be stored in the system keychain.");
+        tracing::warn!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+        eprintln!("\n⚠️  CRITICAL SECURITY WARNING:");
+        eprintln!("⚠️  No encryption key found in keychain or environment!");
+        eprintln!("⚠️  Generating new random key - existing encrypted data will be lost!");
+        eprintln!("⚠️  Set SYMBIONT_MASTER_KEY environment variable to use a specific key.\n");
+
+        // Generate a new key
         let new_key = self.generate_key();
-        if let Err(e) = self.store_key_in_keychain("symbiont", "secrets", &new_key) {
-            eprintln!("Warning: Failed to store key in keychain: {}", e);
+
+        // Try to store in keychain with clear error handling
+        match self.store_key_in_keychain("symbiont", "secrets", &new_key) {
+            Ok(_) => {
+                tracing::info!("✓ New encryption key stored in system keychain");
+                eprintln!("✓ New encryption key stored in system keychain");
+            }
+            Err(e) => {
+                tracing::error!("✗ Failed to store key in keychain: {}", e);
+                eprintln!("✗ ERROR: Failed to store key in keychain: {}", e);
+                eprintln!("✗ You MUST set SYMBIONT_MASTER_KEY environment variable.");
+                eprintln!("✗ The generated key has been used but could not be persisted.");
+
+                // Return error in production-like scenarios
+                if std::env::var("SYMBIONT_ENV").unwrap_or_default() == "production" {
+                    return Err(CryptoError::InvalidKey {
+                        message: format!(
+                            "Failed to store encryption key in production mode: {}",
+                            e
+                        ),
+                    });
+                }
+            }
         }
-        
+
         Ok(new_key)
     }
 
@@ -315,21 +382,32 @@ impl KeyUtils {
 
     /// Store a key in the OS keychain
     #[cfg(feature = "keychain")]
-    fn store_key_in_keychain(&self, service: &str, account: &str, key: &str) -> Result<(), CryptoError> {
+    fn store_key_in_keychain(
+        &self,
+        service: &str,
+        account: &str,
+        key: &str,
+    ) -> Result<(), CryptoError> {
         use keyring::Entry;
-        
-        let entry = Entry::new(service, account)
-            .map_err(|e| CryptoError::InvalidKey {
-                message: format!("Failed to create keychain entry: {}", e),
-            })?;
 
-        entry.set_password(key).map_err(|e| CryptoError::InvalidKey {
-            message: format!("Failed to store in keychain: {}", e),
-        })
+        let entry = Entry::new(service, account).map_err(|e| CryptoError::InvalidKey {
+            message: format!("Failed to create keychain entry: {}", e),
+        })?;
+
+        entry
+            .set_password(key)
+            .map_err(|e| CryptoError::InvalidKey {
+                message: format!("Failed to store in keychain: {}", e),
+            })
     }
 
     #[cfg(not(feature = "keychain"))]
-    fn store_key_in_keychain(&self, _service: &str, _account: &str, _key: &str) -> Result<(), CryptoError> {
+    fn store_key_in_keychain(
+        &self,
+        _service: &str,
+        _account: &str,
+        _key: &str,
+    ) -> Result<(), CryptoError> {
         Err(CryptoError::InvalidKey {
             message: "Keychain support not enabled. Compile with 'keychain' feature.".to_string(),
         })
@@ -344,13 +422,16 @@ impl KeyUtils {
 
     /// Retrieve a key from OS keychain (cross-platform)
     #[cfg(feature = "keychain")]
-    pub fn get_key_from_keychain(&self, service: &str, account: &str) -> Result<String, CryptoError> {
+    pub fn get_key_from_keychain(
+        &self,
+        service: &str,
+        account: &str,
+    ) -> Result<String, CryptoError> {
         use keyring::Entry;
-        
-        let entry = Entry::new(service, account)
-            .map_err(|e| CryptoError::InvalidKey {
-                message: format!("Failed to create keychain entry: {}", e),
-            })?;
+
+        let entry = Entry::new(service, account).map_err(|e| CryptoError::InvalidKey {
+            message: format!("Failed to create keychain entry: {}", e),
+        })?;
 
         entry.get_password().map_err(|e| CryptoError::InvalidKey {
             message: format!("Failed to retrieve from keychain: {}", e),
@@ -358,7 +439,11 @@ impl KeyUtils {
     }
 
     #[cfg(not(feature = "keychain"))]
-    pub fn get_key_from_keychain(&self, _service: &str, _account: &str) -> Result<String, CryptoError> {
+    pub fn get_key_from_keychain(
+        &self,
+        _service: &str,
+        _account: &str,
+    ) -> Result<String, CryptoError> {
         Err(CryptoError::InvalidKey {
             message: "Keychain support not enabled. Compile with 'keychain' feature.".to_string(),
         })

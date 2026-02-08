@@ -442,12 +442,12 @@ impl VectorDatabase for QdrantClientWrapper {
         let agent_id = {
             use std::collections::hash_map::DefaultHasher;
             use std::hash::{Hash, Hasher};
-            
+
             let mut hasher = DefaultHasher::new();
             item.content.hash(&mut hasher);
             item.id.0.hash(&mut hasher);
             let hash_value = hasher.finish();
-            
+
             // Create a deterministic UUID from hash
             let uuid_bytes = [
                 (hash_value >> 56) as u8,
@@ -468,7 +468,7 @@ impl VectorDatabase for QdrantClientWrapper {
                 (hash_value >> 8) as u8,
                 hash_value as u8,
             ];
-            
+
             AgentId(uuid::Uuid::from_bytes(uuid_bytes))
         };
 

@@ -1,3 +1,10 @@
+---
+layout: default
+title: Docker Guide
+nav_order: 10
+description: "Docker container guide for running Symbiont"
+---
+
 # Docker Container Guide
 
 Symbi provides a unified Docker container with all functionality included, available through GitHub Container Registry.

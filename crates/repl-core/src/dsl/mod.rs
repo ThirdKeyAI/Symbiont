@@ -4,14 +4,14 @@
 //! enabling declarative agent behavior definitions and runtime execution.
 
 pub mod ast;
+pub mod evaluator;
 pub mod lexer;
 pub mod parser;
-pub mod evaluator;
 
 #[cfg(test)]
 mod tests;
 
 pub use ast::*;
+pub use evaluator::{AgentInstance, AgentState, DslEvaluator, DslValue};
 pub use lexer::Lexer;
 pub use parser::Parser;
-pub use evaluator::{DslEvaluator, DslValue, AgentInstance, AgentState};

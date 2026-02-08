@@ -1,12 +1,12 @@
 //! Routing decision types and structures
 
-use serde::{Deserialize, Serialize};
-use std::time::Duration;
-use std::collections::{HashMap, VecDeque};
-use crate::types::AgentId;
+use super::error::TaskType;
 use crate::config::ResourceConstraints;
 use crate::sandbox::SandboxTier;
-use super::error::TaskType;
+use crate::types::AgentId;
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, VecDeque};
+use std::time::Duration;
 
 /// Routing decision outcome
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,9 +42,16 @@ pub enum MonitoringLevel {
 /// LLM provider specification
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum LLMProvider {
-    OpenAI { model: Option<String> },
-    Anthropic { model: Option<String> },
-    Custom { endpoint: String, model: Option<String> },
+    OpenAI {
+        model: Option<String>,
+    },
+    Anthropic {
+        model: Option<String>,
+    },
+    Custom {
+        endpoint: String,
+        model: Option<String>,
+    },
 }
 
 impl std::fmt::Display for LLMProvider {
@@ -73,20 +80,20 @@ pub struct RoutingContext {
     pub request_id: String,
     pub agent_id: AgentId,
     pub timestamp: chrono::DateTime<chrono::Utc>,
-    
+
     /// Task information
     pub task_type: TaskType,
     pub prompt: String,
     pub expected_output_type: OutputType,
-    
+
     /// Resource constraints
     pub max_execution_time: Option<Duration>,
     pub resource_limits: Option<ResourceConstraints>,
-    
+
     /// Agent context
     pub agent_capabilities: Vec<String>,
     pub agent_security_level: SecurityLevel,
-    
+
     /// Additional metadata
     pub metadata: HashMap<String, String>,
 }
@@ -185,11 +192,7 @@ impl Default for RoutingStatistics {
 
 impl RoutingContext {
     /// Create a new routing context
-    pub fn new(
-        agent_id: AgentId,
-        task_type: TaskType,
-        prompt: String,
-    ) -> Self {
+    pub fn new(agent_id: AgentId, task_type: TaskType, prompt: String) -> Self {
         Self {
             request_id: uuid::Uuid::new_v4().to_string(),
             agent_id,
@@ -204,25 +207,25 @@ impl RoutingContext {
             metadata: HashMap::new(),
         }
     }
-    
+
     /// Set expected output type
     pub fn with_output_type(mut self, output_type: OutputType) -> Self {
         self.expected_output_type = output_type;
         self
     }
-    
+
     /// Set resource limits
     pub fn with_resource_limits(mut self, limits: ResourceConstraints) -> Self {
         self.resource_limits = Some(limits);
         self
     }
-    
+
     /// Set security level
     pub fn with_security_level(mut self, level: SecurityLevel) -> Self {
         self.agent_security_level = level;
         self
     }
-    
+
     /// Add metadata
     pub fn with_metadata(mut self, key: String, value: String) -> Self {
         self.metadata.insert(key, value);
@@ -241,13 +244,13 @@ impl ModelRequest {
             stop_sequences: None,
         }
     }
-    
+
     /// Set temperature parameter
     pub fn with_temperature(mut self, temperature: f32) -> Self {
         self.temperature = Some(temperature);
         self
     }
-    
+
     /// Set max tokens
     pub fn with_max_tokens(mut self, max_tokens: u32) -> Self {
         self.max_tokens = Some(max_tokens);
@@ -259,24 +262,26 @@ impl RoutingStatistics {
     /// Update statistics with a new routing decision
     pub fn update(&mut self, decision: &RouteDecision, response_time: Duration, success: bool) {
         self.total_requests += 1;
-        
+
         match decision {
             RouteDecision::UseSLM { .. } => self.slm_routes += 1,
             RouteDecision::UseLLM { .. } => self.llm_routes += 1,
             RouteDecision::Deny { .. } => self.denied_routes += 1,
         }
-        
+
         // Update cumulative response time and calculate average
         self.cumulative_response_time_nanos += response_time.as_nanos();
         self.average_response_time = Duration::from_nanos(
-            (self.cumulative_response_time_nanos / self.total_requests as u128) as u64
+            (self.cumulative_response_time_nanos / self.total_requests as u128) as u64,
         );
-        
+
         // Update success rate
         let successful_requests = if success { 1 } else { 0 };
-        self.success_rate = (self.success_rate * (self.total_requests - 1) as f64 + successful_requests as f64) / self.total_requests as f64;
+        self.success_rate = (self.success_rate * (self.total_requests - 1) as f64
+            + successful_requests as f64)
+            / self.total_requests as f64;
     }
-    
+
     /// Add confidence score to statistics
     pub fn add_confidence_score(&mut self, score: f64) {
         self.confidence_scores.push_back(score);
@@ -285,7 +290,7 @@ impl RoutingStatistics {
             self.confidence_scores.pop_front();
         }
     }
-    
+
     /// Get average confidence score
     pub fn average_confidence(&self) -> Option<f64> {
         if self.confidence_scores.is_empty() {

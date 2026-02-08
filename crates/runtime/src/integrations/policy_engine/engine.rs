@@ -12,9 +12,9 @@ use tokio::time::Instant;
 
 use super::types::*;
 use super::{PolicyEnforcementPoint, ResourceAccessConfig};
-use crate::secrets::{SecretStore, SecretError};
-use crate::types::*;
+use crate::secrets::{SecretError, SecretStore};
 use crate::types::security::Capability;
+use crate::types::*;
 use serde_json::Value;
 
 /// Core trait for policy engines
@@ -28,7 +28,11 @@ pub trait PolicyEngine: Send + Sync {
     ) -> Result<PolicyDecision, PolicyError>;
 
     /// Checks if a given capability is allowed for an agent.
-    async fn check_capability(&self, agent_id: &str, capability: &Capability) -> Result<PolicyDecision, PolicyError>;
+    async fn check_capability(
+        &self,
+        agent_id: &str,
+        capability: &Capability,
+    ) -> Result<PolicyDecision, PolicyError>;
 }
 
 /// Policy decision outcomes
@@ -76,14 +80,22 @@ impl PolicyEngine for OpaPolicyEngine {
         let query = "data.symbiont.main.allow".to_string();
         let results: Value = self.opa_client.query(query, query_input).await?;
 
-        if results.get("result").and_then(|r| r.as_bool()).unwrap_or(false) {
+        if results
+            .get("result")
+            .and_then(|r| r.as_bool())
+            .unwrap_or(false)
+        {
             Ok(PolicyDecision::Allow)
         } else {
             Ok(PolicyDecision::Deny)
         }
     }
 
-    async fn check_capability(&self, agent_id: &str, capability: &Capability) -> Result<PolicyDecision, PolicyError> {
+    async fn check_capability(
+        &self,
+        agent_id: &str,
+        capability: &Capability,
+    ) -> Result<PolicyDecision, PolicyError> {
         let input = serde_json::json!({
             "input": {
                 "agent_id": agent_id,
@@ -94,7 +106,11 @@ impl PolicyEngine for OpaPolicyEngine {
         let query = "data.symbiont.main.allow".to_string();
         let results: Value = self.opa_client.query(query, input).await?;
 
-        if results.get("result").and_then(|r| r.as_bool()).unwrap_or(false) {
+        if results
+            .get("result")
+            .and_then(|r| r.as_bool())
+            .unwrap_or(false)
+        {
             Ok(PolicyDecision::Allow)
         } else {
             Ok(PolicyDecision::Deny)
@@ -115,18 +131,22 @@ impl OpaClient {
         }
     }
 
-    async fn query(&self, query: String, input: serde_json::Value) -> Result<serde_json::Value, PolicyError> {
+    async fn query(
+        &self,
+        query: String,
+        input: serde_json::Value,
+    ) -> Result<serde_json::Value, PolicyError> {
         // For now, this is a mock implementation
         // In a real implementation, this would make HTTP requests to OPA
         let _query_url = format!("{}/v1/data/{}", self.base_url, query.replace("data.", ""));
         let _input = input;
-        
+
         // Mock response - in production this would use reqwest or similar
         // to make actual HTTP calls to OPA
         let mock_result = serde_json::json!({
             "result": true
         });
-        
+
         Ok(mock_result)
     }
 }
@@ -476,7 +496,11 @@ impl DefaultPolicyEnforcementPoint {
     }
 
     /// Check if a rule matches the request
-    async fn rule_matches(&self, rule: &ResourceAccessRule, _request: &ResourceAccessRequest) -> Result<bool, PolicyError> {
+    async fn rule_matches(
+        &self,
+        rule: &ResourceAccessRule,
+        _request: &ResourceAccessRequest,
+    ) -> Result<bool, PolicyError> {
         // Check secret requirements in rule conditions
         let secret_valid = self.validate_secret_requirements(&rule.conditions).await?;
         if !secret_valid {
@@ -639,7 +663,11 @@ impl DefaultPolicyEnforcementPoint {
         conditions: &[RuleCondition],
     ) -> Result<bool, PolicyError> {
         for condition in conditions {
-            if let RuleCondition::SecretMatch { secret_name, permissions: _ } = condition {
+            if let RuleCondition::SecretMatch {
+                secret_name,
+                permissions: _,
+            } = condition
+            {
                 if let Some(ref secrets) = self.secrets {
                     match secrets.get_secret(secret_name).await {
                         Ok(_) => {
@@ -653,9 +681,10 @@ impl DefaultPolicyEnforcementPoint {
                             return Ok(false);
                         }
                         Err(e) => {
-                            return Err(PolicyError::EvaluationFailed(
-                                format!("Secret validation error: {}", e)
-                            ));
+                            return Err(PolicyError::EvaluationFailed(format!(
+                                "Secret validation error: {}",
+                                e
+                            )));
                         }
                     }
                 } else {

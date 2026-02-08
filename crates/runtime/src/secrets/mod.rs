@@ -78,7 +78,7 @@ pub enum SecretError {
 }
 
 /// A secret value retrieved from a secrets backend
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Secret {
     /// The secret key/name
     pub key: String,
@@ -123,6 +123,18 @@ impl Secret {
     /// Get metadata for a specific key
     pub fn get_metadata(&self, key: &str) -> Option<&String> {
         self.metadata.as_ref()?.get(key)
+    }
+}
+
+impl std::fmt::Debug for Secret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Secret")
+            .field("key", &self.key)
+            .field("value", &"[REDACTED]")
+            .field("metadata", &self.metadata)
+            .field("created_at", &self.created_at)
+            .field("version", &self.version)
+            .finish()
     }
 }
 
@@ -182,11 +194,12 @@ pub async fn new_secret_store(
             Ok(Box::new(store))
         }
         SecretsBackend::Vault(vault_config) => {
-            let store = VaultSecretStore::new(vault_config.clone(), agent_id.to_string(), audit_sink)
-                .await
-                .map_err(|e| SecretError::ConfigurationError {
-                    message: format!("Failed to initialize vault backend: {}", e),
-                })?;
+            let store =
+                VaultSecretStore::new(vault_config.clone(), agent_id.to_string(), audit_sink)
+                    .await
+                    .map_err(|e| SecretError::ConfigurationError {
+                        message: format!("Failed to initialize vault backend: {}", e),
+                    })?;
             Ok(Box::new(store))
         }
     }
@@ -208,13 +221,10 @@ mod tests {
     fn test_secret_with_metadata() {
         let mut metadata = HashMap::new();
         metadata.insert("description".to_string(), "Test secret".to_string());
-        
-        let secret = Secret::with_metadata(
-            "test_key".to_string(),
-            "test_value".to_string(),
-            metadata,
-        );
-        
+
+        let secret =
+            Secret::with_metadata("test_key".to_string(), "test_value".to_string(), metadata);
+
         assert_eq!(secret.key, "test_key");
         assert_eq!(secret.value(), "test_value");
         assert_eq!(

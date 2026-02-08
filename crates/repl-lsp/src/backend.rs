@@ -1,7 +1,7 @@
+use repl_core::parse_policy;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
-use repl_core::parse_policy;
 
 pub struct Backend {
     client: Client,
@@ -21,7 +21,9 @@ impl Backend {
                 vec![Diagnostic::new_simple(range, e.to_string())]
             }
         };
-        self.client.publish_diagnostics(uri, diagnostics, None).await;
+        self.client
+            .publish_diagnostics(uri, diagnostics, None)
+            .await;
     }
 }
 
@@ -43,15 +45,22 @@ impl LanguageServer for Backend {
     }
 
     async fn initialized(&self, _: InitializedParams) {
-        self.client.log_message(MessageType::INFO, "LSP server initialized.").await;
+        self.client
+            .log_message(MessageType::INFO, "LSP server initialized.")
+            .await;
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        self.on_change(params.text_document.uri, params.text_document.text).await;
+        self.on_change(params.text_document.uri, params.text_document.text)
+            .await;
     }
 
     async fn did_change(&self, mut params: DidChangeTextDocumentParams) {
-        self.on_change(params.text_document.uri, params.content_changes.remove(0).text).await;
+        self.on_change(
+            params.text_document.uri,
+            params.content_changes.remove(0).text,
+        )
+        .await;
     }
 
     async fn shutdown(&self) -> Result<()> {

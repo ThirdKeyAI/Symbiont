@@ -5,7 +5,7 @@
 use super::types::*;
 use crate::context::manager::ContextManager;
 use crate::context::types::{AgentContext, ContextQuery, QueryType};
-use crate::logging::{ModelLogger, ModelInteractionType, RequestData, ResponseData, TokenUsage};
+use crate::logging::{ModelInteractionType, ModelLogger, RequestData, ResponseData, TokenUsage};
 use crate::types::AgentId;
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -576,7 +576,7 @@ impl RAGEngine for StandardRAGEngine {
         // Extract agent ID from context or use default
         let agent_id = AgentId::new(); // For now, use a default agent ID
         let start_time = Instant::now();
-        
+
         // Prepare request data for logging
         let request_data = RequestData {
             prompt: context.original_query.clone(),
@@ -584,15 +584,26 @@ impl RAGEngine for StandardRAGEngine {
             tool_arguments: None,
             parameters: {
                 let mut params = HashMap::new();
-                params.insert("documents_count".to_string(), serde_json::Value::Number(
-                    serde_json::Number::from(context.retrieved_documents.len())
-                ));
+                params.insert(
+                    "documents_count".to_string(),
+                    serde_json::Value::Number(serde_json::Number::from(
+                        context.retrieved_documents.len(),
+                    )),
+                );
                 if !context.retrieved_documents.is_empty() {
-                    let avg_relevance = context.retrieved_documents.iter()
-                        .map(|d| d.relevance_score).sum::<f32>() / context.retrieved_documents.len() as f32;
-                    params.insert("avg_relevance_score".to_string(), serde_json::Value::Number(
-                        serde_json::Number::from_f64(avg_relevance as f64).unwrap_or(serde_json::Number::from(0))
-                    ));
+                    let avg_relevance = context
+                        .retrieved_documents
+                        .iter()
+                        .map(|d| d.relevance_score)
+                        .sum::<f32>()
+                        / context.retrieved_documents.len() as f32;
+                    params.insert(
+                        "avg_relevance_score".to_string(),
+                        serde_json::Value::Number(
+                            serde_json::Number::from_f64(avg_relevance as f64)
+                                .unwrap_or(serde_json::Number::from(0)),
+                        ),
+                    );
                 }
                 params
             },
@@ -633,10 +644,16 @@ impl RAGEngine for StandardRAGEngine {
             confidence: Some(0.8),
             metadata: {
                 let mut metadata = HashMap::new();
-                metadata.insert("sources_consulted".to_string(),
-                    serde_json::Value::Number(serde_json::Number::from(context.retrieved_documents.len())));
-                metadata.insert("model_version".to_string(),
-                    serde_json::Value::String("mock-v1.0".to_string()));
+                metadata.insert(
+                    "sources_consulted".to_string(),
+                    serde_json::Value::Number(serde_json::Number::from(
+                        context.retrieved_documents.len(),
+                    )),
+                );
+                metadata.insert(
+                    "model_version".to_string(),
+                    serde_json::Value::String("mock-v1.0".to_string()),
+                );
                 metadata
             },
         };
@@ -652,21 +669,27 @@ impl RAGEngine for StandardRAGEngine {
             let metadata = {
                 let mut meta = HashMap::new();
                 meta.insert("rag_pipeline".to_string(), "generate_response".to_string());
-                meta.insert("documents_retrieved".to_string(), context.retrieved_documents.len().to_string());
+                meta.insert(
+                    "documents_retrieved".to_string(),
+                    context.retrieved_documents.len().to_string(),
+                );
                 meta
             };
 
-            if let Err(e) = logger.log_interaction(
-                agent_id, // Now using actual agent ID from context
-                ModelInteractionType::RagQuery,
-                "mock-rag-model",
-                request_data,
-                response_data,
-                generation_time,
-                metadata,
-                Some(token_usage.clone()),
-                None,
-            ).await {
+            if let Err(e) = logger
+                .log_interaction(
+                    agent_id, // Now using actual agent ID from context
+                    ModelInteractionType::RagQuery,
+                    "mock-rag-model",
+                    request_data,
+                    response_data,
+                    generation_time,
+                    metadata,
+                    Some(token_usage.clone()),
+                    None,
+                )
+                .await
+            {
                 log::warn!("Failed to log RAG model interaction: {}", e);
             }
         }

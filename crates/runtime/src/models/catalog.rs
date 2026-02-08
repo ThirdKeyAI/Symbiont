@@ -29,7 +29,7 @@
 //! # }
 //! ```
 
-use crate::config::{Model, ModelCapability, Slm, SandboxProfile};
+use crate::config::{Model, ModelCapability, SandboxProfile, Slm};
 use std::collections::HashMap;
 use thiserror::Error;
 
@@ -38,13 +38,13 @@ use thiserror::Error;
 pub enum ModelCatalogError {
     #[error("Model not found: {id}")]
     ModelNotFound { id: String },
-    
+
     #[error("Invalid model configuration: {reason}")]
     InvalidConfig { reason: String },
-    
+
     #[error("Sandbox profile not found: {profile}")]
     SandboxProfileNotFound { profile: String },
-    
+
     #[error("Agent has no associated models: {agent_id}")]
     NoModelsForAgent { agent_id: String },
 }
@@ -77,7 +77,10 @@ impl ModelCatalog {
     /// invalid model definitions or references non-existent sandbox profiles.
     pub fn new(slm_config: Slm) -> Result<Self, ModelCatalogError> {
         // Validate that the default sandbox profile exists
-        if !slm_config.sandbox_profiles.contains_key(&slm_config.default_sandbox_profile) {
+        if !slm_config
+            .sandbox_profiles
+            .contains_key(&slm_config.default_sandbox_profile)
+        {
             return Err(ModelCatalogError::SandboxProfileNotFound {
                 profile: slm_config.default_sandbox_profile,
             });
@@ -173,8 +176,12 @@ impl ModelCatalog {
     }
 
     /// Get resource requirements for a specific model
-    pub fn get_model_requirements(&self, model_id: &str) -> Option<&crate::config::ModelResourceRequirements> {
-        self.get_model(model_id).map(|model| &model.resource_requirements)
+    pub fn get_model_requirements(
+        &self,
+        model_id: &str,
+    ) -> Option<&crate::config::ModelResourceRequirements> {
+        self.get_model(model_id)
+            .map(|model| &model.resource_requirements)
     }
 
     /// Find the best model for given capabilities and resource constraints
@@ -213,7 +220,11 @@ impl ModelCatalog {
     }
 
     /// Validate that a model exists and is accessible for an agent
-    pub fn validate_model_access(&self, model_id: &str, agent_id: &str) -> Result<(), ModelCatalogError> {
+    pub fn validate_model_access(
+        &self,
+        model_id: &str,
+        agent_id: &str,
+    ) -> Result<(), ModelCatalogError> {
         // Check if model exists
         if !self.models.contains_key(model_id) {
             return Err(ModelCatalogError::ModelNotFound {
@@ -275,8 +286,8 @@ pub struct CatalogStatistics {
 mod tests {
     use super::*;
     use crate::config::{
-        Model, ModelAllowListConfig, ModelCapability, ModelProvider, ModelResourceRequirements,
-        SandboxProfile, GpuRequirements,
+        GpuRequirements, Model, ModelAllowListConfig, ModelCapability, ModelProvider,
+        ModelResourceRequirements, SandboxProfile,
     };
     use std::collections::HashMap;
     use std::path::PathBuf;
@@ -297,7 +308,11 @@ mod tests {
         }
     }
 
-    fn create_test_model_with_memory(id: &str, capabilities: Vec<ModelCapability>, memory_mb: u64) -> Model {
+    fn create_test_model_with_memory(
+        id: &str,
+        capabilities: Vec<ModelCapability>,
+        memory_mb: u64,
+    ) -> Model {
         Model {
             id: id.to_string(),
             name: format!("Test Model {}", id),
@@ -313,7 +328,11 @@ mod tests {
         }
     }
 
-    fn create_test_model_with_gpu(id: &str, capabilities: Vec<ModelCapability>, gpu_vram_mb: u64) -> Model {
+    fn create_test_model_with_gpu(
+        id: &str,
+        capabilities: Vec<ModelCapability>,
+        gpu_vram_mb: u64,
+    ) -> Model {
         Model {
             id: id.to_string(),
             name: format!("Test Model {}", id),
@@ -363,22 +382,53 @@ mod tests {
         sandbox_profiles.insert("standard".to_string(), SandboxProfile::standard_default());
 
         let models = vec![
-            create_test_model_with_memory("small_model", vec![ModelCapability::TextGeneration], 512),
-            create_test_model_with_memory("medium_model", vec![ModelCapability::TextGeneration, ModelCapability::Reasoning], 1024),
-            create_test_model_with_memory("large_model", vec![ModelCapability::TextGeneration, ModelCapability::CodeGeneration], 2048),
-            create_test_model_with_gpu("gpu_model", vec![ModelCapability::TextGeneration, ModelCapability::Embeddings], 4096),
-            create_test_model("multi_cap_model", vec![
-                ModelCapability::TextGeneration,
-                ModelCapability::CodeGeneration,
-                ModelCapability::Reasoning,
-                ModelCapability::ToolUse
-            ]),
+            create_test_model_with_memory(
+                "small_model",
+                vec![ModelCapability::TextGeneration],
+                512,
+            ),
+            create_test_model_with_memory(
+                "medium_model",
+                vec![ModelCapability::TextGeneration, ModelCapability::Reasoning],
+                1024,
+            ),
+            create_test_model_with_memory(
+                "large_model",
+                vec![
+                    ModelCapability::TextGeneration,
+                    ModelCapability::CodeGeneration,
+                ],
+                2048,
+            ),
+            create_test_model_with_gpu(
+                "gpu_model",
+                vec![ModelCapability::TextGeneration, ModelCapability::Embeddings],
+                4096,
+            ),
+            create_test_model(
+                "multi_cap_model",
+                vec![
+                    ModelCapability::TextGeneration,
+                    ModelCapability::CodeGeneration,
+                    ModelCapability::Reasoning,
+                    ModelCapability::ToolUse,
+                ],
+            ),
         ];
 
         let mut agent_model_maps = HashMap::new();
-        agent_model_maps.insert("text_agent".to_string(), vec!["small_model".to_string(), "medium_model".to_string()]);
-        agent_model_maps.insert("code_agent".to_string(), vec!["large_model".to_string(), "multi_cap_model".to_string()]);
-        agent_model_maps.insert("restricted_agent".to_string(), vec!["small_model".to_string()]);
+        agent_model_maps.insert(
+            "text_agent".to_string(),
+            vec!["small_model".to_string(), "medium_model".to_string()],
+        );
+        agent_model_maps.insert(
+            "code_agent".to_string(),
+            vec!["large_model".to_string(), "multi_cap_model".to_string()],
+        );
+        agent_model_maps.insert(
+            "restricted_agent".to_string(),
+            vec!["small_model".to_string()],
+        );
 
         Slm {
             enabled: true,
@@ -569,7 +619,11 @@ mod tests {
 
         // Test finding model with multiple capabilities
         let multi_cap_model = catalog.find_best_model_for_requirements(
-            &[ModelCapability::TextGeneration, ModelCapability::Reasoning, ModelCapability::ToolUse],
+            &[
+                ModelCapability::TextGeneration,
+                ModelCapability::Reasoning,
+                ModelCapability::ToolUse,
+            ],
             None,
             None,
         );
@@ -672,7 +726,7 @@ mod tests {
         let catalog = ModelCatalog::new(config).unwrap();
 
         let stats = catalog.get_statistics();
-        
+
         assert_eq!(stats.total_models, 5);
         assert_eq!(stats.models_with_gpu, 1); // Only gpu_model has GPU requirements
         assert_eq!(stats.total_agents_with_mappings, 3); // text_agent, code_agent, restricted_agent
@@ -689,7 +743,7 @@ mod tests {
     #[test]
     fn test_validation_errors() {
         let mut config = create_test_slm_config();
-        
+
         // Test invalid default sandbox profile
         config.default_sandbox_profile = "nonexistent".to_string();
         let result = ModelCatalog::new(config);
@@ -702,10 +756,16 @@ mod tests {
     #[test]
     fn test_validation_duplicate_model_ids() {
         let mut config = create_test_slm_config();
-        
+
         // Add duplicate model ID
-        config.model_allow_lists.global_models.push(create_test_model("model1", vec![ModelCapability::Reasoning]));
-        
+        config
+            .model_allow_lists
+            .global_models
+            .push(create_test_model(
+                "model1",
+                vec![ModelCapability::Reasoning],
+            ));
+
         let result = ModelCatalog::new(config);
         assert!(matches!(
             result,
@@ -716,13 +776,13 @@ mod tests {
     #[test]
     fn test_validation_invalid_agent_model_mapping() {
         let mut config = create_test_slm_config();
-        
+
         // Add agent mapping to non-existent model
         config.model_allow_lists.agent_model_maps.insert(
             "invalid_agent".to_string(),
-            vec!["nonexistent_model".to_string()]
+            vec!["nonexistent_model".to_string()],
         );
-        
+
         let result = ModelCatalog::new(config);
         assert!(matches!(
             result,
@@ -735,13 +795,18 @@ mod tests {
         let mut config = create_test_slm_config();
         config.model_allow_lists.global_models.clear();
         config.model_allow_lists.agent_model_maps.clear();
-        
+
         let catalog = ModelCatalog::new(config).unwrap();
-        
+
         assert_eq!(catalog.list_models().len(), 0);
         assert_eq!(catalog.get_models_for_agent("any_agent").len(), 0);
-        assert_eq!(catalog.get_models_with_capability(&ModelCapability::TextGeneration).len(), 0);
-        
+        assert_eq!(
+            catalog
+                .get_models_with_capability(&ModelCapability::TextGeneration)
+                .len(),
+            0
+        );
+
         let stats = catalog.get_statistics();
         assert_eq!(stats.total_models, 0);
         assert_eq!(stats.models_with_gpu, 0);
@@ -753,7 +818,9 @@ mod tests {
         let local_model = Model {
             id: "local".to_string(),
             name: "Local Model".to_string(),
-            provider: ModelProvider::LocalFile { file_path: PathBuf::from("/models/local.gguf") },
+            provider: ModelProvider::LocalFile {
+                file_path: PathBuf::from("/models/local.gguf"),
+            },
             capabilities: vec![ModelCapability::TextGeneration],
             resource_requirements: ModelResourceRequirements {
                 min_memory_mb: 1024,
@@ -765,7 +832,9 @@ mod tests {
         let hf_model = Model {
             id: "huggingface".to_string(),
             name: "HuggingFace Model".to_string(),
-            provider: ModelProvider::HuggingFace { model_path: "microsoft/DialoGPT-medium".to_string() },
+            provider: ModelProvider::HuggingFace {
+                model_path: "microsoft/DialoGPT-medium".to_string(),
+            },
             capabilities: vec![ModelCapability::TextGeneration],
             resource_requirements: ModelResourceRequirements {
                 min_memory_mb: 2048,
@@ -780,7 +849,9 @@ mod tests {
         let openai_model = Model {
             id: "openai".to_string(),
             name: "OpenAI Model".to_string(),
-            provider: ModelProvider::OpenAI { model_name: "gpt-3.5-turbo".to_string() },
+            provider: ModelProvider::OpenAI {
+                model_name: "gpt-3.5-turbo".to_string(),
+            },
             capabilities: vec![ModelCapability::TextGeneration, ModelCapability::Reasoning],
             resource_requirements: ModelResourceRequirements {
                 min_memory_mb: 0, // Cloud model
@@ -791,10 +862,10 @@ mod tests {
 
         let mut config = create_test_slm_config();
         config.model_allow_lists.global_models = vec![local_model, hf_model, openai_model];
-        
+
         let catalog = ModelCatalog::new(config).unwrap();
         assert_eq!(catalog.list_models().len(), 3);
-        
+
         // Test that all provider types are accessible
         assert!(catalog.get_model("local").is_some());
         assert!(catalog.get_model("huggingface").is_some());
@@ -805,13 +876,15 @@ mod tests {
     fn test_runtime_overrides_setting() {
         let mut config = create_test_slm_config();
         config.model_allow_lists.allow_runtime_overrides = true;
-        
+
         let catalog = ModelCatalog::new(config).unwrap();
         assert!(catalog.allows_runtime_overrides());
-        
+
         let mut config_no_overrides = create_test_slm_config();
-        config_no_overrides.model_allow_lists.allow_runtime_overrides = false;
-        
+        config_no_overrides
+            .model_allow_lists
+            .allow_runtime_overrides = false;
+
         let catalog_no_overrides = ModelCatalog::new(config_no_overrides).unwrap();
         assert!(!catalog_no_overrides.allows_runtime_overrides());
     }

@@ -23,7 +23,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== Initializing RAG Engine ===");
 
     let context_manager_config = ContextManagerConfig::default();
-    let context_manager = Arc::new(StandardContextManager::new(context_manager_config, "system").await?);
+    let context_manager =
+        Arc::new(StandardContextManager::new(context_manager_config, "system").await?);
     let rag_engine = StandardRAGEngine::new(context_manager);
 
     // Configure the RAG engine

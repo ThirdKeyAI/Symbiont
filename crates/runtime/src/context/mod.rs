@@ -70,7 +70,9 @@ mod tests {
     async fn test_context_manager_creation() {
         let config = ContextManagerConfig::default();
         let agent_id = AgentId::new();
-        let manager = StandardContextManager::new(config, &agent_id.to_string()).await.unwrap();
+        let manager = StandardContextManager::new(config, &agent_id.to_string())
+            .await
+            .unwrap();
         assert!(manager.initialize().await.is_ok());
     }
 
@@ -78,7 +80,9 @@ mod tests {
     async fn test_session_creation() {
         let config = ContextManagerConfig::default();
         let agent_id = AgentId::new();
-        let manager = StandardContextManager::new(config, &agent_id.to_string()).await.unwrap();
+        let manager = StandardContextManager::new(config, &agent_id.to_string())
+            .await
+            .unwrap();
         manager.initialize().await.unwrap();
 
         let session_id = manager.create_session(agent_id).await.unwrap();
@@ -96,7 +100,9 @@ mod tests {
     async fn test_memory_operations() {
         let config = ContextManagerConfig::default();
         let agent_id = AgentId::new();
-        let manager = StandardContextManager::new(config, &agent_id.to_string()).await.unwrap();
+        let manager = StandardContextManager::new(config, &agent_id.to_string())
+            .await
+            .unwrap();
         manager.initialize().await.unwrap();
 
         let _session_id = manager.create_session(agent_id).await.unwrap();
@@ -118,7 +124,9 @@ mod tests {
     async fn test_knowledge_operations() {
         let config = ContextManagerConfig::default();
         let agent_id = AgentId::new();
-        let manager = StandardContextManager::new(config, &agent_id.to_string()).await.unwrap();
+        let manager = StandardContextManager::new(config, &agent_id.to_string())
+            .await
+            .unwrap();
         manager.initialize().await.unwrap();
 
         let _session_id = manager.create_session(agent_id).await.unwrap();
@@ -152,7 +160,9 @@ mod tests {
     async fn test_context_query() {
         let config = ContextManagerConfig::default();
         let agent_id = AgentId::new();
-        let manager = StandardContextManager::new(config, &agent_id.to_string()).await.unwrap();
+        let manager = StandardContextManager::new(config, &agent_id.to_string())
+            .await
+            .unwrap();
         manager.initialize().await.unwrap();
 
         let _session_id = manager.create_session(agent_id).await.unwrap();
@@ -177,7 +187,9 @@ mod tests {
     async fn test_context_stats() {
         let config = ContextManagerConfig::default();
         let agent_id = AgentId::new();
-        let manager = StandardContextManager::new(config, &agent_id.to_string()).await.unwrap();
+        let manager = StandardContextManager::new(config, &agent_id.to_string())
+            .await
+            .unwrap();
         manager.initialize().await.unwrap();
 
         let _session_id = manager.create_session(agent_id).await.unwrap();
@@ -192,8 +204,10 @@ mod tests {
     async fn test_secrets_integration() {
         let config = ContextManagerConfig::default();
         let agent_id = AgentId::new();
-        let manager = StandardContextManager::new(config, &agent_id.to_string()).await.unwrap();
-        
+        let manager = StandardContextManager::new(config, &agent_id.to_string())
+            .await
+            .unwrap();
+
         // Test that secrets accessor is available
         let _secrets = manager.secrets();
         // This test just verifies the secrets integration compiles and is accessible

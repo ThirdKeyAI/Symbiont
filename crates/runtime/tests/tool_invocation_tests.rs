@@ -83,6 +83,7 @@ fn create_test_context(tool_name: &str) -> InvocationContext {
         arguments: serde_json::json!({"input": "test"}),
         timestamp: chrono::Utc::now(),
         metadata: HashMap::new(),
+        agent_credential: None,
     }
 }
 

@@ -1,9 +1,9 @@
 use anyhow::Result;
+use chrono::Utc;
 use repl_core::Session;
 use repl_proto::{CommandLog, OutputLog};
 use std::fs::{File, OpenOptions};
 use std::io::Write;
-use chrono::Utc;
 
 pub struct SessionManager {
     session: Session,

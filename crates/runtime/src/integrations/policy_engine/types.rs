@@ -22,15 +22,34 @@ pub enum ConditionType {
 /// Rule condition for policy evaluation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RuleCondition {
-    AgentMatch { patterns: Vec<String> },
-    ActionMatch { action_types: Vec<String> },
-    ResourceMatch { resource_patterns: Vec<String> },
-    TimeMatch { time_windows: Vec<TimeWindow> },
-    SecurityLevelMatch { levels: Vec<SecurityTier> },
-    SecretMatch { secret_name: String, permissions: Option<Vec<String>> },
-    And { conditions: Vec<RuleCondition> },
-    Or { conditions: Vec<RuleCondition> },
-    Not { condition: Box<RuleCondition> },
+    AgentMatch {
+        patterns: Vec<String>,
+    },
+    ActionMatch {
+        action_types: Vec<String>,
+    },
+    ResourceMatch {
+        resource_patterns: Vec<String>,
+    },
+    TimeMatch {
+        time_windows: Vec<TimeWindow>,
+    },
+    SecurityLevelMatch {
+        levels: Vec<SecurityTier>,
+    },
+    SecretMatch {
+        secret_name: String,
+        permissions: Option<Vec<String>>,
+    },
+    And {
+        conditions: Vec<RuleCondition>,
+    },
+    Or {
+        conditions: Vec<RuleCondition>,
+    },
+    Not {
+        condition: Box<RuleCondition>,
+    },
 }
 
 /// Time window for policy rules

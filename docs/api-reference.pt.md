@@ -379,7 +379,7 @@ Retorna o status atual de saúde do sistema e informações básicas do runtime.
   "status": "healthy",
   "uptime_seconds": 3600,
   "timestamp": "2024-01-15T10:30:00Z",
-  "version": "0.1.0"
+  "version": "1.0.0"
 }
 ```
 

@@ -10,13 +10,26 @@ use std::time::{Duration, SystemTime};
 use tokio::sync::Notify;
 use tokio::time::interval;
 
-use crate::types::*;
 use crate::routing::RoutingEngine;
+use crate::types::*;
 
 #[cfg(feature = "http-api")]
 pub mod load_balancer;
 pub mod priority_queue;
 pub mod task_manager;
+
+#[cfg(feature = "cron")]
+pub mod cron_scheduler;
+#[cfg(feature = "cron")]
+pub mod cron_types;
+#[cfg(feature = "cron")]
+pub mod delivery;
+#[cfg(feature = "cron")]
+pub mod heartbeat;
+#[cfg(feature = "cron")]
+pub mod job_store;
+#[cfg(feature = "cron")]
+pub mod policy_gate;
 
 // use load_balancer::LoadBalancer;
 use priority_queue::PriorityQueue;
@@ -70,7 +83,11 @@ pub trait AgentScheduler {
 
     /// Update an existing agent's configuration
     #[cfg(feature = "http-api")]
-    async fn update_agent(&self, agent_id: AgentId, request: crate::api::types::UpdateAgentRequest) -> Result<(), SchedulerError>;
+    async fn update_agent(
+        &self,
+        agent_id: AgentId,
+        request: crate::api::types::UpdateAgentRequest,
+    ) -> Result<(), SchedulerError>;
 }
 
 /// Scheduler configuration
@@ -160,8 +177,11 @@ impl LoadBalancer {
     pub fn new(_strategy: LoadBalancingStrategy) -> Self {
         Self
     }
-    
-    pub async fn allocate_resources(&self, _requirements: &ResourceRequirements) -> Result<ResourceAllocation, String> {
+
+    pub async fn allocate_resources(
+        &self,
+        _requirements: &ResourceRequirements,
+    ) -> Result<ResourceAllocation, String> {
         // Stub implementation - always succeeds
         Ok(ResourceAllocation {
             agent_id: AgentId::new(),
@@ -172,11 +192,11 @@ impl LoadBalancer {
             allocation_time: SystemTime::now(),
         })
     }
-    
+
     pub async fn deallocate_resources(&self, _allocation: ResourceAllocation) {
         // Stub implementation
     }
-    
+
     pub async fn get_resource_utilization(&self) -> ResourceUsage {
         ResourceUsage {
             memory_used: 0,
@@ -186,7 +206,7 @@ impl LoadBalancer {
             uptime: std::time::Duration::from_secs(0),
         }
     }
-    
+
     pub async fn get_statistics(&self) -> serde_json::Value {
         serde_json::json!({})
     }
@@ -225,7 +245,7 @@ impl DefaultAgentScheduler {
     /// Create a new scheduler instance with optional routing engine
     pub async fn new_with_routing(
         config: SchedulerConfig,
-        routing_engine: Option<Arc<dyn RoutingEngine>>
+        routing_engine: Option<Arc<dyn RoutingEngine>>,
     ) -> Result<Self, SchedulerError> {
         let priority_queue = Arc::new(RwLock::new(PriorityQueue::new()));
         let load_balancer = Arc::new(LoadBalancer::new(config.load_balancing_strategy.clone()));
@@ -480,7 +500,7 @@ impl AgentScheduler for DefaultAgentScheduler {
         // Check if agent is currently running
         if let Some(entry) = self.running_agents.get(&agent_id) {
             let scheduled_task = entry.value();
-            
+
             // Get detailed health information from task manager
             match self.task_manager.check_task_health(agent_id).await {
                 Ok(task_health) => {
@@ -493,9 +513,13 @@ impl AgentScheduler for DefaultAgentScheduler {
                         task_manager::TaskStatus::TimedOut => AgentState::Failed,
                         task_manager::TaskStatus::Terminated => AgentState::Terminated,
                     };
-                    
-                    let active_tasks = if matches!(state, AgentState::Running) { 1 } else { 0 };
-                    
+
+                    let active_tasks = if matches!(state, AgentState::Running) {
+                        1
+                    } else {
+                        0
+                    };
+
                     Ok(AgentStatus {
                         agent_id,
                         state,
@@ -505,7 +529,7 @@ impl AgentScheduler for DefaultAgentScheduler {
                         active_tasks,
                         scheduled_at: scheduled_task.scheduled_at,
                     })
-                },
+                }
                 Err(_) => {
                     // Agent exists but health check failed - might be in error state
                     Ok(AgentStatus {
@@ -557,7 +581,7 @@ impl AgentScheduler for DefaultAgentScheduler {
         self.shutdown_notify.notify_waiters();
 
         // Step 1: Stop accepting new agents (already done by setting is_running=false)
-        
+
         // Step 2: Gracefully shutdown all running agents with timeout
         let running_agent_ids: Vec<AgentId> = self
             .running_agents
@@ -565,15 +589,20 @@ impl AgentScheduler for DefaultAgentScheduler {
             .map(|entry| *entry.key())
             .collect();
 
-        tracing::info!("Shutting down {} running agents gracefully", running_agent_ids.len());
+        tracing::info!(
+            "Shutting down {} running agents gracefully",
+            running_agent_ids.len()
+        );
 
         // First pass: attempt graceful shutdown
         let graceful_timeout = Duration::from_secs(30);
         let graceful_start = std::time::Instant::now();
-        
+
         for agent_id in &running_agent_ids {
             if graceful_start.elapsed() >= graceful_timeout {
-                tracing::warn!("Graceful shutdown timeout reached, switching to forced termination");
+                tracing::warn!(
+                    "Graceful shutdown timeout reached, switching to forced termination"
+                );
                 break;
             }
 
@@ -598,8 +627,11 @@ impl AgentScheduler for DefaultAgentScheduler {
             .collect();
 
         if !remaining_agent_ids.is_empty() {
-            tracing::warn!("Force terminating {} remaining agents", remaining_agent_ids.len());
-            
+            tracing::warn!(
+                "Force terminating {} remaining agents",
+                remaining_agent_ids.len()
+            );
+
             for agent_id in remaining_agent_ids {
                 if let Err(e) = self.terminate_agent(agent_id).await {
                     tracing::error!(
@@ -634,7 +666,9 @@ impl AgentScheduler for DefaultAgentScheduler {
     async fn check_health(&self) -> Result<ComponentHealth, SchedulerError> {
         let is_running = *self.is_running.read();
         if !is_running {
-            return Ok(ComponentHealth::unhealthy("Scheduler is shut down".to_string()));
+            return Ok(ComponentHealth::unhealthy(
+                "Scheduler is shut down".to_string(),
+            ));
         }
 
         let (total_scheduled, uptime) = {
@@ -655,10 +689,7 @@ impl AgentScheduler for DefaultAgentScheduler {
                 self.config.max_concurrent_agents
             ))
         } else if queue_len > 1000 {
-            ComponentHealth::degraded(format!(
-                "Large queue: {} agents waiting",
-                queue_len
-            ))
+            ComponentHealth::degraded(format!("Large queue: {} agents waiting", queue_len))
         } else {
             ComponentHealth::healthy(Some(format!(
                 "Running normally: {} active agents, {} queued",
@@ -671,7 +702,10 @@ impl AgentScheduler for DefaultAgentScheduler {
             .with_metric("running_agents".to_string(), running_count.to_string())
             .with_metric("queued_agents".to_string(), queue_len.to_string())
             .with_metric("total_scheduled".to_string(), total_scheduled.to_string())
-            .with_metric("max_capacity".to_string(), self.config.max_concurrent_agents.to_string())
+            .with_metric(
+                "max_capacity".to_string(),
+                self.config.max_concurrent_agents.to_string(),
+            )
             .with_metric("load_factor".to_string(), format!("{:.2}", load_factor)))
     }
 
@@ -694,7 +728,11 @@ impl AgentScheduler for DefaultAgentScheduler {
     }
 
     #[cfg(feature = "http-api")]
-    async fn update_agent(&self, agent_id: AgentId, request: crate::api::types::UpdateAgentRequest) -> Result<(), SchedulerError> {
+    async fn update_agent(
+        &self,
+        agent_id: AgentId,
+        request: crate::api::types::UpdateAgentRequest,
+    ) -> Result<(), SchedulerError> {
         if !*self.is_running.read() {
             return Err(SchedulerError::ShuttingDown);
         }
@@ -702,16 +740,16 @@ impl AgentScheduler for DefaultAgentScheduler {
         // Check if agent is currently running
         if let Some(mut entry) = self.running_agents.get_mut(&agent_id) {
             let task = entry.value_mut();
-            
+
             // Update the agent configuration
             if let Some(name) = request.name {
                 task.config.name = name;
             }
-            
+
             if let Some(dsl) = request.dsl {
                 task.config.dsl_source = dsl;
             }
-            
+
             tracing::info!("Updated running agent {}", agent_id);
             return Ok(());
         }
@@ -723,11 +761,11 @@ impl AgentScheduler for DefaultAgentScheduler {
             if let Some(name) = request.name {
                 task.config.name = name;
             }
-            
+
             if let Some(dsl) = request.dsl {
                 task.config.dsl_source = dsl;
             }
-            
+
             // Put it back in the queue
             queue.push(task);
             tracing::info!("Updated queued agent {}", agent_id);
@@ -742,7 +780,7 @@ impl DefaultAgentScheduler {
     /// Flush system metrics to persistent storage
     async fn flush_metrics(&self) -> Result<(), SchedulerError> {
         tracing::debug!("Flushing scheduler metrics");
-        
+
         let (total_scheduled, uptime, running_count, queued_count) = {
             let metrics = self.system_metrics.read();
             let queue = self.priority_queue.read();
@@ -757,7 +795,7 @@ impl DefaultAgentScheduler {
 
         // Get task manager statistics
         let task_stats = self.task_manager.get_task_statistics().await;
-        
+
         // Get load balancer statistics
         let lb_stats = self.load_balancer.get_statistics().await;
 
@@ -782,16 +820,17 @@ impl DefaultAgentScheduler {
             running_count,
             queued_count,
             serde_json::to_value(&task_stats).unwrap_or(serde_json::json!({})),
-            lb_stats
-        ).await?;
-        
+            lb_stats,
+        )
+        .await?;
+
         Ok(())
     }
 
     /// Clean up all allocated resources
     async fn cleanup_resources(&self) -> Result<(), SchedulerError> {
         tracing::debug!("Cleaning up allocated resources");
-        
+
         // Get all allocated agents and their resource allocations
         let allocated_agents: Vec<AgentId> = self
             .running_agents
@@ -811,7 +850,7 @@ impl DefaultAgentScheduler {
                 allocated_network_io: 0,
                 allocation_time: SystemTime::now(),
             };
-            
+
             self.load_balancer.deallocate_resources(allocation).await;
         }
 
@@ -860,13 +899,16 @@ impl DefaultAgentScheduler {
         // 2. Send to Prometheus via pushgateway
         // 3. Store in a relational database for queries
         // 4. Send to monitoring services like DataDog, New Relic, etc.
-        
+
         // For now, we'll write to a local metrics file as a basic implementation
         let metrics_file = std::env::temp_dir().join("symbiont_scheduler_metrics.json");
-        
+
         match tokio::fs::write(&metrics_file, serde_json::to_string_pretty(&metrics_data)?).await {
             Ok(_) => {
-                tracing::debug!("Successfully persisted scheduler metrics to {}", metrics_file.display());
+                tracing::debug!(
+                    "Successfully persisted scheduler metrics to {}",
+                    metrics_file.display()
+                );
             }
             Err(e) => {
                 tracing::error!("Failed to persist metrics to file: {}", e);
@@ -890,12 +932,17 @@ impl DefaultAgentScheduler {
     async fn get_system_cpu_usage(&self) -> f64 {
         // In a real implementation, this would query actual CPU usage
         // For now, estimate based on running agents and max capacity
-        let load_factor = self.running_agents.len() as f64 / self.config.max_concurrent_agents as f64;
+        let load_factor =
+            self.running_agents.len() as f64 / self.config.max_concurrent_agents as f64;
         (load_factor * 100.0).min(100.0) // Convert to percentage, cap at 100%
     }
 
     /// Suspend an agent (moves from running to suspended state)
-    pub async fn suspend_agent(&self, agent_id: AgentId, reason: String) -> Result<(), SchedulerError> {
+    pub async fn suspend_agent(
+        &self,
+        agent_id: AgentId,
+        reason: String,
+    ) -> Result<(), SchedulerError> {
         if let Some((_, task)) = self.running_agents.remove(&agent_id) {
             // Stop the task
             if let Err(e) = self.task_manager.terminate_task(agent_id).await {
@@ -919,7 +966,7 @@ impl DefaultAgentScheduler {
 
             // Store in suspended agents
             self.suspended_agents.insert(agent_id, suspension_info);
-            
+
             tracing::info!("Suspended agent {} with reason: {}", agent_id, reason);
             Ok(())
         } else {
@@ -940,9 +987,9 @@ impl DefaultAgentScheduler {
             // Add back to priority queue for scheduling
             let mut task = suspension_info.original_task;
             task.scheduled_at = SystemTime::now(); // Update schedule time
-            
+
             self.priority_queue.write().push(task);
-            
+
             tracing::info!("Resumed agent {} from suspension", agent_id);
             Ok(())
         } else {

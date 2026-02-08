@@ -4,10 +4,10 @@ use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
+use sysinfo::{Pid, System};
+use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
-use tokio::process::Command;
-use sysinfo::{System, Pid};
 
 use crate::types::*;
 
@@ -160,8 +160,9 @@ impl TaskManager {
         // Execute the real agent task with proper monitoring and metrics
         let execution_result = timeout(
             task_timeout,
-            Self::execute_agent_task(task.clone(), handle.clone())
-        ).await;
+            Self::execute_agent_task(task.clone(), handle.clone()),
+        )
+        .await;
 
         match execution_result {
             Ok(Ok(execution_metrics)) => {
@@ -183,64 +184,69 @@ impl TaskManager {
     /// Terminate task execution
     async fn terminate_task_execution(agent_id: AgentId, handle: TaskHandle) {
         tracing::info!("Terminating agent {}", agent_id);
-        
+
         // If there's a process associated with this task, terminate it
         if let Some(process_id) = handle.get_process_id() {
             if let Err(e) = Self::terminate_process(process_id).await {
                 tracing::warn!("Failed to terminate process {}: {}", process_id, e);
             }
         }
-        
+
         handle.set_status(TaskStatus::Terminated);
     }
 
     /// Execute a real agent task with comprehensive monitoring
     async fn execute_agent_task(
         task: super::ScheduledTask,
-        handle: TaskHandle
+        handle: TaskHandle,
     ) -> Result<ExecutionMetrics, String> {
         let _start_time = SystemTime::now();
         let agent_id = task.agent_id;
-        
-        tracing::debug!("Executing agent {} with config: {:?}", agent_id, task.config);
-        
+
+        tracing::debug!(
+            "Executing agent {} with config: {:?}",
+            agent_id,
+            task.config
+        );
+
         // Create execution context
         let execution_context = AgentExecutionContext::new(task.clone(), handle.clone());
-        
+
         // Execute based on agent execution mode
         match task.config.execution_mode {
-            ExecutionMode::Ephemeral => {
-                Self::execute_ephemeral_agent(execution_context).await
-            }
-            ExecutionMode::Persistent => {
-                Self::execute_persistent_agent(execution_context).await
-            }
+            ExecutionMode::Ephemeral => Self::execute_ephemeral_agent(execution_context).await,
+            ExecutionMode::Persistent => Self::execute_persistent_agent(execution_context).await,
             ExecutionMode::Scheduled { interval } => {
                 Self::execute_scheduled_agent(execution_context, interval).await
             }
-            ExecutionMode::EventDriven => {
-                Self::execute_event_driven_agent(execution_context).await
+            ExecutionMode::CronScheduled { .. } => {
+                Self::execute_cron_scheduled_agent(execution_context).await
             }
+            ExecutionMode::EventDriven => Self::execute_event_driven_agent(execution_context).await,
         }
     }
 
     /// Execute an ephemeral agent (runs once and terminates)
     async fn execute_ephemeral_agent(
-        mut context: AgentExecutionContext
+        mut context: AgentExecutionContext,
     ) -> Result<ExecutionMetrics, String> {
         tracing::debug!("Executing ephemeral agent {}", context.task.agent_id);
-        
+
         // Launch the agent process
         let process_handle = Self::launch_agent_process(&context.task).await?;
-        context.handle.set_process_id(Some(process_handle.process_id));
-        
+        context
+            .handle
+            .set_process_id(Some(process_handle.process_id));
+
         // Monitor the process execution
         let result = Self::monitor_process_execution(process_handle, &mut context).await;
-        
+
         // Collect final metrics
         let end_time = SystemTime::now();
-        let execution_time = end_time.duration_since(context.start_time).unwrap_or_default();
-        
+        let execution_time = end_time
+            .duration_since(context.start_time)
+            .unwrap_or_default();
+
         Ok(ExecutionMetrics {
             execution_time,
             memory_peak_mb: context.memory_peak_mb,
@@ -253,19 +259,22 @@ impl TaskManager {
 
     /// Execute a persistent agent (long-running)
     async fn execute_persistent_agent(
-        context: AgentExecutionContext
+        context: AgentExecutionContext,
     ) -> Result<ExecutionMetrics, String> {
         tracing::debug!("Executing persistent agent {}", context.task.agent_id);
-        
+
         // Launch the agent process
         let process_handle = Self::launch_agent_process(&context.task).await?;
-        context.handle.set_process_id(Some(process_handle.process_id));
-        
+        context
+            .handle
+            .set_process_id(Some(process_handle.process_id));
+
         // For persistent agents, we start monitoring but don't wait for completion
-        let _monitoring_handle = tokio::spawn(async move {
-            Self::monitor_persistent_process(process_handle, context).await
-        });
-        
+        let _monitoring_handle =
+            tokio::spawn(
+                async move { Self::monitor_persistent_process(process_handle, context).await },
+            );
+
         // Return immediately for persistent agents
         Ok(ExecutionMetrics {
             execution_time: Duration::from_secs(0),
@@ -277,24 +286,36 @@ impl TaskManager {
         })
     }
 
-    /// Execute a scheduled agent
+    /// Execute a scheduled agent (single run — the CronScheduler handles recurrence).
     async fn execute_scheduled_agent(
         context: AgentExecutionContext,
-        interval: Duration
+        interval: Duration,
     ) -> Result<ExecutionMetrics, String> {
-        tracing::debug!("Executing scheduled agent {} with interval {:?}",
-                       context.task.agent_id, interval);
-        
-        // For scheduled agents, execute once and set up for next execution
+        tracing::debug!(
+            "Executing scheduled agent {} (interval {:?}) as ephemeral run",
+            context.task.agent_id,
+            interval
+        );
+        // Execute exactly once and return metrics.
+        // The external CronScheduler is responsible for computing the next
+        // fire time and re-invoking.
+        Self::execute_ephemeral_agent(context).await
+    }
+
+    /// Execute a cron-scheduled agent (single run triggered by CronScheduler).
+    async fn execute_cron_scheduled_agent(
+        context: AgentExecutionContext,
+    ) -> Result<ExecutionMetrics, String> {
+        tracing::debug!("Executing cron-scheduled agent {}", context.task.agent_id,);
         Self::execute_ephemeral_agent(context).await
     }
 
     /// Execute an event-driven agent
     async fn execute_event_driven_agent(
-        context: AgentExecutionContext
+        context: AgentExecutionContext,
     ) -> Result<ExecutionMetrics, String> {
         tracing::debug!("Executing event-driven agent {}", context.task.agent_id);
-        
+
         // Event-driven agents are similar to persistent but triggered by events
         Self::execute_persistent_agent(context).await
     }
@@ -302,22 +323,22 @@ impl TaskManager {
     /// Launch an agent process
     async fn launch_agent_process(task: &super::ScheduledTask) -> Result<ProcessHandle, String> {
         let agent_id = task.agent_id;
-        
+
         // Create a secure execution environment based on security tier
         let execution_env = Self::create_execution_environment(task)?;
-        
+
         // Build the command to execute the agent
         let mut command = Self::build_agent_command(task, &execution_env)?;
-        
+
         tracing::debug!("Launching agent {} with command: {:?}", agent_id, command);
-        
+
         // Spawn the process
         let child = command
             .spawn()
             .map_err(|e| format!("Failed to spawn agent process: {}", e))?;
-        
+
         let process_id = child.id().unwrap_or(0);
-        
+
         Ok(ProcessHandle {
             process_id,
             child: Arc::new(tokio::sync::Mutex::new(child)),
@@ -326,21 +347,29 @@ impl TaskManager {
     }
 
     /// Create execution environment for the agent
-    fn create_execution_environment(task: &super::ScheduledTask) -> Result<ExecutionEnvironment, String> {
+    fn create_execution_environment(
+        task: &super::ScheduledTask,
+    ) -> Result<ExecutionEnvironment, String> {
         use std::env;
-        
+
         // For tests, use a temporary directory that we know exists
         let working_dir = if cfg!(test) {
-            env::temp_dir().join(format!("agent_{}", task.agent_id)).to_string_lossy().to_string()
+            env::temp_dir()
+                .join(format!("agent_{}", task.agent_id))
+                .to_string_lossy()
+                .to_string()
         } else {
             format!("/tmp/agent_{}", task.agent_id)
         };
-        
+
         Ok(ExecutionEnvironment {
             working_directory: working_dir,
             environment_variables: vec![
                 ("AGENT_ID".to_string(), task.agent_id.to_string()),
-                ("SECURITY_TIER".to_string(), format!("{:?}", task.config.security_tier)),
+                (
+                    "SECURITY_TIER".to_string(),
+                    format!("{:?}", task.config.security_tier),
+                ),
             ],
             resource_limits: task.config.resource_limits.clone(),
         })
@@ -349,23 +378,27 @@ impl TaskManager {
     /// Build the command to execute the agent
     fn build_agent_command(
         task: &super::ScheduledTask,
-        env: &ExecutionEnvironment
+        env: &ExecutionEnvironment,
     ) -> Result<Command, String> {
         let mut command = Command::new("sh");
-        
+
         // Create the working directory if it doesn't exist
         if let Err(e) = std::fs::create_dir_all(&env.working_directory) {
-            tracing::warn!("Failed to create working directory {}: {}", env.working_directory, e);
+            tracing::warn!(
+                "Failed to create working directory {}: {}",
+                env.working_directory,
+                e
+            );
         }
-        
+
         // Set working directory
         command.current_dir(&env.working_directory);
-        
+
         // Set environment variables
         for (key, value) in &env.environment_variables {
             command.env(key, value);
         }
-        
+
         // Create a script that executes the agent DSL
         let script_content = if cfg!(test) {
             // Simplified script for testing that should always succeed
@@ -373,8 +406,7 @@ impl TaskManager {
                 r#"echo "Test execution of agent {}" >&2
 echo "DSL Source: {}" >&2
 echo "Agent test execution completed" >&2"#,
-                task.agent_id,
-                task.config.dsl_source
+                task.agent_id, task.config.dsl_source
             )
         } else {
             format!(
@@ -386,75 +418,84 @@ echo "{}" >&2
 # In a real implementation, this would compile and execute the DSL
 sleep 1
 echo "Agent execution completed" >&2"#,
-                task.agent_id,
-                task.config.dsl_source
+                task.agent_id, task.config.dsl_source
             )
         };
-        
+
         command.args(["-c", &script_content]);
-        
+
         Ok(command)
     }
 
     /// Monitor process execution
     async fn monitor_process_execution(
         process_handle: ProcessHandle,
-        context: &mut AgentExecutionContext
+        context: &mut AgentExecutionContext,
     ) -> Result<(), String> {
         let process_id = process_handle.process_id;
-        
+
         // Start resource monitoring
-        let resource_monitor = tokio::spawn(
-            Self::monitor_process_resources(process_id, context.handle.clone())
-        );
-        
+        let resource_monitor = tokio::spawn(Self::monitor_process_resources(
+            process_id,
+            context.handle.clone(),
+        ));
+
         // Wait for process completion
         let mut child = process_handle.child.lock().await;
-        let exit_status = child.wait().await
+        let exit_status = child
+            .wait()
+            .await
             .map_err(|e| format!("Failed to wait for process: {}", e))?;
-        
+
         context.exit_code = exit_status.code();
-        
+
         // Stop resource monitoring
         resource_monitor.abort();
-        
+
         if exit_status.success() {
             Ok(())
         } else {
-            Err(format!("Process exited with code: {:?}", exit_status.code()))
+            Err(format!(
+                "Process exited with code: {:?}",
+                exit_status.code()
+            ))
         }
     }
 
     /// Monitor persistent process
     async fn monitor_persistent_process(
         process_handle: ProcessHandle,
-        context: AgentExecutionContext
+        context: AgentExecutionContext,
     ) -> Result<(), String> {
         let process_id = process_handle.process_id;
-        
+
         // Continuous monitoring for persistent agents
-        let monitor = tokio::spawn(
-            Self::monitor_process_resources(process_id, context.handle.clone())
-        );
-        
+        let monitor = tokio::spawn(Self::monitor_process_resources(
+            process_id,
+            context.handle.clone(),
+        ));
+
         // Check if process is still running periodically
         let mut check_interval = tokio::time::interval(Duration::from_secs(30));
-        
+
         loop {
             check_interval.tick().await;
-            
+
             if !Self::is_process_running(process_id).await {
-                tracing::warn!("Persistent agent {} process {} died",
-                              context.task.agent_id, process_id);
+                tracing::warn!(
+                    "Persistent agent {} process {} died",
+                    context.task.agent_id,
+                    process_id
+                );
                 break;
             }
-            
+
             // Check if termination was requested
             if matches!(context.handle.get_status(), TaskStatus::Terminated) {
                 break;
             }
         }
-        
+
         monitor.abort();
         Ok(())
     }
@@ -463,20 +504,24 @@ echo "Agent execution completed" >&2"#,
     async fn monitor_process_resources(process_id: u32, handle: TaskHandle) {
         let mut interval = tokio::time::interval(Duration::from_secs(5));
         let mut system = System::new();
-        
+
         loop {
             interval.tick().await;
-            
+
             system.refresh_process(Pid::from(process_id as usize));
-            
+
             if let Some(process) = system.process(Pid::from(process_id as usize)) {
                 let memory_mb = process.memory() / 1024 / 1024;
                 let cpu_usage = process.cpu_usage();
-                
+
                 handle.update_resource_usage(memory_mb as usize, cpu_usage);
-                
-                tracing::trace!("Process {} - Memory: {}MB, CPU: {:.2}%",
-                               process_id, memory_mb, cpu_usage);
+
+                tracing::trace!(
+                    "Process {} - Memory: {}MB, CPU: {:.2}%",
+                    process_id,
+                    memory_mb,
+                    cpu_usage
+                );
             } else {
                 // Process no longer exists
                 break;
@@ -495,7 +540,7 @@ echo "Agent execution completed" >&2"#,
     async fn terminate_process(process_id: u32) -> Result<(), String> {
         let mut system = System::new();
         system.refresh_process(Pid::from(process_id as usize));
-        
+
         if let Some(process) = system.process(Pid::from(process_id as usize)) {
             if process.kill() {
                 Ok(())
@@ -585,7 +630,10 @@ impl TaskHandle {
             agent_id: self.agent_id,
             status: status.clone(),
             uptime,
-            is_healthy: matches!(status, TaskStatus::Running | TaskStatus::Pending | TaskStatus::Completed),
+            is_healthy: matches!(
+                status,
+                TaskStatus::Running | TaskStatus::Pending | TaskStatus::Completed
+            ),
             memory_usage: metrics.memory_usage,
             cpu_usage: metrics.cpu_usage,
             last_activity: metrics.last_activity,

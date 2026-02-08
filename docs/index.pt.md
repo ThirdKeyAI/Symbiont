@@ -145,18 +145,22 @@ graph TB
 
 ## Status do Projeto
 
-### ✅ Fases Concluídas
-- **Fase 1-3**: Infraestrutura central, framework de agentes e implementação de segurança
-- **Fase 4**: Sistemas de contexto e conhecimento com capacidades RAG
-- **Fase 5**: Integração MCP segura com verificação de ferramentas
-- **Fase 6**: Gestão de segredos empresariais com integração HashiCorp Vault
+### v1.0.0 Lançado
+
+O Symbiont v1.0.0 é a primeira versão estável, oferecendo um framework completo de agentes de IA com capacidades de nível de produção:
+
+- **Agendamento**: Execução de tarefas baseada em cron com isolamento de sessão, roteamento de entrega e filas de mensagens mortas
+- **Isolamento de Sessão**: Contextos de agente efêmeros, compartilhados ou totalmente isolados
+- **Roteamento de Entrega**: Saída para Stdout, LogFile, Webhook, Slack, Email ou canais personalizados
+- **Aplicação de Políticas**: Verificações de segurança e conformidade com janelas de tempo e verificação de capacidades
+- **Identidade AgentPin**: Verificação criptográfica de identidade de agentes via ES256 JWTs
+- **Observabilidade**: Métricas compatíveis com Prometheus, eventos de auditoria estruturados e endpoints de saúde
 
 ### 🔮 Recursos Planejados
 - Suporte RAG multi-modal (imagens, áudio, dados estruturados)
 - Síntese de conhecimento e colaboração entre agentes
-- Capacidades de aprendizagem avançadas com adaptação de políticas
+- Redes federadas de agentes com confiança entre domínios
 - Otimização de desempenho e cache inteligente
-- Trilhas de auditoria aprimoradas com integração blockchain
 
 ---
 
@@ -164,6 +168,7 @@ graph TB
 
 - **Documentação**: Guias abrangentes e referências de API
 - [Referência da API](api-reference.md)
+- [Guia de Agendamento](scheduling.md)
 - [Módulo de Entrada HTTP](http-input.md)
 - **Problemas**: [GitHub Issues](https://github.com/thirdkeyai/symbiont/issues)
 - **Discussões**: [GitHub Discussions](https://github.com/thirdkeyai/symbiont/discussions)

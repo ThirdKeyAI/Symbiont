@@ -166,7 +166,10 @@ pub enum CommunicationError {
     MessageNotFound { message_id: MessageId },
 
     #[error("Request timeout: request {request_id} timed out after {timeout:?}")]
-    RequestTimeout { request_id: RequestId, timeout: Duration },
+    RequestTimeout {
+        request_id: RequestId,
+        timeout: Duration,
+    },
 
     #[error("Request cancelled: {request_id}")]
     RequestCancelled { request_id: RequestId },

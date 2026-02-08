@@ -31,8 +31,13 @@ pub enum ExecutionMode {
     /// Task-based execution that terminates after completion
     #[default]
     Ephemeral,
-    /// Cron-like scheduling with periodic execution
+    /// Interval-based scheduling with periodic execution
     Scheduled { interval: Duration },
+    /// Cron-expression–based scheduling with timezone support
+    CronScheduled {
+        cron_expression: String,
+        timezone: String,
+    },
     /// Reactive to events and messages
     EventDriven,
 }

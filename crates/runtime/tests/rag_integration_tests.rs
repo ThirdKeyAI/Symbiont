@@ -22,7 +22,8 @@ async fn create_test_context_manager() -> Arc<dyn ContextManager> {
         ..Default::default()
     };
 
-    let manager = StandardContextManager::new(config, "test-agent").await
+    let manager = StandardContextManager::new(config, "test-agent")
+        .await
         .expect("Failed to create context manager");
     Arc::new(manager)
 }

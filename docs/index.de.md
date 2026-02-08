@@ -145,18 +145,22 @@ graph TB
 
 ## Projektstatus
 
-### ✅ Abgeschlossene Phasen
-- **Phase 1-3**: Kerninfrastruktur, Agent-Framework und Sicherheitsimplementierung
-- **Phase 4**: Kontext- und Wissenssysteme mit RAG-Funktionen
-- **Phase 5**: Sichere MCP-Integration mit Tool-Verifikation
-- **Phase 6**: Enterprise-Geheimnismanagement mit HashiCorp Vault-Integration
+### v1.0.0 Veröffentlicht
+
+Symbiont v1.0.0 ist die erste stabile Version und liefert ein vollständiges AI-Agent-Framework mit produktionsreifen Funktionen:
+
+- **Scheduling**: Cron-basierte Aufgabenausführung mit Sitzungsisolierung, Zustellungsrouting und Dead-Letter-Warteschlangen
+- **Sitzungsisolierung**: Ephemere, gemeinsame oder vollständig isolierte Agent-Kontexte
+- **Zustellungsrouting**: Ausgabe an Stdout, LogFile, Webhook, Slack, Email oder benutzerdefinierte Kanäle
+- **Richtliniendurchsetzung**: Sicherheits- und Compliance-Prüfungen mit Zeitfenster- und Fähigkeitskontrollen
+- **AgentPin-Identität**: Kryptografische Agent-Identitätsverifikation über ES256 JWTs
+- **Beobachtbarkeit**: Prometheus-kompatible Metriken, strukturierte Audit-Events und Health-Endpunkte
 
 ### 🔮 Geplante Features
 - Multi-modale RAG-Unterstützung (Bilder, Audio, strukturierte Daten)
 - Agentenübergreifende Wissenssynthese und Kollaboration
-- Erweiterte Lernfähigkeiten mit Richtlinienanpassung
+- Föderierte Agentennetzwerke mit domänenübergreifendem Vertrauen
 - Leistungsoptimierung und intelligentes Caching
-- Erweiterte Audit-Spuren mit Blockchain-Integration
 
 ---
 
@@ -164,6 +168,7 @@ graph TB
 
 - **Dokumentation**: Umfassende Leitfäden und API-Referenzen
 - [API-Referenz](api-reference.md)
+- [Scheduling-Leitfaden](scheduling.md)
 - [HTTP-Eingabemodul](http-input.md)
 - **Issues**: [GitHub Issues](https://github.com/thirdkeyai/symbiont/issues)
 - **Diskussionen**: [GitHub Discussions](https://github.com/thirdkeyai/symbiont/discussions)

@@ -135,11 +135,11 @@ impl JsonFileAuditSink {
     /// Ensure the audit log directory exists
     async fn ensure_directory_exists(&self) -> Result<(), AuditError> {
         if let Some(parent) = self.file_path.parent() {
-            tokio::fs::create_dir_all(parent).await.map_err(|e| {
-                AuditError::IoError {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| AuditError::IoError {
                     message: format!("Failed to create audit log directory: {}", e),
-                }
-            })?;
+                })?;
         }
         Ok(())
     }
@@ -152,11 +152,10 @@ impl SecretAuditSink for JsonFileAuditSink {
         self.ensure_directory_exists().await?;
 
         // Serialize the event to JSON
-        let json_line = serde_json::to_string(&event).map_err(|e| {
-            AuditError::SerializationError {
+        let json_line =
+            serde_json::to_string(&event).map_err(|e| AuditError::SerializationError {
                 message: format!("Failed to serialize audit event: {}", e),
-            }
-        })?;
+            })?;
 
         // Open the file in append mode (create if it doesn't exist)
         let mut file = OpenOptions::new()
@@ -169,15 +168,17 @@ impl SecretAuditSink for JsonFileAuditSink {
             })?;
 
         // Write the JSON line followed by a newline
-        file.write_all(json_line.as_bytes()).await.map_err(|e| {
-            AuditError::IoError {
+        file.write_all(json_line.as_bytes())
+            .await
+            .map_err(|e| AuditError::IoError {
                 message: format!("Failed to write to audit log: {}", e),
-            }
-        })?;
+            })?;
 
-        file.write_all(b"\n").await.map_err(|e| AuditError::IoError {
-            message: format!("Failed to write newline to audit log: {}", e),
-        })?;
+        file.write_all(b"\n")
+            .await
+            .map_err(|e| AuditError::IoError {
+                message: format!("Failed to write newline to audit log: {}", e),
+            })?;
 
         // Ensure data is written to disk
         file.flush().await.map_err(|e| AuditError::IoError {
@@ -278,11 +279,8 @@ mod tests {
 
         // Log multiple events
         for i in 0..3 {
-            let event = SecretAuditEvent::success(
-                format!("agent-{}", i),
-                "list_secrets".to_string(),
-                None,
-            );
+            let event =
+                SecretAuditEvent::success(format!("agent-{}", i), "list_secrets".to_string(), None);
             sink.log_event(event).await.unwrap();
         }
 

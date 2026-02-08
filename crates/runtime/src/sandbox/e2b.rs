@@ -68,7 +68,7 @@ impl SandboxRunner for E2BSandbox {
         });
 
         let execution_url = format!("{}/v1/sandboxes/execute", self.endpoint);
-        
+
         // Make HTTP request to E2B API
         let start_time = std::time::Instant::now();
         let response = client
@@ -150,7 +150,7 @@ mod tests {
             "test_api_key".to_string(),
             "https://test.e2b.dev".to_string(),
         );
-        
+
         assert_eq!(sandbox.api_key, "test_api_key");
         assert_eq!(sandbox.endpoint, "https://test.e2b.dev");
     }
@@ -158,7 +158,7 @@ mod tests {
     #[test]
     fn test_e2b_sandbox_default_endpoint() {
         let sandbox = E2BSandbox::new_with_default_endpoint("test_api_key".to_string());
-        
+
         assert_eq!(sandbox.api_key, "test_api_key");
         assert_eq!(sandbox.endpoint, "https://api.e2b.dev");
     }
@@ -169,12 +169,12 @@ mod tests {
             "test_api_key".to_string(),
             "https://test.e2b.dev".to_string(),
         );
-        
+
         let mut env = HashMap::new();
         env.insert("TEST_VAR".to_string(), "test_value".to_string());
-        
+
         let result = sandbox.execute("print('hello')", env).await.unwrap();
-        
+
         assert!(result.success);
         assert_eq!(result.exit_code, 0);
         assert!(!result.stdout.is_empty());

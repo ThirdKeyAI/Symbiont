@@ -24,7 +24,14 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 #[cfg(feature = "http-api")]
-use super::types::{ErrorResponse, HealthResponse, WorkflowExecutionRequest, AgentStatusResponse, CreateAgentRequest, CreateAgentResponse, UpdateAgentRequest, UpdateAgentResponse, DeleteAgentResponse, ExecuteAgentRequest, ExecuteAgentResponse, GetAgentHistoryResponse, AgentExecutionRecord, ResourceUsage};
+use super::types::{
+    AgentExecutionRecord, AgentStatusResponse, CreateAgentRequest, CreateAgentResponse,
+    CreateScheduleRequest, CreateScheduleResponse, DeleteAgentResponse, DeleteScheduleResponse,
+    ErrorResponse, ExecuteAgentRequest, ExecuteAgentResponse, GetAgentHistoryResponse,
+    HealthResponse, NextRunsResponse, ResourceUsage, ScheduleActionResponse, ScheduleDetail,
+    ScheduleHistoryResponse, ScheduleRunEntry, ScheduleSummary, SchedulerHealthResponse,
+    UpdateAgentRequest, UpdateAgentResponse, UpdateScheduleRequest, WorkflowExecutionRequest,
+};
 
 #[cfg(feature = "http-api")]
 use super::traits::RuntimeApiProvider;
@@ -46,6 +53,17 @@ use crate::types::RuntimeError;
         super::routes::delete_agent,
         super::routes::execute_agent,
         super::routes::get_agent_history,
+        super::routes::list_schedules,
+        super::routes::create_schedule,
+        super::routes::get_schedule,
+        super::routes::update_schedule,
+        super::routes::delete_schedule,
+        super::routes::pause_schedule,
+        super::routes::resume_schedule,
+        super::routes::trigger_schedule,
+        super::routes::get_schedule_history,
+        super::routes::get_schedule_next_runs,
+        super::routes::get_scheduler_health,
         health_check
     ),
     components(
@@ -63,18 +81,30 @@ use crate::types::RuntimeError;
             ExecuteAgentResponse,
             GetAgentHistoryResponse,
             AgentExecutionRecord,
-            ErrorResponse
+            ErrorResponse,
+            CreateScheduleRequest,
+            CreateScheduleResponse,
+            UpdateScheduleRequest,
+            ScheduleSummary,
+            ScheduleDetail,
+            NextRunsResponse,
+            ScheduleRunEntry,
+            ScheduleHistoryResponse,
+            ScheduleActionResponse,
+            DeleteScheduleResponse,
+            SchedulerHealthResponse
         )
     ),
     tags(
         (name = "agents", description = "Agent management endpoints"),
         (name = "workflows", description = "Workflow execution endpoints"),
-        (name = "system", description = "System monitoring and health endpoints")
+        (name = "system", description = "System monitoring and health endpoints"),
+        (name = "schedules", description = "Cron schedule management endpoints")
     ),
     info(
         title = "Symbiont Runtime API",
         description = "HTTP API for the Symbiont Agent Runtime System",
-        version = "0.3.0",
+        version = "1.0.0",
         contact(
             name = "ThirdKey.ai",
             url = "https://github.com/thirdkeyai/symbiont"
@@ -159,23 +189,27 @@ impl HttpApiServer {
     /// Create the Axum router with all routes and middleware
     fn create_router(&self) -> Router {
         use axum::routing::{get, post, put};
-        
+
         let mut router = Router::new()
             .route("/api/v1/health", get(health_check))
             .with_state(self.start_time);
 
         // Add Swagger UI
-        router = router.merge(
-            SwaggerUi::new("/swagger-ui")
-                .url("/api-docs/openapi.json", ApiDoc::openapi())
-        );
+        router = router
+            .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()));
 
         // Add stateful routes if we have a runtime provider
         if let Some(provider) = &self.runtime_provider {
-            use super::routes::{create_agent, delete_agent, execute_agent, execute_workflow, get_agent_history, get_agent_status, list_agents, get_metrics, update_agent};
             use super::middleware::auth_middleware;
+            use super::routes::{
+                create_agent, create_schedule, delete_agent, delete_schedule, execute_agent,
+                execute_workflow, get_agent_history, get_agent_status, get_metrics, get_schedule,
+                get_schedule_history, get_schedule_next_runs, get_scheduler_health, list_agents,
+                list_schedules, pause_schedule, resume_schedule, trigger_schedule, update_agent,
+                update_schedule,
+            };
             use axum::middleware;
-            
+
             // Agent routes that require authentication
             let agent_router = Router::new()
                 .route("/api/v1/agents", get(list_agents).post(create_agent))
@@ -185,14 +219,42 @@ impl HttpApiServer {
                 .route("/api/v1/agents/:id/history", get(get_agent_history))
                 .layer(middleware::from_fn(auth_middleware))
                 .with_state(provider.clone());
-            
-            // Other routes without authentication
+
+            // Schedule routes
+            let schedule_router = Router::new()
+                .route(
+                    "/api/v1/schedules",
+                    get(list_schedules).post(create_schedule),
+                )
+                .route(
+                    "/api/v1/schedules/:id",
+                    get(get_schedule)
+                        .put(update_schedule)
+                        .delete(delete_schedule),
+                )
+                .route("/api/v1/schedules/:id/pause", post(pause_schedule))
+                .route("/api/v1/schedules/:id/resume", post(resume_schedule))
+                .route("/api/v1/schedules/:id/trigger", post(trigger_schedule))
+                .route("/api/v1/schedules/:id/history", get(get_schedule_history))
+                .route(
+                    "/api/v1/schedules/:id/next-runs",
+                    get(get_schedule_next_runs),
+                )
+                .layer(middleware::from_fn(auth_middleware))
+                .with_state(provider.clone());
+
+            // Other routes with authentication
             let other_router = Router::new()
                 .route("/api/v1/workflows/execute", post(execute_workflow))
                 .route("/api/v1/metrics", get(get_metrics))
+                .route("/api/v1/health/scheduler", get(get_scheduler_health))
+                .layer(middleware::from_fn(auth_middleware))
                 .with_state(provider.clone());
-            
-            router = router.merge(agent_router).merge(other_router);
+
+            router = router
+                .merge(agent_router)
+                .merge(schedule_router)
+                .merge(other_router);
         }
 
         // Add middleware conditionally
@@ -201,11 +263,27 @@ impl HttpApiServer {
         }
 
         if self.config.enable_cors {
-            router = router.layer(CorsLayer::permissive());
+            use axum::http::{header, HeaderValue, Method};
+
+            let allowed_origins: Vec<HeaderValue> = std::env::var("SYMBIONT_CORS_ORIGINS")
+                .unwrap_or_else(|_| "http://localhost:3000".to_string())
+                .split(',')
+                .filter_map(|origin| origin.trim().parse().ok())
+                .collect();
+
+            let cors = CorsLayer::new()
+                .allow_origin(allowed_origins)
+                .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
+                .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
+                .allow_credentials(false);
+
+            router = router.layer(cors);
         }
 
         // Apply security headers to all responses
-        router = router.layer(axum::middleware::from_fn(crate::api::middleware::security_headers_middleware));
+        router = router.layer(axum::middleware::from_fn(
+            crate::api::middleware::security_headers_middleware,
+        ));
 
         router
     }
@@ -226,7 +304,7 @@ async fn health_check(
     axum::extract::State(start_time): axum::extract::State<Instant>,
 ) -> Result<Json<HealthResponse>, (StatusCode, Json<ErrorResponse>)> {
     let uptime_seconds = start_time.elapsed().as_secs();
-    
+
     let response = HealthResponse {
         status: "healthy".to_string(),
         uptime_seconds,

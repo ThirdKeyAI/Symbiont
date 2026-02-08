@@ -1,19 +1,23 @@
 //! Sandbox abstraction layer for multi-tier sandbox execution
 //!
 //! This module provides a unified interface for different sandbox technologies
-//! including Docker, GVisor, Firecracker, and E2B.dev integration.
+//! including Docker, GVisor, Firecracker, E2B.dev, and native (non-isolated) execution.
 
 pub mod e2b;
+pub mod native;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub use e2b::E2BSandbox;
+pub use native::{NativeConfig, NativeRunner};
 
 /// Sandbox tier enumeration representing different isolation levels
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SandboxTier {
+    /// No isolation - direct host execution (⚠️ DEVELOPMENT ONLY)
+    None,
     /// Docker container sandbox
     Docker,
     /// gVisor sandbox for enhanced security

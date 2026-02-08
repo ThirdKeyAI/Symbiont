@@ -3,8 +3,14 @@ use std::fs;
 use std::path::Path;
 
 const TEMPLATES: &[(&str, &str)] = &[
-    ("webhook-min", "Minimal webhook handler with bearer token auth + JSON echo"),
-    ("webscraper-agent", "Web scraper tool + guard policy + sample prompt"),
+    (
+        "webhook-min",
+        "Minimal webhook handler with bearer token auth + JSON echo",
+    ),
+    (
+        "webscraper-agent",
+        "Web scraper tool + guard policy + sample prompt",
+    ),
     ("slm-first", "Router + SLM allow-list + confidence fallback"),
     ("rag-lite", "Qdrant + ingestion scripts + search agent"),
 ];
@@ -28,7 +34,10 @@ pub async fn run(matches: &ArgMatches) {
         std::process::exit(1);
     }
 
-    println!("🔧 Creating project '{}' from template '{}'...", project_name, template);
+    println!(
+        "🔧 Creating project '{}' from template '{}'...",
+        project_name, template
+    );
 
     // Create project directory
     if Path::new(project_name).exists() {
@@ -93,7 +102,8 @@ fn create_webhook_min_template(project_name: &str) {
     }
 }
 "#,
-    ).unwrap();
+    )
+    .unwrap();
 
     // Create policy
     fs::write(
@@ -117,7 +127,8 @@ fn create_webhook_min_template(project_name: &str) {
     }
 }
 "#,
-    ).unwrap();
+    )
+    .unwrap();
 
     // Create test script
     fs::write(
@@ -134,13 +145,16 @@ curl -X POST \
 
 echo -e "\n\nTest complete!"
 "#,
-    ).unwrap();
+    )
+    .unwrap();
 
     // Make test script executable
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(base.join("tests/webhook_test.sh")).unwrap().permissions();
+        let mut perms = fs::metadata(base.join("tests/webhook_test.sh"))
+            .unwrap()
+            .permissions();
         perms.set_mode(0o755);
         fs::set_permissions(base.join("tests/webhook_test.sh"), perms).unwrap();
     }
@@ -161,12 +175,14 @@ dev_token = "dev"
 level = "info"
 format = "pretty"
 "#,
-    ).unwrap();
+    )
+    .unwrap();
 
     // Create README
     fs::write(
         base.join("README.md"),
-        format!(r#"# {}
+        format!(
+            r#"# {}
 
 Minimal webhook handler with bearer token authentication and JSON echo.
 
@@ -207,8 +223,11 @@ Minimal webhook handler with bearer token authentication and JSON echo.
 ## Documentation
 
 See https://docs.symbi.sh for full documentation.
-"#, project_name),
-    ).unwrap();
+"#,
+            project_name
+        ),
+    )
+    .unwrap();
 }
 
 fn create_webscraper_agent_template(project_name: &str) {
@@ -250,7 +269,8 @@ fn create_webscraper_agent_template(project_name: &str) {
     }
 }
 "#,
-    ).unwrap();
+    )
+    .unwrap();
 
     fs::write(
         base.join("policies/scraper_policy.dsl"),
@@ -269,11 +289,13 @@ fn create_webscraper_agent_template(project_name: &str) {
     }
 }
 "#,
-    ).unwrap();
+    )
+    .unwrap();
 
     fs::write(
         base.join("README.md"),
-        format!(r#"# {}
+        format!(
+            r#"# {}
 
 Web scraper agent with URL validation and content extraction.
 
@@ -298,12 +320,19 @@ curl -X POST \
 ## Documentation
 
 See https://docs.symbi.sh for full documentation.
-"#, project_name),
-    ).unwrap();
+"#,
+            project_name
+        ),
+    )
+    .unwrap();
 
-    fs::write(base.join("symbi.toml"), r#"[runtime]
+    fs::write(
+        base.join("symbi.toml"),
+        r#"[runtime]
 mode = "dev"
-"#).unwrap();
+"#,
+    )
+    .unwrap();
 }
 
 fn create_slm_first_template(project_name: &str) {
@@ -341,7 +370,8 @@ fn create_slm_first_template(project_name: &str) {
     }
 }
 "#,
-    ).unwrap();
+    )
+    .unwrap();
 
     fs::write(
         base.join("routing/config.toml"),
@@ -358,11 +388,13 @@ model = "gpt-4o-mini"
 fallback_on_low_confidence = true
 tasks = ["complex_reasoning", "refactoring"]
 "#,
-    ).unwrap();
+    )
+    .unwrap();
 
     fs::write(
         base.join("README.md"),
-        format!(r#"# {}
+        format!(
+            r#"# {}
 
 SLM-first coding assistant with intelligent routing and LLM fallback.
 
@@ -388,12 +420,19 @@ curl -X POST \
 ## Documentation
 
 See https://docs.symbi.sh for full documentation.
-"#, project_name),
-    ).unwrap();
+"#,
+            project_name
+        ),
+    )
+    .unwrap();
 
-    fs::write(base.join("symbi.toml"), r#"[runtime]
+    fs::write(
+        base.join("symbi.toml"),
+        r#"[runtime]
 mode = "dev"
-"#).unwrap();
+"#,
+    )
+    .unwrap();
 }
 
 fn create_rag_lite_template(project_name: &str) {
@@ -436,7 +475,8 @@ fn create_rag_lite_template(project_name: &str) {
     }
 }
 "#,
-    ).unwrap();
+    )
+    .unwrap();
 
     fs::write(
         base.join("scripts/ingest_docs.sh"),
@@ -521,7 +561,9 @@ curl -s 'http://localhost:6333/collections/docs' | jq '.result.vectors_count // 
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(base.join("scripts/ingest_docs.sh")).unwrap().permissions();
+        let mut perms = fs::metadata(base.join("scripts/ingest_docs.sh"))
+            .unwrap()
+            .permissions();
         perms.set_mode(0o755);
         fs::set_permissions(base.join("scripts/ingest_docs.sh"), perms).unwrap();
     }
@@ -542,11 +584,13 @@ This is a sample document for testing RAG functionality.
 
 Query the documentation by sending POST requests to the webhook endpoint.
 "#,
-    ).unwrap();
+    )
+    .unwrap();
 
     fs::write(
         base.join("README.md"),
-        format!(r#"# {}
+        format!(
+            r#"# {}
 
 RAG (Retrieval-Augmented Generation) agent for searching documentation.
 
@@ -586,8 +630,11 @@ RAG (Retrieval-Augmented Generation) agent for searching documentation.
 ## Documentation
 
 See https://docs.symbi.sh for full documentation.
-"#, project_name),
-    ).unwrap();
+"#,
+            project_name
+        ),
+    )
+    .unwrap();
 
     fs::write(
         base.join("symbi.toml"),
@@ -600,5 +647,6 @@ host = "localhost"
 port = 6333
 collection_name = "docs"
 "#,
-    ).unwrap();
+    )
+    .unwrap();
 }

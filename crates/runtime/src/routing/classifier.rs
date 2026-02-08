@@ -1,10 +1,10 @@
 //! Task classification system for routing decisions
 
+use super::config::{ClassificationPattern, TaskClassificationConfig};
+use super::decision::RoutingContext;
+use super::error::{RoutingError, TaskType};
 use regex::Regex;
 use std::collections::HashMap;
-use super::config::{TaskClassificationConfig, ClassificationPattern};
-use super::decision::RoutingContext;
-use super::error::{TaskType, RoutingError};
 
 /// Task classifier for determining task types from prompts
 #[derive(Debug, Clone)]
@@ -30,13 +30,13 @@ impl TaskClassifier {
     /// Create a new task classifier with the given configuration
     pub fn new(config: TaskClassificationConfig) -> Result<Self, RoutingError> {
         let mut compiled_patterns = HashMap::new();
-        
+
         // Compile regex patterns for efficiency
         for (task_type, pattern) in &config.patterns {
             let mut regexes = Vec::new();
             for pattern_str in &pattern.patterns {
-                let regex = Regex::new(pattern_str)
-                    .map_err(|e| RoutingError::ConfigurationError {
+                let regex =
+                    Regex::new(pattern_str).map_err(|e| RoutingError::ConfigurationError {
                         key: format!("classification.patterns.{}.patterns", task_type),
                         reason: format!("Invalid regex pattern '{}': {}", pattern_str, e),
                     })?;
@@ -44,16 +44,20 @@ impl TaskClassifier {
             }
             compiled_patterns.insert(task_type.clone(), regexes);
         }
-        
+
         Ok(Self {
             patterns: config.patterns.clone(),
             compiled_patterns,
             config,
         })
     }
-    
+
     /// Classify a task based on the prompt and context
-    pub fn classify_task(&self, prompt: &str, context: &RoutingContext) -> Result<ClassificationResult, RoutingError> {
+    pub fn classify_task(
+        &self,
+        prompt: &str,
+        context: &RoutingContext,
+    ) -> Result<ClassificationResult, RoutingError> {
         if !self.config.enabled {
             return Ok(ClassificationResult {
                 task_type: self.config.default_task_type.clone(),
@@ -62,17 +66,17 @@ impl TaskClassifier {
                 keyword_matches: Vec::new(),
             });
         }
-        
+
         let prompt_lower = prompt.to_lowercase();
         let mut scores = HashMap::new();
         let mut all_matches = HashMap::new();
-        
+
         // Score each task type based on pattern matching
         for (task_type, pattern) in &self.patterns {
             let mut score = 0.0;
             let mut matches = Vec::new();
             let mut keyword_matches = Vec::new();
-            
+
             // Check keyword matches
             for keyword in &pattern.keywords {
                 if prompt_lower.contains(&keyword.to_lowercase()) {
@@ -80,7 +84,7 @@ impl TaskClassifier {
                     keyword_matches.push(keyword.clone());
                 }
             }
-            
+
             // Check regex pattern matches
             if let Some(regexes) = self.compiled_patterns.get(task_type) {
                 for (i, regex) in regexes.iter().enumerate() {
@@ -90,21 +94,21 @@ impl TaskClassifier {
                     }
                 }
             }
-            
+
             if score > 0.0 {
                 scores.insert(task_type.clone(), score);
                 all_matches.insert(task_type.clone(), (matches, keyword_matches));
             }
         }
-        
+
         // Apply context-based adjustments
         self.apply_context_adjustments(&mut scores, context);
-        
+
         // Find the highest scoring task type
         let best_match = scores
             .iter()
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal));
-        
+
         let (task_type, raw_score) = match best_match {
             Some((task_type, score)) => (task_type.clone(), *score),
             None => {
@@ -117,7 +121,7 @@ impl TaskClassifier {
                 });
             }
         };
-        
+
         // Normalize confidence score
         let max_possible_score = self.calculate_max_possible_score(&task_type);
         let confidence = if max_possible_score > 0.0 {
@@ -125,12 +129,12 @@ impl TaskClassifier {
         } else {
             0.0
         };
-        
+
         let (matched_patterns, keyword_matches) = all_matches
             .get(&task_type)
             .cloned()
             .unwrap_or((Vec::new(), Vec::new()));
-        
+
         // Check if confidence meets threshold
         if confidence < self.config.confidence_threshold {
             return Ok(ClassificationResult {
@@ -140,7 +144,7 @@ impl TaskClassifier {
                 keyword_matches: Vec::new(),
             });
         }
-        
+
         Ok(ClassificationResult {
             task_type,
             confidence,
@@ -148,9 +152,13 @@ impl TaskClassifier {
             keyword_matches,
         })
     }
-    
+
     /// Apply context-based adjustments to scores
-    fn apply_context_adjustments(&self, scores: &mut HashMap<TaskType, f64>, context: &RoutingContext) {
+    fn apply_context_adjustments(
+        &self,
+        scores: &mut HashMap<TaskType, f64>,
+        context: &RoutingContext,
+    ) {
         // Adjust based on expected output type
         match context.expected_output_type {
             super::decision::OutputType::Code => {
@@ -173,7 +181,7 @@ impl TaskClassifier {
             }
             _ => {}
         }
-        
+
         // Adjust based on agent capabilities
         for capability in &context.agent_capabilities {
             match capability.as_str() {
@@ -198,7 +206,7 @@ impl TaskClassifier {
                 _ => {}
             }
         }
-        
+
         // Adjust based on security level (higher security might prefer certain task types)
         match context.agent_security_level {
             super::decision::SecurityLevel::Critical | super::decision::SecurityLevel::High => {
@@ -217,7 +225,7 @@ impl TaskClassifier {
             _ => {}
         }
     }
-    
+
     /// Calculate the maximum possible score for a task type
     fn calculate_max_possible_score(&self, task_type: &TaskType) -> f64 {
         if let Some(pattern) = self.patterns.get(task_type) {
@@ -228,31 +236,34 @@ impl TaskClassifier {
             1.0
         }
     }
-    
+
     /// Add or update a classification pattern
-    pub fn add_pattern(&mut self, task_type: TaskType, pattern: ClassificationPattern) -> Result<(), RoutingError> {
+    pub fn add_pattern(
+        &mut self,
+        task_type: TaskType,
+        pattern: ClassificationPattern,
+    ) -> Result<(), RoutingError> {
         // Compile regex patterns
         let mut regexes = Vec::new();
         for pattern_str in &pattern.patterns {
-            let regex = Regex::new(pattern_str)
-                .map_err(|e| RoutingError::ConfigurationError {
-                    key: format!("pattern.{}", task_type),
-                    reason: format!("Invalid regex pattern '{}': {}", pattern_str, e),
-                })?;
+            let regex = Regex::new(pattern_str).map_err(|e| RoutingError::ConfigurationError {
+                key: format!("pattern.{}", task_type),
+                reason: format!("Invalid regex pattern '{}': {}", pattern_str, e),
+            })?;
             regexes.push(regex);
         }
-        
+
         self.compiled_patterns.insert(task_type.clone(), regexes);
         self.patterns.insert(task_type, pattern);
         Ok(())
     }
-    
+
     /// Remove a classification pattern
     pub fn remove_pattern(&mut self, task_type: &TaskType) {
         self.patterns.remove(task_type);
         self.compiled_patterns.remove(task_type);
     }
-    
+
     /// Get classification statistics
     pub fn get_statistics(&self) -> ClassificationStatistics {
         ClassificationStatistics {
@@ -279,25 +290,45 @@ pub struct ClassificationStatistics {
 
 #[cfg(test)]
 mod tests {
+    use super::super::decision::{OutputType, RoutingContext};
     use super::*;
     use crate::types::AgentId;
-    use super::super::decision::{RoutingContext, OutputType};
 
     fn create_test_config() -> TaskClassificationConfig {
         let mut patterns = HashMap::new();
-        
-        patterns.insert(TaskType::CodeGeneration, ClassificationPattern {
-            keywords: vec!["code".to_string(), "function".to_string(), "implement".to_string()],
-            patterns: vec![r"write.*code".to_string(), r"implement.*function".to_string()],
-            weight: 1.0,
-        });
-        
-        patterns.insert(TaskType::Analysis, ClassificationPattern {
-            keywords: vec!["analyze".to_string(), "analysis".to_string(), "examine".to_string()],
-            patterns: vec![r"analyze.*data".to_string(), r"perform.*analysis".to_string()],
-            weight: 1.0,
-        });
-        
+
+        patterns.insert(
+            TaskType::CodeGeneration,
+            ClassificationPattern {
+                keywords: vec![
+                    "code".to_string(),
+                    "function".to_string(),
+                    "implement".to_string(),
+                ],
+                patterns: vec![
+                    r"write.*code".to_string(),
+                    r"implement.*function".to_string(),
+                ],
+                weight: 1.0,
+            },
+        );
+
+        patterns.insert(
+            TaskType::Analysis,
+            ClassificationPattern {
+                keywords: vec![
+                    "analyze".to_string(),
+                    "analysis".to_string(),
+                    "examine".to_string(),
+                ],
+                patterns: vec![
+                    r"analyze.*data".to_string(),
+                    r"perform.*analysis".to_string(),
+                ],
+                weight: 1.0,
+            },
+        );
+
         TaskClassificationConfig {
             enabled: true,
             patterns,
@@ -305,7 +336,7 @@ mod tests {
             default_task_type: TaskType::Custom("unknown".to_string()),
         }
     }
-    
+
     fn create_test_context() -> RoutingContext {
         RoutingContext::new(
             AgentId::new(),
@@ -319,38 +350,45 @@ mod tests {
         let config = create_test_config();
         let classifier = TaskClassifier::new(config).unwrap();
         let context = create_test_context();
-        
-        let result = classifier.classify_task("Please write code to implement a sorting function", &context).unwrap();
-        
+
+        let result = classifier
+            .classify_task(
+                "Please write code to implement a sorting function",
+                &context,
+            )
+            .unwrap();
+
         assert_eq!(result.task_type, TaskType::CodeGeneration);
         assert!(result.confidence > 0.5);
         assert!(!result.keyword_matches.is_empty());
     }
-    
+
     #[test]
     fn test_analysis_classification() {
         let config = create_test_config();
         let classifier = TaskClassifier::new(config).unwrap();
         let context = create_test_context();
-        
-        let result = classifier.classify_task("Please analyze the data trends", &context).unwrap();
-        
+
+        let result = classifier
+            .classify_task("Please analyze the data trends", &context)
+            .unwrap();
+
         assert_eq!(result.task_type, TaskType::Analysis);
         assert!(result.confidence > 0.5);
     }
-    
+
     #[test]
     fn test_no_match_fallback() {
         let config = create_test_config();
         let classifier = TaskClassifier::new(config).unwrap();
         let context = create_test_context();
-        
+
         let result = classifier.classify_task("Hello world", &context).unwrap();
-        
+
         assert_eq!(result.task_type, TaskType::Custom("unknown".to_string()));
         assert_eq!(result.confidence, 0.0);
     }
-    
+
     #[test]
     fn test_context_adjustments() {
         let config = create_test_config();
@@ -358,9 +396,11 @@ mod tests {
         let mut context = create_test_context();
         context.expected_output_type = OutputType::Code;
         context.agent_capabilities = vec!["code_generation".to_string()];
-        
-        let result = classifier.classify_task("Please write some code", &context).unwrap();
-        
+
+        let result = classifier
+            .classify_task("Please write some code", &context)
+            .unwrap();
+
         assert_eq!(result.task_type, TaskType::CodeGeneration);
         // Should have higher confidence due to context adjustments
         assert!(result.confidence > 0.5);

@@ -5,6 +5,291 @@ All notable changes to the Symbiont project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-02-07
+
+### Added
+
+#### 🎯 Production-Ready Scheduling (v1.0.0)
+- **Session Isolation**: Per-run AgentContext with HeartbeatContextMode control
+  - `EphemeralWithSummary`: Fresh context per iteration with summary carryover (default)
+  - `SharedPersistent`: Persistent context across all iterations
+  - `FullyEphemeral`: Stateless execution with no context carryover
+  - Prevents unbounded memory growth in long-running heartbeat agents
+- **Jitter Support**: Random 0-N second delay to prevent thundering herd
+  - Configurable `max_jitter_seconds` in CronSchedulerConfig
+  - Spreads job starts across time window when multiple jobs share a schedule
+- **Per-Job Concurrency Guards**: Limit concurrent runs per job
+  - `max_concurrent` field on CronJobDefinition
+  - Prevents resource exhaustion from overlapping executions
+  - Scheduler skips tick when job at max concurrency
+- **Dead-Letter Queue**: Jobs exceeding max_retries move to DeadLetter status
+  - Manual review and recovery workflow via CLI
+  - Audit trail of failure patterns
+  - `symbi cron reset <job-id>` to reactivate after fixing
+- **CronMetrics Observability**: Comprehensive metrics collection
+  - `runs_total`, `runs_succeeded`, `runs_failed` counters
+  - `execution_duration_seconds` histogram
+  - `in_flight_jobs` gauge
+  - `dead_letter_total` counter
+  - Prometheus-compatible export
+- **CronSchedulerHealth Endpoint**: `/api/v1/health/scheduler` for monitoring
+  - Active/paused/in-flight job counts
+  - Aggregated metrics and performance data
+  - Integration with ops monitoring systems
+- **AgentPin JWT Field**: Cryptographic identity verification on CronJobDefinition
+  - ES256 (ECDSA P-256) signature verification
+  - Domain-anchored agent identity
+  - `require_agent_pin` policy enforcement
+  - Prevents unauthorized agent execution
+
+#### 🔒 Security Enhancements
+- **New SecurityEventType Variants**:
+  - `CronJobDeadLettered`: Job moved to dead-letter queue after max retries
+  - `AgentPinVerificationFailed`: AgentPin JWT validation failure
+- **Policy Enforcement**: Enhanced security checks before scheduled execution
+  - Time window restrictions
+  - Capability requirements
+  - Human approval workflows
+  - AgentPin cryptographic verification
+
+#### 📋 Documentation
+- **Comprehensive Scheduling Guide**: [`docs/scheduling.md`](docs/scheduling.md)
+  - Complete architecture overview
+  - DSL syntax reference (cron and at/one-shot)
+  - CLI command reference
+  - Heartbeat pattern guide
+  - Session isolation strategies
+  - Delivery routing configuration
+  - Policy enforcement examples
+  - Production hardening best practices
+  - HTTP API endpoint reference
+  - SDK examples (JS + Python)
+  - Configuration reference
+
+### Improved
+
+#### Reliability & Stability
+- **Graceful Shutdown**: Enhanced in-flight job tracking during scheduler shutdown
+- **Error Recovery**: Better retry logic with exponential backoff
+- **State Management**: More robust job state transitions with ACID guarantees
+- **Audit Trail**: Complete lifecycle tracking for all scheduled jobs
+
+#### Performance
+- **Optimized Tick Loop**: Reduced scheduler overhead with efficient job selection
+- **Concurrent Execution**: Improved throughput with configurable global concurrency
+- **Resource Management**: Better CPU and memory utilization tracking
+
+### Fixed
+- **Scheduler Stability**: Resolved edge cases in job state management
+- **Heartbeat Memory Leaks**: Fixed unbounded context growth in long-running agents
+- **Concurrency Deadlocks**: Eliminated potential deadlocks under high load
+- **Metric Collection**: Fixed race conditions in metrics aggregation
+
+### Breaking Changes
+- **CronJobDefinition Schema**: Added new fields (`max_concurrent`, `agent_pin_jwt`)
+  - Migration: Existing jobs work without changes (optional fields default to safe values)
+- **HeartbeatContextMode**: New enum for session isolation control
+  - Migration: Defaults to `EphemeralWithSummary` (previous behavior)
+
+### Migration from v0.9.0
+No breaking API changes. All v0.9.0 scheduled jobs continue to work.
+
+Optional enhancements:
+1. Add `max_concurrent` limits to high-frequency jobs
+2. Enable `max_jitter_seconds` to spread job starts
+3. Configure `agent_pin_jwt` for identity verification
+4. Set `default_max_retries` to enable dead-letter queue
+
+## [0.9.0] - 2026-01-15
+
+### Added
+
+#### 🚀 Delivery Routing & Policy Enforcement
+- **DeliveryRouter Trait**: Pluggable output routing system
+  - [`crates/runtime/src/scheduler/delivery.rs`](crates/runtime/src/scheduler/delivery.rs): Core delivery abstractions
+  - DefaultDeliveryRouter implementation with multiple channels
+- **Delivery Channels**: Six built-in output destinations
+  - **Webhook**: HTTP POST with configurable headers and authentication
+  - **Slack**: Slack webhook and API integration
+  - **Email**: SMTP email delivery with templates
+  - **Custom**: User-defined delivery handlers
+  - **Stdout**: Console output for development
+  - **LogFile**: Job-specific log file persistence
+- **PolicyGate**: Schedule policy enforcement before execution
+  - [`crates/runtime/src/scheduler/policy.rs`](crates/runtime/src/scheduler/policy.rs): Policy evaluation engine
+  - Integration with RealPolicyParser (replacing stub in repl-core)
+  - Support for time windows, capabilities, approvals, and AgentPin requirements
+- **Real Policy Parser**: Production-grade policy evaluation
+  - Replaced stub implementation with full policy DSL support
+  - Condition evaluation with complex boolean logic
+  - Integration with security audit trail
+
+#### 🌐 HTTP API Schedule Endpoints
+- **Complete Schedule Management API**: 10 RESTful endpoints with OpenAPI annotations
+  - `POST /api/v1/schedule`: Create new scheduled job
+  - `GET /api/v1/schedule`: List all jobs (filterable by status, agent ID)
+  - `GET /api/v1/schedule/{job_id}`: Get job details
+  - `PUT /api/v1/schedule/{job_id}`: Update job configuration
+  - `DELETE /api/v1/schedule/{job_id}`: Delete job
+  - `POST /api/v1/schedule/{job_id}/pause`: Pause job
+  - `POST /api/v1/schedule/{job_id}/resume`: Resume paused job
+  - `POST /api/v1/schedule/{job_id}/run`: Trigger immediate execution
+  - `GET /api/v1/schedule/{job_id}/history`: Get run history
+  - `GET /api/v1/schedule/{job_id}/next_run`: Get next scheduled run time
+- **OpenAPI Integration**: Full Swagger/OpenAPI 3.0 documentation
+  - Interactive API explorer with Swagger UI
+  - Request/response schema definitions
+  - Authentication examples
+
+#### 📦 SDK Integration
+- **JavaScript SDK ScheduleClient**: Complete TypeScript SDK for schedule management
+  - [`symbiont-sdk-js/src/schedule.ts`](../symbiont-sdk-js/src/schedule.ts): Schedule client implementation
+  - Full CRUD operations for jobs
+  - Run history and status queries
+  - Webhook and Slack delivery configuration
+- **Python SDK ScheduleClient**: Full Python SDK with async support
+  - [`symbiont-sdk-python/src/symbiont/schedule.py`](../symbiont-sdk-python/src/symbiont/schedule.py): Schedule client implementation
+  - Type hints and dataclass models
+  - Idiomatic Python API design
+
+### Improved
+
+#### Developer Experience
+- **SDK Examples**: Comprehensive examples in both JavaScript and Python
+  - Job creation and lifecycle management
+  - Delivery routing configuration
+  - Policy enforcement patterns
+- **API Documentation**: Enhanced endpoint documentation with usage examples
+- **Error Handling**: Better error messages for delivery failures and policy violations
+
+#### Operational Excellence
+- **Delivery Retry Logic**: Configurable retry with exponential backoff
+- **Webhook Timeout**: Configurable timeout for webhook delivery
+- **Channel Fallback**: Graceful degradation when delivery channels fail
+
+### Fixed
+- **Policy Parser Integration**: Fixed integration issues between scheduler and policy engine
+- **Delivery Error Handling**: Improved error propagation for failed deliveries
+- **SDK Type Safety**: Enhanced type definitions in both JS and Python SDKs
+
+## [0.8.0] - 2025-12-10
+
+### Added
+
+#### 💓 Heartbeat Pattern & DSL
+- **Heartbeat Agent Pattern**: Continuous monitoring with assessment-action-sleep cycles
+  - [`crates/runtime/src/scheduler/heartbeat.rs`](crates/runtime/src/scheduler/heartbeat.rs): Heartbeat execution engine
+  - HeartbeatConfig for iteration limits and context management
+  - HeartbeatContextMode enum for session isolation strategies
+  - HeartbeatAssessment tracking for agent decisions
+- **DSL Grammar**: Schedule definition blocks in Symbiont DSL
+  - [`crates/dsl/src/grammar/schedule.pest`](crates/dsl/src/grammar/schedule.pest): Pest grammar for schedule blocks
+  - Cron expression syntax with validation
+  - At/one-shot timestamp syntax (ISO 8601)
+  - Nested policy and heartbeat configuration blocks
+- **DSL Schedule Extraction**: Parse and validate schedule definitions from DSL files
+  - [`crates/dsl/src/schedule.rs`](crates/dsl/src/schedule.rs): Schedule AST and validation
+  - Integration with existing DSL parser infrastructure
+  - Semantic validation (cron syntax, timestamp format, policy rules)
+
+#### ⌨️ CLI Subcommands
+- **`symbi cron` Command Group**: Complete CLI for schedule management
+  - [`src/commands/cron/mod.rs`](src/commands/cron/mod.rs): Command router and shared utilities
+  - **`symbi cron list`**: List jobs with filtering (status, agent ID)
+  - **`symbi cron add`**: Create job from DSL file or JSON
+  - **`symbi cron remove`**: Delete job by ID or name
+  - **`symbi cron pause`**: Pause job scheduling
+  - **`symbi cron resume`**: Resume paused job
+  - **`symbi cron status`**: Job details with next run time
+  - **`symbi cron run`**: Trigger immediate execution
+  - **`symbi cron history`**: View run history with filtering
+- **Interactive CLI**: Rich terminal output with colors and formatting
+  - Table views for job lists and history
+  - Human-readable timestamps and durations
+  - JSON output mode for scripting
+
+### Improved
+
+#### DSL Integration
+- **Unified Configuration**: Schedule definitions colocated with agent definitions
+- **Validation**: Comprehensive validation at parse time vs runtime
+- **Error Messages**: Clear error reporting for invalid schedules
+
+#### Developer Experience
+- **CLI Discoverability**: Intuitive command structure with helpful error messages
+- **Documentation**: Inline help for all CLI commands
+- **Testing**: Integration tests for CLI workflows
+
+### Fixed
+- **DSL Parser**: Fixed parsing of nested schedule blocks
+- **Cron Validation**: Improved cron expression validation with better error messages
+- **CLI Error Handling**: Better error propagation from runtime to CLI
+
+## [0.7.0] - 2025-11-20
+
+### Added
+
+#### ⏰ Cron Foundation
+- **CronScheduler**: Background tick loop for scheduled execution
+  - [`crates/runtime/src/scheduler/cron.rs`](crates/runtime/src/scheduler/cron.rs): Core scheduler implementation
+  - 1-second tick interval with job selection by next run time
+  - Concurrent execution with configurable limits
+  - Graceful shutdown with in-flight job tracking
+- **SQLite Persistent Job Store**: Durable job storage with ACID guarantees
+  - [`crates/runtime/src/scheduler/store.rs`](crates/runtime/src/scheduler/store.rs): SqliteJobStore implementation
+  - Transaction support for atomic state updates
+  - Query capabilities (filter by status, agent ID, name)
+  - Job run history with audit trail
+- **CronJobDefinition**: Complete job lifecycle management
+  - Cron expression parsing and validation
+  - Job states: Active, Paused, Completed, Failed
+  - One-shot job support with `at` timestamp field
+  - Delivery configuration (channels, webhooks, Slack, email)
+- **CronScheduled ExecutionMode**: New variant in AgentExecutionMode enum
+  - Integration with existing scheduler infrastructure
+  - Session management for scheduled agents
+  - Context lifecycle hooks for pre/post execution
+- **One-Shot Job Support**: Jobs that run once at a specific time
+  - ISO 8601 timestamp parsing
+  - Automatic job completion after successful execution
+  - Failure handling with retry logic
+- **Audit-Aware Run Records**: JobRunRecord with security event integration
+  - Execution metadata (start time, duration, status)
+  - Output capture and storage
+  - Error message tracking
+  - Integration with SecurityEventType for audit trail
+
+#### 📊 Monitoring & Observability
+- **Job Status Tracking**: Real-time job state monitoring
+  - Next run time calculation
+  - Last run status and duration
+  - Failure count and retry tracking
+- **Run History**: Persistent execution history per job
+  - Queryable by status, time range
+  - Success/failure statistics
+  - Performance metrics (execution time)
+
+### Improved
+
+#### Scheduler Architecture
+- **Separation of Concerns**: Clean separation between scheduler, store, and execution engine
+- **Testability**: Mockable components for unit testing
+- **Configuration**: Flexible CronSchedulerConfig for operational tuning
+
+#### Runtime Integration
+- **AgentContext Integration**: Seamless integration with existing context management
+- **Policy Enforcement**: Placeholder for policy gates (implemented in v0.9.0)
+- **Delivery Routing**: Framework for output delivery (implemented in v0.9.0)
+
+### Fixed
+- **Cron Expression Parsing**: Robust parsing with validation
+- **Timezone Handling**: UTC-based scheduling with clear timezone semantics
+- **Concurrency Safety**: Thread-safe job state management
+
+### Dependencies
+- **Added**: `cron` crate for expression parsing and scheduling
+- **Added**: `rusqlite` for persistent job storage
+
 ## [0.6.1] - 2025-11-16
 
 ### Fixed

@@ -183,7 +183,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Test 6: Verify file persistence
     println!("\n💾 Test 6: Verifying file persistence...");
-    let context_file = test_dir.join("state").join("agents").join(format!("{}.json.gz", agent_id));
+    let context_file = test_dir
+        .join("state")
+        .join("agents")
+        .join(format!("{}.json.gz", agent_id));
     if context_file.exists() {
         let file_size = std::fs::metadata(&context_file)?.len();
         println!(
@@ -197,26 +200,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Test 7: Create new context manager and load from persistence
     println!("\n🔄 Test 7: Testing persistence across restarts...");
-    let new_context_manager = StandardContextManager::new(ContextManagerConfig {
-        max_contexts_in_memory: 100,
-        enable_persistence: true,
-        persistence_config: FilePersistenceConfig {
-            root_data_dir: test_dir.clone(),
-            state_dir: PathBuf::from("state"),
-            logs_dir: PathBuf::from("logs"),
-            prompts_dir: PathBuf::from("prompts"),
-            vector_db_dir: PathBuf::from("vector_db"),
-            enable_compression: true,
-            enable_encryption: false,
-            backup_count: 3,
-            auto_save_interval: 60,
-            auto_create_dirs: true,
-            dir_permissions: Some(0o755),
+    let new_context_manager = StandardContextManager::new(
+        ContextManagerConfig {
+            max_contexts_in_memory: 100,
+            enable_persistence: true,
+            persistence_config: FilePersistenceConfig {
+                root_data_dir: test_dir.clone(),
+                state_dir: PathBuf::from("state"),
+                logs_dir: PathBuf::from("logs"),
+                prompts_dir: PathBuf::from("prompts"),
+                vector_db_dir: PathBuf::from("vector_db"),
+                enable_compression: true,
+                enable_encryption: false,
+                backup_count: 3,
+                auto_save_interval: 60,
+                auto_create_dirs: true,
+                dir_permissions: Some(0o755),
+            },
+            enable_vector_db: false,
+            qdrant_config: QdrantConfig::default(),
+            ..Default::default()
         },
-        enable_vector_db: false,
-        qdrant_config: QdrantConfig::default(),
-        ..Default::default()
-    }, "test-agent-2").await?;
+        "test-agent-2",
+    )
+    .await?;
 
     new_context_manager.initialize().await?;
 

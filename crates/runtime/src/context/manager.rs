@@ -15,9 +15,7 @@ use super::types::*;
 use super::vector_db::{
     EmbeddingService, MockEmbeddingService, QdrantClientWrapper, QdrantConfig, VectorDatabase,
 };
-use crate::integrations::policy_engine::{
-    PolicyEngine, MockPolicyEngine
-};
+use crate::integrations::policy_engine::{MockPolicyEngine, PolicyEngine};
 use crate::secrets::{SecretStore, SecretsConfig};
 use crate::types::AgentId;
 
@@ -151,7 +149,7 @@ pub struct ContextManagerConfig {
 impl Default for ContextManagerConfig {
     fn default() -> Self {
         use std::path::PathBuf;
-        
+
         Self {
             max_contexts_in_memory: 1000,
             default_retention_policy: RetentionPolicy::default(),
@@ -244,7 +242,8 @@ impl FilePersistence {
 
     /// Initialize storage directory
     pub async fn initialize(&self) -> Result<(), ContextError> {
-        self.config.ensure_directories()
+        self.config
+            .ensure_directories()
             .await
             .map_err(|e| ContextError::StorageError {
                 reason: format!("Failed to create storage directories: {}", e),
@@ -342,11 +341,11 @@ impl FilePersistence {
     /// Clean up old backup files
     async fn cleanup_old_backups(&self, agent_id: AgentId) -> Result<(), ContextError> {
         let mut backup_files = Vec::new();
-        let mut dir = fs::read_dir(&self.config.agent_contexts_path()).await.map_err(|e| {
-            ContextError::StorageError {
+        let mut dir = fs::read_dir(&self.config.agent_contexts_path())
+            .await
+            .map_err(|e| ContextError::StorageError {
                 reason: format!("Failed to read storage directory: {}", e),
-            }
-        })?;
+            })?;
 
         while let Some(entry) = dir
             .next_entry()
@@ -463,11 +462,11 @@ impl ContextPersistence for FilePersistence {
 
     async fn list_agent_contexts(&self) -> Result<Vec<AgentId>, ContextError> {
         let mut agent_ids = Vec::new();
-        let mut dir = fs::read_dir(&self.config.agent_contexts_path()).await.map_err(|e| {
-            ContextError::StorageError {
+        let mut dir = fs::read_dir(&self.config.agent_contexts_path())
+            .await
+            .map_err(|e| ContextError::StorageError {
                 reason: format!("Failed to read storage directory: {}", e),
-            }
-        })?;
+            })?;
 
         while let Some(entry) = dir
             .next_entry()
@@ -503,11 +502,11 @@ impl ContextPersistence for FilePersistence {
         let mut total_contexts = 0;
         let mut total_size_bytes = 0;
 
-        let mut dir = fs::read_dir(&self.config.agent_contexts_path()).await.map_err(|e| {
-            ContextError::StorageError {
+        let mut dir = fs::read_dir(&self.config.agent_contexts_path())
+            .await
+            .map_err(|e| ContextError::StorageError {
                 reason: format!("Failed to read storage directory: {}", e),
-            }
-        })?;
+            })?;
 
         while let Some(entry) = dir
             .next_entry()
@@ -670,7 +669,7 @@ impl StandardContextManager {
     /// Stop all background tasks
     async fn stop_background_tasks(&self) -> Result<(), ContextError> {
         let mut tasks = self.background_tasks.write().await;
-        
+
         if tasks.is_empty() {
             tracing::debug!("No background tasks to stop");
             return Ok(());
@@ -681,16 +680,14 @@ impl StandardContextManager {
         // Abort all background tasks
         for task in tasks.drain(..) {
             task.abort();
-            
+
             // Wait for task to finish (with timeout to avoid hanging)
             match tokio::time::timeout(std::time::Duration::from_secs(5), task).await {
-                Ok(result) => {
-                    match result {
-                        Ok(_) => tracing::debug!("Background task completed successfully"),
-                        Err(e) if e.is_cancelled() => tracing::debug!("Background task was cancelled"),
-                        Err(e) => tracing::warn!("Background task finished with error: {}", e),
-                    }
-                }
+                Ok(result) => match result {
+                    Ok(_) => tracing::debug!("Background task completed successfully"),
+                    Err(e) if e.is_cancelled() => tracing::debug!("Background task was cancelled"),
+                    Err(e) => tracing::warn!("Background task finished with error: {}", e),
+                },
                 Err(_) => tracing::warn!("Background task did not finish within timeout"),
             }
         }
@@ -707,7 +704,7 @@ impl StandardContextManager {
         }
 
         let contexts = self.contexts.read().await;
-        
+
         if contexts.is_empty() {
             tracing::debug!("No contexts to save");
             return Ok(());
@@ -734,7 +731,7 @@ impl StandardContextManager {
                 contexts.len()
             );
             tracing::error!("{}", error_msg);
-            
+
             // Return the first error, but log all of them
             if let Some((agent_id, error)) = save_errors.into_iter().next() {
                 return Err(ContextError::StorageError {
@@ -758,12 +755,15 @@ impl StandardContextManager {
         let persistence = self.persistence.clone();
         let config = self.config.clone();
         let shutdown_flag = self.shutdown_flag.clone();
-        
+
         let task = tokio::spawn(async move {
             let mut interval = tokio::time::interval(config.archiving_interval);
-            
-            tracing::info!("Retention policy scheduler started with interval {:?}", config.archiving_interval);
-            
+
+            tracing::info!(
+                "Retention policy scheduler started with interval {:?}",
+                config.archiving_interval
+            );
+
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
@@ -772,7 +772,7 @@ impl StandardContextManager {
                             tracing::info!("Retention scheduler shutting down");
                             break;
                         }
-                        
+
                         // Run retention check for all agents
                         Self::run_retention_check(&contexts, &persistence, &config).await;
                     }
@@ -792,30 +792,34 @@ impl StandardContextManager {
         config: &ContextManagerConfig,
     ) {
         let current_time = SystemTime::now();
-        
+
         // Collect agent IDs and stats first to avoid borrowing issues
         let agents_to_check: Vec<(AgentId, usize)> = {
             let context_guard = contexts.read().await;
             let agent_count = context_guard.len();
-            
+
             if agent_count == 0 {
                 tracing::debug!("No agent contexts to process for retention");
                 return;
             }
-            
-            tracing::info!("Starting retention check for {} agent contexts", agent_count);
-            
-            context_guard.iter()
+
+            tracing::info!(
+                "Starting retention check for {} agent contexts",
+                agent_count
+            );
+
+            context_guard
+                .iter()
                 .map(|(agent_id, context)| {
                     let retention_stats = Self::calculate_retention_statistics_static(context);
                     (*agent_id, retention_stats.items_to_archive)
                 })
                 .collect()
         };
-        
+
         let start_time = std::time::Instant::now();
         let total_agents = agents_to_check.len();
-        
+
         // Process each agent that needs archiving
         for (agent_id, items_to_archive) in agents_to_check {
             if items_to_archive > 0 {
@@ -824,19 +828,24 @@ impl StandardContextManager {
                     agent_id,
                     items_to_archive
                 );
-                
+
                 // Archive items for this agent
                 let archive_result = Self::archive_agent_context_static(
                     agent_id,
                     current_time,
                     contexts,
                     persistence,
-                    config
-                ).await;
-                
+                    config,
+                )
+                .await;
+
                 match archive_result {
                     Ok(archived_count) => {
-                        tracing::info!("Successfully archived {} items for agent {}", archived_count, agent_id);
+                        tracing::info!(
+                            "Successfully archived {} items for agent {}",
+                            archived_count,
+                            agent_id
+                        );
                     }
                     Err(e) => {
                         tracing::error!("Failed to archive context for agent {}: {}", agent_id, e);
@@ -844,16 +853,20 @@ impl StandardContextManager {
                 }
             }
         }
-        
+
         let elapsed = start_time.elapsed();
-        tracing::info!("Retention check completed for {} agents in {:?}", total_agents, elapsed);
+        tracing::info!(
+            "Retention check completed for {} agents in {:?}",
+            total_agents,
+            elapsed
+        );
     }
 
     /// Static version of calculate_retention_statistics for use in scheduler
     fn calculate_retention_statistics_static(context: &AgentContext) -> RetentionStatus {
         let now = SystemTime::now();
         let retention_policy = &context.retention_policy;
-        
+
         let mut items_to_archive = 0;
         let items_to_delete = 0;
 
@@ -861,11 +874,11 @@ impl StandardContextManager {
         let memory_cutoff = now
             .checked_sub(retention_policy.memory_retention)
             .unwrap_or(SystemTime::UNIX_EPOCH);
-        
+
         let knowledge_cutoff = now
             .checked_sub(retention_policy.knowledge_retention)
             .unwrap_or(SystemTime::UNIX_EPOCH);
-        
+
         let conversation_cutoff = now
             .checked_sub(retention_policy.session_retention)
             .unwrap_or(SystemTime::UNIX_EPOCH);
@@ -876,7 +889,7 @@ impl StandardContextManager {
                 items_to_archive += 1;
             }
         }
-        
+
         for item in &context.memory.long_term {
             if item.created_at < memory_cutoff || item.last_accessed < memory_cutoff {
                 items_to_archive += 1;
@@ -923,16 +936,16 @@ impl StandardContextManager {
         if let Some(context) = contexts_guard.get_mut(&agent_id) {
             // Archive items based on retention policy
             let retention_policy = &context.retention_policy;
-            
+
             // Calculate cutoff times
             let memory_cutoff = before
                 .checked_sub(retention_policy.memory_retention)
                 .unwrap_or(SystemTime::UNIX_EPOCH);
-            
+
             let conversation_cutoff = before
                 .checked_sub(retention_policy.session_retention)
                 .unwrap_or(SystemTime::UNIX_EPOCH);
-            
+
             let knowledge_cutoff = before
                 .checked_sub(retention_policy.knowledge_retention)
                 .unwrap_or(SystemTime::UNIX_EPOCH);
@@ -996,14 +1009,19 @@ impl StandardContextManager {
                         .as_secs()
                         .to_string(),
                 );
-                context.metadata.insert(
-                    "archived_count".to_string(),
-                    total_archived.to_string(),
-                );
+                context
+                    .metadata
+                    .insert("archived_count".to_string(), total_archived.to_string());
 
                 // Save archived context to storage
                 if config.enable_persistence {
-                    Self::save_archived_context_static(agent_id, &archived_context, persistence, config).await?;
+                    Self::save_archived_context_static(
+                        agent_id,
+                        &archived_context,
+                        persistence,
+                        config,
+                    )
+                    .await?;
                     // Also save updated context
                     persistence.save_context(agent_id, context).await?;
                 }
@@ -1020,7 +1038,8 @@ impl StandardContextManager {
         _persistence: &Arc<dyn ContextPersistence>,
         config: &ContextManagerConfig,
     ) -> Result<(), ContextError> {
-        let archive_dir = config.persistence_config
+        let archive_dir = config
+            .persistence_config
             .agent_contexts_path()
             .join("archives")
             .join(agent_id.to_string());
@@ -1033,7 +1052,8 @@ impl StandardContextManager {
             })?;
 
         // Create archive filename with timestamp
-        let timestamp = archived_context.archived_at
+        let timestamp = archived_context
+            .archived_at
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
@@ -1041,10 +1061,11 @@ impl StandardContextManager {
         let archive_path = archive_dir.join(archive_filename);
 
         // Serialize archived context
-        let archive_data = serde_json::to_vec_pretty(archived_context)
-            .map_err(|e| ContextError::SerializationError {
+        let archive_data = serde_json::to_vec_pretty(archived_context).map_err(|e| {
+            ContextError::SerializationError {
                 reason: format!("Failed to serialize archived context: {}", e),
-            })?;
+            }
+        })?;
 
         // Write to archive file
         tokio::fs::write(&archive_path, &archive_data)
@@ -1104,12 +1125,16 @@ impl StandardContextManager {
         // For now, we'll implement a simplified access check
         // In a full implementation, this would create the appropriate PolicyRequest
         // and call the policy engine with proper AgentAction and PolicyContext
-        
+
         // Simple validation - deny dangerous operations by default
         let is_dangerous_operation = matches!(operation, "archive_context");
-        
+
         if is_dangerous_operation {
-            tracing::warn!("Potentially dangerous operation {} denied for agent {} by default policy", operation, agent_id);
+            tracing::warn!(
+                "Potentially dangerous operation {} denied for agent {} by default policy",
+                operation,
+                agent_id
+            );
             Err(ContextError::AccessDenied {
                 reason: format!("Operation {} requires explicit approval", operation),
             })
@@ -1189,10 +1214,10 @@ impl StandardContextManager {
     fn calculate_importance(&self, memory_item: &MemoryItem) -> f32 {
         // Configurable weights for different factors
         let weights = ImportanceWeights::default();
-        
+
         // 1. Base importance (0.0 - 1.0)
         let base_score = memory_item.importance.clamp(0.0, 1.0);
-        
+
         // 2. Access frequency factor (logarithmic scaling to prevent dominance)
         let access_score = if memory_item.access_count == 0 {
             weights.no_access_penalty
@@ -1200,63 +1225,63 @@ impl StandardContextManager {
             let log_access = (memory_item.access_count as f32 + 1.0).ln();
             (log_access / 10.0).min(1.0) // Cap at ln(10) ≈ 2.3
         };
-        
+
         // 3. Recency factor - considers both last access and creation time
         let recency_score = self.calculate_recency_factor(memory_item);
-        
+
         // 4. User feedback factor from metadata
         let feedback_score = self.extract_user_feedback_score(memory_item);
-        
+
         // 5. Memory type adjustment
         let type_multiplier = self.get_memory_type_multiplier(&memory_item.memory_type);
-        
+
         // 6. Age decay factor
         let age_decay = self.calculate_age_decay(memory_item);
-        
+
         // Combine all factors using weighted average
-        let combined_score = (
-            base_score * weights.base_importance +
-            access_score * weights.access_frequency +
-            recency_score * weights.recency +
-            feedback_score * weights.user_feedback
-        ) * type_multiplier * age_decay;
-        
+        let combined_score = (base_score * weights.base_importance
+            + access_score * weights.access_frequency
+            + recency_score * weights.recency
+            + feedback_score * weights.user_feedback)
+            * type_multiplier
+            * age_decay;
+
         // Ensure the final score is within bounds [0.0, 1.0]
         combined_score.clamp(0.0, 1.0)
     }
-    
+
     /// Calculate recency factor based on last access and creation time
     fn calculate_recency_factor(&self, memory_item: &MemoryItem) -> f32 {
         let now = SystemTime::now();
-        
+
         // Use the more recent of last_accessed or created_at
         let most_recent = memory_item.last_accessed.max(memory_item.created_at);
-        
+
         let time_since_access = now
             .duration_since(most_recent)
             .unwrap_or_else(|_| std::time::Duration::from_secs(0));
-        
+
         let hours_since_access = time_since_access.as_secs() as f32 / 3600.0;
-        
+
         // Exponential decay with configurable half-life
         let half_life_hours = 24.0; // 24 hours half-life
         let decay_factor = 2.0_f32.powf(-hours_since_access / half_life_hours);
-        
+
         // Ensure minimum recency score to prevent complete obsolescence
         decay_factor.max(0.01)
     }
-    
+
     /// Extract user feedback score from memory item metadata
     fn extract_user_feedback_score(&self, memory_item: &MemoryItem) -> f32 {
         let mut feedback_score = 0.5; // Neutral baseline
-        
+
         // Check for explicit user ratings
         if let Some(rating_str) = memory_item.metadata.get("user_rating") {
             if let Ok(rating) = rating_str.parse::<f32>() {
                 feedback_score = (rating / 5.0).clamp(0.0, 1.0); // Assume 1-5 rating scale
             }
         }
-        
+
         // Check for implicit feedback indicators
         if let Some(helpful_str) = memory_item.metadata.get("helpful") {
             match helpful_str.to_lowercase().as_str() {
@@ -1265,19 +1290,21 @@ impl StandardContextManager {
                 _ => {}
             }
         }
-        
+
         // Check for correction indicators (negative feedback)
-        if memory_item.metadata.contains_key("corrected") ||
-           memory_item.metadata.contains_key("incorrect") {
+        if memory_item.metadata.contains_key("corrected")
+            || memory_item.metadata.contains_key("incorrect")
+        {
             feedback_score = feedback_score.min(0.3);
         }
-        
+
         // Check for bookmark/favorite indicators (positive feedback)
-        if memory_item.metadata.contains_key("bookmarked") ||
-           memory_item.metadata.contains_key("favorite") {
+        if memory_item.metadata.contains_key("bookmarked")
+            || memory_item.metadata.contains_key("favorite")
+        {
             feedback_score = feedback_score.max(0.9);
         }
-        
+
         // Check for usage context that indicates importance
         if let Some(context) = memory_item.metadata.get("usage_context") {
             match context.to_lowercase().as_str() {
@@ -1287,30 +1314,30 @@ impl StandardContextManager {
                 _ => {}
             }
         }
-        
+
         feedback_score.clamp(0.0, 1.0)
     }
-    
+
     /// Get multiplier based on memory type importance
     fn get_memory_type_multiplier(&self, memory_type: &MemoryType) -> f32 {
         match memory_type {
-            MemoryType::Factual => 1.0,      // Base multiplier for facts
-            MemoryType::Procedural => 1.2,   // Procedures are often more important
-            MemoryType::Episodic => 0.9,     // Episodes can vary in importance
-            MemoryType::Semantic => 1.1,     // Concepts and relationships are valuable
-            MemoryType::Working => 1.3,      // Current working memory is highly relevant
+            MemoryType::Factual => 1.0,    // Base multiplier for facts
+            MemoryType::Procedural => 1.2, // Procedures are often more important
+            MemoryType::Episodic => 0.9,   // Episodes can vary in importance
+            MemoryType::Semantic => 1.1,   // Concepts and relationships are valuable
+            MemoryType::Working => 1.3,    // Current working memory is highly relevant
         }
     }
-    
+
     /// Calculate age decay factor for long-term memory degradation
     fn calculate_age_decay(&self, memory_item: &MemoryItem) -> f32 {
         let now = SystemTime::now();
         let age = now
             .duration_since(memory_item.created_at)
             .unwrap_or_else(|_| std::time::Duration::from_secs(0));
-        
+
         let days_old = age.as_secs() as f32 / 86400.0; // Convert to days
-        
+
         // Different decay rates based on memory type
         let decay_rate = match memory_item.memory_type {
             MemoryType::Working => 0.1,      // Working memory decays quickly
@@ -1319,10 +1346,10 @@ impl StandardContextManager {
             MemoryType::Episodic => 0.02,    // Episodes have moderate decay
             MemoryType::Semantic => 0.008,   // Semantic memory is quite persistent
         };
-        
+
         // Exponential decay: importance = base * e^(-decay_rate * days)
         let decay_factor = (-decay_rate * days_old).exp();
-        
+
         // Ensure minimum decay to prevent complete loss
         decay_factor.max(0.05)
     }
@@ -1336,30 +1363,36 @@ impl StandardContextManager {
         let contexts = self.contexts.read().await;
         if let Some(context) = contexts.get(&agent_id) {
             let mut results = Vec::new();
-            
+
             // Combine all search terms
-            let search_terms: Vec<String> = query.search_terms.iter()
+            let search_terms: Vec<String> = query
+                .search_terms
+                .iter()
                 .map(|term| term.to_lowercase())
                 .collect();
-            
+
             if search_terms.is_empty() {
                 return Ok(results);
             }
 
             // Search through memory items
-            for memory_item in context.memory.short_term.iter()
-                .chain(context.memory.long_term.iter()) {
-                
+            for memory_item in context
+                .memory
+                .short_term
+                .iter()
+                .chain(context.memory.long_term.iter())
+            {
                 // Skip if memory type filter is specified and doesn't match
-                if !query.memory_types.is_empty() &&
-                   !query.memory_types.contains(&memory_item.memory_type) {
+                if !query.memory_types.is_empty()
+                    && !query.memory_types.contains(&memory_item.memory_type)
+                {
                     continue;
                 }
-                
+
                 let content_lower = memory_item.content.to_lowercase();
                 let mut match_score = 0.0f32;
                 let mut matched_terms = 0;
-                
+
                 // Calculate match score based on term presence
                 for term in &search_terms {
                     if content_lower.contains(term) {
@@ -1372,13 +1405,13 @@ impl StandardContextManager {
                         }
                     }
                 }
-                
+
                 if matched_terms > 0 {
                     // Calculate relevance score combining match score and importance
                     let importance_score = self.calculate_importance(memory_item);
                     let term_coverage = matched_terms as f32 / search_terms.len() as f32;
                     let relevance_score = (match_score * term_coverage + importance_score) / 2.0;
-                    
+
                     if relevance_score >= query.relevance_threshold {
                         results.push(ContextItem {
                             id: memory_item.id,
@@ -1391,29 +1424,30 @@ impl StandardContextManager {
                     }
                 }
             }
-            
+
             // Search through episodic memory
             for episode in &context.memory.episodic_memory {
                 let episode_content = format!("{} {}", episode.title, episode.description);
                 let content_lower = episode_content.to_lowercase();
                 let mut match_score = 0.0f32;
                 let mut matched_terms = 0;
-                
+
                 for term in &search_terms {
                     if content_lower.contains(term) {
                         matched_terms += 1;
-                        match_score += if content_lower.split_whitespace().any(|word| word == term) {
+                        match_score += if content_lower.split_whitespace().any(|word| word == term)
+                        {
                             1.0
                         } else {
                             0.5
                         };
                     }
                 }
-                
+
                 if matched_terms > 0 {
                     let term_coverage = matched_terms as f32 / search_terms.len() as f32;
                     let relevance_score = (match_score * term_coverage + episode.importance) / 2.0;
-                    
+
                     if relevance_score >= query.relevance_threshold {
                         results.push(ContextItem {
                             id: episode.id,
@@ -1426,28 +1460,29 @@ impl StandardContextManager {
                     }
                 }
             }
-            
+
             // Search through conversation history
             for conv_item in &context.conversation_history {
                 let content_lower = conv_item.content.to_lowercase();
                 let mut match_score = 0.0f32;
                 let mut matched_terms = 0;
-                
+
                 for term in &search_terms {
                     if content_lower.contains(term) {
                         matched_terms += 1;
-                        match_score += if content_lower.split_whitespace().any(|word| word == term) {
+                        match_score += if content_lower.split_whitespace().any(|word| word == term)
+                        {
                             1.0
                         } else {
                             0.5
                         };
                     }
                 }
-                
+
                 if matched_terms > 0 {
                     let term_coverage = matched_terms as f32 / search_terms.len() as f32;
                     let relevance_score = match_score * term_coverage;
-                    
+
                     if relevance_score >= query.relevance_threshold {
                         results.push(ContextItem {
                             id: conv_item.id,
@@ -1460,11 +1495,15 @@ impl StandardContextManager {
                     }
                 }
             }
-            
+
             // Sort by relevance score (highest first) and limit results
-            results.sort_by(|a, b| b.relevance_score.partial_cmp(&a.relevance_score).unwrap_or(std::cmp::Ordering::Equal));
+            results.sort_by(|a, b| {
+                b.relevance_score
+                    .partial_cmp(&a.relevance_score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
             results.truncate(query.max_results);
-            
+
             Ok(results)
         } else {
             Ok(Vec::new())
@@ -1481,40 +1520,45 @@ impl StandardContextManager {
             Some(range) => range,
             None => return Ok(Vec::new()), // No time range specified
         };
-        
+
         let contexts = self.contexts.read().await;
         if let Some(context) = contexts.get(&agent_id) {
             let mut results = Vec::new();
-            
+
             // Search through memory items
-            for memory_item in context.memory.short_term.iter()
-                .chain(context.memory.long_term.iter()) {
-                
+            for memory_item in context
+                .memory
+                .short_term
+                .iter()
+                .chain(context.memory.long_term.iter())
+            {
                 // Skip if memory type filter is specified and doesn't match
-                if !query.memory_types.is_empty() &&
-                   !query.memory_types.contains(&memory_item.memory_type) {
+                if !query.memory_types.is_empty()
+                    && !query.memory_types.contains(&memory_item.memory_type)
+                {
                     continue;
                 }
-                
+
                 // Check if item falls within time range
-                if memory_item.created_at >= time_range.start &&
-                   memory_item.created_at <= time_range.end {
-                    
+                if memory_item.created_at >= time_range.start
+                    && memory_item.created_at <= time_range.end
+                {
                     // Optional keyword filtering within temporal results
                     let passes_keyword_filter = if query.search_terms.is_empty() {
                         true
                     } else {
                         let content_lower = memory_item.content.to_lowercase();
-                        query.search_terms.iter().any(|term|
-                            content_lower.contains(&term.to_lowercase())
-                        )
+                        query
+                            .search_terms
+                            .iter()
+                            .any(|term| content_lower.contains(&term.to_lowercase()))
                     };
-                    
+
                     if passes_keyword_filter {
                         let importance_score = self.calculate_importance(memory_item);
                         let recency_score = self.calculate_recency_factor(memory_item);
                         let relevance_score = (importance_score + recency_score) / 2.0;
-                        
+
                         if relevance_score >= query.relevance_threshold {
                             results.push(ContextItem {
                                 id: memory_item.id,
@@ -1528,22 +1572,21 @@ impl StandardContextManager {
                     }
                 }
             }
-            
+
             // Search through episodic memory
             for episode in &context.memory.episodic_memory {
-                if episode.timestamp >= time_range.start &&
-                   episode.timestamp <= time_range.end {
-                    
+                if episode.timestamp >= time_range.start && episode.timestamp <= time_range.end {
                     let passes_keyword_filter = if query.search_terms.is_empty() {
                         true
                     } else {
                         let episode_content = format!("{} {}", episode.title, episode.description);
                         let content_lower = episode_content.to_lowercase();
-                        query.search_terms.iter().any(|term|
-                            content_lower.contains(&term.to_lowercase())
-                        )
+                        query
+                            .search_terms
+                            .iter()
+                            .any(|term| content_lower.contains(&term.to_lowercase()))
                     };
-                    
+
                     if passes_keyword_filter && episode.importance >= query.relevance_threshold {
                         results.push(ContextItem {
                             id: episode.id,
@@ -1556,38 +1599,40 @@ impl StandardContextManager {
                     }
                 }
             }
-            
+
             // Search through conversation history
             for conv_item in &context.conversation_history {
-                if conv_item.timestamp >= time_range.start &&
-                   conv_item.timestamp <= time_range.end {
-                    
+                if conv_item.timestamp >= time_range.start && conv_item.timestamp <= time_range.end
+                {
                     let passes_keyword_filter = if query.search_terms.is_empty() {
                         true
                     } else {
                         let content_lower = conv_item.content.to_lowercase();
-                        query.search_terms.iter().any(|term|
-                            content_lower.contains(&term.to_lowercase())
-                        )
+                        query
+                            .search_terms
+                            .iter()
+                            .any(|term| content_lower.contains(&term.to_lowercase()))
                     };
-                    
+
                     if passes_keyword_filter {
                         // Calculate relevance based on recency within the time range
-                        let time_since_start = conv_item.timestamp
+                        let time_since_start = conv_item
+                            .timestamp
                             .duration_since(time_range.start)
                             .unwrap_or_default()
                             .as_secs() as f32;
-                        let range_duration = time_range.end
+                        let range_duration = time_range
+                            .end
                             .duration_since(time_range.start)
                             .unwrap_or_default()
                             .as_secs() as f32;
-                        
+
                         let temporal_score = if range_duration > 0.0 {
                             1.0 - (time_since_start / range_duration)
                         } else {
                             1.0
                         };
-                        
+
                         if temporal_score >= query.relevance_threshold {
                             results.push(ContextItem {
                                 id: conv_item.id,
@@ -1601,11 +1646,11 @@ impl StandardContextManager {
                     }
                 }
             }
-            
+
             // Sort by timestamp (most recent first) and limit results
             results.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
             results.truncate(query.max_results);
-            
+
             Ok(results)
         } else {
             Ok(Vec::new())
@@ -1622,7 +1667,7 @@ impl StandardContextManager {
             // Use vector database for similarity search
             let search_term = query.search_terms.join(" ");
             let query_embedding = self.generate_embeddings(&search_term).await?;
-            
+
             // Search the vector database with semantic similarity
             let threshold = query.relevance_threshold;
             self.vector_db
@@ -1635,34 +1680,38 @@ impl StandardContextManager {
                 if query.search_terms.is_empty() {
                     return Ok(Vec::new());
                 }
-                
+
                 // Generate query embedding
                 let search_term = query.search_terms.join(" ");
                 let query_embedding = match self.generate_embeddings(&search_term).await {
                     Ok(embedding) => embedding,
                     Err(_) => return Ok(Vec::new()), // Fall back to empty results if embedding fails
                 };
-                
+
                 let mut results = Vec::new();
-                
+
                 // Compare with memory item embeddings
-                for memory_item in context.memory.short_term.iter()
-                    .chain(context.memory.long_term.iter()) {
-                    
+                for memory_item in context
+                    .memory
+                    .short_term
+                    .iter()
+                    .chain(context.memory.long_term.iter())
+                {
                     // Skip if memory type filter is specified and doesn't match
-                    if !query.memory_types.is_empty() &&
-                       !query.memory_types.contains(&memory_item.memory_type) {
+                    if !query.memory_types.is_empty()
+                        && !query.memory_types.contains(&memory_item.memory_type)
+                    {
                         continue;
                     }
-                    
+
                     if let Some(ref item_embedding) = memory_item.embedding {
                         // Calculate cosine similarity
                         let similarity = self.cosine_similarity(&query_embedding, item_embedding);
-                        
+
                         if similarity >= query.relevance_threshold {
                             let importance_score = self.calculate_importance(memory_item);
                             let relevance_score = (similarity + importance_score) / 2.0;
-                            
+
                             results.push(ContextItem {
                                 id: memory_item.id,
                                 content: memory_item.content.clone(),
@@ -1674,11 +1723,15 @@ impl StandardContextManager {
                         }
                     }
                 }
-                
+
                 // Sort by relevance score (highest first) and limit results
-                results.sort_by(|a, b| b.relevance_score.partial_cmp(&a.relevance_score).unwrap_or(std::cmp::Ordering::Equal));
+                results.sort_by(|a, b| {
+                    b.relevance_score
+                        .partial_cmp(&a.relevance_score)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
                 results.truncate(query.max_results);
-                
+
                 Ok(results)
             } else {
                 Ok(Vec::new())
@@ -1695,42 +1748,47 @@ impl StandardContextManager {
         // Perform both keyword and similarity searches
         let keyword_results = self.keyword_search_memory(agent_id, query).await?;
         let similarity_results = self.similarity_search_memory(agent_id, query).await?;
-        
+
         // Combine and deduplicate results
         let mut combined_results: HashMap<ContextId, ContextItem> = HashMap::new();
-        
+
         // Weight factors for combining scores (configurable)
         let keyword_weight = 0.4;
         let similarity_weight = 0.6;
-        
+
         // Add keyword results
         for mut item in keyword_results {
             item.relevance_score *= keyword_weight;
             combined_results.insert(item.id, item);
         }
-        
+
         // Add similarity results, combining scores for duplicates
         for mut item in similarity_results {
             item.relevance_score *= similarity_weight;
-            
+
             if let Some(existing_item) = combined_results.get_mut(&item.id) {
                 // Combine scores for items found in both searches
                 existing_item.relevance_score += item.relevance_score;
                 // Take the higher of the two relevance scores as the final score
-                existing_item.relevance_score = existing_item.relevance_score.max(item.relevance_score);
+                existing_item.relevance_score =
+                    existing_item.relevance_score.max(item.relevance_score);
             } else {
                 combined_results.insert(item.id, item);
             }
         }
-        
+
         // Convert to vector and sort by combined relevance score
         let mut final_results: Vec<ContextItem> = combined_results.into_values().collect();
-        final_results.sort_by(|a, b| b.relevance_score.partial_cmp(&a.relevance_score).unwrap_or(std::cmp::Ordering::Equal));
-        
+        final_results.sort_by(|a, b| {
+            b.relevance_score
+                .partial_cmp(&a.relevance_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
         // Filter by threshold and limit results
         final_results.retain(|item| item.relevance_score >= query.relevance_threshold);
         final_results.truncate(query.max_results);
-        
+
         Ok(final_results)
     }
 
@@ -1739,11 +1797,11 @@ impl StandardContextManager {
         if a.len() != b.len() {
             return 0.0;
         }
-        
+
         let dot_product: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
         let magnitude_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
         let magnitude_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
-        
+
         if magnitude_a == 0.0 || magnitude_b == 0.0 {
             0.0
         } else {
@@ -1760,30 +1818,35 @@ impl StandardContextManager {
     /// - Content length factors
     ///
     /// Returns Some(score) if content matches query, None if no match
-    fn calculate_knowledge_relevance(&self, content: &str, query: &str, confidence: f32) -> Option<f32> {
+    fn calculate_knowledge_relevance(
+        &self,
+        content: &str,
+        query: &str,
+        confidence: f32,
+    ) -> Option<f32> {
         let content_lower = content.to_lowercase();
         let query_lower = query.to_lowercase();
         let query_terms: Vec<&str> = query_lower.split_whitespace().collect();
-        
+
         if query_terms.is_empty() {
             return None;
         }
-        
+
         let mut total_match_score = 0.0f32;
         let mut matched_terms = 0;
-        
+
         // Calculate match quality for each query term
         for term in &query_terms {
             if content_lower.contains(term) {
                 matched_terms += 1;
-                
+
                 // Give higher score for exact word matches vs substring matches
                 if content_lower.split_whitespace().any(|word| word == *term) {
                     total_match_score += 1.0; // Exact word match
                 } else {
                     total_match_score += 0.6; // Substring match
                 }
-                
+
                 // Bonus for terms appearing multiple times
                 let occurrences = content_lower.matches(term).count();
                 if occurrences > 1 {
@@ -1791,19 +1854,19 @@ impl StandardContextManager {
                 }
             }
         }
-        
+
         // Return None if no matches found
         if matched_terms == 0 {
             return None;
         }
-        
+
         // Calculate base relevance score
         let term_coverage = matched_terms as f32 / query_terms.len() as f32;
         let match_quality = total_match_score / query_terms.len() as f32;
-        
+
         // Combine match quality, term coverage, and confidence
         let base_score = match_quality * 0.5 + term_coverage * 0.3 + confidence * 0.2;
-        
+
         // Apply content length normalization
         let content_length_factor = if content.len() < 50 {
             1.0 // Short content gets full score
@@ -1812,16 +1875,19 @@ impl StandardContextManager {
         } else {
             0.9 // Long content gets larger penalty for diluted relevance
         };
-        
+
         // Apply position bonus if query terms appear early in content
         let position_bonus = if content_lower.starts_with(&query_lower) {
             0.1 // Exact prefix match
-        } else if query_terms.iter().any(|term| content_lower.starts_with(term)) {
+        } else if query_terms
+            .iter()
+            .any(|term| content_lower.starts_with(term))
+        {
             0.05 // Partial prefix match
         } else {
             0.0
         };
-        
+
         let final_score = (base_score + position_bonus) * content_length_factor;
         Some(final_score.clamp(0.0, 1.0))
     }
@@ -1918,7 +1984,7 @@ impl StandardContextManager {
     fn calculate_retention_statistics(&self, context: &AgentContext) -> RetentionStatus {
         let now = SystemTime::now();
         let retention_policy = &context.retention_policy;
-        
+
         let mut items_to_archive = 0;
         let mut items_to_delete = 0;
 
@@ -1926,11 +1992,11 @@ impl StandardContextManager {
         let memory_cutoff = now
             .checked_sub(retention_policy.memory_retention)
             .unwrap_or(SystemTime::UNIX_EPOCH);
-        
+
         let knowledge_cutoff = now
             .checked_sub(retention_policy.knowledge_retention)
             .unwrap_or(SystemTime::UNIX_EPOCH);
-        
+
         let conversation_cutoff = now
             .checked_sub(retention_policy.session_retention)
             .unwrap_or(SystemTime::UNIX_EPOCH);
@@ -1941,24 +2007,24 @@ impl StandardContextManager {
                 items_to_archive += 1;
             }
         }
-        
+
         for item in &context.memory.long_term {
             if item.created_at < memory_cutoff || item.last_accessed < memory_cutoff {
                 items_to_archive += 1;
             }
         }
-        
+
         for episode in &context.memory.episodic_memory {
             if episode.timestamp < memory_cutoff {
                 items_to_archive += 1;
             }
         }
-        
+
         // Semantic memory uses more conservative cutoff (2x memory retention)
         let semantic_cutoff = now
             .checked_sub(retention_policy.memory_retention * 2)
             .unwrap_or(SystemTime::UNIX_EPOCH);
-        
+
         for item in &context.memory.semantic_memory {
             if item.created_at < semantic_cutoff {
                 items_to_archive += 1;
@@ -1971,14 +2037,14 @@ impl StandardContextManager {
                 items_to_archive += 1;
             }
         }
-        
+
         // For procedures, use success rate as archiving criteria
         for procedure in &context.knowledge_base.procedures {
             if procedure.success_rate < 0.3 {
                 items_to_archive += 1;
             }
         }
-        
+
         // For patterns, use confidence and occurrence count
         for pattern in &context.knowledge_base.learned_patterns {
             if pattern.confidence < 0.4 || pattern.occurrences < 2 {
@@ -1997,11 +2063,11 @@ impl StandardContextManager {
         let delete_cutoff_memory = now
             .checked_sub(retention_policy.memory_retention * 2)
             .unwrap_or(SystemTime::UNIX_EPOCH);
-        
+
         let delete_cutoff_knowledge = now
             .checked_sub(retention_policy.knowledge_retention * 2)
             .unwrap_or(SystemTime::UNIX_EPOCH);
-        
+
         let delete_cutoff_conversation = now
             .checked_sub(retention_policy.session_retention * 2)
             .unwrap_or(SystemTime::UNIX_EPOCH);
@@ -2012,7 +2078,7 @@ impl StandardContextManager {
                 items_to_delete += 1;
             }
         }
-        
+
         for item in &context.memory.long_term {
             if item.created_at < delete_cutoff_memory && item.last_accessed < delete_cutoff_memory {
                 items_to_delete += 1;
@@ -2187,7 +2253,10 @@ impl StandardContextManager {
         let mut retained_patterns = Vec::new();
         for pattern in context.knowledge_base.learned_patterns.drain(..) {
             if pattern.confidence < 0.4 || pattern.occurrences < 2 {
-                archived_context.knowledge_base.learned_patterns.push(pattern);
+                archived_context
+                    .knowledge_base
+                    .learned_patterns
+                    .push(pattern);
                 archived_count += 1;
             } else {
                 retained_patterns.push(pattern);
@@ -2210,9 +2279,10 @@ impl StandardContextManager {
 
         // Get archive directory path
         let archive_dir = self.get_archive_directory_path(agent_id).await?;
-        
+
         // Create archive filename with timestamp
-        let timestamp = archived_context.archived_at
+        let timestamp = archived_context
+            .archived_at
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
@@ -2220,10 +2290,11 @@ impl StandardContextManager {
         let archive_path = archive_dir.join(archive_filename);
 
         // Serialize archived context
-        let archive_data = serde_json::to_vec_pretty(archived_context)
-            .map_err(|e| ContextError::SerializationError {
+        let archive_data = serde_json::to_vec_pretty(archived_context).map_err(|e| {
+            ContextError::SerializationError {
                 reason: format!("Failed to serialize archived context: {}", e),
-            })?;
+            }
+        })?;
 
         // Write to archive file with compression if enabled
         let final_data = if self.config.persistence_config.enable_compression {
@@ -2258,7 +2329,9 @@ impl StandardContextManager {
 
     /// Get archive directory path for an agent
     async fn get_archive_directory_path(&self, agent_id: AgentId) -> Result<PathBuf, ContextError> {
-        let archive_dir = self.config.persistence_config
+        let archive_dir = self
+            .config
+            .persistence_config
             .agent_contexts_path()
             .join("archives")
             .join(agent_id.to_string());
@@ -2344,7 +2417,8 @@ fn estimate_json_value_size(value: &Value) -> usize {
         Value::Number(n) => std::mem::size_of::<f64>() + n.to_string().len(),
         Value::String(s) => s.len(),
         Value::Array(arr) => {
-            arr.iter().map(estimate_json_value_size).sum::<usize>() + std::mem::size_of::<Vec<Value>>()
+            arr.iter().map(estimate_json_value_size).sum::<usize>()
+                + std::mem::size_of::<Vec<Value>>()
         }
         Value::Object(obj) => {
             obj.iter()
@@ -2359,17 +2433,17 @@ fn estimate_json_value_size(value: &Value) -> usize {
 fn estimate_memory_item_size(item: &MemoryItem) -> usize {
     let mut size = std::mem::size_of::<MemoryItem>();
     size += item.content.len();
-    
+
     // Estimate embedding size if present
     if let Some(ref embedding) = item.embedding {
         size += embedding.len() * std::mem::size_of::<f32>();
     }
-    
+
     // Estimate metadata size
     for (key, value) in &item.metadata {
         size += key.len() + value.len();
     }
-    
+
     size
 }
 
@@ -2378,11 +2452,11 @@ fn estimate_episode_size(episode: &Episode) -> usize {
     let mut size = std::mem::size_of::<Episode>();
     size += episode.title.len();
     size += episode.description.len();
-    
+
     if let Some(ref outcome) = episode.outcome {
         size += outcome.len();
     }
-    
+
     for event in &episode.events {
         size += event.action.len();
         size += event.result.len();
@@ -2390,11 +2464,11 @@ fn estimate_episode_size(episode: &Episode) -> usize {
             size += key.len() + value.len();
         }
     }
-    
+
     for lesson in &episode.lessons_learned {
         size += lesson.len();
     }
-    
+
     size
 }
 
@@ -2402,16 +2476,16 @@ fn estimate_episode_size(episode: &Episode) -> usize {
 fn estimate_semantic_memory_item_size(item: &SemanticMemoryItem) -> usize {
     let mut size = std::mem::size_of::<SemanticMemoryItem>();
     size += item.concept.len();
-    
+
     for relationship in &item.relationships {
         size += relationship.target_concept.len();
         size += std::mem::size_of::<ConceptRelationship>();
     }
-    
+
     for (key, value) in &item.properties {
         size += key.len() + estimate_json_value_size(value);
     }
-    
+
     size
 }
 
@@ -2428,7 +2502,7 @@ fn estimate_procedure_size(procedure: &Procedure) -> usize {
     let mut size = std::mem::size_of::<Procedure>();
     size += procedure.name.len();
     size += procedure.description.len();
-    
+
     for step in &procedure.steps {
         size += step.action.len();
         size += step.expected_result.len();
@@ -2436,15 +2510,15 @@ fn estimate_procedure_size(procedure: &Procedure) -> usize {
             size += error_handling.len();
         }
     }
-    
+
     for condition in &procedure.preconditions {
         size += condition.len();
     }
-    
+
     for condition in &procedure.postconditions {
         size += condition.len();
     }
-    
+
     size
 }
 
@@ -2453,15 +2527,15 @@ fn estimate_pattern_size(pattern: &Pattern) -> usize {
     let mut size = std::mem::size_of::<Pattern>();
     size += pattern.name.len();
     size += pattern.description.len();
-    
+
     for condition in &pattern.conditions {
         size += condition.len();
     }
-    
+
     for outcome in &pattern.outcomes {
         size += outcome.len();
     }
-    
+
     size
 }
 
@@ -2469,11 +2543,11 @@ fn estimate_pattern_size(pattern: &Pattern) -> usize {
 fn estimate_conversation_item_size(item: &ConversationItem) -> usize {
     let mut size = std::mem::size_of::<ConversationItem>();
     size += item.content.len();
-    
+
     // Estimate size of ID vectors
     size += item.context_used.len() * std::mem::size_of::<ContextId>();
     size += item.knowledge_used.len() * std::mem::size_of::<KnowledgeId>();
-    
+
     size
 }
 
@@ -2557,18 +2631,10 @@ impl ContextManager for StandardContextManager {
                 self.semantic_search_memory(agent_id, &search_term, query.max_results)
                     .await
             }
-            QueryType::Keyword => {
-                self.keyword_search_memory(agent_id, &query).await
-            }
-            QueryType::Temporal => {
-                self.temporal_search_memory(agent_id, &query).await
-            }
-            QueryType::Similarity => {
-                self.similarity_search_memory(agent_id, &query).await
-            }
-            QueryType::Hybrid => {
-                self.hybrid_search_memory(agent_id, &query).await
-            }
+            QueryType::Keyword => self.keyword_search_memory(agent_id, &query).await,
+            QueryType::Temporal => self.temporal_search_memory(agent_id, &query).await,
+            QueryType::Similarity => self.similarity_search_memory(agent_id, &query).await,
+            QueryType::Hybrid => self.hybrid_search_memory(agent_id, &query).await,
         }
     }
 
@@ -2587,24 +2653,33 @@ impl ContextManager for StandardContextManager {
                         match update.target {
                             MemoryTarget::ShortTerm(_) => {
                                 // Parse data to create MemoryItem for short-term memory
-                                if let Ok(memory_item_data) = serde_json::from_value::<serde_json::Map<String, Value>>(update.data) {
+                                if let Ok(memory_item_data) =
+                                    serde_json::from_value::<serde_json::Map<String, Value>>(
+                                        update.data,
+                                    )
+                                {
                                     let memory_item = MemoryItem {
                                         id: ContextId::new(),
-                                        content: memory_item_data.get("content")
+                                        content: memory_item_data
+                                            .get("content")
                                             .and_then(|v| v.as_str())
                                             .unwrap_or("")
                                             .to_string(),
-                                        memory_type: memory_item_data.get("memory_type")
+                                        memory_type: memory_item_data
+                                            .get("memory_type")
                                             .and_then(|v| serde_json::from_value(v.clone()).ok())
                                             .unwrap_or(MemoryType::Factual),
-                                        importance: memory_item_data.get("importance")
+                                        importance: memory_item_data
+                                            .get("importance")
                                             .and_then(|v| v.as_f64())
-                                            .unwrap_or(0.5) as f32,
+                                            .unwrap_or(0.5)
+                                            as f32,
                                         access_count: 0,
                                         last_accessed: SystemTime::now(),
                                         created_at: SystemTime::now(),
                                         embedding: None,
-                                        metadata: memory_item_data.get("metadata")
+                                        metadata: memory_item_data
+                                            .get("metadata")
                                             .and_then(|v| serde_json::from_value(v.clone()).ok())
                                             .unwrap_or_default(),
                                     };
@@ -2613,24 +2688,33 @@ impl ContextManager for StandardContextManager {
                             }
                             MemoryTarget::LongTerm(_) => {
                                 // Parse data to create MemoryItem for long-term memory
-                                if let Ok(memory_item_data) = serde_json::from_value::<serde_json::Map<String, Value>>(update.data) {
+                                if let Ok(memory_item_data) =
+                                    serde_json::from_value::<serde_json::Map<String, Value>>(
+                                        update.data,
+                                    )
+                                {
                                     let memory_item = MemoryItem {
                                         id: ContextId::new(),
-                                        content: memory_item_data.get("content")
+                                        content: memory_item_data
+                                            .get("content")
                                             .and_then(|v| v.as_str())
                                             .unwrap_or("")
                                             .to_string(),
-                                        memory_type: memory_item_data.get("memory_type")
+                                        memory_type: memory_item_data
+                                            .get("memory_type")
                                             .and_then(|v| serde_json::from_value(v.clone()).ok())
                                             .unwrap_or(MemoryType::Factual),
-                                        importance: memory_item_data.get("importance")
+                                        importance: memory_item_data
+                                            .get("importance")
                                             .and_then(|v| v.as_f64())
-                                            .unwrap_or(0.5) as f32,
+                                            .unwrap_or(0.5)
+                                            as f32,
                                         access_count: 0,
                                         last_accessed: SystemTime::now(),
                                         created_at: SystemTime::now(),
                                         embedding: None,
-                                        metadata: memory_item_data.get("metadata")
+                                        metadata: memory_item_data
+                                            .get("metadata")
                                             .and_then(|v| serde_json::from_value(v.clone()).ok())
                                             .unwrap_or_default(),
                                     };
@@ -2639,56 +2723,80 @@ impl ContextManager for StandardContextManager {
                             }
                             MemoryTarget::Working(key) => {
                                 // Add to working memory variables
-                                context.memory.working_memory.variables.insert(key, update.data);
+                                context
+                                    .memory
+                                    .working_memory
+                                    .variables
+                                    .insert(key, update.data);
                             }
                             MemoryTarget::Episodic(_) => {
                                 // Parse data to create Episode for episodic memory
-                                if let Ok(episode_data) = serde_json::from_value::<serde_json::Map<String, Value>>(update.data) {
+                                if let Ok(episode_data) =
+                                    serde_json::from_value::<serde_json::Map<String, Value>>(
+                                        update.data,
+                                    )
+                                {
                                     let episode = Episode {
                                         id: ContextId::new(),
-                                        title: episode_data.get("title")
+                                        title: episode_data
+                                            .get("title")
                                             .and_then(|v| v.as_str())
                                             .unwrap_or("Untitled Episode")
                                             .to_string(),
-                                        description: episode_data.get("description")
+                                        description: episode_data
+                                            .get("description")
                                             .and_then(|v| v.as_str())
                                             .unwrap_or("")
                                             .to_string(),
-                                        events: episode_data.get("events")
+                                        events: episode_data
+                                            .get("events")
                                             .and_then(|v| serde_json::from_value(v.clone()).ok())
                                             .unwrap_or_default(),
-                                        outcome: episode_data.get("outcome")
+                                        outcome: episode_data
+                                            .get("outcome")
                                             .and_then(|v| v.as_str())
                                             .map(|s| s.to_string()),
-                                        lessons_learned: episode_data.get("lessons_learned")
+                                        lessons_learned: episode_data
+                                            .get("lessons_learned")
                                             .and_then(|v| serde_json::from_value(v.clone()).ok())
                                             .unwrap_or_default(),
                                         timestamp: SystemTime::now(),
-                                        importance: episode_data.get("importance")
+                                        importance: episode_data
+                                            .get("importance")
                                             .and_then(|v| v.as_f64())
-                                            .unwrap_or(0.5) as f32,
+                                            .unwrap_or(0.5)
+                                            as f32,
                                     };
                                     context.memory.episodic_memory.push(episode);
                                 }
                             }
                             MemoryTarget::Semantic(_) => {
                                 // Parse data to create SemanticMemoryItem for semantic memory
-                                if let Ok(semantic_data) = serde_json::from_value::<serde_json::Map<String, Value>>(update.data) {
+                                if let Ok(semantic_data) =
+                                    serde_json::from_value::<serde_json::Map<String, Value>>(
+                                        update.data,
+                                    )
+                                {
                                     let semantic_item = SemanticMemoryItem {
                                         id: ContextId::new(),
-                                        concept: semantic_data.get("concept")
+                                        concept: semantic_data
+                                            .get("concept")
                                             .and_then(|v| v.as_str())
                                             .unwrap_or("")
                                             .to_string(),
-                                        relationships: semantic_data.get("relationships")
+                                        relationships: semantic_data
+                                            .get("relationships")
                                             .and_then(|v| serde_json::from_value(v.clone()).ok())
                                             .unwrap_or_default(),
-                                        properties: semantic_data.get("properties")
+                                        properties: semantic_data
+                                            .get("properties")
                                             .and_then(|v| serde_json::from_value(v.clone()).ok())
                                             .unwrap_or_default(),
-                                        confidence: semantic_data.get("confidence")
+                                        confidence: semantic_data
+                                            .get("confidence")
                                             .and_then(|v| v.as_f64())
-                                            .unwrap_or(0.5) as f32,
+                                            .unwrap_or(0.5)
+                                            as f32,
                                         created_at: SystemTime::now(),
                                         updated_at: SystemTime::now(),
                                     };
@@ -2701,18 +2809,31 @@ impl ContextManager for StandardContextManager {
                         match update.target {
                             MemoryTarget::ShortTerm(target_id) => {
                                 // Update existing short-term memory item
-                                if let Some(memory_item) = context.memory.short_term.iter_mut()
-                                    .find(|item| item.id == target_id) {
-                                    
-                                    if let Ok(update_data) = serde_json::from_value::<serde_json::Map<String, Value>>(update.data) {
-                                        if let Some(content) = update_data.get("content").and_then(|v| v.as_str()) {
+                                if let Some(memory_item) = context
+                                    .memory
+                                    .short_term
+                                    .iter_mut()
+                                    .find(|item| item.id == target_id)
+                                {
+                                    if let Ok(update_data) =
+                                        serde_json::from_value::<serde_json::Map<String, Value>>(
+                                            update.data,
+                                        )
+                                    {
+                                        if let Some(content) =
+                                            update_data.get("content").and_then(|v| v.as_str())
+                                        {
                                             memory_item.content = content.to_string();
                                         }
-                                        if let Some(importance) = update_data.get("importance").and_then(|v| v.as_f64()) {
+                                        if let Some(importance) =
+                                            update_data.get("importance").and_then(|v| v.as_f64())
+                                        {
                                             memory_item.importance = importance as f32;
                                         }
                                         if let Some(metadata) = update_data.get("metadata") {
-                                            if let Ok(new_metadata) = serde_json::from_value(metadata.clone()) {
+                                            if let Ok(new_metadata) =
+                                                serde_json::from_value(metadata.clone())
+                                            {
                                                 memory_item.metadata = new_metadata;
                                             }
                                         }
@@ -2723,18 +2844,31 @@ impl ContextManager for StandardContextManager {
                             }
                             MemoryTarget::LongTerm(target_id) => {
                                 // Update existing long-term memory item
-                                if let Some(memory_item) = context.memory.long_term.iter_mut()
-                                    .find(|item| item.id == target_id) {
-                                    
-                                    if let Ok(update_data) = serde_json::from_value::<serde_json::Map<String, Value>>(update.data) {
-                                        if let Some(content) = update_data.get("content").and_then(|v| v.as_str()) {
+                                if let Some(memory_item) = context
+                                    .memory
+                                    .long_term
+                                    .iter_mut()
+                                    .find(|item| item.id == target_id)
+                                {
+                                    if let Ok(update_data) =
+                                        serde_json::from_value::<serde_json::Map<String, Value>>(
+                                            update.data,
+                                        )
+                                    {
+                                        if let Some(content) =
+                                            update_data.get("content").and_then(|v| v.as_str())
+                                        {
                                             memory_item.content = content.to_string();
                                         }
-                                        if let Some(importance) = update_data.get("importance").and_then(|v| v.as_f64()) {
+                                        if let Some(importance) =
+                                            update_data.get("importance").and_then(|v| v.as_f64())
+                                        {
                                             memory_item.importance = importance as f32;
                                         }
                                         if let Some(metadata) = update_data.get("metadata") {
-                                            if let Ok(new_metadata) = serde_json::from_value(metadata.clone()) {
+                                            if let Ok(new_metadata) =
+                                                serde_json::from_value(metadata.clone())
+                                            {
                                                 memory_item.metadata = new_metadata;
                                             }
                                         }
@@ -2745,28 +2879,49 @@ impl ContextManager for StandardContextManager {
                             }
                             MemoryTarget::Working(key) => {
                                 // Update working memory variable
-                                context.memory.working_memory.variables.insert(key, update.data);
+                                context
+                                    .memory
+                                    .working_memory
+                                    .variables
+                                    .insert(key, update.data);
                             }
                             MemoryTarget::Episodic(target_id) => {
                                 // Update existing episode
-                                if let Some(episode) = context.memory.episodic_memory.iter_mut()
-                                    .find(|ep| ep.id == target_id) {
-                                    
-                                    if let Ok(update_data) = serde_json::from_value::<serde_json::Map<String, Value>>(update.data) {
-                                        if let Some(title) = update_data.get("title").and_then(|v| v.as_str()) {
+                                if let Some(episode) = context
+                                    .memory
+                                    .episodic_memory
+                                    .iter_mut()
+                                    .find(|ep| ep.id == target_id)
+                                {
+                                    if let Ok(update_data) =
+                                        serde_json::from_value::<serde_json::Map<String, Value>>(
+                                            update.data,
+                                        )
+                                    {
+                                        if let Some(title) =
+                                            update_data.get("title").and_then(|v| v.as_str())
+                                        {
                                             episode.title = title.to_string();
                                         }
-                                        if let Some(description) = update_data.get("description").and_then(|v| v.as_str()) {
+                                        if let Some(description) =
+                                            update_data.get("description").and_then(|v| v.as_str())
+                                        {
                                             episode.description = description.to_string();
                                         }
-                                        if let Some(outcome) = update_data.get("outcome").and_then(|v| v.as_str()) {
+                                        if let Some(outcome) =
+                                            update_data.get("outcome").and_then(|v| v.as_str())
+                                        {
                                             episode.outcome = Some(outcome.to_string());
                                         }
-                                        if let Some(importance) = update_data.get("importance").and_then(|v| v.as_f64()) {
+                                        if let Some(importance) =
+                                            update_data.get("importance").and_then(|v| v.as_f64())
+                                        {
                                             episode.importance = importance as f32;
                                         }
                                         if let Some(lessons) = update_data.get("lessons_learned") {
-                                            if let Ok(new_lessons) = serde_json::from_value(lessons.clone()) {
+                                            if let Ok(new_lessons) =
+                                                serde_json::from_value(lessons.clone())
+                                            {
                                                 episode.lessons_learned = new_lessons;
                                             }
                                         }
@@ -2775,23 +2930,40 @@ impl ContextManager for StandardContextManager {
                             }
                             MemoryTarget::Semantic(target_id) => {
                                 // Update existing semantic memory item
-                                if let Some(semantic_item) = context.memory.semantic_memory.iter_mut()
-                                    .find(|item| item.id == target_id) {
-                                    
-                                    if let Ok(update_data) = serde_json::from_value::<serde_json::Map<String, Value>>(update.data) {
-                                        if let Some(concept) = update_data.get("concept").and_then(|v| v.as_str()) {
+                                if let Some(semantic_item) = context
+                                    .memory
+                                    .semantic_memory
+                                    .iter_mut()
+                                    .find(|item| item.id == target_id)
+                                {
+                                    if let Ok(update_data) =
+                                        serde_json::from_value::<serde_json::Map<String, Value>>(
+                                            update.data,
+                                        )
+                                    {
+                                        if let Some(concept) =
+                                            update_data.get("concept").and_then(|v| v.as_str())
+                                        {
                                             semantic_item.concept = concept.to_string();
                                         }
-                                        if let Some(confidence) = update_data.get("confidence").and_then(|v| v.as_f64()) {
+                                        if let Some(confidence) =
+                                            update_data.get("confidence").and_then(|v| v.as_f64())
+                                        {
                                             semantic_item.confidence = confidence as f32;
                                         }
-                                        if let Some(relationships) = update_data.get("relationships") {
-                                            if let Ok(new_relationships) = serde_json::from_value(relationships.clone()) {
+                                        if let Some(relationships) =
+                                            update_data.get("relationships")
+                                        {
+                                            if let Ok(new_relationships) =
+                                                serde_json::from_value(relationships.clone())
+                                            {
                                                 semantic_item.relationships = new_relationships;
                                             }
                                         }
                                         if let Some(properties) = update_data.get("properties") {
-                                            if let Ok(new_properties) = serde_json::from_value(properties.clone()) {
+                                            if let Ok(new_properties) =
+                                                serde_json::from_value(properties.clone())
+                                            {
                                                 semantic_item.properties = new_properties;
                                             }
                                         }
@@ -2805,7 +2977,10 @@ impl ContextManager for StandardContextManager {
                         match update.target {
                             MemoryTarget::ShortTerm(target_id) => {
                                 // Remove from short-term memory
-                                context.memory.short_term.retain(|item| item.id != target_id);
+                                context
+                                    .memory
+                                    .short_term
+                                    .retain(|item| item.id != target_id);
                             }
                             MemoryTarget::LongTerm(target_id) => {
                                 // Remove from long-term memory
@@ -2817,11 +2992,17 @@ impl ContextManager for StandardContextManager {
                             }
                             MemoryTarget::Episodic(target_id) => {
                                 // Remove from episodic memory
-                                context.memory.episodic_memory.retain(|ep| ep.id != target_id);
+                                context
+                                    .memory
+                                    .episodic_memory
+                                    .retain(|ep| ep.id != target_id);
                             }
                             MemoryTarget::Semantic(target_id) => {
                                 // Remove from semantic memory
-                                context.memory.semantic_memory.retain(|item| item.id != target_id);
+                                context
+                                    .memory
+                                    .semantic_memory
+                                    .retain(|item| item.id != target_id);
                             }
                         }
                     }
@@ -2829,15 +3010,32 @@ impl ContextManager for StandardContextManager {
                         match update.target {
                             MemoryTarget::ShortTerm(target_id) => {
                                 // Increment numeric fields in short-term memory
-                                if let Some(memory_item) = context.memory.short_term.iter_mut()
-                                    .find(|item| item.id == target_id) {
-                                    
-                                    if let Ok(increment_data) = serde_json::from_value::<serde_json::Map<String, Value>>(update.data) {
-                                        if let Some(importance_increment) = increment_data.get("importance").and_then(|v| v.as_f64()) {
-                                            memory_item.importance = (memory_item.importance + importance_increment as f32).clamp(0.0, 1.0);
+                                if let Some(memory_item) = context
+                                    .memory
+                                    .short_term
+                                    .iter_mut()
+                                    .find(|item| item.id == target_id)
+                                {
+                                    if let Ok(increment_data) =
+                                        serde_json::from_value::<serde_json::Map<String, Value>>(
+                                            update.data,
+                                        )
+                                    {
+                                        if let Some(importance_increment) = increment_data
+                                            .get("importance")
+                                            .and_then(|v| v.as_f64())
+                                        {
+                                            memory_item.importance = (memory_item.importance
+                                                + importance_increment as f32)
+                                                .clamp(0.0, 1.0);
                                         }
-                                        if let Some(access_increment) = increment_data.get("access_count").and_then(|v| v.as_u64()) {
-                                            memory_item.access_count = memory_item.access_count.saturating_add(access_increment as u32);
+                                        if let Some(access_increment) = increment_data
+                                            .get("access_count")
+                                            .and_then(|v| v.as_u64())
+                                        {
+                                            memory_item.access_count = memory_item
+                                                .access_count
+                                                .saturating_add(access_increment as u32);
                                         }
                                         memory_item.last_accessed = SystemTime::now();
                                     }
@@ -2845,15 +3043,32 @@ impl ContextManager for StandardContextManager {
                             }
                             MemoryTarget::LongTerm(target_id) => {
                                 // Increment numeric fields in long-term memory
-                                if let Some(memory_item) = context.memory.long_term.iter_mut()
-                                    .find(|item| item.id == target_id) {
-                                    
-                                    if let Ok(increment_data) = serde_json::from_value::<serde_json::Map<String, Value>>(update.data) {
-                                        if let Some(importance_increment) = increment_data.get("importance").and_then(|v| v.as_f64()) {
-                                            memory_item.importance = (memory_item.importance + importance_increment as f32).clamp(0.0, 1.0);
+                                if let Some(memory_item) = context
+                                    .memory
+                                    .long_term
+                                    .iter_mut()
+                                    .find(|item| item.id == target_id)
+                                {
+                                    if let Ok(increment_data) =
+                                        serde_json::from_value::<serde_json::Map<String, Value>>(
+                                            update.data,
+                                        )
+                                    {
+                                        if let Some(importance_increment) = increment_data
+                                            .get("importance")
+                                            .and_then(|v| v.as_f64())
+                                        {
+                                            memory_item.importance = (memory_item.importance
+                                                + importance_increment as f32)
+                                                .clamp(0.0, 1.0);
                                         }
-                                        if let Some(access_increment) = increment_data.get("access_count").and_then(|v| v.as_u64()) {
-                                            memory_item.access_count = memory_item.access_count.saturating_add(access_increment as u32);
+                                        if let Some(access_increment) = increment_data
+                                            .get("access_count")
+                                            .and_then(|v| v.as_u64())
+                                        {
+                                            memory_item.access_count = memory_item
+                                                .access_count
+                                                .saturating_add(access_increment as u32);
                                         }
                                         memory_item.last_accessed = SystemTime::now();
                                     }
@@ -2861,37 +3076,58 @@ impl ContextManager for StandardContextManager {
                             }
                             MemoryTarget::Working(key) => {
                                 // Increment numeric value in working memory
-                                if let Some(existing_value) = context.memory.working_memory.variables.get(&key) {
-                                    if let (Some(current), Some(increment)) = (existing_value.as_f64(), update.data.as_f64()) {
+                                if let Some(existing_value) =
+                                    context.memory.working_memory.variables.get(&key)
+                                {
+                                    if let (Some(current), Some(increment)) =
+                                        (existing_value.as_f64(), update.data.as_f64())
+                                    {
                                         let new_value = current + increment;
-                                        context.memory.working_memory.variables.insert(key, Value::Number(
-                                            serde_json::Number::from_f64(new_value).unwrap_or_else(|| serde_json::Number::from(0))
-                                        ));
-                                    } else if let (Some(current), Some(increment)) = (existing_value.as_i64(), update.data.as_i64()) {
+                                        context.memory.working_memory.variables.insert(
+                                            key,
+                                            Value::Number(
+                                                serde_json::Number::from_f64(new_value)
+                                                    .unwrap_or_else(|| serde_json::Number::from(0)),
+                                            ),
+                                        );
+                                    } else if let (Some(current), Some(increment)) =
+                                        (existing_value.as_i64(), update.data.as_i64())
+                                    {
                                         let new_value = current.saturating_add(increment);
-                                        context.memory.working_memory.variables.insert(key, Value::Number(
-                                            serde_json::Number::from(new_value)
-                                        ));
+                                        context.memory.working_memory.variables.insert(
+                                            key,
+                                            Value::Number(serde_json::Number::from(new_value)),
+                                        );
                                     }
                                 }
                             }
                             MemoryTarget::Episodic(target_id) => {
                                 // Increment numeric fields in episodic memory
-                                if let Some(episode) = context.memory.episodic_memory.iter_mut()
-                                    .find(|ep| ep.id == target_id) {
-                                    
+                                if let Some(episode) = context
+                                    .memory
+                                    .episodic_memory
+                                    .iter_mut()
+                                    .find(|ep| ep.id == target_id)
+                                {
                                     if let Some(importance_increment) = update.data.as_f64() {
-                                        episode.importance = (episode.importance + importance_increment as f32).clamp(0.0, 1.0);
+                                        episode.importance = (episode.importance
+                                            + importance_increment as f32)
+                                            .clamp(0.0, 1.0);
                                     }
                                 }
                             }
                             MemoryTarget::Semantic(target_id) => {
                                 // Increment numeric fields in semantic memory
-                                if let Some(semantic_item) = context.memory.semantic_memory.iter_mut()
-                                    .find(|item| item.id == target_id) {
-                                    
+                                if let Some(semantic_item) = context
+                                    .memory
+                                    .semantic_memory
+                                    .iter_mut()
+                                    .find(|item| item.id == target_id)
+                                {
                                     if let Some(confidence_increment) = update.data.as_f64() {
-                                        semantic_item.confidence = (semantic_item.confidence + confidence_increment as f32).clamp(0.0, 1.0);
+                                        semantic_item.confidence = (semantic_item.confidence
+                                            + confidence_increment as f32)
+                                            .clamp(0.0, 1.0);
                                         semantic_item.updated_at = SystemTime::now();
                                     }
                                 }
@@ -2900,19 +3136,25 @@ impl ContextManager for StandardContextManager {
                     }
                 }
             }
-            
+
             // Update context timestamp
             context.updated_at = SystemTime::now();
-            
+
             // Persist changes to storage if enabled
             if self.config.enable_persistence {
                 if let Err(e) = self.persistence.save_context(agent_id, context).await {
-                    tracing::error!("Failed to persist memory updates for agent {}: {}", agent_id, e);
+                    tracing::error!(
+                        "Failed to persist memory updates for agent {}: {}",
+                        agent_id,
+                        e
+                    );
                     return Err(e);
                 }
             }
         } else {
-            return Err(ContextError::NotFound { id: ContextId::new() });
+            return Err(ContextError::NotFound {
+                id: ContextId::new(),
+            });
         }
 
         Ok(())
@@ -2982,7 +3224,9 @@ impl ContextManager for StandardContextManager {
                 // Search facts
                 for fact in &context.knowledge_base.facts {
                     let content = format!("{} {} {}", fact.subject, fact.predicate, fact.object);
-                    if let Some(relevance_score) = self.calculate_knowledge_relevance(&content, query, fact.confidence) {
+                    if let Some(relevance_score) =
+                        self.calculate_knowledge_relevance(&content, query, fact.confidence)
+                    {
                         results.push(KnowledgeItem {
                             id: fact.id,
                             content,
@@ -2997,8 +3241,13 @@ impl ContextManager for StandardContextManager {
 
                 // Search procedures
                 for procedure in &context.knowledge_base.procedures {
-                    let searchable_content = format!("{} {}", procedure.name, procedure.description);
-                    if let Some(relevance_score) = self.calculate_knowledge_relevance(&searchable_content, query, procedure.success_rate) {
+                    let searchable_content =
+                        format!("{} {}", procedure.name, procedure.description);
+                    if let Some(relevance_score) = self.calculate_knowledge_relevance(
+                        &searchable_content,
+                        query,
+                        procedure.success_rate,
+                    ) {
                         results.push(KnowledgeItem {
                             id: procedure.id,
                             content: format!("{}: {}", procedure.name, procedure.description),
@@ -3014,7 +3263,11 @@ impl ContextManager for StandardContextManager {
                 // Search patterns
                 for pattern in &context.knowledge_base.learned_patterns {
                     let searchable_content = format!("{} {}", pattern.name, pattern.description);
-                    if let Some(relevance_score) = self.calculate_knowledge_relevance(&searchable_content, query, pattern.confidence) {
+                    if let Some(relevance_score) = self.calculate_knowledge_relevance(
+                        &searchable_content,
+                        query,
+                        pattern.confidence,
+                    ) {
                         results.push(KnowledgeItem {
                             id: pattern.id,
                             content: format!("Pattern: {}", pattern.description),
@@ -3028,7 +3281,11 @@ impl ContextManager for StandardContextManager {
                 }
 
                 // Sort by relevance score (highest first) and limit results
-                results.sort_by(|a, b| b.relevance_score.partial_cmp(&a.relevance_score).unwrap_or(std::cmp::Ordering::Equal));
+                results.sort_by(|a, b| {
+                    b.relevance_score
+                        .partial_cmp(&a.relevance_score)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
 
                 results.truncate(limit);
                 Ok(results)
@@ -3153,18 +3410,25 @@ impl ContextManager for StandardContextManager {
         let mut contexts = self.contexts.write().await;
         if let Some(context) = contexts.get_mut(&agent_id) {
             // Archive old memory items
-            total_archived += self.archive_memory_items(context, before, &mut archived_context).await?;
-            
+            total_archived += self
+                .archive_memory_items(context, before, &mut archived_context)
+                .await?;
+
             // Archive old conversation history
-            total_archived += self.archive_conversation_history(context, before, &mut archived_context).await?;
-            
+            total_archived += self
+                .archive_conversation_history(context, before, &mut archived_context)
+                .await?;
+
             // Archive old knowledge base items (based on retention policy)
-            total_archived += self.archive_knowledge_items(context, before, &mut archived_context).await?;
-            
+            total_archived += self
+                .archive_knowledge_items(context, before, &mut archived_context)
+                .await?;
+
             // Persist archived data if we have items to archive
             if total_archived > 0 {
-                self.save_archived_context(agent_id, &archived_context).await?;
-                
+                self.save_archived_context(agent_id, &archived_context)
+                    .await?;
+
                 // Update context metadata
                 context.updated_at = SystemTime::now();
                 context.metadata.insert(
@@ -3175,17 +3439,16 @@ impl ContextManager for StandardContextManager {
                         .as_secs()
                         .to_string(),
                 );
-                context.metadata.insert(
-                    "archived_count".to_string(),
-                    total_archived.to_string(),
-                );
-                
+                context
+                    .metadata
+                    .insert("archived_count".to_string(), total_archived.to_string());
+
                 // Persist updated context
                 if self.config.enable_persistence {
                     self.persistence.save_context(agent_id, context).await?;
                 }
             }
-            
+
             tracing::info!(
                 "Archived {} items for agent {} before timestamp {:?}",
                 total_archived,

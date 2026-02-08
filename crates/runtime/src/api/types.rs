@@ -63,6 +63,25 @@ pub struct HealthResponse {
     pub version: String,
 }
 
+/// Scheduler health response
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SchedulerHealthResponse {
+    pub is_running: bool,
+    pub store_accessible: bool,
+    pub jobs_total: usize,
+    pub jobs_active: usize,
+    pub jobs_paused: usize,
+    pub jobs_dead_letter: usize,
+    pub global_active_runs: usize,
+    pub max_concurrent: usize,
+    pub runs_total: u64,
+    pub runs_succeeded: u64,
+    pub runs_failed: u64,
+    pub average_execution_time_ms: f64,
+    pub longest_run_ms: u64,
+}
+
 /// Request structure for creating a new agent
 #[cfg(feature = "http-api")]
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -160,4 +179,135 @@ pub struct ErrorResponse {
     pub code: String,
     /// Optional details
     pub details: Option<serde_json::Value>,
+}
+
+// ── Schedule/Cron API types ──────────────────────────────────────────
+
+/// Request to create a new scheduled job.
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CreateScheduleRequest {
+    /// Human-readable name for the job.
+    pub name: String,
+    /// Cron expression (7-field or 5-field).
+    pub cron_expression: String,
+    /// IANA timezone (e.g. "America/New_York"). Defaults to "UTC".
+    #[serde(default = "default_timezone")]
+    pub timezone: String,
+    /// Name of the agent to execute.
+    pub agent_name: String,
+    /// Policy IDs to attach.
+    #[serde(default)]
+    pub policy_ids: Vec<String>,
+    /// Run once then disable.
+    #[serde(default)]
+    pub one_shot: bool,
+}
+
+#[cfg(feature = "http-api")]
+fn default_timezone() -> String {
+    "UTC".to_string()
+}
+
+/// Response after creating a schedule.
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CreateScheduleResponse {
+    /// The UUID of the new job.
+    pub job_id: String,
+    /// Computed next run time (UTC ISO-8601).
+    pub next_run: Option<String>,
+    pub status: String,
+}
+
+/// Request to update an existing schedule.
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UpdateScheduleRequest {
+    /// New cron expression.
+    pub cron_expression: Option<String>,
+    /// New timezone.
+    pub timezone: Option<String>,
+    /// New policy IDs (replaces existing).
+    pub policy_ids: Option<Vec<String>>,
+    /// Change one-shot flag.
+    pub one_shot: Option<bool>,
+}
+
+/// Summary of a scheduled job (for list endpoint).
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ScheduleSummary {
+    pub job_id: String,
+    pub name: String,
+    pub cron_expression: String,
+    pub timezone: String,
+    pub status: String,
+    pub enabled: bool,
+    pub next_run: Option<String>,
+    pub run_count: u64,
+}
+
+/// Detailed schedule information.
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ScheduleDetail {
+    pub job_id: String,
+    pub name: String,
+    pub cron_expression: String,
+    pub timezone: String,
+    pub status: String,
+    pub enabled: bool,
+    pub one_shot: bool,
+    pub next_run: Option<String>,
+    pub last_run: Option<String>,
+    pub run_count: u64,
+    pub failure_count: u64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Response for listing next N run times.
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct NextRunsResponse {
+    pub job_id: String,
+    pub next_runs: Vec<String>,
+}
+
+/// A single run history entry (API view).
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ScheduleRunEntry {
+    pub run_id: String,
+    pub started_at: String,
+    pub completed_at: Option<String>,
+    pub status: String,
+    pub error: Option<String>,
+    pub execution_time_ms: Option<u64>,
+}
+
+/// Response for schedule history endpoint.
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ScheduleHistoryResponse {
+    pub job_id: String,
+    pub history: Vec<ScheduleRunEntry>,
+}
+
+/// Generic status response for pause/resume/trigger.
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ScheduleActionResponse {
+    pub job_id: String,
+    pub action: String,
+    pub status: String,
+}
+
+/// Response for deleting a schedule.
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct DeleteScheduleResponse {
+    pub job_id: String,
+    pub deleted: bool,
 }

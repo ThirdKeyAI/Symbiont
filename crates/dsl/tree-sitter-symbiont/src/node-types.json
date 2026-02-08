@@ -373,6 +373,10 @@
           "named": true
         },
         {
+          "type": "schedule_definition",
+          "named": true
+        },
+        {
           "type": "type_definition",
           "named": true
         }
@@ -389,6 +393,44 @@
       "types": [
         {
           "type": "expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "schedule_definition",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "schedule_property",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "schedule_property",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "value",
           "named": true
         }
       ]
@@ -681,6 +723,10 @@
   },
   {
     "type": "return",
+    "named": false
+  },
+  {
+    "type": "schedule",
     "named": false
   },
   {

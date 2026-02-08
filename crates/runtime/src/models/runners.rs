@@ -38,7 +38,7 @@
 //! # }
 //! ```
 
-use crate::config::{SandboxProfile, ModelResourceRequirements};
+use crate::config::{ModelResourceRequirements, SandboxProfile};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -52,25 +52,25 @@ use tokio::time::timeout;
 pub enum SlmRunnerError {
     #[error("Model initialization failed: {reason}")]
     InitializationFailed { reason: String },
-    
+
     #[error("Model execution failed: {reason}")]
     ExecutionFailed { reason: String },
-    
+
     #[error("Resource limit exceeded: {limit_type}")]
     ResourceLimitExceeded { limit_type: String },
-    
+
     #[error("Sandbox violation: {violation}")]
     SandboxViolation { violation: String },
-    
+
     #[error("Model file not found: {path}")]
     ModelFileNotFound { path: String },
-    
+
     #[error("Execution timeout after {seconds} seconds")]
     ExecutionTimeout { seconds: u64 },
-    
+
     #[error("Invalid input: {reason}")]
     InvalidInput { reason: String },
-    
+
     #[error("IO error: {message}")]
     IoError { message: String },
 }
@@ -208,7 +208,7 @@ impl LocalGgufRunner {
         resource_requirements: ModelResourceRequirements,
     ) -> Result<Self, SlmRunnerError> {
         let model_path = model_path.into();
-        
+
         // Validate model file exists
         if !model_path.exists() {
             return Err(SlmRunnerError::ModelFileNotFound {
@@ -285,7 +285,11 @@ impl LocalGgufRunner {
         // Apply resource constraints from sandbox profile
         args.extend(vec![
             "--threads".to_string(),
-            self.sandbox_profile.resources.max_cpu_cores.floor().to_string(),
+            self.sandbox_profile
+                .resources
+                .max_cpu_cores
+                .floor()
+                .to_string(),
         ]);
 
         // Add custom parameters
@@ -300,11 +304,11 @@ impl LocalGgufRunner {
     fn apply_sandbox_constraints(&self, command: &mut Command) {
         // Set memory limits (convert MB to bytes for ulimit)
         let memory_limit = self.sandbox_profile.resources.max_memory_mb * 1024 * 1024;
-        
+
         // Use systemd-run or similar for resource constraints in production
         // For now, we'll use basic process limits
         command.env("RLIMIT_AS", memory_limit.to_string());
-        
+
         // Set working directory to a sandboxed location
         if let Some(write_path) = self.sandbox_profile.filesystem.write_paths.first() {
             if let Ok(path) = std::fs::canonicalize(write_path.trim_end_matches("/*")) {
@@ -321,7 +325,10 @@ impl LocalGgufRunner {
             crate::config::NetworkAccessMode::Restricted => {
                 // Set allowed hosts if needed
                 if !self.sandbox_profile.network.allowed_destinations.is_empty() {
-                    let hosts: Vec<String> = self.sandbox_profile.network.allowed_destinations
+                    let hosts: Vec<String> = self
+                        .sandbox_profile
+                        .network
+                        .allowed_destinations
                         .iter()
                         .map(|dest| dest.host.clone())
                         .collect();
@@ -345,7 +352,8 @@ impl LocalGgufRunner {
         }
 
         // Validate sandbox profile constraints
-        self.sandbox_profile.validate()
+        self.sandbox_profile
+            .validate()
             .map_err(|e| SlmRunnerError::SandboxViolation {
                 violation: e.to_string(),
             })?;
@@ -376,8 +384,13 @@ impl SlmRunner for LocalGgufRunner {
         self.apply_sandbox_constraints(&mut command);
 
         // Set up timeout
-        let execution_timeout = options.timeout
-            .unwrap_or_else(|| Duration::from_secs(self.sandbox_profile.process_limits.max_execution_time_seconds));
+        let execution_timeout = options.timeout.unwrap_or_else(|| {
+            Duration::from_secs(
+                self.sandbox_profile
+                    .process_limits
+                    .max_execution_time_seconds,
+            )
+        });
 
         // Execute with timeout
         let output = timeout(execution_timeout, command.output())
@@ -410,10 +423,7 @@ impl SlmRunner for LocalGgufRunner {
             limits_hit: Vec::new(), // Would be populated if we detected limit violations
         };
 
-        Ok(ExecutionResult {
-            response,
-            metadata,
-        })
+        Ok(ExecutionResult { response, metadata })
     }
 
     fn get_sandbox_profile(&self) -> &SandboxProfile {
@@ -460,10 +470,7 @@ impl SlmRunner for LocalGgufRunner {
         RunnerInfo {
             runner_type: "LocalGgufRunner".to_string(),
             model_path: self.model_path.display().to_string(),
-            capabilities: vec![
-                "text_generation".to_string(),
-                "conversation".to_string(),
-            ],
+            capabilities: vec!["text_generation".to_string(), "conversation".to_string()],
             version: Some("1.0.0".to_string()),
         }
     }
@@ -488,14 +495,18 @@ mod tests {
     async fn test_gguf_runner_creation_missing_file() {
         let sandbox_profile = SandboxProfile::secure_default();
         let resource_requirements = create_test_resource_requirements();
-        
+
         let result = LocalGgufRunner::new(
             "/nonexistent/model.gguf",
             sandbox_profile,
             resource_requirements,
-        ).await;
+        )
+        .await;
 
-        assert!(matches!(result, Err(SlmRunnerError::ModelFileNotFound { .. })));
+        assert!(matches!(
+            result,
+            Err(SlmRunnerError::ModelFileNotFound { .. })
+        ));
     }
 
     #[tokio::test]
@@ -512,7 +523,7 @@ mod tests {
         let mut temp_file = NamedTempFile::new().unwrap();
         writeln!(temp_file, "dummy model content").unwrap();
         let model_path = temp_file.path().to_path_buf();
-        
+
         let sandbox_profile = SandboxProfile::secure_default();
         let resource_requirements = create_test_resource_requirements();
 
@@ -538,7 +549,7 @@ mod tests {
     fn test_validation_long_prompt() {
         let sandbox_profile = SandboxProfile::secure_default();
         let resource_requirements = create_test_resource_requirements();
-        
+
         let runner = LocalGgufRunner {
             model_path: PathBuf::from("/fake/model.gguf"),
             sandbox_profile,
@@ -548,7 +559,7 @@ mod tests {
 
         let long_prompt = "a".repeat(20000); // Very long prompt
         let result = runner.validate_execution_constraints(&long_prompt);
-        
+
         assert!(matches!(result, Err(SlmRunnerError::InvalidInput { .. })));
     }
 }

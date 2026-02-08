@@ -85,7 +85,7 @@ metadata {
     description = "Healthcare data analysis agent with HIPAA compliance"
     license = "Proprietary"
     tags = ["healthcare", "hipaa", "analysis"]
-    min_runtime_version = "0.6.0"
+    min_runtime_version = "1.0.0"
     dependencies = ["medical_nlp", "privacy_tools"]
 }
 ```
@@ -734,6 +734,7 @@ agent fraud_detector(transaction: Transaction) -> FraudAssessment {
 
 ## 下一步
 
+- **[DSL 规范](dsl-specification.md)** - 完整语言规范参考
 - **[运行时架构](/runtime-architecture.zh-cn)** - 了解代理如何执行
 - **[安全模型](/security-model.zh-cn)** - 学习安全实现
 - **[API 参考](/api-reference.zh-cn)** - 完整的函数和类型参考

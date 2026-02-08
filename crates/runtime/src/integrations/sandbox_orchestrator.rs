@@ -8,13 +8,14 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
+use crate::sandbox::{ExecutionResult, SandboxRunner, SandboxTier};
 use crate::types::*;
-use crate::sandbox::{SandboxTier, SandboxRunner, ExecutionResult};
 use std::sync::Arc;
 
 // Import audit trail types - conditional compilation for runtime vs enterprise
-#[cfg(feature = "enterprise")]
-use crate::integrations::audit_trail::{AuditTrail, AuditEvent, AuditEventType, AuditSeverity, AuditCategory, AuditDetails, AuditContext, AuditOutcome};
+// NOTE: audit_trail module is currently disabled in integrations/mod.rs
+// #[cfg(feature = "enterprise")]
+// use crate::integrations::audit_trail::{AuditTrail, AuditEvent, AuditEventType, AuditSeverity, AuditCategory, AuditDetails, AuditContext, AuditOutcome};
 
 /// Sandbox orchestrator trait for managing agent sandboxes
 #[async_trait]
@@ -850,7 +851,7 @@ impl SandboxOrchestrator for MockSandboxOrchestrator {
             let runners = self.sandbox_runners.read().unwrap();
             runners.get(&tier).cloned()
         };
-        
+
         if let Some(runner) = runner {
             runner
                 .execute(code, env)

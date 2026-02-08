@@ -23,11 +23,11 @@ use tokio::sync::{RwLock, Semaphore};
 use tower_http::cors::CorsLayer;
 
 #[cfg(feature = "http-input")]
-use crate::types::{RuntimeError, AgentId};
+use super::config::{HttpInputConfig, ResponseControlConfig, RouteMatch};
 #[cfg(feature = "http-input")]
-use crate::secrets::{SecretStore, new_secret_store, SecretsConfig};
+use crate::secrets::{new_secret_store, SecretStore, SecretsConfig};
 #[cfg(feature = "http-input")]
-use super::config::{HttpInputConfig, RouteMatch, ResponseControlConfig};
+use crate::types::{AgentId, RuntimeError};
 
 /// HTTP Input Server that handles incoming webhook requests
 #[cfg(feature = "http-input")]
@@ -44,7 +44,7 @@ impl HttpInputServer {
     /// Create a new HTTP Input server instance
     pub fn new(config: HttpInputConfig) -> Self {
         let concurrency_limiter = Arc::new(Semaphore::new(config.concurrency));
-        
+
         Self {
             config: Arc::new(RwLock::new(config)),
             runtime: None,
@@ -70,7 +70,7 @@ impl HttpInputServer {
     pub async fn start(&self) -> Result<(), RuntimeError> {
         let config = self.config.read().await;
         let addr = format!("{}:{}", config.bind_address, config.port);
-        
+
         // Resolve auth header if it's a secret reference
         if let Some(auth_header) = &config.auth_header {
             if let Some(secret_store) = &self.secret_store {
@@ -114,9 +114,9 @@ impl HttpInputServer {
         tracing::info!("Starting HTTP Input server on {}", addr);
 
         // Start the server
-        let listener = tokio::net::TcpListener::bind(&addr)
-            .await
-            .map_err(|e| RuntimeError::Internal(format!("Failed to bind to address {}: {}", addr, e)))?;
+        let listener = tokio::net::TcpListener::bind(&addr).await.map_err(|e| {
+            RuntimeError::Internal(format!("Failed to bind to address {}: {}", addr, e))
+        })?;
 
         // Add state and convert to make service
         let app_with_state = app.with_state(server_state);
@@ -169,9 +169,7 @@ async fn auth_middleware(
     let resolved_auth = state.resolved_auth_header.read().await;
     if let Some(expected_auth) = resolved_auth.as_ref() {
         // Extract Authorization header
-        let auth_header = headers
-            .get("Authorization")
-            .and_then(|h| h.to_str().ok());
+        let auth_header = headers.get("Authorization").and_then(|h| h.to_str().ok());
 
         match auth_header {
             Some(provided_auth) => {
@@ -198,13 +196,10 @@ async fn webhook_handler(
     Json(payload): Json<Value>,
 ) -> Result<Response, StatusCode> {
     // Check concurrency limits
-    let _permit = state
-        .concurrency_limiter
-        .try_acquire()
-        .map_err(|_| {
-            tracing::warn!("Concurrency limit exceeded");
-            StatusCode::TOO_MANY_REQUESTS
-        })?;
+    let _permit = state.concurrency_limiter.try_acquire().map_err(|_| {
+        tracing::warn!("Concurrency limit exceeded");
+        StatusCode::TOO_MANY_REQUESTS
+    })?;
 
     let config = state.config.read().await;
 
@@ -246,11 +241,7 @@ async fn webhook_handler(
 
 /// Route incoming request to appropriate agent
 #[cfg(feature = "http-input")]
-async fn route_request(
-    config: &HttpInputConfig,
-    payload: &Value,
-    headers: &HeaderMap,
-) -> AgentId {
+async fn route_request(config: &HttpInputConfig, payload: &Value, headers: &HeaderMap) -> AgentId {
     // Check routing rules if configured
     if let Some(routing_rules) = &config.routing_rules {
         for rule in routing_rules {
@@ -278,20 +269,16 @@ async fn matches_route_condition(
             // Path matching would be handled at router level
             false
         }
-        RouteMatch::HeaderEquals(header_name, expected_value) => {
-            headers
-                .get(header_name)
-                .and_then(|h| h.to_str().ok())
-                .map(|value| value == expected_value)
-                .unwrap_or(false)
-        }
-        RouteMatch::JsonFieldEquals(field_name, expected_value) => {
-            payload
-                .get(field_name)
-                .and_then(|v| v.as_str())
-                .map(|value| value == expected_value)
-                .unwrap_or(false)
-        }
+        RouteMatch::HeaderEquals(header_name, expected_value) => headers
+            .get(header_name)
+            .and_then(|h| h.to_str().ok())
+            .map(|value| value == expected_value)
+            .unwrap_or(false),
+        RouteMatch::JsonFieldEquals(field_name, expected_value) => payload
+            .get(field_name)
+            .and_then(|v| v.as_str())
+            .map(|value| value == expected_value)
+            .unwrap_or(false),
     }
 }
 
@@ -305,10 +292,13 @@ async fn invoke_agent(
     // For now, we'll use the communication bus to send a message to the agent
     // This is a simplified implementation - in a real system, you'd want proper
     // agent invocation mechanisms
-    
-    use crate::types::{SecureMessage, MessageType, MessageId, RequestId, EncryptedPayload, EncryptionAlgorithm, MessageSignature, SignatureAlgorithm};
+
+    use crate::types::{
+        EncryptedPayload, EncryptionAlgorithm, MessageId, MessageSignature, MessageType, RequestId,
+        SecureMessage, SignatureAlgorithm,
+    };
     use bytes::Bytes;
-    
+
     let _message = SecureMessage {
         id: MessageId::new(),
         sender: AgentId::new(), // HTTP input server agent ID
@@ -349,9 +339,9 @@ fn format_success_response(
 ) -> Result<Response, StatusCode> {
     let default_config = ResponseControlConfig::default();
     let config = response_config.unwrap_or(&default_config);
-    
+
     let status = StatusCode::from_u16(config.default_status).unwrap_or(StatusCode::OK);
-    
+
     if config.agent_output_to_json {
         Ok((status, Json(result)).into_response())
     } else {
@@ -367,14 +357,15 @@ fn format_error_response(
 ) -> Result<Response, StatusCode> {
     let default_config = ResponseControlConfig::default();
     let config = response_config.unwrap_or(&default_config);
-    
-    let status = StatusCode::from_u16(config.error_status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-    
+
+    let status =
+        StatusCode::from_u16(config.error_status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+
     let error_body = serde_json::json!({
         "error": error.to_string(),
         "timestamp": chrono::Utc::now().to_rfc3339()
     });
-    
+
     Ok((status, Json(error_body)).into_response())
 }
 
@@ -386,17 +377,18 @@ async fn resolve_secret_reference(
 ) -> Result<String, RuntimeError> {
     if reference.starts_with("vault://") || reference.starts_with("file://") {
         // Extract the key from the reference
-        let key = reference
-            .split("://")
-            .nth(1)
-            .ok_or_else(|| RuntimeError::Configuration(crate::types::ConfigError::Invalid("Invalid secret reference format".to_string())))?;
-        
+        let key = reference.split("://").nth(1).ok_or_else(|| {
+            RuntimeError::Configuration(crate::types::ConfigError::Invalid(
+                "Invalid secret reference format".to_string(),
+            ))
+        })?;
+
         // Resolve the secret
         let secret = secret_store
             .get_secret(key)
             .await
             .map_err(|e| RuntimeError::Internal(format!("Secret resolution failed: {}", e)))?;
-        
+
         Ok(secret.value)
     } else {
         // Not a secret reference, return as-is
@@ -442,7 +434,9 @@ pub async fn start_http_input(
     if let Some(secrets_config) = secrets_config {
         let secret_store = new_secret_store(&secrets_config, "http_input")
             .await
-            .map_err(|e| RuntimeError::Internal(format!("Failed to initialize secret store: {}", e)))?;
+            .map_err(|e| {
+                RuntimeError::Internal(format!("Failed to initialize secret store: {}", e))
+            })?;
         server = server.with_secret_store(Arc::from(secret_store));
     }
 

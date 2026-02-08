@@ -146,18 +146,22 @@ graph TB
 
 ## Project Status
 
-### ✅ Completed Phases
-- **Phase 1-3**: Core infrastructure, agent framework, and security implementation
-- **Phase 4**: Context & knowledge systems with RAG capabilities
-- **Phase 5**: Secure MCP integration with tool verification
-- **Phase 6**: Enterprise secrets management with HashiCorp Vault integration
+### v1.0.0 Released
+
+Symbiont v1.0.0 is the first stable release, delivering a complete AI agent framework with production-grade capabilities:
+
+- **Scheduling**: Cron-based task execution with session isolation, delivery routing, and dead-letter queues
+- **Session Isolation**: Ephemeral, shared, or fully isolated agent contexts
+- **Delivery Routing**: Output to Stdout, LogFile, Webhook, Slack, Email, or custom channels
+- **Policy Enforcement**: Security and compliance gates with time-window and capability checks
+- **AgentPin Identity**: Cryptographic agent identity verification via ES256 JWTs
+- **Observability**: Prometheus-compatible metrics, structured audit events, and health endpoints
 
 ### 🔮 Planned Features
 - Multi-modal RAG support (images, audio, structured data)
 - Cross-agent knowledge synthesis and collaboration
-- Advanced learning capabilities with policy adaptation
+- Federated agent networks with cross-domain trust
 - Performance optimization and intelligent caching
-- Enhanced audit trails with blockchain integration
 
 ---
 
@@ -165,6 +169,7 @@ graph TB
 
 - **Documentation**: Comprehensive guides and API references
 - [API Reference](api-reference.md)
+- [Scheduling Guide](scheduling.md)
 - [HTTP Input Module](http-input.md)
 - **Issues**: [GitHub Issues](https://github.com/thirdkeyai/symbiont/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/thirdkeyai/symbiont/discussions)

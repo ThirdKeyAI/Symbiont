@@ -1,79 +1,79 @@
 //! Error types for the routing module
 
-use thiserror::Error;
 use crate::config::ModelCapability;
+use thiserror::Error;
 
 /// Errors that can occur during routing operations
 #[derive(Debug, Error)]
 pub enum RoutingError {
     #[error("Policy evaluation failed: {reason}")]
     PolicyEvaluationFailed { reason: String },
-    
+
     #[error("No suitable model found for task: {task_type:?}")]
     NoSuitableModel { task_type: TaskType },
-    
+
     #[error("Model execution failed: {model_id} - {reason}")]
     ModelExecutionFailed { model_id: String, reason: String },
-    
+
     #[error("LLM fallback failed: {provider} - {reason}")]
     LLMFallbackFailed { provider: String, reason: String },
-    
+
     #[error("Routing denied by policy: {policy} - {reason}")]
     RoutingDenied { policy: String, reason: String },
-    
+
     #[error("Task classification failed: {reason}")]
     ClassificationFailed { reason: String },
-    
+
     #[error("Configuration error: {key} - {reason}")]
     ConfigurationError { key: String, reason: String },
-    
+
     #[error("Resource constraint violation: {constraint}")]
     ResourceConstraintViolation { constraint: String },
-    
+
     #[error("Confidence evaluation failed: {reason}")]
     ConfidenceEvaluationFailed { reason: String },
-    
+
     #[error("Invalid routing context: {reason}")]
     InvalidContext { reason: String },
-    
+
     #[error("Model catalog error: {reason}")]
     ModelCatalogError { reason: String },
-    
+
     #[error("Timeout during routing: {operation}")]
     Timeout { operation: String },
-    
+
     #[error("Invalid model selection: {model_id} - {reason}")]
     InvalidModelSelection { model_id: String, reason: String },
-    
+
     #[error("Policy rule parsing failed: {rule} - {reason}")]
     PolicyRuleParsingFailed { rule: String, reason: String },
-    
+
     #[error("Confidence threshold not met: current={current}, required={required}")]
     ConfidenceThresholdNotMet { current: f64, required: f64 },
-    
+
     #[error("Routing context validation failed: {field} - {reason}")]
     ContextValidationFailed { field: String, reason: String },
-    
+
     #[error("Model capability mismatch: required={required:?}, available={available:?}")]
     CapabilityMismatch {
         required: Vec<crate::config::ModelCapability>,
-        available: Vec<crate::config::ModelCapability>
+        available: Vec<crate::config::ModelCapability>,
     },
-    
+
     #[error("External provider error: {provider} - {error}")]
     ExternalProviderError { provider: String, error: String },
-    
+
     #[error("Concurrent access error: {resource}")]
     ConcurrentAccessError { resource: String },
-    
+
     #[error("Resource exhaustion: {resource} - {details}")]
     ResourceExhaustion { resource: String, details: String },
-    
+
     #[error("Serialization error: {context} - {source}")]
     SerializationError {
         context: String,
         #[source]
-        source: serde_json::Error
+        source: serde_json::Error,
     },
 }
 
@@ -92,7 +92,7 @@ impl RoutingError {
                 | RoutingError::ModelExecutionFailed { .. }
         )
     }
-    
+
     /// Get error severity level
     pub fn severity(&self) -> ErrorSeverity {
         match self {
@@ -140,7 +140,10 @@ impl TaskType {
     pub fn to_capabilities(&self) -> Vec<ModelCapability> {
         match self {
             TaskType::CodeGeneration | TaskType::BoilerplateCode => {
-                vec![ModelCapability::CodeGeneration, ModelCapability::TextGeneration]
+                vec![
+                    ModelCapability::CodeGeneration,
+                    ModelCapability::TextGeneration,
+                ]
             }
             TaskType::Reasoning | TaskType::Analysis => {
                 vec![ModelCapability::Reasoning, ModelCapability::TextGeneration]
@@ -156,7 +159,7 @@ impl TaskType {
             }
         }
     }
-    
+
     /// Get the complexity level of the task type
     pub fn complexity_level(&self) -> u8 {
         match self {

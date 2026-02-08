@@ -21,13 +21,6 @@ sass:
   sass_dir: _sass
   style: compressed
 
-# Additional stylesheets
-plugins:
-  - jekyll-seo-tag
-  - jekyll-github-metadata
-  - jekyll-include-cache
-  - jekyll-remote-theme
-
 # Syntax highlighting
 highlighter: rouge
 
@@ -49,7 +42,7 @@ search:
 heading_anchors: true
 
 # Footer content
-footer_content: "Copyright &copy; 2025 ThirdKey. All rights reserved."
+footer_content: "Copyright &copy; 2025-2026 ThirdKey. All rights reserved."
 
 # Repository information
 gh_edit_link: true

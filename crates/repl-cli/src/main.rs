@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use rustyline::Editor;
 use std::env;
 
@@ -33,16 +33,24 @@ fn main() -> Result<()> {
                     let arg = parts.get(1).unwrap_or(&"");
 
                     let result = match *cmd {
-                        ":snapshot" => session_manager.snapshot(arg).map(|_| "Session saved.".to_string()),
-                        ":restore" => session_manager.restore(arg).map(|_| "Session restored.".to_string()),
+                        ":snapshot" => session_manager
+                            .snapshot(arg)
+                            .map(|_| "Session saved.".to_string()),
+                        ":restore" => session_manager
+                            .restore(arg)
+                            .map(|_| "Session restored.".to_string()),
                         ":record" if *arg == "on" => {
-                            let path = parts.get(2).ok_or_else(|| anyhow!("Usage: :record on <file>"))?;
-                            session_manager.start_recording(path).map(|_| format!("Recording to {}", path))
-                        },
+                            let path = parts
+                                .get(2)
+                                .ok_or_else(|| anyhow!("Usage: :record on <file>"))?;
+                            session_manager
+                                .start_recording(path)
+                                .map(|_| format!("Recording to {}", path))
+                        }
                         ":record" if *arg == "off" => {
                             session_manager.stop_recording();
                             Ok("Stopped recording.".to_string())
-                        },
+                        }
                         _ => Ok(format!("Unrecognized command: {}", line)),
                     };
 

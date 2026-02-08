@@ -10,8 +10,8 @@ use std::time::{Duration, SystemTime};
 use tokio::sync::{mpsc, oneshot, Notify};
 use tokio::time::{interval, timeout};
 
-use crate::types::*;
 use crate::crypto::Aes256GcmCrypto;
+use crate::types::*;
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use rand::rngs::OsRng;
 use rand::RngCore;
@@ -111,6 +111,7 @@ pub struct DefaultCommunicationBus {
     signing_key: SigningKey,
     verifying_key: VerifyingKey,
     system_agent_id: AgentId,
+    #[allow(dead_code)]
     crypto: Aes256GcmCrypto,
 }
 
@@ -133,10 +134,10 @@ impl DefaultCommunicationBus {
         OsRng.fill_bytes(&mut secret_bytes);
         let signing_key = SigningKey::from_bytes(&secret_bytes);
         let verifying_key = signing_key.verifying_key();
-        
+
         // Create a system agent ID for the communication bus
         let system_agent_id = AgentId::new();
-        
+
         let crypto = Aes256GcmCrypto::new();
 
         let bus = Self {
@@ -250,7 +251,11 @@ impl DefaultCommunicationBus {
                     if let Some(sender) = pending_requests.write().remove(request_id) {
                         // Send response payload to waiting request
                         let _ = sender.send(message.payload.data.clone());
-                        tracing::debug!("Response {} sent for request {:?}", message_id, request_id);
+                        tracing::debug!(
+                            "Response {} sent for request {:?}",
+                            message_id,
+                            request_id
+                        );
                         return;
                     }
                 }
@@ -482,7 +487,7 @@ impl DefaultCommunicationBus {
     /// Sign message data using Ed25519
     fn sign_message_data(&self, data: &[u8]) -> MessageSignature {
         use ed25519_dalek::Signer;
-        
+
         let signature = self.signing_key.sign(data);
         MessageSignature {
             signature: signature.to_bytes().to_vec(),
@@ -501,7 +506,7 @@ impl DefaultCommunicationBus {
     ) -> Result<SecureMessage, CommunicationError> {
         // Generate proper nonce
         let nonce = Self::generate_nonce();
-        
+
         // Create encrypted payload
         let payload = EncryptedPayload {
             data: request_payload,
@@ -510,10 +515,7 @@ impl DefaultCommunicationBus {
         };
 
         // Create a message to sign (we'll sign the payload data)
-        let message_data_to_sign = [
-            payload.data.as_ref(),
-            &payload.nonce,
-        ].concat();
+        let message_data_to_sign = [payload.data.as_ref(), &payload.nonce].concat();
 
         // Generate signature
         let signature = self.sign_message_data(&message_data_to_sign);
@@ -643,7 +645,9 @@ impl CommunicationBus for DefaultCommunicationBus {
         let (response_sender, response_receiver) = oneshot::channel();
 
         // Store the response sender
-        self.pending_requests.write().insert(request_id, response_sender);
+        self.pending_requests
+            .write()
+            .insert(request_id, response_sender);
 
         // Create request message with proper security
         let request_message = self.create_secure_request_message(
@@ -700,52 +704,56 @@ impl CommunicationBus for DefaultCommunicationBus {
     async fn check_health(&self) -> Result<ComponentHealth, CommunicationError> {
         let is_running = *self.is_running.read();
         if !is_running {
-            return Ok(ComponentHealth::unhealthy("Communication bus is shut down".to_string()));
+            return Ok(ComponentHealth::unhealthy(
+                "Communication bus is shut down".to_string(),
+            ));
         }
 
         let queue_count = self.message_queues.read().len();
         let topic_count = self.subscriptions.read().len();
         let tracker_count = self.message_tracker.read().len();
         let pending_requests = self.pending_requests.read().len();
-        
+
         // Check for potential issues
         let mut total_queued_messages = 0;
         let mut full_queues = 0;
-        
+
         {
             let queues = self.message_queues.read();
             for queue in queues.values() {
                 total_queued_messages += queue.messages.len();
-                if queue.messages.len() >= self.config.max_queue_size * 9 / 10 { // 90% full
+                if queue.messages.len() >= self.config.max_queue_size * 9 / 10 {
+                    // 90% full
                     full_queues += 1;
                 }
             }
         }
 
         let dead_letter_count = self.dead_letter_queue.read().messages.len();
-        
+
         let status = if dead_letter_count > 100 {
             ComponentHealth::degraded(format!(
-                "High dead letter queue: {} messages", dead_letter_count
+                "High dead letter queue: {} messages",
+                dead_letter_count
             ))
         } else if full_queues > 0 {
-            ComponentHealth::degraded(format!(
-                "{} message queues near capacity", full_queues
-            ))
+            ComponentHealth::degraded(format!("{} message queues near capacity", full_queues))
         } else if pending_requests > 50 {
-            ComponentHealth::degraded(format!(
-                "Many pending requests: {}", pending_requests
-            ))
+            ComponentHealth::degraded(format!("Many pending requests: {}", pending_requests))
         } else {
             ComponentHealth::healthy(Some(format!(
-                "{} agents registered, {} active topics", queue_count, topic_count
+                "{} agents registered, {} active topics",
+                queue_count, topic_count
             )))
         };
 
         Ok(status
             .with_metric("registered_agents".to_string(), queue_count.to_string())
             .with_metric("active_topics".to_string(), topic_count.to_string())
-            .with_metric("queued_messages".to_string(), total_queued_messages.to_string())
+            .with_metric(
+                "queued_messages".to_string(),
+                total_queued_messages.to_string(),
+            )
             .with_metric("pending_requests".to_string(), pending_requests.to_string())
             .with_metric("dead_letters".to_string(), dead_letter_count.to_string())
             .with_metric("message_trackers".to_string(), tracker_count.to_string()))
@@ -1056,7 +1064,11 @@ mod tests {
         let result = bus.request(target_agent, request_payload, timeout).await;
         assert!(result.is_err());
 
-        if let Err(CommunicationError::RequestTimeout { request_id: _, timeout: actual_timeout }) = result {
+        if let Err(CommunicationError::RequestTimeout {
+            request_id: _,
+            timeout: actual_timeout,
+        }) = result
+        {
             assert_eq!(actual_timeout, timeout);
         } else {
             panic!("Expected RequestTimeout error");
@@ -1083,7 +1095,9 @@ mod tests {
         let bus_clone = Arc::new(bus);
         let request_bus = bus_clone.clone();
         let request_handle = tokio::spawn(async move {
-            request_bus.request(responder, request_payload, Duration::from_secs(5)).await
+            request_bus
+                .request(responder, request_payload, Duration::from_secs(5))
+                .await
         });
 
         // Give request time to be sent

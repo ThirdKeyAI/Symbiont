@@ -1,7 +1,7 @@
 ---
 layout: default
 title: HTTP Input Module
-nav_order: 7
+nav_order: 8
 description: "HTTP Input module for webhook integration with Symbiont agents"
 ---
 

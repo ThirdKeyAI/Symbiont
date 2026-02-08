@@ -2,8 +2,8 @@
 //!
 //! Handles evaluation of DSL expressions and commands in the REPL.
 
-use crate::dsl::{lexer::Lexer, parser::Parser, evaluator::DslEvaluator, DslValue};
-use crate::error::{Result, ReplError};
+use crate::dsl::{evaluator::DslEvaluator, lexer::Lexer, parser::Parser, DslValue};
+use crate::error::{ReplError, Result};
 use crate::runtime_bridge::RuntimeBridge;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -18,16 +18,14 @@ impl ReplEngine {
     /// Create a new REPL engine
     pub fn new(runtime_bridge: Arc<RuntimeBridge>) -> Self {
         let evaluator = DslEvaluator::new(runtime_bridge);
-        
-        Self {
-            evaluator,
-        }
+
+        Self { evaluator }
     }
 
     /// Evaluate an expression or command
     pub async fn evaluate(&self, input: &str) -> Result<String> {
         let trimmed = input.trim();
-        
+
         if trimmed.is_empty() {
             return Err(ReplError::Evaluation("Empty expression".to_string()));
         }
@@ -67,71 +65,96 @@ impl ReplEngine {
                         "list" => Ok(Some(self.list_agents().await)),
                         "start" => {
                             if parts.len() > 2 {
-                                let agent_id = parts[2].parse::<Uuid>()
-                                    .map_err(|_| ReplError::Evaluation("Invalid agent ID".to_string()))?;
+                                let agent_id = parts[2].parse::<Uuid>().map_err(|_| {
+                                    ReplError::Evaluation("Invalid agent ID".to_string())
+                                })?;
                                 self.start_agent(agent_id).await
                             } else {
-                                Err(ReplError::Evaluation("Usage: :agent start <agent_id>".to_string()))
+                                Err(ReplError::Evaluation(
+                                    "Usage: :agent start <agent_id>".to_string(),
+                                ))
                             }
                         }
                         "stop" => {
                             if parts.len() > 2 {
-                                let agent_id = parts[2].parse::<Uuid>()
-                                    .map_err(|_| ReplError::Evaluation("Invalid agent ID".to_string()))?;
+                                let agent_id = parts[2].parse::<Uuid>().map_err(|_| {
+                                    ReplError::Evaluation("Invalid agent ID".to_string())
+                                })?;
                                 self.stop_agent(agent_id).await
                             } else {
-                                Err(ReplError::Evaluation("Usage: :agent stop <agent_id>".to_string()))
+                                Err(ReplError::Evaluation(
+                                    "Usage: :agent stop <agent_id>".to_string(),
+                                ))
                             }
                         }
                         "pause" => {
                             if parts.len() > 2 {
-                                let agent_id = parts[2].parse::<Uuid>()
-                                    .map_err(|_| ReplError::Evaluation("Invalid agent ID".to_string()))?;
+                                let agent_id = parts[2].parse::<Uuid>().map_err(|_| {
+                                    ReplError::Evaluation("Invalid agent ID".to_string())
+                                })?;
                                 self.pause_agent(agent_id).await
                             } else {
-                                Err(ReplError::Evaluation("Usage: :agent pause <agent_id>".to_string()))
+                                Err(ReplError::Evaluation(
+                                    "Usage: :agent pause <agent_id>".to_string(),
+                                ))
                             }
                         }
                         "resume" => {
                             if parts.len() > 2 {
-                                let agent_id = parts[2].parse::<Uuid>()
-                                    .map_err(|_| ReplError::Evaluation("Invalid agent ID".to_string()))?;
+                                let agent_id = parts[2].parse::<Uuid>().map_err(|_| {
+                                    ReplError::Evaluation("Invalid agent ID".to_string())
+                                })?;
                                 self.resume_agent(agent_id).await
                             } else {
-                                Err(ReplError::Evaluation("Usage: :agent resume <agent_id>".to_string()))
+                                Err(ReplError::Evaluation(
+                                    "Usage: :agent resume <agent_id>".to_string(),
+                                ))
                             }
                         }
                         "destroy" => {
                             if parts.len() > 2 {
-                                let agent_id = parts[2].parse::<Uuid>()
-                                    .map_err(|_| ReplError::Evaluation("Invalid agent ID".to_string()))?;
+                                let agent_id = parts[2].parse::<Uuid>().map_err(|_| {
+                                    ReplError::Evaluation("Invalid agent ID".to_string())
+                                })?;
                                 self.destroy_agent(agent_id).await
                             } else {
-                                Err(ReplError::Evaluation("Usage: :agent destroy <agent_id>".to_string()))
+                                Err(ReplError::Evaluation(
+                                    "Usage: :agent destroy <agent_id>".to_string(),
+                                ))
                             }
                         }
                         "execute" => {
                             if parts.len() > 3 {
-                                let agent_id = parts[2].parse::<Uuid>()
-                                    .map_err(|_| ReplError::Evaluation("Invalid agent ID".to_string()))?;
+                                let agent_id = parts[2].parse::<Uuid>().map_err(|_| {
+                                    ReplError::Evaluation("Invalid agent ID".to_string())
+                                })?;
                                 let behavior_name = parts[3];
                                 // Parse remaining parts as arguments
                                 let args = parts[4..].join(" ");
-                                self.execute_agent_behavior(agent_id, behavior_name, &args).await
+                                self.execute_agent_behavior(agent_id, behavior_name, &args)
+                                    .await
                             } else {
-                                Err(ReplError::Evaluation("Usage: :agent execute <agent_id> <behavior> [args...]".to_string()))
+                                Err(ReplError::Evaluation(
+                                    "Usage: :agent execute <agent_id> <behavior> [args...]"
+                                        .to_string(),
+                                ))
                             }
                         }
                         "debug" => {
                             if parts.len() > 2 {
-                                let agent_id = parts[2].parse::<Uuid>()
-                                    .map_err(|_| ReplError::Evaluation("Invalid agent ID".to_string()))?;
+                                let agent_id = parts[2].parse::<Uuid>().map_err(|_| {
+                                    ReplError::Evaluation("Invalid agent ID".to_string())
+                                })?;
                                 self.debug_agent(agent_id).await
                             } else {
-                                Err(ReplError::Evaluation("Usage: :agent debug <agent_id>".to_string()))
+                                Err(ReplError::Evaluation(
+                                    "Usage: :agent debug <agent_id>".to_string(),
+                                ))
                             }
                         }
-                        _ => Err(ReplError::Evaluation("Unknown agent command. Use :help for available commands".to_string()))
+                        _ => Err(ReplError::Evaluation(
+                            "Unknown agent command. Use :help for available commands".to_string(),
+                        )),
                     }
                 } else {
                     Ok(Some(self.list_agents().await))
@@ -155,7 +178,9 @@ impl ReplEngine {
                         }
                         "report" => self.show_monitor_report().await,
                         "clear" => self.clear_monitor().await,
-                        _ => Err(ReplError::Evaluation("Unknown monitor command. Use :help for available commands".to_string()))
+                        _ => Err(ReplError::Evaluation(
+                            "Unknown monitor command. Use :help for available commands".to_string(),
+                        )),
                     }
                 } else {
                     self.show_monitor_stats().await
@@ -171,10 +196,10 @@ impl ReplEngine {
     async fn evaluate_dsl(&self, input: &str) -> Result<DslValue> {
         let mut lexer = Lexer::new(input);
         let tokens = lexer.tokenize()?;
-        
+
         let mut parser = Parser::new(tokens);
         let program = parser.parse()?;
-        
+
         self.evaluator.execute_program(program).await
     }
 
@@ -184,7 +209,10 @@ impl ReplEngine {
         if let Some(result) = self.try_basic_arithmetic(input) {
             Ok(result.to_string())
         } else {
-            Err(ReplError::Evaluation(format!("Unable to evaluate: {}", input)))
+            Err(ReplError::Evaluation(format!(
+                "Unable to evaluate: {}",
+                input
+            )))
         }
     }
 
@@ -204,7 +232,8 @@ impl ReplEngine {
 
         // Handle simple subtraction
         if let Some(pos) = input.rfind('-') {
-            if pos > 0 { // Not a negative number
+            if pos > 0 {
+                // Not a negative number
                 let left = input[..pos].trim().parse::<f64>().ok()?;
                 let right = input[pos + 1..].trim().parse::<f64>().ok()?;
                 return Some(left - right);
@@ -263,13 +292,13 @@ impl ReplEngine {
                 format!("{}{}", value, unit_str)
             }
             DslValue::List(items) => {
-                let formatted_items: Vec<String> = items.into_iter()
-                    .map(Self::format_value_impl)
-                    .collect();
+                let formatted_items: Vec<String> =
+                    items.into_iter().map(Self::format_value_impl).collect();
                 format!("[{}]", formatted_items.join(", "))
             }
             DslValue::Map(entries) => {
-                let formatted_entries: Vec<String> = entries.into_iter()
+                let formatted_entries: Vec<String> = entries
+                    .into_iter()
                     .map(|(k, v)| format!("{}: {}", k, Self::format_value_impl(v)))
                     .collect();
                 format!("{{{}}}", formatted_entries.join(", "))
@@ -326,13 +355,14 @@ Examples:
       let greeting = format("Hello, {}!", name)
       return greeting
     }
-  }"#.to_string()
+  }"#
+        .to_string()
     }
 
     /// List all agents
     async fn list_agents(&self) -> String {
         let agents = self.evaluator.list_agents().await;
-        
+
         if agents.is_empty() {
             "No agents created.".to_string()
         } else {
@@ -341,9 +371,7 @@ Examples:
                 let state_str = format!("{:?}", agent.state);
                 output.push_str(&format!(
                     "  {} - {} ({})\n",
-                    agent.id,
-                    agent.definition.name,
-                    state_str
+                    agent.id, agent.definition.name, state_str
                 ));
             }
             output
@@ -391,9 +419,23 @@ Examples:
     }
 
     /// Execute agent behavior
-    async fn execute_agent_behavior(&self, agent_id: Uuid, behavior_name: &str, args: &str) -> Result<Option<String>> {
-        match self.evaluator.execute_agent_behavior(agent_id, behavior_name, args).await {
-            Ok(result) => Ok(Some(format!("Executed behavior '{}' on agent {}: {}", behavior_name, agent_id, self.format_value(result)))),
+    async fn execute_agent_behavior(
+        &self,
+        agent_id: Uuid,
+        behavior_name: &str,
+        args: &str,
+    ) -> Result<Option<String>> {
+        match self
+            .evaluator
+            .execute_agent_behavior(agent_id, behavior_name, args)
+            .await
+        {
+            Ok(result) => Ok(Some(format!(
+                "Executed behavior '{}' on agent {}: {}",
+                behavior_name,
+                agent_id,
+                self.format_value(result)
+            ))),
             Err(e) => Err(e),
         }
     }
@@ -418,11 +460,15 @@ Examples:
         output.push_str(&format!("  Total Executions: {}\n", stats.total_executions));
         output.push_str(&format!("  Successful: {}\n", stats.successful_executions));
         output.push_str(&format!("  Failed: {}\n", stats.failed_executions));
-        
+
         if stats.total_executions > 0 {
-            let success_rate = (stats.successful_executions as f64 / stats.total_executions as f64) * 100.0;
+            let success_rate =
+                (stats.successful_executions as f64 / stats.total_executions as f64) * 100.0;
             output.push_str(&format!("  Success Rate: {:.1}%\n", success_rate));
-            output.push_str(&format!("  Average Duration: {:?}\n", stats.average_duration));
+            output.push_str(&format!(
+                "  Average Duration: {:?}\n",
+                stats.average_duration
+            ));
             output.push_str(&format!("  Total Duration: {:?}\n", stats.total_duration));
         }
 
@@ -435,7 +481,7 @@ Examples:
     /// Show execution traces
     async fn show_traces(&self, limit: usize) -> Result<Option<String>> {
         let traces = self.evaluator.monitor().get_traces(Some(limit));
-        
+
         if traces.is_empty() {
             return Ok(Some("No execution traces available.".to_string()));
         }
@@ -447,7 +493,7 @@ Examples:
             } else {
                 String::new()
             };
-            
+
             let duration_info = if let Some(duration) = trace.duration {
                 format!(" ({:?})", duration)
             } else {
@@ -485,21 +531,25 @@ pub fn evaluate(expression: &str) -> Result<String> {
     if expression.is_empty() {
         return Err(ReplError::Evaluation("Empty expression".to_string()));
     }
-    
+
     // Try basic arithmetic
     if let Ok(num) = expression.parse::<f64>() {
         return Ok(num.to_string());
     }
-    
+
     // Handle simple addition
     if let Some(pos) = expression.find('+') {
-        let left = expression[..pos].trim().parse::<f64>()
+        let left = expression[..pos]
+            .trim()
+            .parse::<f64>()
             .map_err(|_| ReplError::Evaluation("Invalid number".to_string()))?;
-        let right = expression[pos + 1..].trim().parse::<f64>()
+        let right = expression[pos + 1..]
+            .trim()
+            .parse::<f64>()
             .map_err(|_| ReplError::Evaluation("Invalid number".to_string()))?;
         return Ok((left + right).to_string());
     }
-    
+
     // For now, just echo back complex expressions
     Ok(format!("ECHO: {}", expression))
 }
@@ -517,10 +567,10 @@ mod tests {
     #[tokio::test]
     async fn test_basic_arithmetic() {
         let engine = create_test_engine().await;
-        
+
         let result = engine.evaluate("2 + 3").await.unwrap();
         assert_eq!(result, "5");
-        
+
         let result = engine.evaluate("10 - 4").await.unwrap();
         assert_eq!(result, "6");
     }
@@ -528,7 +578,7 @@ mod tests {
     #[tokio::test]
     async fn test_help_command() {
         let engine = create_test_engine().await;
-        
+
         let result = engine.evaluate(":help").await.unwrap();
         assert!(result.contains("Symbiont REPL Commands"));
     }
@@ -536,7 +586,7 @@ mod tests {
     #[tokio::test]
     async fn test_version_command() {
         let engine = create_test_engine().await;
-        
+
         let result = engine.evaluate(":version").await.unwrap();
         assert!(result.contains("Symbiont REPL"));
     }
@@ -544,7 +594,7 @@ mod tests {
     #[tokio::test]
     async fn test_agents_command() {
         let engine = create_test_engine().await;
-        
+
         let result = engine.evaluate(":agents").await.unwrap();
         assert_eq!(result, "No agents created.");
     }
@@ -553,7 +603,7 @@ mod tests {
     fn test_legacy_evaluate() {
         let result = evaluate("42").unwrap();
         assert_eq!(result, "42");
-        
+
         let result = evaluate("5 + 3").unwrap();
         assert_eq!(result, "8");
     }

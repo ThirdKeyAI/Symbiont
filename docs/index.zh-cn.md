@@ -145,18 +145,22 @@ graph TB
 
 ## 项目状态
 
-### ✅ 已完成阶段
-- **阶段 1-3**：核心基础设施、智能体框架和安全实现
-- **阶段 4**：带 RAG 能力的上下文和知识系统
-- **阶段 5**：带工具验证的安全 MCP 集成
-- **阶段 6**：带 HashiCorp Vault 集成的企业密钥管理
+### v1.0.0 已发布
+
+Symbiont v1.0.0 是首个稳定版本，提供具有生产级功能的完整 AI 智能体框架：
+
+- **调度**：基于 cron 的任务执行，支持会话隔离、投递路由和死信队列
+- **会话隔离**：临时、共享或完全隔离的智能体上下文
+- **投递路由**：输出到 Stdout、LogFile、Webhook、Slack、Email 或自定义通道
+- **策略执行**：带时间窗口和能力检查的安全与合规门控
+- **AgentPin 身份**：通过 ES256 JWT 进行加密智能体身份验证
+- **可观测性**：Prometheus 兼容指标、结构化审计事件和健康端点
 
 ### 🔮 计划功能
 - 多模态 RAG 支持（图像、音频、结构化数据）
 - 跨智能体知识综合与协作
-- 带策略适应的高级学习能力
+- 跨域信任的联邦智能体网络
 - 性能优化和智能缓存
-- 带区块链集成的增强审计跟踪
 
 ---
 
@@ -164,6 +168,7 @@ graph TB
 
 - **文档**：全面的指南和 API 参考
 - [API 参考](api-reference.md)
+- [调度指南](scheduling.md)
 - [HTTP 输入模块](http-input.md)
 - **问题**：[GitHub Issues](https://github.com/thirdkeyai/symbiont/issues)
 - **讨论**：[GitHub Discussions](https://github.com/thirdkeyai/symbiont/discussions)

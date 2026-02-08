@@ -17,7 +17,11 @@ use governor::{
 };
 
 #[cfg(feature = "http-api")]
-use std::{net::IpAddr, num::NonZeroU32, sync::{Arc, OnceLock}};
+use std::{
+    net::IpAddr,
+    num::NonZeroU32,
+    sync::{Arc, OnceLock},
+};
 
 #[cfg(feature = "http-api")]
 use dashmap::DashMap;
@@ -31,31 +35,33 @@ pub async fn auth_middleware(request: Request, next: Next) -> Result<Response, S
     // Extract the Authorization header
     let headers = request.headers();
     let auth_header = headers.get("authorization");
-    
+
     // Check if Authorization header is present
     let auth_value = match auth_header {
         Some(value) => value.to_str().map_err(|_| StatusCode::UNAUTHORIZED)?,
         None => return Err(StatusCode::UNAUTHORIZED),
     };
-    
+
     // Check if it's a Bearer token
     if !auth_value.starts_with("Bearer ") {
         return Err(StatusCode::UNAUTHORIZED);
     }
-    
+
     // Extract the token part (after "Bearer ")
     let token = &auth_value[7..];
-    
+
     // Get the expected token from environment variable (simplified for now)
-    let expected_token = env::var("SYMBIONT_API_TOKEN")
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+    let expected_token = env::var("SYMBIONT_API_TOKEN").map_err(|_| {
+        tracing::error!("SYMBIONT_API_TOKEN environment variable not set");
+        StatusCode::UNAUTHORIZED
+    })?;
+
     // Validate the token using constant-time comparison to prevent timing attacks
     if !bool::from(token.as_bytes().ct_eq(expected_token.as_bytes())) {
         tracing::warn!("Authentication failed: invalid token provided");
         return Err(StatusCode::UNAUTHORIZED);
     }
-    
+
     // Token is valid, proceed with the request
     Ok(next.run(request).await)
 }
@@ -69,7 +75,7 @@ static RATE_LIMITERS: OnceLock<DashMap<IpAddr, IpRateLimiter>> = OnceLock::new()
 #[cfg(feature = "http-api")]
 fn get_rate_limiter_for_ip(ip: IpAddr) -> Arc<RateLimiter<NotKeyed, InMemoryState, DefaultClock>> {
     let limiters = RATE_LIMITERS.get_or_init(DashMap::new);
-    
+
     // Check if limiter exists, if not create one
     if let Some(limiter) = limiters.get(&ip) {
         Arc::clone(&limiter)
@@ -88,15 +94,17 @@ fn extract_client_ip(request: &Request) -> IpAddr {
     // Try to get real IP from X-Forwarded-For header first (for proxy setups)
     if let Some(forwarded_for) = request.headers().get("x-forwarded-for") {
         if let Ok(forwarded_str) = forwarded_for.to_str() {
-            // X-Forwarded-For can contain multiple IPs, take the first one
-            if let Some(first_ip) = forwarded_str.split(',').next() {
-                if let Ok(ip) = first_ip.trim().parse::<IpAddr>() {
+            // X-Forwarded-For can contain multiple IPs; take the rightmost
+            // (last) entry which is the one added by our trusted proxy,
+            // preventing client-side spoofing of earlier entries.
+            if let Some(last_ip) = forwarded_str.split(',').next_back() {
+                if let Ok(ip) = last_ip.trim().parse::<IpAddr>() {
                     return ip;
                 }
             }
         }
     }
-    
+
     // Try X-Real-IP header
     if let Some(real_ip) = request.headers().get("x-real-ip") {
         if let Ok(real_ip_str) = real_ip.to_str() {
@@ -105,7 +113,7 @@ fn extract_client_ip(request: &Request) -> IpAddr {
             }
         }
     }
-    
+
     // Fallback to connection info or default
     // In a real setup, you'd extract this from the connection info
     // For now, we'll use a default IP as fallback
@@ -123,10 +131,10 @@ fn extract_client_ip(request: &Request) -> IpAddr {
 pub async fn rate_limit_middleware(request: Request, next: Next) -> Result<Response, StatusCode> {
     // Extract client IP address
     let client_ip = extract_client_ip(&request);
-    
+
     // Get the rate limiter for this IP
     let rate_limiter = get_rate_limiter_for_ip(client_ip);
-    
+
     // Check if the request is allowed
     match rate_limiter.check() {
         Ok(_) => {
@@ -151,12 +159,12 @@ pub async fn rate_limit_middleware(request: Request, next: Next) -> Result<Respo
 #[cfg(feature = "http-api")]
 pub async fn logging_middleware(request: Request, next: Next) -> Result<Response, StatusCode> {
     use std::time::Instant;
-    
+
     // Extract request details
     let method = request.method().clone();
     let uri = request.uri().clone();
     let client_ip = extract_client_ip(&request);
-    
+
     // Create a structured span for this request
     let span = tracing::info_span!(
         "http_request",
@@ -167,24 +175,24 @@ pub async fn logging_middleware(request: Request, next: Next) -> Result<Response
         latency_ms = tracing::field::Empty,
         response_size = tracing::field::Empty,
     );
-    
+
     let _guard = span.enter();
-    
+
     // Record start time for latency calculation
     let start_time = Instant::now();
-    
+
     tracing::info!("Processing request");
-    
+
     // Process the request
     let response = next.run(request).await;
-    
+
     // Calculate latency
     let latency = start_time.elapsed();
     let latency_ms = latency.as_millis() as u64;
-    
+
     // Extract response details
     let status_code = response.status();
-    
+
     // Try to extract response body size from Content-Length header
     let response_size = response
         .headers()
@@ -192,12 +200,12 @@ pub async fn logging_middleware(request: Request, next: Next) -> Result<Response
         .and_then(|h| h.to_str().ok())
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(0);
-    
+
     // Record additional fields in the span
     span.record("status_code", status_code.as_u16());
     span.record("latency_ms", latency_ms);
     span.record("response_size", response_size);
-    
+
     // Log completion with all details
     tracing::info!(
         status_code = status_code.as_u16(),
@@ -205,7 +213,7 @@ pub async fn logging_middleware(request: Request, next: Next) -> Result<Response
         response_size = response_size,
         "Request completed"
     );
-    
+
     Ok(response)
 }
 
@@ -222,32 +230,29 @@ pub async fn security_headers_middleware(
     next: Next,
 ) -> Result<Response, StatusCode> {
     use axum::http::HeaderValue;
-    
+
     // Process the request
     let mut response = next.run(request).await;
-    
+
     // Add security headers to the response
     let headers = response.headers_mut();
-    
+
     headers.insert(
         "strict-transport-security",
-        HeaderValue::from_static("max-age=63072000; includeSubDomains; preload")
+        HeaderValue::from_static("max-age=63072000; includeSubDomains; preload"),
     );
-    
+
     headers.insert(
         "x-content-type-options",
-        HeaderValue::from_static("nosniff")
+        HeaderValue::from_static("nosniff"),
     );
-    
-    headers.insert(
-        "x-frame-options",
-        HeaderValue::from_static("DENY")
-    );
-    
+
+    headers.insert("x-frame-options", HeaderValue::from_static("DENY"));
+
     headers.insert(
         "content-security-policy",
-        HeaderValue::from_static("default-src 'self'; frame-ancestors 'none'")
+        HeaderValue::from_static("default-src 'self'; frame-ancestors 'none'"),
     );
-    
+
     Ok(response)
 }

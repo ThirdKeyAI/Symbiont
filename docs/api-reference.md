@@ -1,7 +1,7 @@
 ---
 layout: default
 title: API Reference
-nav_order: 5
+nav_order: 6
 description: "Comprehensive API documentation for Symbiont runtime"
 ---
 
@@ -61,7 +61,7 @@ Returns the current system health status and basic runtime information.
   "status": "healthy",
   "uptime_seconds": 3600,
   "timestamp": "2024-01-15T10:30:00Z",
-  "version": "0.1.0"
+  "version": "1.0.0"
 }
 ```
 

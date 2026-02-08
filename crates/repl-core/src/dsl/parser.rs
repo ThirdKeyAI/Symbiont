@@ -3,7 +3,7 @@
 //! Converts a stream of tokens into an Abstract Syntax Tree (AST).
 
 use crate::dsl::ast::*;
-use crate::dsl::lexer::{Token, TokenType, Keyword};
+use crate::dsl::lexer::{Keyword, Token, TokenType};
 use crate::error::{ReplError, Result};
 
 /// Parser for the Symbiont DSL
@@ -15,10 +15,7 @@ pub struct Parser {
 impl Parser {
     /// Create a new parser with the given tokens
     pub fn new(tokens: Vec<Token>) -> Self {
-        Self {
-            tokens,
-            current: 0,
-        }
+        Self { tokens, current: 0 }
     }
 
     /// Parse the tokens into a program AST
@@ -85,7 +82,7 @@ impl Parser {
     /// Parse an agent definition
     fn parse_agent_definition(&mut self) -> Result<AgentDefinition> {
         let start_span = self.previous_span();
-        
+
         let name = if let TokenType::Identifier(name) = &self.advance().token_type {
             name.clone()
         } else {
@@ -106,7 +103,7 @@ impl Parser {
 
         while !self.check_token(&TokenType::RightBrace) && !self.is_at_end() {
             self.skip_trivia();
-            
+
             // Check if we've reached the end of the block after skipping trivia
             if self.check_token(&TokenType::RightBrace) {
                 break;
@@ -160,7 +157,7 @@ impl Parser {
     /// Parse a behavior definition
     fn parse_behavior_definition(&mut self) -> Result<BehaviorDefinition> {
         let start_span = self.previous_span();
-        
+
         let name = if let TokenType::Identifier(name) = &self.advance().token_type {
             name.clone()
         } else {
@@ -192,9 +189,13 @@ impl Parser {
             self.skip_trivia();
         }
 
-        self.consume_token(TokenType::RightBrace, "Expected '}' after behavior definition")?;
+        self.consume_token(
+            TokenType::RightBrace,
+            "Expected '}' after behavior definition",
+        )?;
 
-        let steps = steps.ok_or_else(|| ReplError::Parsing("Behavior must have steps block".to_string()))?;
+        let steps = steps
+            .ok_or_else(|| ReplError::Parsing("Behavior must have steps block".to_string()))?;
         let end_span = self.previous_span();
 
         Ok(BehaviorDefinition {
@@ -212,7 +213,7 @@ impl Parser {
     /// Parse a function definition
     fn parse_function_definition(&mut self) -> Result<FunctionDefinition> {
         let start_span = self.previous_span();
-        
+
         let name = if let TokenType::Identifier(name) = &self.advance().token_type {
             name.clone()
         } else {
@@ -247,7 +248,7 @@ impl Parser {
     /// Parse an event handler
     fn parse_event_handler(&mut self) -> Result<EventHandler> {
         let start_span = self.previous_span();
-        
+
         let event_name = if let TokenType::Identifier(name) = &self.advance().token_type {
             name.clone()
         } else {
@@ -275,7 +276,7 @@ impl Parser {
     /// Parse a struct definition
     fn parse_struct_definition(&mut self) -> Result<StructDefinition> {
         let start_span = self.previous_span();
-        
+
         let name = if let TokenType::Identifier(name) = &self.advance().token_type {
             name.clone()
         } else {
@@ -377,7 +378,7 @@ impl Parser {
     /// Parse a let statement
     fn parse_let_statement(&mut self) -> Result<LetStatement> {
         let start_span = self.previous_span();
-        
+
         let name = if let TokenType::Identifier(name) = &self.advance().token_type {
             name.clone()
         } else {
@@ -408,7 +409,7 @@ impl Parser {
     /// Parse an if statement
     fn parse_if_statement(&mut self) -> Result<IfStatement> {
         let start_span = self.previous_span();
-        
+
         let condition = self.parse_expression()?;
         let then_block = self.parse_block()?;
 
@@ -463,10 +464,11 @@ impl Parser {
     /// Parse a return statement
     fn parse_return_statement(&mut self) -> Result<ReturnStatement> {
         let start_span = self.previous_span();
-        
-        let value = if self.check_token(&TokenType::Newline) || 
-                      self.check_token(&TokenType::RightBrace) ||
-                      self.is_at_end() {
+
+        let value = if self.check_token(&TokenType::Newline)
+            || self.check_token(&TokenType::RightBrace)
+            || self.is_at_end()
+        {
             None
         } else {
             Some(self.parse_expression()?)
@@ -486,7 +488,7 @@ impl Parser {
     /// Parse an emit statement
     fn parse_emit_statement(&mut self) -> Result<EmitStatement> {
         let start_span = self.previous_span();
-        
+
         let event_name = if let TokenType::Identifier(name) = &self.advance().token_type {
             name.clone()
         } else {
@@ -514,7 +516,7 @@ impl Parser {
     /// Parse a require statement
     fn parse_require_statement(&mut self) -> Result<RequireStatement> {
         let start_span = self.previous_span();
-        
+
         let requirement = if self.match_keyword(Keyword::Capability) {
             let cap_name = if let TokenType::Identifier(name) = &self.advance().token_type {
                 name.clone()
@@ -525,7 +527,7 @@ impl Parser {
         } else if self.match_keyword(Keyword::Capabilities) {
             self.consume_token(TokenType::LeftBracket, "Expected '[' after 'capabilities'")?;
             let mut capabilities = Vec::new();
-            
+
             while !self.check_token(&TokenType::RightBracket) && !self.is_at_end() {
                 if let TokenType::Identifier(name) = &self.advance().token_type {
                     capabilities.push(name.clone());
@@ -541,7 +543,9 @@ impl Parser {
             self.consume_token(TokenType::RightBracket, "Expected ']' after capabilities")?;
             RequirementType::Capabilities(capabilities)
         } else {
-            return Err(ReplError::Parsing("Expected 'capability' or 'capabilities'".to_string()));
+            return Err(ReplError::Parsing(
+                "Expected 'capability' or 'capabilities'".to_string(),
+            ));
         };
 
         let end_span = self.previous_span();
@@ -708,11 +712,9 @@ impl Parser {
     fn parse_multiplication(&mut self) -> Result<Expression> {
         let mut expr = self.parse_unary()?;
 
-        while let Some(op) = self.match_binary_operator(&[
-            TokenType::Multiply,
-            TokenType::Divide,
-            TokenType::Modulo,
-        ]) {
+        while let Some(op) =
+            self.match_binary_operator(&[TokenType::Multiply, TokenType::Divide, TokenType::Modulo])
+        {
             let start_span = self.get_expression_span(&expr);
             let right = self.parse_unary()?;
             let end_span = self.get_expression_span(&right);
@@ -761,7 +763,9 @@ impl Parser {
                 let field = if let TokenType::Identifier(name) = &self.advance().token_type {
                     name.clone()
                 } else {
-                    return Err(ReplError::Parsing("Expected field name after '.'".to_string()));
+                    return Err(ReplError::Parsing(
+                        "Expected field name after '.'".to_string(),
+                    ));
                 };
 
                 // Check if this is a method call
@@ -830,7 +834,12 @@ impl Parser {
                     "m" => DurationUnit::Minutes,
                     "h" => DurationUnit::Hours,
                     "d" => DurationUnit::Days,
-                    _ => return Err(ReplError::Parsing(format!("Invalid duration unit: {}", unit))),
+                    _ => {
+                        return Err(ReplError::Parsing(format!(
+                            "Invalid duration unit: {}",
+                            unit
+                        )))
+                    }
                 };
                 Ok(Expression::Literal(Literal::Duration(DurationValue {
                     value: *value,
@@ -940,7 +949,9 @@ impl Parser {
                 self.consume_token(TokenType::Colon, "Expected ':' after 'storage'")?;
                 storage = Some(self.parse_size_value()?);
             } else {
-                return Err(ReplError::Parsing("Unexpected token in resources block".to_string()));
+                return Err(ReplError::Parsing(
+                    "Unexpected token in resources block".to_string(),
+                ));
             }
 
             self.skip_trivia();
@@ -976,7 +987,9 @@ impl Parser {
                 self.consume_token(TokenType::Colon, "Expected ':' after 'sandbox'")?;
                 sandbox = Some(self.parse_sandbox_mode()?);
             } else {
-                return Err(ReplError::Parsing("Unexpected token in security block".to_string()));
+                return Err(ReplError::Parsing(
+                    "Unexpected token in security block".to_string(),
+                ));
             }
 
             self.skip_trivia();
@@ -1011,7 +1024,9 @@ impl Parser {
                 self.consume_token(TokenType::Colon, "Expected ':' after 'failure'")?;
                 failure_action = Some(self.parse_failure_action()?);
             } else {
-                return Err(ReplError::Parsing("Unexpected token in policies block".to_string()));
+                return Err(ReplError::Parsing(
+                    "Unexpected token in policies block".to_string(),
+                ));
             }
 
             self.skip_trivia();
@@ -1036,13 +1051,14 @@ impl Parser {
     fn parse_parameter_list(&mut self) -> Result<ParameterList> {
         let mut parameters = Vec::new();
 
-        while !self.check_token(&TokenType::RightParen) && 
-              !self.check_token(&TokenType::RightBrace) && 
-              !self.is_at_end() {
+        while !self.check_token(&TokenType::RightParen)
+            && !self.check_token(&TokenType::RightBrace)
+            && !self.is_at_end()
+        {
             self.skip_trivia();
-            
-            if self.check_token(&TokenType::RightParen) || 
-               self.check_token(&TokenType::RightBrace) {
+
+            if self.check_token(&TokenType::RightParen) || self.check_token(&TokenType::RightBrace)
+            {
                 break;
             }
 
@@ -1075,9 +1091,10 @@ impl Parser {
             });
 
             self.skip_trivia();
-            
-            if !self.check_token(&TokenType::RightParen) &&
-               !self.check_token(&TokenType::RightBrace) {
+
+            if !self.check_token(&TokenType::RightParen)
+                && !self.check_token(&TokenType::RightBrace)
+            {
                 self.consume_token(TokenType::Comma, "Expected ',' between parameters")?;
                 self.skip_trivia();
             }
@@ -1159,7 +1176,12 @@ impl Parser {
                 "m" => DurationUnit::Minutes,
                 "h" => DurationUnit::Hours,
                 "d" => DurationUnit::Days,
-                _ => return Err(ReplError::Parsing(format!("Invalid duration unit: {}", unit))),
+                _ => {
+                    return Err(ReplError::Parsing(format!(
+                        "Invalid duration unit: {}",
+                        unit
+                    )))
+                }
             };
             Ok(DurationValue {
                 value: *value,
@@ -1218,16 +1240,16 @@ impl Parser {
 
     fn parse_string_list(&mut self) -> Result<Vec<String>> {
         self.consume_token(TokenType::LeftBracket, "Expected '[' for string list")?;
-        
+
         let mut strings = Vec::new();
         while !self.check_token(&TokenType::RightBracket) && !self.is_at_end() {
             strings.push(self.parse_string_literal()?);
-            
+
             if !self.check_token(&TokenType::RightBracket) {
                 self.consume_token(TokenType::Comma, "Expected ',' between list items")?;
             }
         }
-        
+
         self.consume_token(TokenType::RightBracket, "Expected ']' after string list")?;
         Ok(strings)
     }
@@ -1237,7 +1259,7 @@ impl Parser {
 
         while !self.check_token(&TokenType::RightParen) && !self.is_at_end() {
             arguments.push(self.parse_expression()?);
-            
+
             if !self.check_token(&TokenType::RightParen) {
                 self.consume_token(TokenType::Comma, "Expected ',' between arguments")?;
             }
@@ -1251,7 +1273,7 @@ impl Parser {
 
         while !self.check_token(terminator) && !self.is_at_end() {
             expressions.push(self.parse_expression()?);
-            
+
             if !self.check_token(terminator) {
                 self.consume_token(TokenType::Comma, "Expected ',' between expressions")?;
             }
@@ -1387,9 +1409,17 @@ impl Parser {
             // Return a default EOF token if we're past the end
             Token {
                 token_type: TokenType::Eof,
-                line: if self.tokens.is_empty() { 1 } else { self.tokens.last().unwrap().line },
+                line: if self.tokens.is_empty() {
+                    1
+                } else {
+                    self.tokens.last().unwrap().line
+                },
                 column: 0,
-                offset: if self.tokens.is_empty() { 0 } else { self.tokens.last().unwrap().offset },
+                offset: if self.tokens.is_empty() {
+                    0
+                } else {
+                    self.tokens.last().unwrap().offset
+                },
                 length: 0,
             }
         }
@@ -1425,18 +1455,21 @@ impl Parser {
         self.advance();
 
         while !self.is_at_end() {
-            if matches!(self.previous().token_type, TokenType::Semicolon | TokenType::Newline) {
+            if matches!(
+                self.previous().token_type,
+                TokenType::Semicolon | TokenType::Newline
+            ) {
                 return;
             }
 
             match &self.peek().token_type {
-                TokenType::Keyword(Keyword::Agent) |
-                TokenType::Keyword(Keyword::Behavior) |
-                TokenType::Keyword(Keyword::Function) |
-                TokenType::Keyword(Keyword::Struct) |
-                TokenType::Keyword(Keyword::Let) |
-                TokenType::Keyword(Keyword::If) |
-                TokenType::Keyword(Keyword::Return) => return,
+                TokenType::Keyword(Keyword::Agent)
+                | TokenType::Keyword(Keyword::Behavior)
+                | TokenType::Keyword(Keyword::Function)
+                | TokenType::Keyword(Keyword::Struct)
+                | TokenType::Keyword(Keyword::Let)
+                | TokenType::Keyword(Keyword::If)
+                | TokenType::Keyword(Keyword::Return) => return,
                 _ => {}
             }
 
@@ -1513,7 +1546,7 @@ mod tests {
 
         let program = parse_source(source).unwrap();
         assert_eq!(program.declarations.len(), 1);
-        
+
         if let Declaration::Agent(agent) = &program.declarations[0] {
             assert_eq!(agent.name, "TestAgent");
             assert_eq!(agent.metadata.name, Some("Test Agent".to_string()));
@@ -1542,7 +1575,7 @@ mod tests {
 
         let program = parse_source(source).unwrap();
         assert_eq!(program.declarations.len(), 1);
-        
+
         if let Declaration::Behavior(behavior) = &program.declarations[0] {
             assert_eq!(behavior.name, "ProcessData");
             assert!(behavior.input.is_some());
@@ -1563,7 +1596,7 @@ mod tests {
 
         let program = parse_source(source).unwrap();
         assert_eq!(program.declarations.len(), 1);
-        
+
         if let Declaration::Function(func) = &program.declarations[0] {
             assert_eq!(func.name, "add");
             assert_eq!(func.parameters.parameters.len(), 2);

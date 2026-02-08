@@ -83,7 +83,7 @@ pub struct VaultConfig {
 }
 
 /// Vault authentication configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "method", rename_all = "lowercase")]
 pub enum VaultAuthConfig {
     /// Token-based authentication
@@ -122,6 +122,47 @@ pub enum VaultAuthConfig {
         #[serde(default = "default_aws_mount")]
         mount_path: String,
     },
+}
+
+impl std::fmt::Debug for VaultAuthConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VaultAuthConfig::Token { .. } => f
+                .debug_struct("VaultAuthConfig::Token")
+                .field("token", &"[REDACTED]")
+                .finish(),
+            VaultAuthConfig::AppRole {
+                role_id,
+                mount_path,
+                ..
+            } => f
+                .debug_struct("VaultAuthConfig::AppRole")
+                .field("role_id", role_id)
+                .field("secret_id", &"[REDACTED]")
+                .field("mount_path", mount_path)
+                .finish(),
+            VaultAuthConfig::Kubernetes {
+                token_path,
+                role,
+                mount_path,
+            } => f
+                .debug_struct("VaultAuthConfig::Kubernetes")
+                .field("token_path", token_path)
+                .field("role", role)
+                .field("mount_path", mount_path)
+                .finish(),
+            VaultAuthConfig::Aws {
+                region,
+                role,
+                mount_path,
+            } => f
+                .debug_struct("VaultAuthConfig::Aws")
+                .field("region", region)
+                .field("role", role)
+                .field("mount_path", mount_path)
+                .finish(),
+        }
+    }
 }
 
 /// Vault TLS configuration
@@ -281,25 +322,63 @@ impl Default for FileBackupConfig {
 }
 
 // Default value functions
-fn default_timeout() -> u64 { 30 }
-fn default_max_retries() -> u32 { 3 }
-fn default_enable_cache() -> bool { true }
-fn default_cache_ttl() -> u64 { 300 }
-fn default_vault_mount() -> String { "secret".to_string() }
-fn default_vault_api_version() -> String { "v2".to_string() }
-fn default_approle_mount() -> String { "approle".to_string() }
-fn default_k8s_token_path() -> String { "/var/run/secrets/kubernetes.io/serviceaccount/token".to_string() }
-fn default_k8s_mount() -> String { "kubernetes".to_string() }
-fn default_aws_mount() -> String { "aws".to_string() }
-fn default_max_connections() -> usize { 10 }
-fn default_connection_timeout() -> u64 { 10 }
-fn default_request_timeout() -> u64 { 30 }
-fn default_file_format() -> FileFormat { FileFormat::Json }
-fn default_encryption_algorithm() -> String { "AES-256-GCM".to_string() }
-fn default_kdf() -> String { "PBKDF2".to_string() }
-fn default_key_provider() -> String { "env".to_string() }
-fn default_max_backups() -> usize { 5 }
-fn default_backup_before_write() -> bool { true }
+fn default_timeout() -> u64 {
+    30
+}
+fn default_max_retries() -> u32 {
+    3
+}
+fn default_enable_cache() -> bool {
+    true
+}
+fn default_cache_ttl() -> u64 {
+    300
+}
+fn default_vault_mount() -> String {
+    "secret".to_string()
+}
+fn default_vault_api_version() -> String {
+    "v2".to_string()
+}
+fn default_approle_mount() -> String {
+    "approle".to_string()
+}
+fn default_k8s_token_path() -> String {
+    "/var/run/secrets/kubernetes.io/serviceaccount/token".to_string()
+}
+fn default_k8s_mount() -> String {
+    "kubernetes".to_string()
+}
+fn default_aws_mount() -> String {
+    "aws".to_string()
+}
+fn default_max_connections() -> usize {
+    10
+}
+fn default_connection_timeout() -> u64 {
+    10
+}
+fn default_request_timeout() -> u64 {
+    30
+}
+fn default_file_format() -> FileFormat {
+    FileFormat::Json
+}
+fn default_encryption_algorithm() -> String {
+    "AES-256-GCM".to_string()
+}
+fn default_kdf() -> String {
+    "PBKDF2".to_string()
+}
+fn default_key_provider() -> String {
+    "env".to_string()
+}
+fn default_max_backups() -> usize {
+    5
+}
+fn default_backup_before_write() -> bool {
+    true
+}
 
 impl SecretsConfig {
     /// Create a Vault configuration with token authentication

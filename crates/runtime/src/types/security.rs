@@ -8,6 +8,8 @@ use super::{AgentId, PolicyId};
 /// Security tiers for sandboxing
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default)]
 pub enum SecurityTier {
+    /// No isolation - native execution (⚠️ DEVELOPMENT ONLY)
+    None,
     /// Docker-based isolation
     #[default]
     Tier1,
@@ -20,6 +22,7 @@ pub enum SecurityTier {
 impl std::fmt::Display for SecurityTier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            SecurityTier::None => write!(f, "None (Native - No Isolation ⚠️)"),
             SecurityTier::Tier1 => write!(f, "Tier1 (Docker)"),
             SecurityTier::Tier2 => write!(f, "Tier2 (gVisor)"),
             SecurityTier::Tier3 => write!(f, "Tier3 (Firecracker)"),
@@ -47,6 +50,8 @@ pub struct SecurityConfig {
     pub sandbox_isolation_level: IsolationLevel,
     pub audit_all_operations: bool,
     pub e2b_api_key: Option<String>,
+    /// Allow native execution without isolation (⚠️ DEVELOPMENT ONLY)
+    pub allow_native_execution: bool,
 }
 
 impl Default for SecurityConfig {
@@ -59,6 +64,7 @@ impl Default for SecurityConfig {
             sandbox_isolation_level: IsolationLevel::High,
             audit_all_operations: true,
             e2b_api_key: None,
+            allow_native_execution: false,
         }
     }
 }
@@ -141,6 +147,8 @@ pub enum SecurityEventType {
     SandboxBreach,
     ResourceExhaustion,
     SuspiciousActivity,
+    CronJobDeadLettered,
+    AgentPinVerificationFailed,
 }
 
 /// Policy violation details
@@ -291,21 +299,21 @@ pub enum Capability {
     FileRead(String),
     FileWrite(String),
     FileDelete(String),
-    
+
     /// Network operations
     NetworkRequest(String),
     NetworkListen(u16),
-    
+
     /// System operations
     Execute(String),
     EnvironmentRead(String),
     EnvironmentWrite(String),
-    
+
     /// Agent operations
     AgentCreate,
     AgentDelete,
     AgentModify,
-    
+
     /// Data operations
     DataRead(String),
     DataWrite(String),

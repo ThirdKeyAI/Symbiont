@@ -14,16 +14,16 @@ use thiserror::Error;
 pub enum ConfigError {
     #[error("Missing required configuration: {key}")]
     MissingRequired { key: String },
-    
+
     #[error("Invalid configuration value for {key}: {reason}")]
     InvalidValue { key: String, reason: String },
-    
+
     #[error("Environment variable error: {message}")]
     EnvError { message: String },
-    
+
     #[error("IO error reading config file: {message}")]
     IoError { message: String },
-    
+
     #[error("Configuration parsing error: {message}")]
     ParseError { message: String },
 }
@@ -45,6 +45,10 @@ pub struct Config {
     pub slm: Option<Slm>,
     /// Routing configuration
     pub routing: Option<crate::routing::RoutingConfig>,
+    /// Native execution configuration (optional)
+    pub native_execution: Option<NativeExecutionConfig>,
+    /// AgentPin integration configuration (optional)
+    pub agentpin: Option<crate::integrations::agentpin::AgentPinConfig>,
 }
 
 /// API configuration
@@ -116,6 +120,49 @@ pub enum KeyProvider {
     Environment { var_name: String },
     File { path: PathBuf },
     Keychain { service: String, account: String },
+}
+
+/// Native execution configuration (non-isolated host execution)
+/// ⚠️ WARNING: Use only in trusted development environments
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NativeExecutionConfig {
+    /// Allow native execution without Docker/isolation
+    pub enabled: bool,
+    /// Default executable for native execution
+    pub default_executable: String,
+    /// Working directory for native execution
+    pub working_directory: PathBuf,
+    /// Enforce resource limits even in native mode
+    pub enforce_resource_limits: bool,
+    /// Maximum memory in MB
+    pub max_memory_mb: Option<u64>,
+    /// Maximum CPU time in seconds
+    pub max_cpu_seconds: Option<u64>,
+    /// Maximum execution time (timeout) in seconds
+    pub max_execution_time_seconds: u64,
+    /// Allowed executables (empty = all allowed)
+    pub allowed_executables: Vec<String>,
+}
+
+impl Default for NativeExecutionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false, // Disabled by default for safety
+            default_executable: "bash".to_string(),
+            working_directory: PathBuf::from("/tmp/symbiont-native"),
+            enforce_resource_limits: true,
+            max_memory_mb: Some(2048),
+            max_cpu_seconds: Some(300),
+            max_execution_time_seconds: 300,
+            allowed_executables: vec![
+                "bash".to_string(),
+                "sh".to_string(),
+                "python3".to_string(),
+                "python".to_string(),
+                "node".to_string(),
+            ],
+        }
+    }
 }
 
 /// Storage configuration
@@ -335,7 +382,6 @@ pub struct SecuritySettings {
     pub require_encryption: bool,
 }
 
-
 impl Default for ApiConfig {
     fn default() -> Self {
         Self {
@@ -399,7 +445,7 @@ impl Default for Slm {
         let mut profiles = HashMap::new();
         profiles.insert("secure".to_string(), SandboxProfile::secure_default());
         profiles.insert("standard".to_string(), SandboxProfile::standard_default());
-        
+
         Self {
             enabled: false,
             model_allow_lists: ModelAllowListConfig::default(),
@@ -408,7 +454,6 @@ impl Default for Slm {
         }
     }
 }
-
 
 impl SandboxProfile {
     /// Create a secure default profile
@@ -455,7 +500,9 @@ impl SandboxProfile {
                 max_memory_mb: 1024,
                 max_cpu_cores: 2.0,
                 max_disk_mb: 500,
-                gpu_access: GpuAccess::Shared { max_memory_mb: 1024 },
+                gpu_access: GpuAccess::Shared {
+                    max_memory_mb: 1024,
+                },
                 max_io_bandwidth_mbps: Some(50),
             },
             filesystem: FilesystemControls {
@@ -473,13 +520,11 @@ impl SandboxProfile {
             },
             network: NetworkPolicy {
                 access_mode: NetworkAccessMode::Restricted,
-                allowed_destinations: vec![
-                    NetworkDestination {
-                        host: "api.openai.com".to_string(),
-                        port: Some(443),
-                        protocol: Some(NetworkProtocol::HTTPS),
-                    },
-                ],
+                allowed_destinations: vec![NetworkDestination {
+                    host: "api.openai.com".to_string(),
+                    port: Some(443),
+                    protocol: Some(NetworkProtocol::HTTPS),
+                }],
                 max_bandwidth_mbps: Some(100),
             },
             security: SecuritySettings {
@@ -521,11 +566,16 @@ impl Slm {
     /// Validate the SLM configuration
     pub fn validate(&self) -> Result<(), ConfigError> {
         // Validate default sandbox profile exists
-        if !self.sandbox_profiles.contains_key(&self.default_sandbox_profile) {
+        if !self
+            .sandbox_profiles
+            .contains_key(&self.default_sandbox_profile)
+        {
             return Err(ConfigError::InvalidValue {
                 key: "slm.default_sandbox_profile".to_string(),
-                reason: format!("Profile '{}' not found in sandbox_profiles",
-                               self.default_sandbox_profile),
+                reason: format!(
+                    "Profile '{}' not found in sandbox_profiles",
+                    self.default_sandbox_profile
+                ),
             });
         }
 
@@ -543,8 +593,12 @@ impl Slm {
         // Validate agent model mappings reference existing models
         for (agent_id, model_ids) in &self.model_allow_lists.agent_model_maps {
             for model_id in model_ids {
-                if !self.model_allow_lists.global_models
-                    .iter().any(|m| &m.id == model_id) {
+                if !self
+                    .model_allow_lists
+                    .global_models
+                    .iter()
+                    .any(|m| &m.id == model_id)
+                {
                     return Err(ConfigError::InvalidValue {
                         key: format!("slm.model_allow_lists.agent_model_maps.{}", agent_id),
                         reason: format!("Model ID '{}' not found in global_models", model_id),
@@ -555,11 +609,10 @@ impl Slm {
 
         // Validate sandbox profiles
         for (profile_name, profile) in &self.sandbox_profiles {
-            profile.validate()
-                .map_err(|e| ConfigError::InvalidValue {
-                    key: format!("slm.sandbox_profiles.{}", profile_name),
-                    reason: e.to_string(),
-                })?;
+            profile.validate().map_err(|e| ConfigError::InvalidValue {
+                key: format!("slm.sandbox_profiles.{}", profile_name),
+                reason: e.to_string(),
+            })?;
         }
 
         Ok(())
@@ -569,7 +622,8 @@ impl Slm {
     pub fn get_allowed_models(&self, agent_id: &str) -> Vec<&Model> {
         // Check agent-specific mappings first
         if let Some(model_ids) = self.model_allow_lists.agent_model_maps.get(agent_id) {
-            self.model_allow_lists.global_models
+            self.model_allow_lists
+                .global_models
                 .iter()
                 .filter(|model| model_ids.contains(&model.id))
                 .collect()
@@ -584,7 +638,7 @@ impl Config {
     /// Load configuration from environment variables and defaults
     pub fn from_env() -> Result<Self, ConfigError> {
         let mut config = Self::default();
-        
+
         // Load API configuration
         if let Ok(port) = env::var("API_PORT") {
             config.api.port = port.parse().map_err(|_| ConfigError::InvalidValue {
@@ -592,68 +646,77 @@ impl Config {
                 reason: "Invalid port number".to_string(),
             })?;
         }
-        
+
         if let Ok(host) = env::var("API_HOST") {
             config.api.host = host;
         }
-        
-        // Load auth token if present
+
+        // Load and validate auth token if present
         if let Ok(token) = env::var("API_AUTH_TOKEN") {
-            if !token.is_empty() {
-                config.api.auth_token = Some(token);
+            match Self::validate_auth_token(&token) {
+                Ok(validated_token) => {
+                    config.api.auth_token = Some(validated_token);
+                }
+                Err(e) => {
+                    tracing::error!("Invalid API_AUTH_TOKEN: {}", e);
+                    eprintln!("⚠️  ERROR: Invalid API_AUTH_TOKEN: {}", e);
+                    // Don't set the token if it's invalid
+                }
             }
         }
-        
+
         // Load database configuration
         if let Ok(db_url) = env::var("DATABASE_URL") {
             config.database.url = Some(db_url);
         }
-        
+
         if let Ok(redis_url) = env::var("REDIS_URL") {
             config.database.redis_url = Some(redis_url);
         }
-        
+
         if let Ok(qdrant_url) = env::var("QDRANT_URL") {
             config.database.qdrant_url = qdrant_url;
         }
-        
+
         // Load logging configuration
         if let Ok(log_level) = env::var("LOG_LEVEL") {
             config.logging.level = log_level;
         }
-        
+
         // Load security configuration
         if let Ok(key_var) = env::var("SYMBIONT_SECRET_KEY_VAR") {
             config.security.key_provider = KeyProvider::Environment { var_name: key_var };
         }
-        
+
         // Load storage configuration
         if let Ok(context_path) = env::var("CONTEXT_STORAGE_PATH") {
             config.storage.context_path = PathBuf::from(context_path);
         }
-        
+
         if let Ok(git_path) = env::var("GIT_CLONE_BASE_PATH") {
             config.storage.git_clone_path = PathBuf::from(git_path);
         }
-        
+
         if let Ok(backup_path) = env::var("BACKUP_DIRECTORY") {
             config.storage.backup_path = PathBuf::from(backup_path);
         }
-        
+
         Ok(config)
     }
-    
+
     /// Load configuration from file
     pub fn from_file<P: AsRef<std::path::Path>>(path: P) -> Result<Self, ConfigError> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| ConfigError::IoError { message: e.to_string() })?;
-        
-        let config: Self = toml::from_str(&content)
-            .map_err(|e| ConfigError::ParseError { message: e.to_string() })?;
-        
+        let content = std::fs::read_to_string(path).map_err(|e| ConfigError::IoError {
+            message: e.to_string(),
+        })?;
+
+        let config: Self = toml::from_str(&content).map_err(|e| ConfigError::ParseError {
+            message: e.to_string(),
+        })?;
+
         Ok(config)
     }
-    
+
     /// Validate configuration
     pub fn validate(&self) -> Result<(), ConfigError> {
         // Validate port range
@@ -663,7 +726,7 @@ impl Config {
                 reason: "Port cannot be 0".to_string(),
             });
         }
-        
+
         // Validate log level
         let valid_levels = ["error", "warn", "info", "debug", "trace"];
         if !valid_levels.contains(&self.logging.level.as_str()) {
@@ -672,7 +735,7 @@ impl Config {
                 reason: format!("Must be one of: {}", valid_levels.join(", ")),
             });
         }
-        
+
         // Validate vector dimension
         if self.database.vector_dimension == 0 {
             return Err(ConfigError::InvalidValue {
@@ -680,17 +743,17 @@ impl Config {
                 reason: "Vector dimension must be > 0".to_string(),
             });
         }
-        
+
         // Validate SLM configuration if enabled
         if let Some(slm) = &self.slm {
             if slm.enabled {
                 slm.validate()?;
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Get API auth token securely
     pub fn get_api_auth_token(&self) -> Result<String, ConfigError> {
         match &self.api.auth_token {
@@ -700,7 +763,7 @@ impl Config {
             }),
         }
     }
-    
+
     /// Get database URL securely
     pub fn get_database_url(&self) -> Result<String, ConfigError> {
         match &self.database.url {
@@ -710,7 +773,7 @@ impl Config {
             }),
         }
     }
-    
+
     /// Get secret key based on provider configuration
     pub fn get_secret_key(&self) -> Result<String, ConfigError> {
         match &self.security.key_provider {
@@ -719,19 +782,22 @@ impl Config {
                     key: var_name.clone(),
                 })
             }
-            KeyProvider::File { path } => {
-                std::fs::read_to_string(path)
-                    .map(|s| s.trim().to_string())
-                    .map_err(|e| ConfigError::IoError { message: e.to_string() })
-            }
+            KeyProvider::File { path } => std::fs::read_to_string(path)
+                .map(|s| s.trim().to_string())
+                .map_err(|e| ConfigError::IoError {
+                    message: e.to_string(),
+                }),
             KeyProvider::Keychain { service, account } => {
                 #[cfg(feature = "keychain")]
                 {
                     use keyring::Entry;
-                    let entry = Entry::new(service, account)
-                        .map_err(|e| ConfigError::EnvError { message: e.to_string() })?;
-                    entry.get_password()
-                        .map_err(|e| ConfigError::EnvError { message: e.to_string() })
+                    let entry =
+                        Entry::new(service, account).map_err(|e| ConfigError::EnvError {
+                            message: e.to_string(),
+                        })?;
+                    entry.get_password().map_err(|e| ConfigError::EnvError {
+                        message: e.to_string(),
+                    })
                 }
                 #[cfg(not(feature = "keychain"))]
                 {
@@ -742,15 +808,94 @@ impl Config {
             }
         }
     }
+
+    /// Validate an authentication token for security best practices
+    ///
+    /// Returns an error if the token:
+    /// - Is empty or only whitespace
+    /// - Is too short (< 8 characters)
+    /// - Matches known weak/default tokens
+    /// - Contains only whitespace
+    ///
+    /// Returns Ok(trimmed_token) if validation passes
+    fn validate_auth_token(token: &str) -> Result<String, ConfigError> {
+        // Trim whitespace
+        let trimmed = token.trim();
+
+        // Check if empty
+        if trimmed.is_empty() {
+            return Err(ConfigError::InvalidValue {
+                key: "auth_token".to_string(),
+                reason: "Token cannot be empty".to_string(),
+            });
+        }
+
+        // Check for known weak/default tokens (case-insensitive) before length check
+        // so that short weak tokens like "dev" get the correct error message
+        let weak_tokens = [
+            "dev",
+            "test",
+            "password",
+            "secret",
+            "token",
+            "api_key",
+            "12345678",
+            "admin",
+            "root",
+            "default",
+            "changeme",
+            "letmein",
+            "qwerty",
+            "abc123",
+            "password123",
+        ];
+
+        if weak_tokens.contains(&trimmed.to_lowercase().as_str()) {
+            return Err(ConfigError::InvalidValue {
+                key: "auth_token".to_string(),
+                reason: format!(
+                    "Token '{}' is a known weak/default token. Use a strong random token instead.",
+                    trimmed
+                ),
+            });
+        }
+
+        // Check minimum length
+        if trimmed.len() < 8 {
+            return Err(ConfigError::InvalidValue {
+                key: "auth_token".to_string(),
+                reason: "Token must be at least 8 characters long".to_string(),
+            });
+        }
+
+        // Warn if token appears to be weak (all same character, sequential, etc.)
+        if trimmed
+            .chars()
+            .all(|c| c == trimmed.chars().next().unwrap())
+        {
+            tracing::warn!("⚠️  Auth token appears weak (all same character)");
+        }
+
+        // Check for potential secrets in token (bcrypt hashes, jwt tokens, etc. are OK)
+        if trimmed.contains(' ') && !trimmed.starts_with("Bearer ") {
+            return Err(ConfigError::InvalidValue {
+                key: "auth_token".to_string(),
+                reason: "Token should not contain spaces (unless it's a Bearer token)".to_string(),
+            });
+        }
+
+        Ok(trimmed.to_string())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env;
+    use serial_test::serial;
     use std::collections::HashMap;
+    use std::env;
     use std::path::PathBuf;
-    
+
     #[test]
     fn test_default_config() {
         let config = Config::default();
@@ -758,31 +903,32 @@ mod tests {
         assert_eq!(config.api.host, "127.0.0.1");
         assert!(config.validate().is_ok());
     }
-    
+
     #[test]
+    #[serial]
     fn test_config_from_env() {
         env::set_var("API_PORT", "9090");
         env::set_var("API_HOST", "0.0.0.0");
         env::set_var("LOG_LEVEL", "debug");
-        
+
         let config = Config::from_env().unwrap();
         assert_eq!(config.api.port, 9090);
         assert_eq!(config.api.host, "0.0.0.0");
         assert_eq!(config.logging.level, "debug");
-        
+
         // Cleanup
         env::remove_var("API_PORT");
         env::remove_var("API_HOST");
         env::remove_var("LOG_LEVEL");
     }
-    
+
     #[test]
     fn test_invalid_port() {
         let mut config = Config::default();
         config.api.port = 0;
         assert!(config.validate().is_err());
     }
-    
+
     #[test]
     fn test_invalid_log_level() {
         let mut config = Config::default();
@@ -803,9 +949,11 @@ mod tests {
 
     #[test]
     fn test_slm_validation_invalid_default_profile() {
-        let mut slm = Slm::default();
-        slm.default_sandbox_profile = "nonexistent".to_string();
-        
+        let slm = Slm {
+            default_sandbox_profile: "nonexistent".to_string(),
+            ..Default::default()
+        };
+
         let result = slm.validate();
         assert!(result.is_err());
         if let Err(ConfigError::InvalidValue { key, reason }) = result {
@@ -819,7 +967,9 @@ mod tests {
         let model1 = Model {
             id: "duplicate".to_string(),
             name: "Model 1".to_string(),
-            provider: ModelProvider::LocalFile { file_path: PathBuf::from("/tmp/model1.gguf") },
+            provider: ModelProvider::LocalFile {
+                file_path: PathBuf::from("/tmp/model1.gguf"),
+            },
             capabilities: vec![ModelCapability::TextGeneration],
             resource_requirements: ModelResourceRequirements {
                 min_memory_mb: 512,
@@ -831,7 +981,9 @@ mod tests {
         let model2 = Model {
             id: "duplicate".to_string(), // Same ID
             name: "Model 2".to_string(),
-            provider: ModelProvider::LocalFile { file_path: PathBuf::from("/tmp/model2.gguf") },
+            provider: ModelProvider::LocalFile {
+                file_path: PathBuf::from("/tmp/model2.gguf"),
+            },
             capabilities: vec![ModelCapability::CodeGeneration],
             resource_requirements: ModelResourceRequirements {
                 min_memory_mb: 1024,
@@ -842,7 +994,7 @@ mod tests {
 
         let mut slm = Slm::default();
         slm.model_allow_lists.global_models = vec![model1, model2];
-        
+
         let result = slm.validate();
         assert!(result.is_err());
         if let Err(ConfigError::InvalidValue { key, reason }) = result {
@@ -856,7 +1008,9 @@ mod tests {
         let model = Model {
             id: "test_model".to_string(),
             name: "Test Model".to_string(),
-            provider: ModelProvider::LocalFile { file_path: PathBuf::from("/tmp/test.gguf") },
+            provider: ModelProvider::LocalFile {
+                file_path: PathBuf::from("/tmp/test.gguf"),
+            },
             capabilities: vec![ModelCapability::TextGeneration],
             resource_requirements: ModelResourceRequirements {
                 min_memory_mb: 512,
@@ -867,11 +1021,14 @@ mod tests {
 
         let mut slm = Slm::default();
         slm.model_allow_lists.global_models = vec![model];
-        
+
         let mut agent_model_maps = HashMap::new();
-        agent_model_maps.insert("test_agent".to_string(), vec!["nonexistent_model".to_string()]);
+        agent_model_maps.insert(
+            "test_agent".to_string(),
+            vec!["nonexistent_model".to_string()],
+        );
         slm.model_allow_lists.agent_model_maps = agent_model_maps;
-        
+
         let result = slm.validate();
         assert!(result.is_err());
         if let Err(ConfigError::InvalidValue { key, reason }) = result {
@@ -885,7 +1042,9 @@ mod tests {
         let model1 = Model {
             id: "model1".to_string(),
             name: "Model 1".to_string(),
-            provider: ModelProvider::LocalFile { file_path: PathBuf::from("/tmp/model1.gguf") },
+            provider: ModelProvider::LocalFile {
+                file_path: PathBuf::from("/tmp/model1.gguf"),
+            },
             capabilities: vec![ModelCapability::TextGeneration],
             resource_requirements: ModelResourceRequirements {
                 min_memory_mb: 512,
@@ -897,7 +1056,9 @@ mod tests {
         let model2 = Model {
             id: "model2".to_string(),
             name: "Model 2".to_string(),
-            provider: ModelProvider::LocalFile { file_path: PathBuf::from("/tmp/model2.gguf") },
+            provider: ModelProvider::LocalFile {
+                file_path: PathBuf::from("/tmp/model2.gguf"),
+            },
             capabilities: vec![ModelCapability::CodeGeneration],
             resource_requirements: ModelResourceRequirements {
                 min_memory_mb: 1024,
@@ -908,16 +1069,16 @@ mod tests {
 
         let mut slm = Slm::default();
         slm.model_allow_lists.global_models = vec![model1, model2];
-        
+
         let mut agent_model_maps = HashMap::new();
         agent_model_maps.insert("agent1".to_string(), vec!["model1".to_string()]);
         slm.model_allow_lists.agent_model_maps = agent_model_maps;
-        
+
         // Agent with specific mapping should only get their models
         let allowed_models = slm.get_allowed_models("agent1");
         assert_eq!(allowed_models.len(), 1);
         assert_eq!(allowed_models[0].id, "model1");
-        
+
         // Agent without mapping should get all global models
         let allowed_models = slm.get_allowed_models("agent2");
         assert_eq!(allowed_models.len(), 2);
@@ -930,7 +1091,10 @@ mod tests {
         assert_eq!(profile.resources.max_memory_mb, 512);
         assert_eq!(profile.resources.max_cpu_cores, 1.0);
         assert!(matches!(profile.resources.gpu_access, GpuAccess::None));
-        assert!(matches!(profile.network.access_mode, NetworkAccessMode::None));
+        assert!(matches!(
+            profile.network.access_mode,
+            NetworkAccessMode::None
+        ));
         assert!(profile.security.strict_syscall_filtering);
         assert!(profile.validate().is_ok());
     }
@@ -940,8 +1104,14 @@ mod tests {
         let profile = SandboxProfile::standard_default();
         assert_eq!(profile.resources.max_memory_mb, 1024);
         assert_eq!(profile.resources.max_cpu_cores, 2.0);
-        assert!(matches!(profile.resources.gpu_access, GpuAccess::Shared { .. }));
-        assert!(matches!(profile.network.access_mode, NetworkAccessMode::Restricted));
+        assert!(matches!(
+            profile.resources.gpu_access,
+            GpuAccess::Shared { .. }
+        ));
+        assert!(matches!(
+            profile.network.access_mode,
+            NetworkAccessMode::Restricted
+        ));
         assert!(!profile.security.strict_syscall_filtering);
         assert!(profile.validate().is_ok());
     }
@@ -950,40 +1120,52 @@ mod tests {
     fn test_sandbox_profile_validation_zero_memory() {
         let mut profile = SandboxProfile::secure_default();
         profile.resources.max_memory_mb = 0;
-        
+
         let result = profile.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("max_memory_mb must be > 0"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("max_memory_mb must be > 0"));
     }
 
     #[test]
     fn test_sandbox_profile_validation_zero_cpu() {
         let mut profile = SandboxProfile::secure_default();
         profile.resources.max_cpu_cores = 0.0;
-        
+
         let result = profile.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("max_cpu_cores must be > 0"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("max_cpu_cores must be > 0"));
     }
 
     #[test]
     fn test_sandbox_profile_validation_empty_read_path() {
         let mut profile = SandboxProfile::secure_default();
         profile.filesystem.read_paths.push("".to_string());
-        
+
         let result = profile.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("read_paths cannot contain empty strings"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("read_paths cannot contain empty strings"));
     }
 
     #[test]
     fn test_sandbox_profile_validation_zero_execution_time() {
         let mut profile = SandboxProfile::secure_default();
         profile.process_limits.max_execution_time_seconds = 0;
-        
+
         let result = profile.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("max_execution_time_seconds must be > 0"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("max_execution_time_seconds must be > 0"));
     }
 
     // Model Configuration Tests
@@ -992,7 +1174,9 @@ mod tests {
         let huggingface_model = Model {
             id: "hf_model".to_string(),
             name: "HuggingFace Model".to_string(),
-            provider: ModelProvider::HuggingFace { model_path: "microsoft/DialoGPT-medium".to_string() },
+            provider: ModelProvider::HuggingFace {
+                model_path: "microsoft/DialoGPT-medium".to_string(),
+            },
             capabilities: vec![ModelCapability::TextGeneration],
             resource_requirements: ModelResourceRequirements {
                 min_memory_mb: 512,
@@ -1004,7 +1188,9 @@ mod tests {
         let openai_model = Model {
             id: "openai_model".to_string(),
             name: "OpenAI Model".to_string(),
-            provider: ModelProvider::OpenAI { model_name: "gpt-3.5-turbo".to_string() },
+            provider: ModelProvider::OpenAI {
+                model_name: "gpt-3.5-turbo".to_string(),
+            },
             capabilities: vec![ModelCapability::TextGeneration, ModelCapability::Reasoning],
             resource_requirements: ModelResourceRequirements {
                 min_memory_mb: 0, // Cloud model
@@ -1031,7 +1217,9 @@ mod tests {
         let model = Model {
             id: "full_model".to_string(),
             name: "Full Capability Model".to_string(),
-            provider: ModelProvider::LocalFile { file_path: PathBuf::from("/tmp/full.gguf") },
+            provider: ModelProvider::LocalFile {
+                file_path: PathBuf::from("/tmp/full.gguf"),
+            },
             capabilities: all_capabilities.clone(),
             resource_requirements: ModelResourceRequirements {
                 min_memory_mb: 2048,
@@ -1054,7 +1242,7 @@ mod tests {
     fn test_config_validation_vector_dimension() {
         let mut config = Config::default();
         config.database.vector_dimension = 0;
-        
+
         let result = config.validate();
         assert!(result.is_err());
         if let Err(ConfigError::InvalidValue { key, reason }) = result {
@@ -1066,11 +1254,13 @@ mod tests {
     #[test]
     fn test_config_validation_with_slm() {
         let mut config = Config::default();
-        let mut slm = Slm::default();
-        slm.enabled = true;
-        slm.default_sandbox_profile = "invalid".to_string(); // This should cause validation to fail
+        let slm = Slm {
+            enabled: true,
+            default_sandbox_profile: "invalid".to_string(), // This should cause validation to fail
+            ..Default::default()
+        };
         config.slm = Some(slm);
-        
+
         let result = config.validate();
         assert!(result.is_err());
     }
@@ -1079,16 +1269,16 @@ mod tests {
     fn test_config_secret_key_retrieval() {
         // Test environment variable key provider
         env::set_var("TEST_SECRET_KEY", "test_secret_123");
-        
+
         let mut config = Config::default();
         config.security.key_provider = KeyProvider::Environment {
-            var_name: "TEST_SECRET_KEY".to_string()
+            var_name: "TEST_SECRET_KEY".to_string(),
         };
-        
+
         let key = config.get_secret_key();
         assert!(key.is_ok());
         assert_eq!(key.unwrap(), "test_secret_123");
-        
+
         env::remove_var("TEST_SECRET_KEY");
     }
 
@@ -1096,9 +1286,9 @@ mod tests {
     fn test_config_secret_key_missing() {
         let mut config = Config::default();
         config.security.key_provider = KeyProvider::Environment {
-            var_name: "NONEXISTENT_KEY".to_string()
+            var_name: "NONEXISTENT_KEY".to_string(),
         };
-        
+
         let result = config.get_secret_key();
         assert!(result.is_err());
         if let Err(ConfigError::MissingRequired { key }) = result {
@@ -1152,9 +1342,15 @@ mod tests {
         };
 
         assert!(profile.validate().is_ok());
-        assert!(matches!(profile.network.access_mode, NetworkAccessMode::Restricted));
+        assert!(matches!(
+            profile.network.access_mode,
+            NetworkAccessMode::Restricted
+        ));
         assert_eq!(profile.network.allowed_destinations.len(), 1);
-        assert_eq!(profile.network.allowed_destinations[0].host, "api.openai.com");
+        assert_eq!(
+            profile.network.allowed_destinations[0].host,
+            "api.openai.com"
+        );
     }
 
     #[test]
@@ -1167,7 +1363,9 @@ mod tests {
         let model = Model {
             id: "gpu_model".to_string(),
             name: "GPU Model".to_string(),
-            provider: ModelProvider::LocalFile { file_path: PathBuf::from("/tmp/gpu.gguf") },
+            provider: ModelProvider::LocalFile {
+                file_path: PathBuf::from("/tmp/gpu.gguf"),
+            },
             capabilities: vec![ModelCapability::TextGeneration],
             resource_requirements: ModelResourceRequirements {
                 min_memory_mb: 1024,
@@ -1183,23 +1381,24 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_config_from_env_invalid_port() {
         env::set_var("API_PORT", "invalid");
-        
+
         let result = Config::from_env();
         assert!(result.is_err());
         if let Err(ConfigError::InvalidValue { key, reason }) = result {
             assert_eq!(key, "API_PORT");
             assert!(reason.contains("Invalid port number"));
         }
-        
+
         env::remove_var("API_PORT");
     }
 
     #[test]
     fn test_api_auth_token_missing() {
         let config = Config::default();
-        
+
         let result = config.get_api_auth_token();
         assert!(result.is_err());
         if let Err(ConfigError::MissingRequired { key }) = result {
@@ -1210,11 +1409,159 @@ mod tests {
     #[test]
     fn test_database_url_missing() {
         let config = Config::default();
-        
+
         let result = config.get_database_url();
         assert!(result.is_err());
         if let Err(ConfigError::MissingRequired { key }) = result {
             assert_eq!(key, "DATABASE_URL");
+        }
+    }
+
+    // ============================================================================
+    // Security Tests for Token Validation
+    // ============================================================================
+
+    #[test]
+    fn test_validate_auth_token_valid_strong_token() {
+        let tokens = vec![
+            "MySecureToken123",
+            "a1b2c3d4e5f6g7h8",
+            "production_token_2024",
+            "Bearer_abc123def456",
+        ];
+
+        for token in tokens {
+            let result = Config::validate_auth_token(token);
+            assert!(result.is_ok(), "Token '{}' should be valid", token);
+            assert_eq!(result.unwrap(), token.trim());
+        }
+    }
+
+    #[test]
+    fn test_validate_auth_token_empty() {
+        assert!(Config::validate_auth_token("").is_err());
+        assert!(Config::validate_auth_token("   ").is_err());
+        assert!(Config::validate_auth_token("\t\n").is_err());
+    }
+
+    #[test]
+    fn test_validate_auth_token_too_short() {
+        let short_tokens = vec!["abc", "12345", "short", "1234567"];
+
+        for token in short_tokens {
+            let result = Config::validate_auth_token(token);
+            assert!(
+                result.is_err(),
+                "Token '{}' should be rejected (too short)",
+                token
+            );
+
+            if let Err(ConfigError::InvalidValue { reason, .. }) = result {
+                assert!(reason.contains("at least 8 characters"));
+            }
+        }
+    }
+
+    #[test]
+    fn test_validate_auth_token_weak_defaults() {
+        let weak_tokens = vec![
+            "dev", "test", "password", "secret", "token", "admin", "root", "default", "changeme",
+            "12345678",
+        ];
+
+        for token in weak_tokens {
+            let result = Config::validate_auth_token(token);
+            assert!(result.is_err(), "Weak token '{}' should be rejected", token);
+
+            if let Err(ConfigError::InvalidValue { reason, .. }) = result {
+                assert!(
+                    reason.contains("weak/default token"),
+                    "Expected 'weak/default token' message for '{}', got: {}",
+                    token,
+                    reason
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_validate_auth_token_case_insensitive_weak_check() {
+        let tokens = vec!["DEV", "Test", "PASSWORD", "Admin", "ROOT"];
+
+        for token in tokens {
+            let result = Config::validate_auth_token(token);
+            assert!(
+                result.is_err(),
+                "Token '{}' should be rejected (case-insensitive)",
+                token
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_auth_token_with_spaces() {
+        // Spaces should be rejected unless it's a Bearer token
+        let result = Config::validate_auth_token("my token here");
+        assert!(result.is_err());
+
+        if let Err(ConfigError::InvalidValue { reason, .. }) = result {
+            assert!(reason.contains("should not contain spaces"));
+        }
+    }
+
+    #[test]
+    fn test_validate_auth_token_trims_whitespace() {
+        let result = Config::validate_auth_token("  validtoken123  ");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "validtoken123");
+    }
+
+    #[test]
+    fn test_validate_auth_token_minimum_length_boundary() {
+        // Exactly 8 characters should pass
+        assert!(Config::validate_auth_token("12345678").is_err()); // Weak token
+        assert!(Config::validate_auth_token("abcdefgh").is_ok());
+
+        // 7 characters should fail
+        assert!(Config::validate_auth_token("abcdefg").is_err());
+    }
+
+    #[test]
+    #[serial]
+    fn test_validate_auth_token_integration_with_from_env() {
+        // Test that validation is called when loading from environment
+
+        // Set a weak token
+        env::set_var("API_AUTH_TOKEN", "dev");
+        let config = Config::from_env().unwrap();
+        // Token should be rejected, so it shouldn't be set
+        assert!(config.api.auth_token.is_none());
+        env::remove_var("API_AUTH_TOKEN");
+
+        // Set a strong token
+        env::set_var("API_AUTH_TOKEN", "strong_secure_token_12345");
+        let config = Config::from_env().unwrap();
+        assert!(config.api.auth_token.is_some());
+        assert_eq!(config.api.auth_token.unwrap(), "strong_secure_token_12345");
+        env::remove_var("API_AUTH_TOKEN");
+    }
+
+    #[test]
+    fn test_validate_auth_token_special_characters_allowed() {
+        let tokens = vec![
+            "token-with-dashes",
+            "token_with_underscores",
+            "token.with.dots",
+            "token@with#special$chars",
+        ];
+
+        for token in tokens {
+            let result = Config::validate_auth_token(token);
+            assert!(
+                result.is_ok(),
+                "Token '{}' with special chars should be valid",
+                token
+            );
         }
     }
 }

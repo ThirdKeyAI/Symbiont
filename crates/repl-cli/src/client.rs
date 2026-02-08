@@ -1,7 +1,7 @@
 use anyhow::Result;
 use repl_proto::{EvaluateParams, Request, Response};
 use std::io::{BufRead, BufReader, Write};
-use std::process::{Command, Stdio, Child, ChildStdin, ChildStdout};
+use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
 pub struct Client {
     child: Child,
@@ -46,7 +46,7 @@ impl Client {
         let mut line = String::new();
         self.stdout.read_line(&mut line)?;
         let response: Response = serde_json::from_str(&line)?;
-        
+
         let result: String = serde_json::from_value(response.result)?;
         Ok(result)
     }

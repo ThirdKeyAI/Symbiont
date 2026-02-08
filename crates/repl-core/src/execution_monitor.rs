@@ -2,8 +2,8 @@
 //!
 //! Provides tracing, logging, and debugging capabilities for agent execution.
 
-use crate::dsl::evaluator::{DslValue, AgentInstance};
-use crate::error::{Result, ReplError};
+use crate::dsl::evaluator::{AgentInstance, DslValue};
+use crate::error::{ReplError, Result};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -106,7 +106,10 @@ impl ExecutionMonitor {
             variables: HashMap::new(),
         };
 
-        self.active_executions.lock().unwrap().insert(execution_id, context);
+        self.active_executions
+            .lock()
+            .unwrap()
+            .insert(execution_id, context);
 
         // Add trace entry
         self.add_trace(TraceEntry {
@@ -128,10 +131,10 @@ impl ExecutionMonitor {
     /// End monitoring an execution
     pub fn end_execution(&self, execution_id: Uuid, result: Result<DslValue>) -> Option<Duration> {
         let context = self.active_executions.lock().unwrap().remove(&execution_id);
-        
+
         if let Some(context) = context {
             let duration = context.start_time.elapsed();
-            
+
             let (event_type, success) = match result {
                 Ok(_) => (TraceEventType::BehaviorCompleted, true),
                 Err(_) => (TraceEventType::BehaviorFailed, false),
@@ -158,7 +161,7 @@ impl ExecutionMonitor {
 
             // Update statistics
             self.update_stats(duration, success, &context.behavior_name);
-            
+
             Some(duration)
         } else {
             None
@@ -169,7 +172,7 @@ impl ExecutionMonitor {
     pub fn add_trace(&self, entry: TraceEntry) {
         let mut traces = self.traces.lock().unwrap();
         traces.push(entry);
-        
+
         // Keep only the most recent traces
         if traces.len() > self.max_traces {
             let excess = traces.len() - self.max_traces;
@@ -196,7 +199,12 @@ impl ExecutionMonitor {
     }
 
     /// Log function call
-    pub fn log_function_call(&self, execution_id: Option<Uuid>, function_name: &str, args: &[DslValue]) {
+    pub fn log_function_call(
+        &self,
+        execution_id: Option<Uuid>,
+        function_name: &str,
+        args: &[DslValue],
+    ) {
         if let Some(exec_id) = execution_id {
             if let Some(context) = self.active_executions.lock().unwrap().get_mut(&exec_id) {
                 context.stack.push(function_name.to_string());
@@ -207,7 +215,11 @@ impl ExecutionMonitor {
             id: Uuid::new_v4(),
             timestamp: chrono::Utc::now(),
             agent_id: execution_id.and_then(|id| {
-                self.active_executions.lock().unwrap().get(&id).and_then(|ctx| ctx.agent_id)
+                self.active_executions
+                    .lock()
+                    .unwrap()
+                    .get(&id)
+                    .and_then(|ctx| ctx.agent_id)
             }),
             behavior_name: None,
             event_type: TraceEventType::FunctionCalled,
@@ -237,14 +249,24 @@ impl ExecutionMonitor {
 
         // Update capability statistics
         let mut stats = self.stats.lock().unwrap();
-        *stats.capabilities_checked.entry(capability.to_string()).or_insert(0) += 1;
+        *stats
+            .capabilities_checked
+            .entry(capability.to_string())
+            .or_insert(0) += 1;
     }
 
     /// Log variable assignment
-    pub fn log_variable_assignment(&self, execution_id: Option<Uuid>, var_name: &str, value: &DslValue) {
+    pub fn log_variable_assignment(
+        &self,
+        execution_id: Option<Uuid>,
+        var_name: &str,
+        value: &DslValue,
+    ) {
         if let Some(exec_id) = execution_id {
             if let Some(context) = self.active_executions.lock().unwrap().get_mut(&exec_id) {
-                context.variables.insert(var_name.to_string(), value.clone());
+                context
+                    .variables
+                    .insert(var_name.to_string(), value.clone());
             }
         }
 
@@ -252,7 +274,11 @@ impl ExecutionMonitor {
             id: Uuid::new_v4(),
             timestamp: chrono::Utc::now(),
             agent_id: execution_id.and_then(|id| {
-                self.active_executions.lock().unwrap().get(&id).and_then(|ctx| ctx.agent_id)
+                self.active_executions
+                    .lock()
+                    .unwrap()
+                    .get(&id)
+                    .and_then(|ctx| ctx.agent_id)
             }),
             behavior_name: None,
             event_type: TraceEventType::VariableAssigned,
@@ -306,11 +332,12 @@ impl ExecutionMonitor {
     /// Get traces for a specific agent
     pub fn get_agent_traces(&self, agent_id: Uuid, limit: Option<usize>) -> Vec<TraceEntry> {
         let traces = self.traces.lock().unwrap();
-        let agent_traces: Vec<_> = traces.iter()
+        let agent_traces: Vec<_> = traces
+            .iter()
             .filter(|trace| trace.agent_id == Some(agent_id))
             .cloned()
             .collect();
-        
+
         if let Some(limit) = limit {
             let start_idx = agent_traces.len().saturating_sub(limit);
             agent_traces[start_idx..].to_vec()
@@ -326,7 +353,12 @@ impl ExecutionMonitor {
 
     /// Get active executions
     pub fn get_active_executions(&self) -> Vec<ExecutionContext> {
-        self.active_executions.lock().unwrap().values().cloned().collect()
+        self.active_executions
+            .lock()
+            .unwrap()
+            .values()
+            .cloned()
+            .collect()
     }
 
     /// Clear all traces
@@ -337,19 +369,22 @@ impl ExecutionMonitor {
     /// Update execution statistics
     fn update_stats(&self, duration: Duration, success: bool, behavior_name: &Option<String>) {
         let mut stats = self.stats.lock().unwrap();
-        
+
         stats.total_executions += 1;
         if success {
             stats.successful_executions += 1;
         } else {
             stats.failed_executions += 1;
         }
-        
+
         stats.total_duration += duration;
         stats.average_duration = stats.total_duration / stats.total_executions as u32;
-        
+
         if let Some(behavior) = behavior_name {
-            *stats.behaviors_executed.entry(behavior.clone()).or_insert(0) += 1;
+            *stats
+                .behaviors_executed
+                .entry(behavior.clone())
+                .or_insert(0) += 1;
         }
     }
 
@@ -369,19 +404,24 @@ impl ExecutionMonitor {
         report.push_str(&format!("  Successful: {}\n", stats.successful_executions));
         report.push_str(&format!("  Failed: {}\n", stats.failed_executions));
         if stats.total_executions > 0 {
-            let success_rate = (stats.successful_executions as f64 / stats.total_executions as f64) * 100.0;
+            let success_rate =
+                (stats.successful_executions as f64 / stats.total_executions as f64) * 100.0;
             report.push_str(&format!("  Success Rate: {:.1}%\n", success_rate));
         }
-        report.push_str(&format!("  Average Duration: {:?}\n", stats.average_duration));
+        report.push_str(&format!(
+            "  Average Duration: {:?}\n",
+            stats.average_duration
+        ));
         report.push_str(&format!("  Total Duration: {:?}\n", stats.total_duration));
 
         // Active executions
         report.push_str(&format!("\nActive Executions: {}\n", active.len()));
         for exec in &active {
             let elapsed = exec.start_time.elapsed();
-            report.push_str(&format!("  {} - {:?} ({}s)\n", 
-                exec.id, 
-                exec.behavior_name.as_deref().unwrap_or("unknown"), 
+            report.push_str(&format!(
+                "  {} - {:?} ({}s)\n",
+                exec.id,
+                exec.behavior_name.as_deref().unwrap_or("unknown"),
                 elapsed.as_secs()
             ));
         }
@@ -400,8 +440,9 @@ impl ExecutionMonitor {
         if !recent_traces.is_empty() {
             report.push_str("\nRecent Activity:\n");
             for trace in recent_traces.iter().rev().take(10) {
-                report.push_str(&format!("  {} - {:?}\n", 
-                    trace.timestamp.format("%H:%M:%S"), 
+                report.push_str(&format!(
+                    "  {} - {:?}\n",
+                    trace.timestamp.format("%H:%M:%S"),
                     trace.event_type
                 ));
             }
@@ -419,14 +460,15 @@ mod tests {
     #[test]
     fn test_execution_monitor_basic() {
         let monitor = ExecutionMonitor::new();
-        
-        let exec_id = monitor.start_execution(Some(Uuid::new_v4()), Some("test_behavior".to_string()));
+
+        let exec_id =
+            monitor.start_execution(Some(Uuid::new_v4()), Some("test_behavior".to_string()));
         assert!(monitor.get_active_executions().len() == 1);
-        
+
         let duration = monitor.end_execution(exec_id, Ok(DslValue::String("success".to_string())));
         assert!(duration.is_some());
         assert!(monitor.get_active_executions().is_empty());
-        
+
         let traces = monitor.get_traces(None);
         assert_eq!(traces.len(), 2); // start + end
     }
@@ -434,18 +476,18 @@ mod tests {
     #[test]
     fn test_execution_monitor_stats() {
         let monitor = ExecutionMonitor::new();
-        
+
         // Simulate some executions
         for i in 0..5 {
             let exec_id = monitor.start_execution(None, Some(format!("behavior_{}", i)));
-            let result = if i % 2 == 0 { 
+            let result = if i % 2 == 0 {
                 Ok(DslValue::Integer(42))
-            } else { 
+            } else {
                 Err(ReplError::Execution("test error".to_string()))
             };
             monitor.end_execution(exec_id, result);
         }
-        
+
         let stats = monitor.get_stats();
         assert_eq!(stats.total_executions, 5);
         assert_eq!(stats.successful_executions, 3);

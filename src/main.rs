@@ -141,6 +141,97 @@ async fn main() {
                         .help("DSL content to parse directly"),
                 ),
         )
+        .subcommand(
+            Command::new("cron")
+                .about("Manage cron-scheduled agent jobs")
+                .subcommand(Command::new("list").about("List all scheduled jobs"))
+                .subcommand(
+                    Command::new("add")
+                        .about("Create a new scheduled job")
+                        .arg(
+                            Arg::new("name")
+                                .long("name")
+                                .value_name("NAME")
+                                .help("Job name")
+                                .required(true),
+                        )
+                        .arg(
+                            Arg::new("cron")
+                                .long("cron")
+                                .value_name("EXPR")
+                                .help("Cron expression (e.g. \"0 */5 * * * * *\")")
+                                .required(true),
+                        )
+                        .arg(
+                            Arg::new("tz")
+                                .long("tz")
+                                .value_name("TIMEZONE")
+                                .help("IANA timezone (default: UTC)")
+                                .default_value("UTC"),
+                        )
+                        .arg(
+                            Arg::new("agent")
+                                .long("agent")
+                                .value_name("AGENT")
+                                .help("Agent name to execute")
+                                .required(true),
+                        )
+                        .arg(
+                            Arg::new("policy")
+                                .long("policy")
+                                .value_name("POLICY")
+                                .help("Policy to apply"),
+                        )
+                        .arg(
+                            Arg::new("one-shot")
+                                .long("one-shot")
+                                .action(ArgAction::SetTrue)
+                                .help("Run once then disable"),
+                        ),
+                )
+                .subcommand(
+                    Command::new("remove")
+                        .about("Delete a scheduled job")
+                        .arg(Arg::new("job-id").required(true).help("Job UUID")),
+                )
+                .subcommand(
+                    Command::new("pause")
+                        .about("Pause a scheduled job")
+                        .arg(Arg::new("job-id").required(true).help("Job UUID")),
+                )
+                .subcommand(
+                    Command::new("resume")
+                        .about("Resume a paused job")
+                        .arg(Arg::new("job-id").required(true).help("Job UUID")),
+                )
+                .subcommand(
+                    Command::new("status")
+                        .about("Show job details and recent runs")
+                        .arg(Arg::new("job-id").required(true).help("Job UUID")),
+                )
+                .subcommand(
+                    Command::new("run")
+                        .about("Force-trigger a job immediately")
+                        .arg(Arg::new("job-id").required(true).help("Job UUID")),
+                )
+                .subcommand(
+                    Command::new("history")
+                        .about("Show run history")
+                        .arg(
+                            Arg::new("job")
+                                .long("job")
+                                .value_name("JOB_ID")
+                                .help("Filter by job ID"),
+                        )
+                        .arg(
+                            Arg::new("limit")
+                                .long("limit")
+                                .value_name("N")
+                                .help("Max records to show")
+                                .default_value("20"),
+                        ),
+                ),
+        )
         .get_matches();
 
     match matches.subcommand() {
@@ -177,6 +268,9 @@ async fn main() {
                 eprintln!("Either --file or --content must be provided for DSL command");
                 std::process::exit(1);
             }
+        }
+        Some(("cron", sub_matches)) => {
+            commands::cron::run(sub_matches).await;
         }
         _ => {
             println!("Symbiont v{}", VERSION);

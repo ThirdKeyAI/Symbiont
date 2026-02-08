@@ -10,7 +10,8 @@ module.exports = grammar({
       $.agent_definition,
       $.policy_definition,
       $.type_definition,
-      $.function_definition
+      $.function_definition,
+      $.schedule_definition
     ),
 
     metadata_block: $ => seq(
@@ -86,6 +87,21 @@ module.exports = grammar({
       ')',
       optional(seq('->', $.type)),
       $.block
+    ),
+
+    schedule_definition: $ => seq(
+      'schedule',
+      $.identifier,
+      '{',
+      repeat($.schedule_property),
+      '}'
+    ),
+
+    schedule_property: $ => seq(
+      $.identifier,
+      ':',
+      $.value,
+      optional(',')
     ),
 
     parameter: $ => seq(
