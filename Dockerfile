@@ -1,6 +1,6 @@
 # Unified Symbi Container - DSL and Runtime
 # Multi-stage build for optimal performance and security
-FROM rust:1.85-slim-bookworm AS builder
+FROM rust:1.88-slim-bookworm AS builder
 
 # Install build dependencies with parallel processing
 RUN apt-get update && apt-get install -y \
