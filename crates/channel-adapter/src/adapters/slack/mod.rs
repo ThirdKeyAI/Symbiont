@@ -318,7 +318,10 @@ mod tests {
     #[test]
     fn slack_adapter_accepts_valid_token() {
         let config = SlackConfig {
-            bot_token: format!("xoxb-{}-{}-{}", "0000000000000", "0000000000000", "fakefakefakefakefakefake"),
+            bot_token: format!(
+                "xoxb-{}-{}-{}",
+                "0000000000000", "0000000000000", "fakefakefakefakefakefake"
+            ),
             ..SlackConfig::default()
         };
         let result = SlackAdapter::new(config, Arc::new(NoopHandler));
