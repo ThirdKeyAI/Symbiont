@@ -202,7 +202,7 @@ Symbiont v1.0.0 is the first stable release, delivering a complete AI agent fram
   - [DSL Guide](dsl-guide.md)
   - [Security Model](security-model.md)
   - [Runtime Architecture](runtime-architecture.md)
-- **Packages**: [crates.io/crates/symbi](https://crates.io/crates/symbi) | [npm @symbiont/core](https://www.npmjs.com/package/@symbiont/core) | [PyPI symbiont](https://pypi.org/project/symbiont/)
+- **Packages**: [crates.io/crates/symbi](https://crates.io/crates/symbi) | [npm symbiont-sdk-js](https://www.npmjs.com/package/symbiont-sdk-js) | [PyPI symbiont-sdk](https://pypi.org/project/symbiont-sdk/)
 - **Issues**: [GitHub Issues](https://github.com/thirdkeyai/symbiont/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/thirdkeyai/symbiont/discussions)
 - **License**: Open source software by ThirdKey
