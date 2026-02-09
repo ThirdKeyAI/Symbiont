@@ -25,12 +25,15 @@ use utoipa_swagger_ui::SwaggerUi;
 
 #[cfg(feature = "http-api")]
 use super::types::{
-    AgentExecutionRecord, AgentStatusResponse, CreateAgentRequest, CreateAgentResponse,
-    CreateScheduleRequest, CreateScheduleResponse, DeleteAgentResponse, DeleteScheduleResponse,
-    ErrorResponse, ExecuteAgentRequest, ExecuteAgentResponse, GetAgentHistoryResponse,
-    HealthResponse, NextRunsResponse, ResourceUsage, ScheduleActionResponse, ScheduleDetail,
-    ScheduleHistoryResponse, ScheduleRunEntry, ScheduleSummary, SchedulerHealthResponse,
-    UpdateAgentRequest, UpdateAgentResponse, UpdateScheduleRequest, WorkflowExecutionRequest,
+    AddIdentityMappingRequest, AgentExecutionRecord, AgentStatusResponse, ChannelActionResponse,
+    ChannelAuditEntry, ChannelAuditResponse, ChannelDetail, ChannelHealthResponse, ChannelSummary,
+    CreateAgentRequest, CreateAgentResponse, CreateScheduleRequest, CreateScheduleResponse,
+    DeleteAgentResponse, DeleteChannelResponse, DeleteScheduleResponse, ErrorResponse,
+    ExecuteAgentRequest, ExecuteAgentResponse, GetAgentHistoryResponse, HealthResponse,
+    IdentityMappingEntry, NextRunsResponse, RegisterChannelRequest, RegisterChannelResponse,
+    ResourceUsage, ScheduleActionResponse, ScheduleDetail, ScheduleHistoryResponse,
+    ScheduleRunEntry, ScheduleSummary, SchedulerHealthResponse, UpdateAgentRequest,
+    UpdateAgentResponse, UpdateChannelRequest, UpdateScheduleRequest, WorkflowExecutionRequest,
 };
 
 #[cfg(feature = "http-api")]
@@ -64,6 +67,18 @@ use crate::types::RuntimeError;
         super::routes::get_schedule_history,
         super::routes::get_schedule_next_runs,
         super::routes::get_scheduler_health,
+        super::routes::list_channels,
+        super::routes::register_channel,
+        super::routes::get_channel,
+        super::routes::update_channel,
+        super::routes::delete_channel,
+        super::routes::start_channel,
+        super::routes::stop_channel,
+        super::routes::get_channel_health,
+        super::routes::list_channel_mappings,
+        super::routes::add_channel_mapping,
+        super::routes::remove_channel_mapping,
+        super::routes::get_channel_audit,
         health_check
     ),
     components(
@@ -92,14 +107,27 @@ use crate::types::RuntimeError;
             ScheduleHistoryResponse,
             ScheduleActionResponse,
             DeleteScheduleResponse,
-            SchedulerHealthResponse
+            SchedulerHealthResponse,
+            RegisterChannelRequest,
+            RegisterChannelResponse,
+            UpdateChannelRequest,
+            ChannelSummary,
+            ChannelDetail,
+            ChannelActionResponse,
+            DeleteChannelResponse,
+            ChannelHealthResponse,
+            IdentityMappingEntry,
+            AddIdentityMappingRequest,
+            ChannelAuditEntry,
+            ChannelAuditResponse
         )
     ),
     tags(
         (name = "agents", description = "Agent management endpoints"),
         (name = "workflows", description = "Workflow execution endpoints"),
         (name = "system", description = "System monitoring and health endpoints"),
-        (name = "schedules", description = "Cron schedule management endpoints")
+        (name = "schedules", description = "Cron schedule management endpoints"),
+        (name = "channels", description = "Channel adapter management endpoints")
     ),
     info(
         title = "Symbiont Runtime API",
@@ -188,7 +216,7 @@ impl HttpApiServer {
 
     /// Create the Axum router with all routes and middleware
     fn create_router(&self) -> Router {
-        use axum::routing::{get, post, put};
+        use axum::routing::{delete, get, post, put};
 
         let mut router = Router::new()
             .route("/api/v1/health", get(health_check))
@@ -202,11 +230,13 @@ impl HttpApiServer {
         if let Some(provider) = &self.runtime_provider {
             use super::middleware::auth_middleware;
             use super::routes::{
-                create_agent, create_schedule, delete_agent, delete_schedule, execute_agent,
-                execute_workflow, get_agent_history, get_agent_status, get_metrics, get_schedule,
-                get_schedule_history, get_schedule_next_runs, get_scheduler_health, list_agents,
-                list_schedules, pause_schedule, resume_schedule, trigger_schedule, update_agent,
-                update_schedule,
+                add_channel_mapping, create_agent, create_schedule, delete_agent, delete_channel,
+                delete_schedule, execute_agent, execute_workflow, get_agent_history,
+                get_agent_status, get_channel, get_channel_audit, get_channel_health, get_metrics,
+                get_schedule, get_schedule_history, get_schedule_next_runs, get_scheduler_health,
+                list_agents, list_channel_mappings, list_channels, list_schedules, pause_schedule,
+                register_channel, remove_channel_mapping, resume_schedule, start_channel,
+                stop_channel, trigger_schedule, update_agent, update_channel, update_schedule,
             };
             use axum::middleware;
 
@@ -243,6 +273,31 @@ impl HttpApiServer {
                 .layer(middleware::from_fn(auth_middleware))
                 .with_state(provider.clone());
 
+            // Channel routes
+            let channel_router = Router::new()
+                .route(
+                    "/api/v1/channels",
+                    get(list_channels).post(register_channel),
+                )
+                .route(
+                    "/api/v1/channels/:id",
+                    get(get_channel).put(update_channel).delete(delete_channel),
+                )
+                .route("/api/v1/channels/:id/start", post(start_channel))
+                .route("/api/v1/channels/:id/stop", post(stop_channel))
+                .route("/api/v1/channels/:id/health", get(get_channel_health))
+                .route(
+                    "/api/v1/channels/:id/mappings",
+                    get(list_channel_mappings).post(add_channel_mapping),
+                )
+                .route(
+                    "/api/v1/channels/:id/mappings/:user_id",
+                    delete(remove_channel_mapping),
+                )
+                .route("/api/v1/channels/:id/audit", get(get_channel_audit))
+                .layer(middleware::from_fn(auth_middleware))
+                .with_state(provider.clone());
+
             // Other routes with authentication
             let other_router = Router::new()
                 .route("/api/v1/workflows/execute", post(execute_workflow))
@@ -254,6 +309,7 @@ impl HttpApiServer {
             router = router
                 .merge(agent_router)
                 .merge(schedule_router)
+                .merge(channel_router)
                 .merge(other_router);
         }
 

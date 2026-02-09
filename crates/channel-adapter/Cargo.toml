@@ -1,0 +1,45 @@
+[package]
+name = "symbi-channel-adapter"
+version = "0.1.0"
+edition = "2021"
+authors = ["Jascha Wanger / ThirdKey.ai"]
+description = "Chat channel adapters for the Symbi platform — Slack, Teams, Mattermost"
+license = "MIT"
+repository = "https://github.com/thirdkeyai/symbiont"
+keywords = ["chat", "slack", "adapter", "symbiont", "agents"]
+
+[dependencies]
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+async-trait = "0.1"
+thiserror = "1.0"
+tracing = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+
+# Slack adapter dependencies (default feature)
+axum = { version = "0.7", optional = true }
+reqwest = { version = "0.12", features = ["json"], optional = true }
+hmac = { version = "0.12", optional = true }
+sha2 = { version = "0.10", optional = true }
+hex = { version = "0.4", optional = true }
+subtle = { version = "2.5", optional = true }
+tower = { version = "0.4", optional = true }
+tower-http = { version = "0.5", features = ["cors", "trace"], optional = true }
+serde_urlencoded = { version = "0.7", optional = true }
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3.0"
+
+[features]
+default = ["slack"]
+slack = ["axum", "reqwest", "hmac", "sha2", "hex", "subtle", "tower", "tower-http", "serde_urlencoded"]
+teams = ["reqwest"]
+mattermost = ["reqwest"]
+enterprise-hooks = []
+
+[lib]
+name = "symbi_channel_adapter"
+path = "src/lib.rs"

@@ -311,3 +311,135 @@ pub struct DeleteScheduleResponse {
     pub job_id: String,
     pub deleted: bool,
 }
+
+// ── Channel API types ──────────────────────────────────────────
+
+/// Request to register a new channel adapter.
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RegisterChannelRequest {
+    /// Human-readable name for this channel.
+    pub name: String,
+    /// Platform identifier ("slack", "teams", "mattermost").
+    pub platform: String,
+    /// Platform-specific configuration JSON.
+    pub config: serde_json::Value,
+}
+
+/// Response after registering a channel.
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RegisterChannelResponse {
+    pub id: String,
+    pub name: String,
+    pub platform: String,
+    pub status: String,
+}
+
+/// Request to update an existing channel.
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UpdateChannelRequest {
+    pub config: Option<serde_json::Value>,
+}
+
+/// Summary of a channel adapter (for list endpoint).
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ChannelSummary {
+    pub id: String,
+    pub name: String,
+    pub platform: String,
+    /// Current status: "running", "stopped", "error".
+    pub status: String,
+}
+
+/// Detailed channel adapter information.
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ChannelDetail {
+    pub id: String,
+    pub name: String,
+    pub platform: String,
+    pub status: String,
+    pub config: serde_json::Value,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Generic action response for start/stop.
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ChannelActionResponse {
+    pub id: String,
+    pub action: String,
+    pub status: String,
+}
+
+/// Response for deleting a channel.
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct DeleteChannelResponse {
+    pub id: String,
+    pub deleted: bool,
+}
+
+/// Channel health and connectivity information.
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ChannelHealthResponse {
+    pub id: String,
+    pub connected: bool,
+    pub platform: String,
+    pub workspace_name: Option<String>,
+    pub channels_active: usize,
+    pub last_message_at: Option<String>,
+    pub uptime_secs: u64,
+}
+
+// ── Channel enterprise types (always compiled, gated at runtime) ────
+
+/// Identity mapping between a platform user and a Symbiont user.
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct IdentityMappingEntry {
+    pub platform_user_id: String,
+    pub platform: String,
+    pub symbiont_user_id: String,
+    pub email: Option<String>,
+    pub display_name: String,
+    pub roles: Vec<String>,
+    pub verified: bool,
+    pub created_at: String,
+}
+
+/// Request to add an identity mapping.
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct AddIdentityMappingRequest {
+    pub platform_user_id: String,
+    pub symbiont_user_id: String,
+    pub email: Option<String>,
+    pub display_name: String,
+    pub roles: Vec<String>,
+}
+
+/// A single channel audit log entry.
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ChannelAuditEntry {
+    pub timestamp: String,
+    pub event_type: String,
+    pub user_id: Option<String>,
+    pub channel_id: Option<String>,
+    pub agent: Option<String>,
+    pub details: serde_json::Value,
+}
+
+/// Response for channel audit log queries.
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ChannelAuditResponse {
+    pub channel_id: String,
+    pub entries: Vec<ChannelAuditEntry>,
+}

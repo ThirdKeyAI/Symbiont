@@ -2,7 +2,10 @@ use std::fs;
 use std::path::Path;
 
 // Import the functions we want to test from main.rs
-use dsl::{extract_metadata, extract_with_blocks, parse_dsl, print_ast, SandboxTier, WithBlock};
+use dsl::{
+    extract_channel_definitions, extract_metadata, extract_with_blocks, parse_dsl, print_ast,
+    SandboxTier, WithBlock,
+};
 
 #[cfg(test)]
 mod parser_tests {
@@ -541,5 +544,179 @@ mod parser_tests {
             assert_eq!(with_blocks.len(), 1);
             assert_eq!(with_blocks[0].timeout, expected);
         }
+    }
+
+    // ── Channel definition tests ──────────────────────────────────────
+
+    #[test]
+    fn test_channel_definition_parsing() {
+        let dsl = r#"
+        channel slack_ops {
+            platform: "slack"
+            workspace: "acme-corp"
+            default_agent: "compliance_check"
+            dlp_profile: "hipaa"
+            audit_level: "full"
+            default_deny: true
+        }
+        "#;
+
+        let tree = parse_dsl(dsl).expect("should parse");
+        let channels = extract_channel_definitions(&tree, dsl).unwrap();
+        assert_eq!(channels.len(), 1);
+
+        let c = &channels[0];
+        assert_eq!(c.name, "slack_ops");
+        assert_eq!(c.platform.as_deref(), Some("slack"));
+        assert_eq!(c.workspace.as_deref(), Some("acme-corp"));
+        assert_eq!(c.default_agent.as_deref(), Some("compliance_check"));
+        assert_eq!(c.dlp_profile.as_deref(), Some("hipaa"));
+        assert_eq!(c.audit_level.as_deref(), Some("full"));
+        assert!(c.default_deny);
+        assert!(c.channels.is_empty());
+        assert!(c.policy_rules.is_empty());
+        assert!(c.data_classification.is_empty());
+    }
+
+    #[test]
+    fn test_channel_with_array_channels() {
+        let dsl = r##"
+        channel slack_ops {
+            platform: "slack"
+            channels: ["#ops-agents", "#compliance"]
+        }
+        "##;
+
+        let tree = parse_dsl(dsl).expect("should parse");
+        let channels = extract_channel_definitions(&tree, dsl).unwrap();
+        assert_eq!(channels.len(), 1);
+
+        let c = &channels[0];
+        assert_eq!(c.channels.len(), 2);
+        assert_eq!(c.channels[0], "#ops-agents");
+        assert_eq!(c.channels[1], "#compliance");
+    }
+
+    #[test]
+    fn test_channel_with_policy_block() {
+        let dsl = r#"
+        channel slack_ops {
+            platform: "slack"
+
+            policy channel_guard {
+                allow: invoke("compliance_check")
+                deny: invoke("deploy_prod")
+                audit: all_interactions
+            }
+        }
+        "#;
+
+        let tree = parse_dsl(dsl).expect("should parse");
+        let channels = extract_channel_definitions(&tree, dsl).unwrap();
+        assert_eq!(channels.len(), 1);
+
+        let c = &channels[0];
+        assert_eq!(c.policy_rules.len(), 3);
+        assert_eq!(c.policy_rules[0].action, "allow");
+        assert!(c.policy_rules[0].expression.contains("compliance_check"));
+        assert_eq!(c.policy_rules[1].action, "deny");
+        assert!(c.policy_rules[1].expression.contains("deploy_prod"));
+        assert_eq!(c.policy_rules[2].action, "audit");
+        assert_eq!(c.policy_rules[2].expression, "all_interactions");
+    }
+
+    #[test]
+    fn test_channel_with_data_classification() {
+        let dsl = r#"
+        channel slack_ops {
+            platform: "slack"
+
+            data_classification {
+                pii: redact
+                phi: block
+                api_key: redact
+                public: allow
+            }
+        }
+        "#;
+
+        let tree = parse_dsl(dsl).expect("should parse");
+        let channels = extract_channel_definitions(&tree, dsl).unwrap();
+        assert_eq!(channels.len(), 1);
+
+        let c = &channels[0];
+        assert_eq!(c.data_classification.len(), 4);
+        assert_eq!(c.data_classification[0].category, "pii");
+        assert_eq!(c.data_classification[0].action, "redact");
+        assert_eq!(c.data_classification[1].category, "phi");
+        assert_eq!(c.data_classification[1].action, "block");
+        assert_eq!(c.data_classification[2].category, "api_key");
+        assert_eq!(c.data_classification[2].action, "redact");
+        assert_eq!(c.data_classification[3].category, "public");
+        assert_eq!(c.data_classification[3].action, "allow");
+    }
+
+    #[test]
+    fn test_channel_missing_platform() {
+        let dsl = r#"
+        channel bad_channel {
+            workspace: "acme-corp"
+            default_agent: "some_agent"
+        }
+        "#;
+
+        let tree = parse_dsl(dsl).expect("should parse");
+        let result = extract_channel_definitions(&tree, dsl);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("must specify 'platform'"));
+    }
+
+    #[test]
+    fn test_multiple_channel_definitions() {
+        let dsl = r#"
+        channel slack_ops {
+            platform: "slack"
+            workspace: "acme-corp"
+        }
+        channel teams_eng {
+            platform: "teams"
+            workspace: "engineering"
+        }
+        "#;
+
+        let tree = parse_dsl(dsl).expect("should parse");
+        let channels = extract_channel_definitions(&tree, dsl).unwrap();
+        assert_eq!(channels.len(), 2);
+        assert_eq!(channels[0].name, "slack_ops");
+        assert_eq!(channels[0].platform.as_deref(), Some("slack"));
+        assert_eq!(channels[1].name, "teams_eng");
+        assert_eq!(channels[1].platform.as_deref(), Some("teams"));
+    }
+
+    #[test]
+    fn test_channel_with_schedule() {
+        let dsl = r#"
+        schedule morning_report {
+            cron: "0 7 * * 1-5",
+            agent: "compliance_reporter"
+        }
+
+        channel slack_ops {
+            platform: "slack"
+            workspace: "acme-corp"
+        }
+        "#;
+
+        let tree = parse_dsl(dsl).expect("should parse");
+
+        // Both should parse without interference
+        let schedules =
+            dsl::extract_schedule_definitions(&tree, dsl).expect("schedules should parse");
+        assert_eq!(schedules.len(), 1);
+        assert_eq!(schedules[0].name, "morning_report");
+
+        let channels = extract_channel_definitions(&tree, dsl).unwrap();
+        assert_eq!(channels.len(), 1);
+        assert_eq!(channels[0].name, "slack_ops");
     }
 }

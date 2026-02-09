@@ -1,3 +1,4 @@
+pub mod chat;
 pub mod cron;
 pub mod doctor;
 pub mod logs;

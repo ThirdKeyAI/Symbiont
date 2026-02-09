@@ -142,6 +142,46 @@ async fn main() {
                 ),
         )
         .subcommand(
+            Command::new("chat")
+                .about("Manage chat channel adapters (Slack, Teams, Mattermost)")
+                .subcommand(
+                    Command::new("connect")
+                        .about("Connect a chat adapter")
+                        .subcommand(
+                            Command::new("slack")
+                                .about("Connect to a Slack workspace")
+                                .arg(
+                                    Arg::new("token")
+                                        .long("token")
+                                        .value_name("TOKEN")
+                                        .help("Slack bot token (xoxb-...)")
+                                        .required(true),
+                                )
+                                .arg(
+                                    Arg::new("port")
+                                        .long("port")
+                                        .value_name("PORT")
+                                        .help("Webhook server port (default: 3100)")
+                                        .default_value("3100"),
+                                )
+                                .arg(
+                                    Arg::new("agent")
+                                        .long("agent")
+                                        .value_name("AGENT")
+                                        .help("Default agent to invoke"),
+                                ),
+                        ),
+                )
+                .subcommand(Command::new("status").about("Show connected adapters"))
+                .subcommand(
+                    Command::new("disconnect")
+                        .about("Disconnect a chat adapter")
+                        .subcommand(
+                            Command::new("slack").about("Disconnect from Slack"),
+                        ),
+                ),
+        )
+        .subcommand(
             Command::new("cron")
                 .about("Manage cron-scheduled agent jobs")
                 .subcommand(Command::new("list").about("List all scheduled jobs"))
@@ -268,6 +308,9 @@ async fn main() {
                 eprintln!("Either --file or --content must be provided for DSL command");
                 std::process::exit(1);
             }
+        }
+        Some(("chat", sub_matches)) => {
+            commands::chat::run(sub_matches).await;
         }
         Some(("cron", sub_matches)) => {
             commands::cron::run(sub_matches).await;

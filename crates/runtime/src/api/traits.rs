@@ -11,11 +11,14 @@ use crate::types::{AgentId, RuntimeError};
 
 #[cfg(feature = "http-api")]
 use super::types::{
-    AgentStatusResponse, CreateAgentRequest, CreateAgentResponse, CreateScheduleRequest,
-    CreateScheduleResponse, DeleteAgentResponse, DeleteScheduleResponse, ExecuteAgentRequest,
-    ExecuteAgentResponse, GetAgentHistoryResponse, NextRunsResponse, ScheduleActionResponse,
-    ScheduleDetail, ScheduleHistoryResponse, ScheduleSummary, SchedulerHealthResponse,
-    UpdateAgentRequest, UpdateAgentResponse, UpdateScheduleRequest, WorkflowExecutionRequest,
+    AddIdentityMappingRequest, AgentStatusResponse, ChannelActionResponse, ChannelAuditResponse,
+    ChannelDetail, ChannelHealthResponse, ChannelSummary, CreateAgentRequest, CreateAgentResponse,
+    CreateScheduleRequest, CreateScheduleResponse, DeleteAgentResponse, DeleteChannelResponse,
+    DeleteScheduleResponse, ExecuteAgentRequest, ExecuteAgentResponse, GetAgentHistoryResponse,
+    IdentityMappingEntry, NextRunsResponse, RegisterChannelRequest, RegisterChannelResponse,
+    ScheduleActionResponse, ScheduleDetail, ScheduleHistoryResponse, ScheduleSummary,
+    SchedulerHealthResponse, UpdateAgentRequest, UpdateAgentResponse, UpdateChannelRequest,
+    UpdateScheduleRequest, WorkflowExecutionRequest,
 };
 
 /// Trait providing API access to core runtime functionalities
@@ -124,4 +127,62 @@ pub trait RuntimeApiProvider: Send + Sync {
 
     /// Get scheduler health and metrics.
     async fn get_scheduler_health(&self) -> Result<SchedulerHealthResponse, RuntimeError>;
+
+    // ── Channel endpoints ──────────────────────────────────────────
+
+    /// List all registered channel adapters.
+    async fn list_channels(&self) -> Result<Vec<ChannelSummary>, RuntimeError>;
+
+    /// Register a new channel adapter.
+    async fn register_channel(
+        &self,
+        request: RegisterChannelRequest,
+    ) -> Result<RegisterChannelResponse, RuntimeError>;
+
+    /// Get details of a channel adapter.
+    async fn get_channel(&self, id: &str) -> Result<ChannelDetail, RuntimeError>;
+
+    /// Update a channel adapter configuration.
+    async fn update_channel(
+        &self,
+        id: &str,
+        request: UpdateChannelRequest,
+    ) -> Result<ChannelDetail, RuntimeError>;
+
+    /// Delete a channel adapter.
+    async fn delete_channel(&self, id: &str) -> Result<DeleteChannelResponse, RuntimeError>;
+
+    /// Start a channel adapter.
+    async fn start_channel(&self, id: &str) -> Result<ChannelActionResponse, RuntimeError>;
+
+    /// Stop a channel adapter.
+    async fn stop_channel(&self, id: &str) -> Result<ChannelActionResponse, RuntimeError>;
+
+    /// Get health and connectivity info for a channel adapter.
+    async fn get_channel_health(&self, id: &str) -> Result<ChannelHealthResponse, RuntimeError>;
+
+    // ── Channel enterprise endpoints (return NotImplemented for community) ──
+
+    /// List identity mappings for a channel.
+    async fn list_channel_mappings(
+        &self,
+        id: &str,
+    ) -> Result<Vec<IdentityMappingEntry>, RuntimeError>;
+
+    /// Add an identity mapping to a channel.
+    async fn add_channel_mapping(
+        &self,
+        id: &str,
+        request: AddIdentityMappingRequest,
+    ) -> Result<IdentityMappingEntry, RuntimeError>;
+
+    /// Remove an identity mapping from a channel.
+    async fn remove_channel_mapping(&self, id: &str, user_id: &str) -> Result<(), RuntimeError>;
+
+    /// Get audit log entries for a channel.
+    async fn get_channel_audit(
+        &self,
+        id: &str,
+        limit: usize,
+    ) -> Result<ChannelAuditResponse, RuntimeError>;
 }

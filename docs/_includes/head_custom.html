@@ -21,16 +21,23 @@ html body .label-primary {
   color: #15a89d !important;
 }
 
-/* Button text should be white for readability */
-html body .btn-primary {
+/* Button text should be white for readability on green background */
+html body .btn-primary,
+html body .btn-primary:link,
+html body .btn-primary:visited,
+html body a.btn-primary {
   color: white !important;
 }
 
 html body a:hover,
 html body .main-content a:hover,
-html body .side-bar a:hover,
-html body .btn-primary:hover {
+html body .side-bar a:hover {
   color: #129680 !important;
+}
+
+html body .btn-primary:hover,
+html body .btn-primary:active {
+  color: white !important;
 }
 
 html body a:visited,

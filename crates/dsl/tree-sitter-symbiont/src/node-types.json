@@ -89,6 +89,105 @@
     }
   },
   {
+    "type": "channel_data_classification_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "data_classification_rule",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "channel_definition",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "channel_data_classification_block",
+          "named": true
+        },
+        {
+          "type": "channel_policy_block",
+          "named": true
+        },
+        {
+          "type": "channel_property",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "channel_policy_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "policy_rule",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "channel_property",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "array",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "value",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "data_classification_rule",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "expression",
     "named": true,
     "fields": {},
@@ -354,6 +453,10 @@
       "types": [
         {
           "type": "agent_definition",
+          "named": true
+        },
+        {
+          "type": "channel_definition",
           "named": true
         },
         {
@@ -665,9 +768,17 @@
     "named": false
   },
   {
+    "type": "channel",
+    "named": false
+  },
+  {
     "type": "comment",
     "named": true,
     "extra": true
+  },
+  {
+    "type": "data_classification",
+    "named": false
   },
   {
     "type": "deny",

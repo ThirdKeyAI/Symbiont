@@ -2,14 +2,14 @@
 layout: default
 title: Home
 nav_order: 1
-description: "Symbiont: AI-native, privacy-first programming language and agent framework"
+description: "Symbiont: AI-native agent framework with scheduling, channel adapters, and cryptographic identity"
 permalink: /
 ---
 
 # Symbiont Documentation
 {: .fs-9 }
 
-AI-native, privacy-first programming language and agent framework for autonomous, policy-aware software development.
+AI-native agent framework for building autonomous, policy-aware agents with scheduling, channel adapters, and cryptographic identity — built in Rust.
 {: .fs-6 .fw-300 }
 
 [Get started now](#getting-started){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
@@ -26,17 +26,21 @@ AI-native, privacy-first programming language and agent framework for autonomous
 
 ## What is Symbiont?
 
-Symbiont represents the next evolution in software development — where AI agents and human developers collaborate securely, transparently, and effectively. It enables developers to build autonomous, policy-aware agents that can safely collaborate with humans, other agents, and large language models while enforcing zero-trust security, data privacy, and verifiable behavior.
+Symbiont is an AI-native agent framework for building autonomous, policy-aware agents that safely collaborate with humans, other agents, and large language models. It provides a complete production stack — from a declarative DSL and scheduling engine to multi-platform channel adapters and cryptographic identity verification — all built in Rust for performance and safety.
 
 ### Key Features
 
-- **🛡️ Security-First Design**: Multi-tier sandboxing with Docker and gVisor
-- **📋 Policy-Aware Programming**: Declarative security policies with runtime enforcement
-- **🔐 Enterprise Secrets Management**: HashiCorp Vault integration with encrypted file backends
-- **🔑 Cryptographic Auditability**: Complete operation logging with Ed25519 signatures
-- **🧠 Intelligent Context Management**: RAG-enhanced knowledge systems with vector search
-- **🔗 Secure Tool Integration**: MCP protocol with cryptographic verification
-- **⚡ High Performance**: Rust-native implementation for production workloads
+- **🛡️ Security-First Design**: Zero-trust architecture with multi-tier sandboxing, policy enforcement, and cryptographic audit trails
+- **📋 Declarative DSL**: Purpose-built language for defining agents, policies, schedules, and channel integrations with tree-sitter parsing
+- **📅 Production Scheduling**: Cron-based task execution with session isolation, delivery routing, dead-letter queues, and jitter support
+- **💬 Channel Adapters**: Connect agents to Slack, Microsoft Teams, and Mattermost with webhook verification and identity mapping
+- **🌐 HTTP Input Module**: Webhook server for external integrations with Bearer/JWT auth, rate limiting, and CORS
+- **🔑 AgentPin Identity**: Cryptographic agent identity verification via ES256 JWTs anchored to well-known endpoints
+- **🔐 Secrets Management**: HashiCorp Vault integration with encrypted file and OS keychain backends
+- **🧠 Context & Knowledge**: RAG-enhanced knowledge systems with vector search (Qdrant) and optional local embeddings
+- **🔗 MCP Integration**: Model Context Protocol client with SchemaPin cryptographic tool verification
+- **⚡ Multi-Language SDKs**: JavaScript and Python SDKs for full API access including scheduling, channels, and enterprise features
+- **🏗️ High Performance**: Rust-native runtime optimized for production workloads with async execution throughout
 
 ---
 
@@ -107,25 +111,45 @@ graph TB
     E --> F[Docker - Low Risk]
     E --> G[gVisor - Medium/High Risk]
     B --> I[Cryptographic Audit Trail]
-    
+
+    subgraph "Scheduling & Execution"
+        S[Cron Scheduler]
+        H[Session Isolation]
+        R[Delivery Router]
+    end
+
+    subgraph "Channel Adapters"
+        SL[Slack]
+        TM[Teams]
+        MM[Mattermost]
+    end
+
     subgraph "Context & Knowledge"
         J[Context Manager]
         K[Vector Database]
         L[RAG Engine]
     end
-    
+
     subgraph "Secure Integrations"
         M[MCP Client]
-        N[Tool Verification]
+        N[SchemaPin Verification]
         O[Policy Engine]
+        P[AgentPin Identity]
     end
-    
+
+    C --> S
+    S --> H
+    S --> R
+    R --> SL
+    R --> TM
+    R --> MM
     C --> J
     C --> M
     J --> K
     J --> L
     M --> N
     M --> O
+    C --> P
 ```
 
 ---
@@ -146,31 +170,39 @@ graph TB
 
 ## Project Status
 
-### v1.0.0 Released
+### v1.0.0 Stable
 
 Symbiont v1.0.0 is the first stable release, delivering a complete AI agent framework with production-grade capabilities:
 
-- **Scheduling**: Cron-based task execution with session isolation, delivery routing, and dead-letter queues
-- **Session Isolation**: Ephemeral, shared, or fully isolated agent contexts
-- **Delivery Routing**: Output to Stdout, LogFile, Webhook, Slack, Email, or custom channels
+- **Scheduling Engine**: Cron-based task execution with session isolation, delivery routing, dead-letter queues, jitter, and concurrency limits
+- **Channel Adapters**: Slack (community), Microsoft Teams and Mattermost (enterprise) with webhook verification and HMAC signing
+- **Channel Management API**: REST endpoints for adapter lifecycle — register, start, stop, health checks, identity mapping, and audit logs
+- **HTTP Input Module**: Webhook server for external integrations with Bearer/JWT auth, rate limiting, and CORS
+- **DSL Extensions**: `schedule` and `channel` blocks for declarative scheduling and channel configuration
+- **AgentPin Identity**: Cryptographic agent identity verification via ES256 JWTs with domain-anchored well-known endpoints
+- **Secrets Management**: HashiCorp Vault, encrypted file, and OS keychain backends with runtime provider abstraction
 - **Policy Enforcement**: Security and compliance gates with time-window and capability checks
-- **AgentPin Identity**: Cryptographic agent identity verification via ES256 JWTs
+- **JavaScript & Python SDKs**: Full API clients covering scheduling, channels, agents, and enterprise features
 - **Observability**: Prometheus-compatible metrics, structured audit events, and health endpoints
 
 ### 🔮 Planned Features
 - Multi-modal RAG support (images, audio, structured data)
 - Cross-agent knowledge synthesis and collaboration
 - Federated agent networks with cross-domain trust
-- Performance optimization and intelligent caching
+- Additional channel adapters (Discord, Matrix)
 
 ---
 
 ## Community
 
 - **Documentation**: Comprehensive guides and API references
-- [API Reference](api-reference.md)
-- [Scheduling Guide](scheduling.md)
-- [HTTP Input Module](http-input.md)
+  - [API Reference](api-reference.md)
+  - [Scheduling Guide](scheduling.md)
+  - [HTTP Input Module](http-input.md)
+  - [DSL Guide](dsl-guide.md)
+  - [Security Model](security-model.md)
+  - [Runtime Architecture](runtime-architecture.md)
+- **Packages**: [crates.io/crates/symbi](https://crates.io/crates/symbi) | [npm @symbiont/core](https://www.npmjs.com/package/@symbiont/core) | [PyPI symbiont](https://pypi.org/project/symbiont/)
 - **Issues**: [GitHub Issues](https://github.com/thirdkeyai/symbiont/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/thirdkeyai/symbiont/discussions)
 - **License**: Open source software by ThirdKey

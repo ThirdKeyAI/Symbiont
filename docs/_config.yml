@@ -3,8 +3,8 @@
 
 title: Symbiont Documentation
 description: >-
-  AI-native, privacy-first programming language and agent framework for
-  autonomous, policy-aware software development.
+  AI-native agent framework for building autonomous, policy-aware agents
+  with scheduling, channel adapters, cryptographic identity, and multi-language SDKs.
 
 # Logo configuration
 logo: "/logo-hz2.png"
@@ -14,7 +14,7 @@ url: "https://docs.symbiont.dev"
 
 # Theme configuration
 remote_theme: just-the-docs/just-the-docs
-# color_scheme: dark  # Disabled to use custom colors
+color_scheme: green
 
 # Custom CSS
 sass:

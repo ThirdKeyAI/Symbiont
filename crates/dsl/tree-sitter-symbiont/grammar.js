@@ -11,7 +11,8 @@ module.exports = grammar({
       $.policy_definition,
       $.type_definition,
       $.function_definition,
-      $.schedule_definition
+      $.schedule_definition,
+      $.channel_definition
     ),
 
     metadata_block: $ => seq(
@@ -101,6 +102,47 @@ module.exports = grammar({
       $.identifier,
       ':',
       $.value,
+      optional(',')
+    ),
+
+    channel_definition: $ => seq(
+      'channel',
+      $.identifier,
+      '{',
+      repeat(choice(
+        $.channel_property,
+        $.channel_policy_block,
+        $.channel_data_classification_block
+      )),
+      '}'
+    ),
+
+    channel_property: $ => seq(
+      $.identifier,
+      ':',
+      choice($.value, $.array),
+      optional(',')
+    ),
+
+    channel_policy_block: $ => seq(
+      'policy',
+      $.identifier,
+      '{',
+      repeat($.policy_rule),
+      '}'
+    ),
+
+    channel_data_classification_block: $ => seq(
+      'data_classification',
+      '{',
+      repeat($.data_classification_rule),
+      '}'
+    ),
+
+    data_classification_rule: $ => seq(
+      $.identifier,
+      ':',
+      $.identifier,
       optional(',')
     ),
 

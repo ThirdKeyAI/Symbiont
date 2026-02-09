@@ -411,6 +411,205 @@ pub fn extract_schedule_definitions(
     Ok(schedules)
 }
 
+/// A parsed channel definition from DSL `channel` blocks.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChannelDefinition {
+    pub name: String,
+    pub platform: Option<String>,
+    pub workspace: Option<String>,
+    pub channels: Vec<String>,
+    pub default_agent: Option<String>,
+    pub dlp_profile: Option<String>,
+    pub audit_level: Option<String>,
+    pub default_deny: bool,
+    pub policy_rules: Vec<ChannelPolicyRule>,
+    pub data_classification: Vec<DataClassificationEntry>,
+}
+
+impl ChannelDefinition {
+    fn new(name: String) -> Self {
+        Self {
+            name,
+            platform: None,
+            workspace: None,
+            channels: Vec::new(),
+            default_agent: None,
+            dlp_profile: None,
+            audit_level: None,
+            default_deny: false,
+            policy_rules: Vec::new(),
+            data_classification: Vec::new(),
+        }
+    }
+}
+
+/// A policy rule within a channel definition.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChannelPolicyRule {
+    /// Action kind: "allow", "deny", "require", or "audit".
+    pub action: String,
+    /// Raw expression text (e.g. `invoke("compliance_check")`).
+    pub expression: String,
+}
+
+/// A data classification entry within a channel definition.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DataClassificationEntry {
+    /// Category label (e.g. "pii", "phi", "api_key").
+    pub category: String,
+    /// Action to take: "redact", "block", "allow".
+    pub action: String,
+}
+
+/// Extract channel definitions from parsed AST.
+///
+/// Looks for `channel <name> { ... }` blocks and returns structured
+/// `ChannelDefinition` values. Validates that `platform` is present.
+pub fn extract_channel_definitions(
+    tree: &Tree,
+    source: &str,
+) -> Result<Vec<ChannelDefinition>, String> {
+    let mut channels = Vec::new();
+    let root_node = tree.root_node();
+
+    fn extract_array_strings(node: Node, source: &str) -> Vec<String> {
+        let mut items = Vec::new();
+        for i in 0..node.child_count() {
+            if let Some(child) = node.child(i) {
+                if child.kind() == "expression" || child.kind() == "string" {
+                    // For expression nodes, look for the string child
+                    let text = source[child.start_byte()..child.end_byte()].to_string();
+                    items.push(text.trim_matches('"').to_string());
+                } else if child.kind() != "[" && child.kind() != "]" && child.kind() != "," {
+                    // Recurse into expression wrappers
+                    let nested = extract_array_strings(child, source);
+                    items.extend(nested);
+                }
+            }
+        }
+        items
+    }
+
+    fn traverse_for_channels(
+        node: Node,
+        source: &str,
+        channels: &mut Vec<ChannelDefinition>,
+    ) -> Result<(), String> {
+        if node.kind() == "channel_definition" {
+            let name_node = node
+                .child(1)
+                .ok_or_else(|| "channel_definition missing name".to_string())?;
+            let name = source[name_node.start_byte()..name_node.end_byte()].to_string();
+            let mut chan = ChannelDefinition::new(name);
+
+            for i in 0..node.child_count() {
+                if let Some(child) = node.child(i) {
+                    match child.kind() {
+                        "channel_property" => {
+                            // Child 0 = key identifier, child 1 = ":", child 2 = value or array
+                            if let (Some(key_node), Some(val_node)) =
+                                (child.child(0), child.child(2))
+                            {
+                                let key =
+                                    source[key_node.start_byte()..key_node.end_byte()].to_string();
+
+                                if val_node.kind() == "array" {
+                                    // Parse array elements
+                                    let items = extract_array_strings(val_node, source);
+                                    if key == "channels" {
+                                        chan.channels = items;
+                                    }
+                                } else {
+                                    let raw_value = source
+                                        [val_node.start_byte()..val_node.end_byte()]
+                                        .to_string();
+                                    let value = raw_value.trim_matches('"').to_string();
+
+                                    match key.as_str() {
+                                        "platform" => chan.platform = Some(value),
+                                        "workspace" => chan.workspace = Some(value),
+                                        "default_agent" => chan.default_agent = Some(value),
+                                        "dlp_profile" => chan.dlp_profile = Some(value),
+                                        "audit_level" => chan.audit_level = Some(value),
+                                        "default_deny" => chan.default_deny = value == "true",
+                                        _ => {
+                                            // Unknown properties ignored for forward compat.
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        "channel_policy_block" => {
+                            // Extract nested policy rules
+                            for j in 0..child.child_count() {
+                                if let Some(rule_node) = child.child(j) {
+                                    if rule_node.kind() == "policy_rule" {
+                                        // Child 0 = action keyword, child 1 = ":", child 2 = expression
+                                        if let (Some(action_node), Some(expr_node)) =
+                                            (rule_node.child(0), rule_node.child(2))
+                                        {
+                                            let action = source
+                                                [action_node.start_byte()..action_node.end_byte()]
+                                                .to_string();
+                                            let expression = source
+                                                [expr_node.start_byte()..expr_node.end_byte()]
+                                                .to_string();
+                                            chan.policy_rules
+                                                .push(ChannelPolicyRule { action, expression });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        "channel_data_classification_block" => {
+                            // Extract data classification rules
+                            for j in 0..child.child_count() {
+                                if let Some(rule_node) = child.child(j) {
+                                    if rule_node.kind() == "data_classification_rule" {
+                                        // Child 0 = category, child 1 = ":", child 2 = action
+                                        if let (Some(cat_node), Some(act_node)) =
+                                            (rule_node.child(0), rule_node.child(2))
+                                        {
+                                            let category = source
+                                                [cat_node.start_byte()..cat_node.end_byte()]
+                                                .to_string();
+                                            let action = source
+                                                [act_node.start_byte()..act_node.end_byte()]
+                                                .to_string();
+                                            chan.data_classification
+                                                .push(DataClassificationEntry { category, action });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            // Validate: platform is required.
+            if chan.platform.is_none() {
+                return Err(format!("channel '{}': must specify 'platform'", chan.name));
+            }
+
+            channels.push(chan);
+        }
+
+        // Recurse into children.
+        for i in 0..node.child_count() {
+            if let Some(child) = node.child(i) {
+                traverse_for_channels(child, source, channels)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    traverse_for_channels(root_node, source, &mut channels)?;
+    Ok(channels)
+}
+
 /// Find and report errors in the AST
 pub fn find_errors(node: Node, source: &str, depth: usize) {
     if node.kind() == "ERROR" {

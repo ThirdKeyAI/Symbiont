@@ -20,12 +20,14 @@ use super::traits::RuntimeApiProvider;
 
 #[cfg(feature = "http-api")]
 use super::types::{
-    AgentStatusResponse, CreateAgentRequest, CreateAgentResponse, CreateScheduleRequest,
-    CreateScheduleResponse, DeleteAgentResponse, DeleteScheduleResponse, ErrorResponse,
-    ExecuteAgentRequest, ExecuteAgentResponse, GetAgentHistoryResponse, NextRunsResponse,
-    ScheduleActionResponse, ScheduleDetail, ScheduleHistoryResponse, ScheduleSummary,
-    SchedulerHealthResponse, UpdateAgentRequest, UpdateAgentResponse, UpdateScheduleRequest,
-    WorkflowExecutionRequest,
+    AddIdentityMappingRequest, AgentStatusResponse, ChannelActionResponse, ChannelAuditResponse,
+    ChannelDetail, ChannelHealthResponse, ChannelSummary, CreateAgentRequest, CreateAgentResponse,
+    CreateScheduleRequest, CreateScheduleResponse, DeleteAgentResponse, DeleteChannelResponse,
+    DeleteScheduleResponse, ErrorResponse, ExecuteAgentRequest, ExecuteAgentResponse,
+    GetAgentHistoryResponse, IdentityMappingEntry, NextRunsResponse, RegisterChannelRequest,
+    RegisterChannelResponse, ScheduleActionResponse, ScheduleDetail, ScheduleHistoryResponse,
+    ScheduleSummary, SchedulerHealthResponse, UpdateAgentRequest, UpdateAgentResponse,
+    UpdateChannelRequest, UpdateScheduleRequest, WorkflowExecutionRequest,
 };
 
 #[cfg(feature = "http-api")]
@@ -628,6 +630,382 @@ pub async fn get_scheduler_health(
                 Json(ErrorResponse {
                     error: e.to_string(),
                     code: "SCHEDULER_HEALTH_FAILED".to_string(),
+                    details: None,
+                }),
+            )
+        })
+}
+
+// ── Channel endpoints ──────────────────────────────────────────
+
+/// List all registered channel adapters
+#[cfg(feature = "http-api")]
+#[utoipa::path(
+    get,
+    path = "/api/v1/channels",
+    responses(
+        (status = 200, description = "Channels listed", body = Vec<ChannelSummary>),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "channels"
+)]
+pub async fn list_channels(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+) -> Result<Json<Vec<ChannelSummary>>, (StatusCode, Json<ErrorResponse>)> {
+    provider.list_channels().await.map(Json).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "LIST_CHANNELS_FAILED".to_string(),
+                details: None,
+            }),
+        )
+    })
+}
+
+/// Register a new channel adapter
+#[cfg(feature = "http-api")]
+#[utoipa::path(
+    post,
+    path = "/api/v1/channels",
+    request_body = RegisterChannelRequest,
+    responses(
+        (status = 201, description = "Channel registered", body = RegisterChannelResponse),
+        (status = 400, description = "Bad request", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "channels"
+)]
+pub async fn register_channel(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    Json(request): Json<RegisterChannelRequest>,
+) -> Result<(StatusCode, Json<RegisterChannelResponse>), (StatusCode, Json<ErrorResponse>)> {
+    provider
+        .register_channel(request)
+        .await
+        .map(|r| (StatusCode::CREATED, Json(r)))
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                    code: "REGISTER_CHANNEL_FAILED".to_string(),
+                    details: None,
+                }),
+            )
+        })
+}
+
+/// Get details of a channel adapter
+#[cfg(feature = "http-api")]
+#[utoipa::path(
+    get,
+    path = "/api/v1/channels/{id}",
+    params(("id" = String, Path, description = "Channel ID")),
+    responses(
+        (status = 200, description = "Channel details", body = ChannelDetail),
+        (status = 404, description = "Not found", body = ErrorResponse)
+    ),
+    tag = "channels"
+)]
+pub async fn get_channel(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    Path(id): Path<String>,
+) -> Result<Json<ChannelDetail>, (StatusCode, Json<ErrorResponse>)> {
+    provider.get_channel(&id).await.map(Json).map_err(|e| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "CHANNEL_NOT_FOUND".to_string(),
+                details: None,
+            }),
+        )
+    })
+}
+
+/// Update a channel adapter configuration
+#[cfg(feature = "http-api")]
+#[utoipa::path(
+    put,
+    path = "/api/v1/channels/{id}",
+    params(("id" = String, Path, description = "Channel ID")),
+    request_body = UpdateChannelRequest,
+    responses(
+        (status = 200, description = "Channel updated", body = ChannelDetail),
+        (status = 404, description = "Not found", body = ErrorResponse)
+    ),
+    tag = "channels"
+)]
+pub async fn update_channel(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    Path(id): Path<String>,
+    Json(request): Json<UpdateChannelRequest>,
+) -> Result<Json<ChannelDetail>, (StatusCode, Json<ErrorResponse>)> {
+    provider
+        .update_channel(&id, request)
+        .await
+        .map(Json)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                    code: "UPDATE_CHANNEL_FAILED".to_string(),
+                    details: None,
+                }),
+            )
+        })
+}
+
+/// Delete a channel adapter
+#[cfg(feature = "http-api")]
+#[utoipa::path(
+    delete,
+    path = "/api/v1/channels/{id}",
+    params(("id" = String, Path, description = "Channel ID")),
+    responses(
+        (status = 200, description = "Channel deleted", body = DeleteChannelResponse),
+        (status = 404, description = "Not found", body = ErrorResponse)
+    ),
+    tag = "channels"
+)]
+pub async fn delete_channel(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    Path(id): Path<String>,
+) -> Result<Json<DeleteChannelResponse>, (StatusCode, Json<ErrorResponse>)> {
+    provider.delete_channel(&id).await.map(Json).map_err(|e| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "CHANNEL_NOT_FOUND".to_string(),
+                details: None,
+            }),
+        )
+    })
+}
+
+/// Start a channel adapter
+#[cfg(feature = "http-api")]
+#[utoipa::path(
+    post,
+    path = "/api/v1/channels/{id}/start",
+    params(("id" = String, Path, description = "Channel ID")),
+    responses(
+        (status = 200, description = "Channel started", body = ChannelActionResponse),
+        (status = 404, description = "Not found", body = ErrorResponse)
+    ),
+    tag = "channels"
+)]
+pub async fn start_channel(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    Path(id): Path<String>,
+) -> Result<Json<ChannelActionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    provider.start_channel(&id).await.map(Json).map_err(|e| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "CHANNEL_START_FAILED".to_string(),
+                details: None,
+            }),
+        )
+    })
+}
+
+/// Stop a channel adapter
+#[cfg(feature = "http-api")]
+#[utoipa::path(
+    post,
+    path = "/api/v1/channels/{id}/stop",
+    params(("id" = String, Path, description = "Channel ID")),
+    responses(
+        (status = 200, description = "Channel stopped", body = ChannelActionResponse),
+        (status = 404, description = "Not found", body = ErrorResponse)
+    ),
+    tag = "channels"
+)]
+pub async fn stop_channel(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    Path(id): Path<String>,
+) -> Result<Json<ChannelActionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    provider.stop_channel(&id).await.map(Json).map_err(|e| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "CHANNEL_STOP_FAILED".to_string(),
+                details: None,
+            }),
+        )
+    })
+}
+
+/// Get channel adapter health and connectivity info
+#[cfg(feature = "http-api")]
+#[utoipa::path(
+    get,
+    path = "/api/v1/channels/{id}/health",
+    params(("id" = String, Path, description = "Channel ID")),
+    responses(
+        (status = 200, description = "Channel health", body = ChannelHealthResponse),
+        (status = 404, description = "Not found", body = ErrorResponse)
+    ),
+    tag = "channels"
+)]
+pub async fn get_channel_health(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    Path(id): Path<String>,
+) -> Result<Json<ChannelHealthResponse>, (StatusCode, Json<ErrorResponse>)> {
+    provider
+        .get_channel_health(&id)
+        .await
+        .map(Json)
+        .map_err(|e| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                    code: "CHANNEL_HEALTH_FAILED".to_string(),
+                    details: None,
+                }),
+            )
+        })
+}
+
+/// List identity mappings for a channel
+#[cfg(feature = "http-api")]
+#[utoipa::path(
+    get,
+    path = "/api/v1/channels/{id}/mappings",
+    params(("id" = String, Path, description = "Channel ID")),
+    responses(
+        (status = 200, description = "Identity mappings listed", body = Vec<IdentityMappingEntry>),
+        (status = 404, description = "Not found", body = ErrorResponse),
+        (status = 501, description = "Not implemented (community edition)", body = ErrorResponse)
+    ),
+    tag = "channels"
+)]
+pub async fn list_channel_mappings(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<IdentityMappingEntry>>, (StatusCode, Json<ErrorResponse>)> {
+    provider
+        .list_channel_mappings(&id)
+        .await
+        .map(Json)
+        .map_err(|e| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                    code: "CHANNEL_MAPPINGS_FAILED".to_string(),
+                    details: None,
+                }),
+            )
+        })
+}
+
+/// Add an identity mapping to a channel
+#[cfg(feature = "http-api")]
+#[utoipa::path(
+    post,
+    path = "/api/v1/channels/{id}/mappings",
+    params(("id" = String, Path, description = "Channel ID")),
+    request_body = AddIdentityMappingRequest,
+    responses(
+        (status = 201, description = "Mapping added", body = IdentityMappingEntry),
+        (status = 404, description = "Not found", body = ErrorResponse),
+        (status = 501, description = "Not implemented (community edition)", body = ErrorResponse)
+    ),
+    tag = "channels"
+)]
+pub async fn add_channel_mapping(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    Path(id): Path<String>,
+    Json(request): Json<AddIdentityMappingRequest>,
+) -> Result<(StatusCode, Json<IdentityMappingEntry>), (StatusCode, Json<ErrorResponse>)> {
+    provider
+        .add_channel_mapping(&id, request)
+        .await
+        .map(|r| (StatusCode::CREATED, Json(r)))
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                    code: "ADD_CHANNEL_MAPPING_FAILED".to_string(),
+                    details: None,
+                }),
+            )
+        })
+}
+
+/// Remove an identity mapping from a channel
+#[cfg(feature = "http-api")]
+#[utoipa::path(
+    delete,
+    path = "/api/v1/channels/{id}/mappings/{user_id}",
+    params(
+        ("id" = String, Path, description = "Channel ID"),
+        ("user_id" = String, Path, description = "Platform user ID to remove")
+    ),
+    responses(
+        (status = 204, description = "Mapping removed"),
+        (status = 404, description = "Not found", body = ErrorResponse),
+        (status = 501, description = "Not implemented (community edition)", body = ErrorResponse)
+    ),
+    tag = "channels"
+)]
+pub async fn remove_channel_mapping(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    Path((id, user_id)): Path<(String, String)>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    provider
+        .remove_channel_mapping(&id, &user_id)
+        .await
+        .map(|_| StatusCode::NO_CONTENT)
+        .map_err(|e| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                    code: "REMOVE_CHANNEL_MAPPING_FAILED".to_string(),
+                    details: None,
+                }),
+            )
+        })
+}
+
+/// Get audit log entries for a channel
+#[cfg(feature = "http-api")]
+#[utoipa::path(
+    get,
+    path = "/api/v1/channels/{id}/audit",
+    params(("id" = String, Path, description = "Channel ID")),
+    responses(
+        (status = 200, description = "Audit log", body = ChannelAuditResponse),
+        (status = 404, description = "Not found", body = ErrorResponse),
+        (status = 501, description = "Not implemented (community edition)", body = ErrorResponse)
+    ),
+    tag = "channels"
+)]
+pub async fn get_channel_audit(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    Path(id): Path<String>,
+) -> Result<Json<ChannelAuditResponse>, (StatusCode, Json<ErrorResponse>)> {
+    provider
+        .get_channel_audit(&id, 50)
+        .await
+        .map(Json)
+        .map_err(|e| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                    code: "CHANNEL_AUDIT_FAILED".to_string(),
                     details: None,
                 }),
             )

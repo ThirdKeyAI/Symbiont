@@ -102,6 +102,19 @@ impl DefaultDeliveryRouter {
                 handler_name,
                 config,
             } => self.deliver_custom(payload, handler_name, config).await,
+            DeliveryChannel::ChannelAdapter {
+                adapter_name,
+                channel_id,
+                thread_id,
+            } => {
+                self.deliver_channel_adapter(
+                    payload,
+                    adapter_name,
+                    channel_id,
+                    thread_id.as_deref(),
+                )
+                .await
+            }
         }
     }
 
@@ -316,6 +329,34 @@ impl DefaultDeliveryRouter {
             success: false,
             status_code: None,
             error: Some("SMTP delivery not yet implemented; add lettre dependency".to_string()),
+        }
+    }
+
+    async fn deliver_channel_adapter(
+        &self,
+        _payload: &serde_json::Value,
+        adapter_name: &str,
+        channel_id: &str,
+        thread_id: Option<&str>,
+    ) -> DeliveryReceipt {
+        // Channel adapter delivery is handled by the ChannelAdapterManager,
+        // which is registered as a custom handler. This method provides a
+        // fallback when no adapter manager is wired up.
+        tracing::info!(
+            adapter = %adapter_name,
+            channel = %channel_id,
+            thread = ?thread_id,
+            "Channel adapter delivery requested"
+        );
+        DeliveryReceipt {
+            channel_description: format!("channel_adapter:{}:{}", adapter_name, channel_id),
+            delivered_at: Utc::now(),
+            success: false,
+            status_code: None,
+            error: Some(format!(
+                "no channel adapter '{}' registered; start one with `symbi chat connect`",
+                adapter_name
+            )),
         }
     }
 

@@ -127,6 +127,13 @@ pub enum DeliveryChannel {
         #[serde(default)]
         config: HashMap<String, String>,
     },
+    /// Deliver through a registered chat channel adapter.
+    ChannelAdapter {
+        adapter_name: String,
+        channel_id: String,
+        #[serde(default)]
+        thread_id: Option<String>,
+    },
 }
 
 fn default_webhook_method() -> String {

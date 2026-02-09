@@ -28,6 +28,7 @@ resolver = "2"
 members = [
     "crates/dsl",
     "crates/runtime",
+    "crates/channel-adapter",
     "crates/repl-core",
     "crates/repl-proto",
     "crates/repl-cli",
@@ -41,11 +42,13 @@ rust-version = "1.70"
 clap = { version = "4.0", features = ["derive"] }
 tokio = { version = "1.0", features = ["full"] }
 sysinfo = "0.30.13"
-symbi-runtime = { path = "crates/runtime", version = "1.0.0", features = ["http-input", "http-api"] }
+symbi-runtime = { path = "crates/runtime", version = "1.0.1", features = ["http-input", "http-api"] }
 cron = { version = "0.15", optional = true }
 chrono = { version = "0.4", features = ["serde"], optional = true }
 chrono-tz = { version = "0.10", optional = true }
-dsl = { path = "crates/dsl", version = "0.6.1", package = "symbi-dsl" }
+dsl = { path = "crates/dsl", version = "1.0.0", package = "symbi-dsl" }
+reqwest = { version = "0.12", features = ["json"] }
+serde_json = "1.0"
 
 [features]
 default = ["cron"]

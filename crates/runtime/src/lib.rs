@@ -27,11 +27,14 @@ pub mod api;
 use api::traits::RuntimeApiProvider;
 #[cfg(feature = "http-api")]
 use api::types::{
-    AgentStatusResponse, CreateAgentRequest, CreateAgentResponse, CreateScheduleRequest,
-    CreateScheduleResponse, DeleteAgentResponse, DeleteScheduleResponse, ExecuteAgentRequest,
-    ExecuteAgentResponse, GetAgentHistoryResponse, NextRunsResponse, ScheduleActionResponse,
-    ScheduleDetail, ScheduleHistoryResponse, ScheduleSummary, UpdateAgentRequest,
-    UpdateAgentResponse, UpdateScheduleRequest, WorkflowExecutionRequest,
+    AddIdentityMappingRequest, AgentStatusResponse, ChannelActionResponse, ChannelAuditResponse,
+    ChannelDetail, ChannelHealthResponse, ChannelSummary, CreateAgentRequest, CreateAgentResponse,
+    CreateScheduleRequest, CreateScheduleResponse, DeleteAgentResponse, DeleteChannelResponse,
+    DeleteScheduleResponse, ExecuteAgentRequest, ExecuteAgentResponse, GetAgentHistoryResponse,
+    IdentityMappingEntry, NextRunsResponse, RegisterChannelRequest, RegisterChannelResponse,
+    ScheduleActionResponse, ScheduleDetail, ScheduleHistoryResponse, ScheduleSummary,
+    UpdateAgentRequest, UpdateAgentResponse, UpdateChannelRequest, UpdateScheduleRequest,
+    WorkflowExecutionRequest,
 };
 #[cfg(feature = "http-api")]
 use async_trait::async_trait;
@@ -752,5 +755,97 @@ impl RuntimeApiProvider for AgentRuntime {
             average_execution_time_ms: 0.0,
             longest_run_ms: 0,
         })
+    }
+
+    // ── Channel endpoints ──────────────────────────────────────────
+
+    async fn list_channels(&self) -> Result<Vec<ChannelSummary>, RuntimeError> {
+        Err(RuntimeError::Internal(
+            "Channel API requires a running ChannelAdapterManager".to_string(),
+        ))
+    }
+
+    async fn register_channel(
+        &self,
+        _request: RegisterChannelRequest,
+    ) -> Result<RegisterChannelResponse, RuntimeError> {
+        Err(RuntimeError::Internal(
+            "Channel API requires a running ChannelAdapterManager".to_string(),
+        ))
+    }
+
+    async fn get_channel(&self, _id: &str) -> Result<ChannelDetail, RuntimeError> {
+        Err(RuntimeError::Internal(
+            "Channel API requires a running ChannelAdapterManager".to_string(),
+        ))
+    }
+
+    async fn update_channel(
+        &self,
+        _id: &str,
+        _request: UpdateChannelRequest,
+    ) -> Result<ChannelDetail, RuntimeError> {
+        Err(RuntimeError::Internal(
+            "Channel API requires a running ChannelAdapterManager".to_string(),
+        ))
+    }
+
+    async fn delete_channel(&self, _id: &str) -> Result<DeleteChannelResponse, RuntimeError> {
+        Err(RuntimeError::Internal(
+            "Channel API requires a running ChannelAdapterManager".to_string(),
+        ))
+    }
+
+    async fn start_channel(&self, _id: &str) -> Result<ChannelActionResponse, RuntimeError> {
+        Err(RuntimeError::Internal(
+            "Channel API requires a running ChannelAdapterManager".to_string(),
+        ))
+    }
+
+    async fn stop_channel(&self, _id: &str) -> Result<ChannelActionResponse, RuntimeError> {
+        Err(RuntimeError::Internal(
+            "Channel API requires a running ChannelAdapterManager".to_string(),
+        ))
+    }
+
+    async fn get_channel_health(&self, _id: &str) -> Result<ChannelHealthResponse, RuntimeError> {
+        Err(RuntimeError::Internal(
+            "Channel API requires a running ChannelAdapterManager".to_string(),
+        ))
+    }
+
+    async fn list_channel_mappings(
+        &self,
+        _id: &str,
+    ) -> Result<Vec<IdentityMappingEntry>, RuntimeError> {
+        Err(RuntimeError::Internal(
+            "Channel identity mappings require enterprise edition".to_string(),
+        ))
+    }
+
+    async fn add_channel_mapping(
+        &self,
+        _id: &str,
+        _request: AddIdentityMappingRequest,
+    ) -> Result<IdentityMappingEntry, RuntimeError> {
+        Err(RuntimeError::Internal(
+            "Channel identity mappings require enterprise edition".to_string(),
+        ))
+    }
+
+    async fn remove_channel_mapping(&self, _id: &str, _user_id: &str) -> Result<(), RuntimeError> {
+        Err(RuntimeError::Internal(
+            "Channel identity mappings require enterprise edition".to_string(),
+        ))
+    }
+
+    async fn get_channel_audit(
+        &self,
+        _id: &str,
+        _limit: usize,
+    ) -> Result<ChannelAuditResponse, RuntimeError> {
+        Err(RuntimeError::Internal(
+            "Channel audit log requires enterprise edition".to_string(),
+        ))
     }
 }
