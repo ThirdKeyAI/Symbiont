@@ -44,7 +44,7 @@ dirs = "5.0"
 futures = "0.3"
 bytes = { version = "1.0", features = ["serde"] }
 tempfile = "3.0"
-qdrant-client = "1.14.0"
+qdrant-client = { version = "1.14.0", optional = true }
 flate2 = "1.0"
 candle-core = { version = "0.9.1", optional = true }
 candle-nn = { version = "0.9.1", optional = true }
@@ -96,8 +96,8 @@ criterion = "0.5"
 serial_test = "3.0"
 
 [features]
-default = ["vector-db", "keychain"]
-vector-db = []
+default = ["keychain"]
+vector-db = ["dep:qdrant-client"]
 embedding-models = ["candle-core", "candle-nn", "candle-transformers", "tokenizers", "hf-hub"]
 http-api = ["axum", "tower", "tower-http", "tokio-tungstenite", "governor", "utoipa", "utoipa-swagger-ui"]
 http-input = ["axum", "tower", "tower-http"]
@@ -105,7 +105,7 @@ keychain = ["keyring", "security-framework", "secret-service", "winapi"]
 cron = ["dep:cron", "dep:chrono-tz", "dep:rusqlite"]
 enterprise = []  # Enterprise feature for conditional compilation
 full = ["vector-db", "embedding-models", "http-api", "http-input", "keychain", "cron"]
-minimal = ["vector-db"]  # Minimal build for faster CI
+minimal = []  # Minimal build for faster CI
 
 
 

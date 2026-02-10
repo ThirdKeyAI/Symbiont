@@ -25,6 +25,8 @@ use tower_http::cors::CorsLayer;
 #[cfg(feature = "http-input")]
 use super::config::{HttpInputConfig, ResponseControlConfig, RouteMatch};
 #[cfg(feature = "http-input")]
+use super::llm_client::LlmClient;
+#[cfg(feature = "http-input")]
 use crate::secrets::{new_secret_store, SecretStore, SecretsConfig};
 #[cfg(feature = "http-input")]
 use crate::types::{AgentId, RuntimeError};
@@ -81,13 +83,26 @@ impl HttpInputServer {
             }
         }
 
+        // Initialize LLM client from environment
+        let llm_client = LlmClient::from_env().map(Arc::new);
+
+        // Scan agents/ directory for DSL files
+        let agent_dsl_sources = scan_agent_dsl_files();
+        if !agent_dsl_sources.is_empty() {
+            tracing::info!(
+                "Loaded {} agent DSL file(s) for LLM context",
+                agent_dsl_sources.len()
+            );
+        }
+
         // Create shared server state
         let server_state = ServerState {
             config: self.config.clone(),
             runtime: self.runtime.clone(),
-            secret_store: self.secret_store.clone(),
             concurrency_limiter: self.concurrency_limiter.clone(),
             resolved_auth_header: self.resolved_auth_header.clone(),
+            llm_client,
+            agent_dsl_sources: Arc::new(agent_dsl_sources),
         };
 
         // Build the router
@@ -152,9 +167,11 @@ impl HttpInputServer {
 struct ServerState {
     config: Arc<RwLock<HttpInputConfig>>,
     runtime: Option<Arc<crate::AgentRuntime>>,
-    secret_store: Option<Arc<dyn SecretStore + Send + Sync>>,
     concurrency_limiter: Arc<Semaphore>,
     resolved_auth_header: Arc<RwLock<Option<String>>>,
+    llm_client: Option<Arc<LlmClient>>,
+    /// Agent DSL sources: (filename, content)
+    agent_dsl_sources: Arc<Vec<(String, String)>>,
 }
 
 /// Authentication middleware
@@ -214,28 +231,25 @@ async fn webhook_handler(
     // Route to appropriate agent
     let agent_id = route_request(&config, &payload, &headers).await;
 
-    // Invoke agent if runtime is available
-    if let Some(runtime) = &state.runtime {
-        match invoke_agent(runtime, agent_id, payload).await {
-            Ok(result) => {
-                // Format response based on config
-                let response_config = config.response_control.as_ref();
-                format_success_response(result, response_config)
-            }
-            Err(e) => {
-                tracing::error!("Agent invocation failed: {:?}", e);
-                let response_config = config.response_control.as_ref();
-                format_error_response(e, response_config)
-            }
+    // Invoke agent
+    match invoke_agent(
+        state.runtime.as_deref(),
+        agent_id,
+        payload,
+        state.llm_client.as_deref(),
+        &state.agent_dsl_sources,
+    )
+    .await
+    {
+        Ok(result) => {
+            let response_config = config.response_control.as_ref();
+            format_success_response(result, response_config)
         }
-    } else {
-        // No runtime available, return success response
-        tracing::warn!("No runtime available for agent invocation");
-        let response_config = config.response_control.as_ref();
-        format_success_response(
-            serde_json::json!({"status": "received", "agent": agent_id.to_string()}),
-            response_config,
-        )
+        Err(e) => {
+            tracing::error!("Agent invocation failed: {:?}", e);
+            let response_config = config.response_control.as_ref();
+            format_error_response(e, response_config)
+        }
     }
 }
 
@@ -282,53 +296,127 @@ async fn matches_route_condition(
     }
 }
 
-/// Invoke an agent with the provided input data
+/// Invoke an agent with the provided input data, using LLM if available
 #[cfg(feature = "http-input")]
 async fn invoke_agent(
-    _runtime: &crate::AgentRuntime,
+    _runtime: Option<&crate::AgentRuntime>,
     agent_id: AgentId,
     input_data: Value,
+    llm_client: Option<&LlmClient>,
+    agent_dsl_sources: &[(String, String)],
 ) -> Result<Value, RuntimeError> {
-    // For now, we'll use the communication bus to send a message to the agent
-    // This is a simplified implementation - in a real system, you'd want proper
-    // agent invocation mechanisms
+    let start = std::time::Instant::now();
 
-    use crate::types::{
-        EncryptedPayload, EncryptionAlgorithm, MessageId, MessageSignature, MessageType, RequestId,
-        SecureMessage, SignatureAlgorithm,
-    };
-    use bytes::Bytes;
-
-    let _message = SecureMessage {
-        id: MessageId::new(),
-        sender: AgentId::new(), // HTTP input server agent ID
-        recipient: Some(agent_id),
-        topic: None,
-        payload: EncryptedPayload {
-            data: Bytes::from(serde_json::to_vec(&input_data).unwrap_or_default()),
-            encryption_algorithm: EncryptionAlgorithm::None, // Simplified for now
-            nonce: vec![],
-        },
-        signature: MessageSignature {
-            signature: vec![],
-            algorithm: SignatureAlgorithm::None, // Simplified for now
-            public_key: vec![],
-        },
-        timestamp: std::time::SystemTime::now(),
-        ttl: std::time::Duration::from_secs(300),
-        message_type: MessageType::Request(RequestId::new()),
+    // If no LLM client is available, fall back to stub behavior
+    let llm = match llm_client {
+        Some(client) => client,
+        None => {
+            tracing::info!(
+                "No LLM client available, returning stub response for agent {}",
+                agent_id
+            );
+            return Ok(serde_json::json!({
+                "status": "invoked",
+                "agent_id": agent_id.to_string(),
+                "message": "No LLM provider configured. Set OPENROUTER_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY.",
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            }));
+        }
     };
 
-    // For now, just log the invocation since we don't have direct agent invocation
-    tracing::info!("Would invoke agent {} with input data", agent_id);
+    // Build system prompt from DSL sources
+    let mut system_parts: Vec<String> = Vec::new();
 
-    // Return a simple acknowledgment for now
-    // In a real implementation, you'd wait for the agent's response
+    // Include agent DSL context if available
+    if !agent_dsl_sources.is_empty() {
+        system_parts.push("You are an AI agent operating within the Symbiont runtime. Your behavior is governed by the following agent definitions:".to_string());
+        for (filename, content) in agent_dsl_sources {
+            system_parts.push(format!("\n--- {} ---\n{}", filename, content));
+        }
+        system_parts.push("\nFollow the capabilities and policies defined above. Provide thorough, professional analysis.".to_string());
+    } else {
+        system_parts.push(
+            "You are an AI agent operating within the Symbiont runtime. Provide thorough, professional analysis based on the input provided.".to_string()
+        );
+    }
+
+    // Allow caller to prepend a custom system prompt
+    if let Some(custom_system) = input_data.get("system_prompt").and_then(|v| v.as_str()) {
+        system_parts.push(format!("\n{}", custom_system));
+    }
+
+    let system_prompt = system_parts.join("\n");
+
+    // Build user message from payload
+    let user_message = if let Some(prompt) = input_data.get("prompt").and_then(|v| v.as_str()) {
+        prompt.to_string()
+    } else {
+        // Serialize entire payload as context
+        let payload_str =
+            serde_json::to_string_pretty(&input_data).unwrap_or_else(|_| input_data.to_string());
+        format!(
+            "Analyze the following data and provide a comprehensive report:\n\n{}",
+            payload_str
+        )
+    };
+
+    tracing::info!(
+        "Invoking LLM for agent {}: provider={} model={} system_len={} user_len={}",
+        agent_id,
+        llm.provider(),
+        llm.model(),
+        system_prompt.len(),
+        user_message.len(),
+    );
+
+    // Call LLM
+    let response_text = llm.chat_completion(&system_prompt, &user_message).await?;
+    let latency = start.elapsed();
+
+    tracing::info!(
+        "LLM invocation completed for agent {}: latency={:?} response_len={}",
+        agent_id,
+        latency,
+        response_text.len(),
+    );
+
     Ok(serde_json::json!({
-        "status": "invoked",
+        "status": "completed",
         "agent_id": agent_id.to_string(),
+        "response": response_text,
+        "model": llm.model(),
+        "provider": format!("{}", llm.provider()),
+        "latency_ms": latency.as_millis(),
         "timestamp": chrono::Utc::now().to_rfc3339()
     }))
+}
+
+/// Scan the agents/ directory for .dsl files and return their contents
+#[cfg(feature = "http-input")]
+fn scan_agent_dsl_files() -> Vec<(String, String)> {
+    let agents_dir = std::path::Path::new("agents");
+    let mut sources = Vec::new();
+
+    if !agents_dir.exists() || !agents_dir.is_dir() {
+        return sources;
+    }
+
+    if let Ok(entries) = std::fs::read_dir(agents_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|ext| ext == "dsl") {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    let filename = path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    sources.push((filename, content));
+                }
+            }
+        }
+    }
+
+    sources
 }
 
 /// Format a successful response
@@ -394,26 +482,6 @@ async fn resolve_secret_reference(
         // Not a secret reference, return as-is
         Ok(reference.to_string())
     }
-}
-
-/// Request data extracted from incoming HTTP request
-#[cfg(feature = "http-input")]
-#[derive(Debug, Clone)]
-struct RequestData {
-    path: String,
-    method: String,
-    headers: Vec<(String, String)>,
-    body: Vec<u8>,
-    query_params: Vec<(String, String)>,
-}
-
-/// Response data to send back to HTTP client
-#[cfg(feature = "http-input")]
-#[derive(Debug, Clone)]
-struct WebhookResponse {
-    status: u16,
-    body: String,
-    headers: Vec<(String, String)>,
 }
 
 /// Create a function to start the HTTP input server

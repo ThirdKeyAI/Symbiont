@@ -1,5 +1,7 @@
 //! Integration tests for Vector Database functionality
 
+#![cfg(feature = "vector-db")]
+
 use std::collections::HashMap;
 use std::time::SystemTime;
 use symbi_runtime::context::{

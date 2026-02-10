@@ -9,9 +9,10 @@
 //! - Basic structured logging
 //! - `ChannelAdapter` trait for building custom adapters
 //!
-//! # Enterprise (feature: `enterprise-hooks`)
-//! - `EnterpriseChannelHooks` trait for policy, DLP, and crypto audit
-//! - Teams and Mattermost platform support
+//! # Enterprise
+//! - Teams adapter (feature: `teams`) — Bot Framework webhook + OAuth2
+//! - Mattermost adapter (feature: `mattermost`) — Outgoing webhooks + REST API
+//! - `EnterpriseChannelHooks` trait for policy, DLP, and crypto audit (feature: `enterprise-hooks`)
 
 pub mod config;
 pub mod error;
@@ -38,3 +39,13 @@ pub use traits::EnterpriseChannelHooks;
 
 #[cfg(feature = "slack")]
 pub use adapters::slack::SlackAdapter;
+
+#[cfg(feature = "teams")]
+pub use adapters::teams::TeamsAdapter;
+#[cfg(feature = "teams")]
+pub use config::TeamsConfig;
+
+#[cfg(feature = "mattermost")]
+pub use adapters::mattermost::MattermostAdapter;
+#[cfg(feature = "mattermost")]
+pub use config::MattermostConfig;

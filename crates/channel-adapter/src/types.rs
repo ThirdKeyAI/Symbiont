@@ -6,9 +6,9 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum ChatPlatform {
     Slack,
-    #[cfg(feature = "enterprise-hooks")]
+    #[cfg(feature = "teams")]
     Teams,
-    #[cfg(feature = "enterprise-hooks")]
+    #[cfg(feature = "mattermost")]
     Mattermost,
 }
 
@@ -16,9 +16,9 @@ impl std::fmt::Display for ChatPlatform {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ChatPlatform::Slack => write!(f, "slack"),
-            #[cfg(feature = "enterprise-hooks")]
+            #[cfg(feature = "teams")]
             ChatPlatform::Teams => write!(f, "teams"),
-            #[cfg(feature = "enterprise-hooks")]
+            #[cfg(feature = "mattermost")]
             ChatPlatform::Mattermost => write!(f, "mattermost"),
         }
     }
@@ -58,6 +58,9 @@ pub struct OutboundMessage {
     pub blocks: Option<serde_json::Value>,
     pub ephemeral: bool,
     pub user_id: Option<String>,
+    /// Platform-specific routing metadata (e.g. Teams service_url).
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
 }
 
 /// Receipt confirming a message was delivered to a chat platform.
@@ -169,6 +172,7 @@ mod tests {
             blocks: None,
             ephemeral: false,
             user_id: None,
+            metadata: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
         let parsed: OutboundMessage = serde_json::from_str(&json).unwrap();

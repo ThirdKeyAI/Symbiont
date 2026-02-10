@@ -8,6 +8,9 @@
 pub mod config;
 
 #[cfg(feature = "http-input")]
+pub mod llm_client;
+
+#[cfg(feature = "http-input")]
 pub mod server;
 
 #[cfg(feature = "http-input")]

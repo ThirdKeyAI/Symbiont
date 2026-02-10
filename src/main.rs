@@ -3,6 +3,7 @@
 use clap::{Arg, ArgAction, Command};
 
 mod commands;
+mod mcp_server;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -52,6 +53,101 @@ async fn main() {
                         .long("preset")
                         .value_name("PRESET")
                         .help("Use a configuration preset (e.g., dev-simple)"),
+                )
+                .arg(
+                    Arg::new("slack-token")
+                        .long("slack.token")
+                        .value_name("TOKEN")
+                        .help("Slack bot token (xoxb-...) — enables Slack adapter"),
+                )
+                .arg(
+                    Arg::new("slack-signing-secret")
+                        .long("slack.signing-secret")
+                        .value_name("SECRET")
+                        .help("Slack signing secret for webhook signature verification"),
+                )
+                .arg(
+                    Arg::new("slack-port")
+                        .long("slack.port")
+                        .value_name("PORT")
+                        .help("Slack webhook server port")
+                        .default_value("3100"),
+                )
+                .arg(
+                    Arg::new("slack-agent")
+                        .long("slack.agent")
+                        .value_name("AGENT")
+                        .help("Default agent name for Slack messages"),
+                )
+                // Teams adapter flags (enterprise)
+                .arg(
+                    Arg::new("teams-tenant-id")
+                        .long("teams.tenant-id")
+                        .value_name("ID")
+                        .help("Azure AD tenant ID — enables Teams adapter"),
+                )
+                .arg(
+                    Arg::new("teams-client-id")
+                        .long("teams.client-id")
+                        .value_name("ID")
+                        .help("Azure AD application (client) ID"),
+                )
+                .arg(
+                    Arg::new("teams-client-secret")
+                        .long("teams.client-secret")
+                        .value_name("SECRET")
+                        .help("Azure AD client secret"),
+                )
+                .arg(
+                    Arg::new("teams-bot-id")
+                        .long("teams.bot-id")
+                        .value_name("ID")
+                        .help("Bot Framework bot ID"),
+                )
+                .arg(
+                    Arg::new("teams-port")
+                        .long("teams.port")
+                        .value_name("PORT")
+                        .help("Teams webhook server port")
+                        .default_value("3200"),
+                )
+                .arg(
+                    Arg::new("teams-agent")
+                        .long("teams.agent")
+                        .value_name("AGENT")
+                        .help("Default agent name for Teams messages"),
+                )
+                // Mattermost adapter flags (enterprise)
+                .arg(
+                    Arg::new("mm-server-url")
+                        .long("mm.server-url")
+                        .value_name("URL")
+                        .help("Mattermost server URL — enables Mattermost adapter"),
+                )
+                .arg(
+                    Arg::new("mm-token")
+                        .long("mm.token")
+                        .value_name("TOKEN")
+                        .help("Mattermost bot token"),
+                )
+                .arg(
+                    Arg::new("mm-webhook-secret")
+                        .long("mm.webhook-secret")
+                        .value_name("SECRET")
+                        .help("Mattermost webhook secret for verification"),
+                )
+                .arg(
+                    Arg::new("mm-port")
+                        .long("mm.port")
+                        .value_name("PORT")
+                        .help("Mattermost webhook server port")
+                        .default_value("3300"),
+                )
+                .arg(
+                    Arg::new("mm-agent")
+                        .long("mm.agent")
+                        .value_name("AGENT")
+                        .help("Default agent name for Mattermost messages"),
                 ),
         )
         .subcommand(
@@ -105,23 +201,7 @@ async fn main() {
         )
         .subcommand(
             Command::new("mcp")
-                .about("Start MCP server")
-                .arg(
-                    Arg::new("port")
-                        .short('p')
-                        .long("port")
-                        .value_name("PORT")
-                        .help("Port to bind the server to")
-                        .default_value("8080"),
-                )
-                .arg(
-                    Arg::new("host")
-                        .short('h')
-                        .long("host")
-                        .value_name("HOST")
-                        .help("Host address to bind to")
-                        .default_value("127.0.0.1"),
-                ),
+                .about("Start MCP server (stdio transport) for AI assistant integration"),
         )
         .subcommand(
             Command::new("dsl")
@@ -170,6 +250,55 @@ async fn main() {
                                         .value_name("AGENT")
                                         .help("Default agent to invoke"),
                                 ),
+                        )
+                        .subcommand(
+                            Command::new("teams")
+                                .about("Connect to Microsoft Teams (enterprise)")
+                                .arg(
+                                    Arg::new("tenant-id")
+                                        .long("tenant-id")
+                                        .value_name("ID")
+                                        .help("Azure AD tenant ID")
+                                        .required(true),
+                                )
+                                .arg(
+                                    Arg::new("client-id")
+                                        .long("client-id")
+                                        .value_name("ID")
+                                        .help("Azure AD application (client) ID")
+                                        .required(true),
+                                )
+                                .arg(
+                                    Arg::new("client-secret")
+                                        .long("client-secret")
+                                        .value_name("SECRET")
+                                        .help("Azure AD client secret")
+                                        .required(true),
+                                )
+                                .arg(
+                                    Arg::new("bot-id")
+                                        .long("bot-id")
+                                        .value_name("ID")
+                                        .help("Bot Framework bot ID"),
+                                ),
+                        )
+                        .subcommand(
+                            Command::new("mattermost")
+                                .about("Connect to Mattermost (enterprise)")
+                                .arg(
+                                    Arg::new("server-url")
+                                        .long("server-url")
+                                        .value_name("URL")
+                                        .help("Mattermost server URL")
+                                        .required(true),
+                                )
+                                .arg(
+                                    Arg::new("token")
+                                        .long("token")
+                                        .value_name("TOKEN")
+                                        .help("Bot token")
+                                        .required(true),
+                                ),
                         ),
                 )
                 .subcommand(Command::new("status").about("Show connected adapters"))
@@ -178,6 +307,12 @@ async fn main() {
                         .about("Disconnect a chat adapter")
                         .subcommand(
                             Command::new("slack").about("Disconnect from Slack"),
+                        )
+                        .subcommand(
+                            Command::new("teams").about("Disconnect from Teams"),
+                        )
+                        .subcommand(
+                            Command::new("mattermost").about("Disconnect from Mattermost"),
                         ),
                 ),
         )
@@ -290,24 +425,28 @@ async fn main() {
         Some(("new", sub_matches)) => {
             commands::new::run(sub_matches).await;
         }
-        Some(("mcp", sub_matches)) => {
-            let port = sub_matches.get_one::<String>("port").unwrap();
-            let host = sub_matches.get_one::<String>("host").unwrap();
-
-            println!("Starting Symbiont MCP server on {}:{}", host, port);
-            println!("MCP server functionality would be implemented here");
+        Some(("mcp", _sub_matches)) => {
+            mcp_server::start_mcp_server().await.unwrap_or_else(|e| {
+                eprintln!("MCP server error: {}", e);
+                std::process::exit(1);
+            });
         }
         Some(("dsl", sub_matches)) => {
-            if let Some(file) = sub_matches.get_one::<String>("file") {
-                println!("Parsing DSL file: {}", file);
-                println!("DSL parsing functionality would be implemented here");
+            let source = if let Some(file) = sub_matches.get_one::<String>("file") {
+                match std::fs::read_to_string(file) {
+                    Ok(content) => (content, Some(file.as_str())),
+                    Err(e) => {
+                        eprintln!("Error reading file '{}': {}", file, e);
+                        std::process::exit(1);
+                    }
+                }
             } else if let Some(content) = sub_matches.get_one::<String>("content") {
-                println!("Parsing DSL content: {}", content);
-                println!("DSL parsing functionality would be implemented here");
+                (content.clone(), None)
             } else {
                 eprintln!("Either --file or --content must be provided for DSL command");
                 std::process::exit(1);
-            }
+            };
+            commands::dsl::run(&source.0, source.1);
         }
         Some(("chat", sub_matches)) => {
             commands::chat::run(sub_matches).await;

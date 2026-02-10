@@ -12,8 +12,10 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::RwLock;
 
 use super::types::*;
+#[cfg(feature = "vector-db")]
+use super::vector_db::QdrantClientWrapper;
 use super::vector_db::{
-    EmbeddingService, MockEmbeddingService, QdrantClientWrapper, QdrantConfig, VectorDatabase,
+    EmbeddingService, MockEmbeddingService, NoOpVectorDatabase, QdrantConfig, VectorDatabase,
 };
 use crate::integrations::policy_engine::{MockPolicyEngine, PolicyEngine};
 use crate::secrets::{SecretStore, SecretsConfig};
@@ -158,7 +160,7 @@ impl Default for ContextManagerConfig {
             max_memory_items_per_agent: 10000,
             max_knowledge_items_per_agent: 5000,
             qdrant_config: QdrantConfig::default(),
-            enable_vector_db: true,
+            enable_vector_db: false,
             persistence_config: FilePersistenceConfig::default(),
             enable_persistence: true,
             secrets_config: SecretsConfig::file_json(PathBuf::from("secrets.json")),
@@ -542,11 +544,20 @@ impl ContextPersistence for FilePersistence {
 impl StandardContextManager {
     /// Create a new StandardContextManager
     pub async fn new(config: ContextManagerConfig, agent_id: &str) -> Result<Self, ContextError> {
-        let vector_db: Arc<dyn VectorDatabase> = if config.enable_vector_db {
-            Arc::new(QdrantClientWrapper::new(config.qdrant_config.clone()))
-        } else {
-            // Could use a mock implementation for testing
-            Arc::new(QdrantClientWrapper::new(config.qdrant_config.clone()))
+        let vector_db: Arc<dyn VectorDatabase> = {
+            #[cfg(feature = "vector-db")]
+            {
+                if config.enable_vector_db {
+                    Arc::new(QdrantClientWrapper::new(config.qdrant_config.clone()))
+                } else {
+                    Arc::new(NoOpVectorDatabase)
+                }
+            }
+            #[cfg(not(feature = "vector-db"))]
+            {
+                let _ = &config.enable_vector_db;
+                Arc::new(NoOpVectorDatabase)
+            }
         };
 
         let embedding_service = Arc::new(MockEmbeddingService::new(

@@ -56,9 +56,12 @@ pub use types::{
 pub use manager::{ContextManager, ContextManagerConfig, FilePersistence, StandardContextManager};
 
 pub use vector_db::{
-    EmbeddingService, MockEmbeddingService, QdrantClientWrapper, QdrantConfig, QdrantDistance,
+    EmbeddingService, MockEmbeddingService, NoOpVectorDatabase, QdrantConfig, QdrantDistance,
     TfIdfEmbeddingService, VectorDatabase, VectorDatabaseStats,
 };
+
+#[cfg(feature = "vector-db")]
+pub use vector_db::QdrantClientWrapper;
 
 #[cfg(test)]
 mod tests {

@@ -283,7 +283,7 @@ impl DslEvaluator {
             }
             Declaration::EventHandler(handler) => {
                 // Register event handler with runtime bridge
-                let agent_id = context.agent_id.unwrap_or_else(|| Uuid::new_v4());
+                let agent_id = context.agent_id.unwrap_or_else(Uuid::new_v4);
 
                 match self
                     .runtime_bridge
@@ -468,7 +468,7 @@ impl DslEvaluator {
                 };
 
                 // Emit event through runtime bridge
-                let agent_id = context.agent_id.unwrap_or_else(|| Uuid::new_v4());
+                let agent_id = context.agent_id.unwrap_or_else(Uuid::new_v4);
 
                 match self
                     .runtime_bridge
@@ -1006,7 +1006,7 @@ impl DslEvaluator {
             },
             BinaryOperator::LeftShift => match (left, right) {
                 (DslValue::Integer(l), DslValue::Integer(r)) => {
-                    if r < 0 || r > 63 {
+                    if !(0..=63).contains(&r) {
                         Err(ReplError::Execution("Invalid shift amount".to_string()))
                     } else {
                         Ok(DslValue::Integer(l << r))
@@ -1018,7 +1018,7 @@ impl DslEvaluator {
             },
             BinaryOperator::RightShift => match (left, right) {
                 (DslValue::Integer(l), DslValue::Integer(r)) => {
-                    if r < 0 || r > 63 {
+                    if !(0..=63).contains(&r) {
                         Err(ReplError::Execution("Invalid shift amount".to_string()))
                     } else {
                         Ok(DslValue::Integer(l >> r))
@@ -1458,7 +1458,7 @@ impl DslEvaluator {
                     let mut context_guard = self.global_context.lock().unwrap();
                     for (var_name, var_value) in variables {
                         // Convert JSON value back to DslValue
-                        let dsl_value = self.json_to_dsl_value(var_value);
+                        let dsl_value = Self::json_to_dsl_value(var_value);
                         context_guard.variables.insert(var_name.clone(), dsl_value);
                     }
                 }
@@ -1482,7 +1482,7 @@ impl DslEvaluator {
     }
 
     /// Helper method to convert JSON value to DslValue
-    fn json_to_dsl_value(&self, json_value: &JsonValue) -> DslValue {
+    fn json_to_dsl_value(json_value: &JsonValue) -> DslValue {
         match json_value {
             JsonValue::String(s) => DslValue::String(s.clone()),
             JsonValue::Number(n) => {
@@ -1494,13 +1494,13 @@ impl DslEvaluator {
             }
             JsonValue::Bool(b) => DslValue::Boolean(*b),
             JsonValue::Array(arr) => {
-                let items = arr.iter().map(|v| self.json_to_dsl_value(v)).collect();
+                let items = arr.iter().map(Self::json_to_dsl_value).collect();
                 DslValue::List(items)
             }
             JsonValue::Object(obj) => {
                 let mut entries = HashMap::new();
                 for (k, v) in obj {
-                    entries.insert(k.clone(), self.json_to_dsl_value(v));
+                    entries.insert(k.clone(), Self::json_to_dsl_value(v));
                 }
                 DslValue::Map(entries)
             }
@@ -1567,7 +1567,7 @@ impl DslEvaluator {
     }
 
     /// Call a lambda function
-    async fn call_lambda(
+    async fn _call_lambda(
         &self,
         lambda: &LambdaFunction,
         arguments: Vec<DslValue>,

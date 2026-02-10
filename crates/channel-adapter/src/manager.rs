@@ -16,9 +16,19 @@ use crate::traits::{ChannelAdapter, InboundHandler};
 use crate::types::{ChatPlatform, InboundMessage, OutboundMessage};
 
 #[cfg(feature = "slack")]
-use crate::adapters::slack::api::format_agent_response;
+use crate::adapters::slack::api::format_agent_response as format_slack_response;
 #[cfg(feature = "slack")]
 use crate::adapters::slack::SlackAdapter;
+
+#[cfg(feature = "teams")]
+use crate::adapters::teams::api::format_agent_response as format_teams_response;
+#[cfg(feature = "teams")]
+use crate::adapters::teams::TeamsAdapter;
+
+#[cfg(feature = "mattermost")]
+use crate::adapters::mattermost::api::format_agent_response as format_mattermost_response;
+#[cfg(feature = "mattermost")]
+use crate::adapters::mattermost::MattermostAdapter;
 
 /// Callback to invoke an agent with a text input and get a response.
 ///
@@ -72,12 +82,16 @@ impl ChannelAdapterManager {
                 let handler = Arc::new(ManagerInboundHandler {
                     invoker: self.invoker.clone(),
                     logger: self.logger.clone(),
-                    adapters: HashMap::new(), // Will be updated after registration
+                    adapter: tokio::sync::RwLock::new(None),
                     default_agent: slack_config.default_agent.clone(),
                     #[cfg(feature = "enterprise-hooks")]
                     enterprise_hooks: self.enterprise_hooks.clone(),
                 });
-                Arc::new(SlackAdapter::new(slack_config.clone(), handler)?)
+                let adapter: Arc<dyn ChannelAdapter> =
+                    Arc::new(SlackAdapter::new(slack_config.clone(), handler.clone())?);
+                // Wire the adapter back into the handler for response delivery
+                handler.set_adapter(adapter.clone()).await;
+                adapter
             }
             #[cfg(not(feature = "slack"))]
             PlatformSettings::Slack(_) => {
@@ -86,16 +100,34 @@ impl ChannelAdapterManager {
                 ));
             }
             #[cfg(feature = "teams")]
-            PlatformSettings::Teams(ref _teams_config) => {
-                return Err(ChannelAdapterError::Config(
-                    "Teams adapter requires enterprise edition".to_string(),
-                ));
+            PlatformSettings::Teams(ref teams_config) => {
+                let handler = Arc::new(ManagerInboundHandler {
+                    invoker: self.invoker.clone(),
+                    logger: self.logger.clone(),
+                    adapter: tokio::sync::RwLock::new(None),
+                    default_agent: teams_config.default_agent.clone(),
+                    #[cfg(feature = "enterprise-hooks")]
+                    enterprise_hooks: self.enterprise_hooks.clone(),
+                });
+                let adapter: Arc<dyn ChannelAdapter> =
+                    Arc::new(TeamsAdapter::new(teams_config.clone(), handler.clone())?);
+                handler.set_adapter(adapter.clone()).await;
+                adapter
             }
             #[cfg(feature = "mattermost")]
-            PlatformSettings::Mattermost(ref _mm_config) => {
-                return Err(ChannelAdapterError::Config(
-                    "Mattermost adapter requires enterprise edition".to_string(),
-                ));
+            PlatformSettings::Mattermost(ref mm_config) => {
+                let handler = Arc::new(ManagerInboundHandler {
+                    invoker: self.invoker.clone(),
+                    logger: self.logger.clone(),
+                    adapter: tokio::sync::RwLock::new(None),
+                    default_agent: mm_config.default_agent.clone(),
+                    #[cfg(feature = "enterprise-hooks")]
+                    enterprise_hooks: self.enterprise_hooks.clone(),
+                });
+                let adapter: Arc<dyn ChannelAdapter> =
+                    Arc::new(MattermostAdapter::new(mm_config.clone(), handler.clone())?);
+                handler.set_adapter(adapter.clone()).await;
+                adapter
             }
         };
 
@@ -151,12 +183,21 @@ impl ChannelAdapterManager {
 struct ManagerInboundHandler {
     invoker: Arc<dyn AgentInvoker>,
     logger: Arc<BasicInteractionLogger>,
-    #[allow(dead_code)]
-    adapters: HashMap<String, Arc<dyn ChannelAdapter>>,
+    /// Reference to the adapter for sending responses back.
+    /// Set after adapter creation via `set_adapter()`.
+    adapter: tokio::sync::RwLock<Option<Arc<dyn ChannelAdapter>>>,
     default_agent: Option<String>,
     #[cfg(feature = "enterprise-hooks")]
     #[allow(dead_code)]
     enterprise_hooks: Option<Arc<dyn crate::traits::EnterpriseChannelHooks>>,
+}
+
+impl ManagerInboundHandler {
+    /// Set the adapter reference after construction (needed because the adapter
+    /// and handler have a circular dependency at creation time).
+    async fn set_adapter(&self, adapter: Arc<dyn ChannelAdapter>) {
+        *self.adapter.write().await = Some(adapter);
+    }
 }
 
 #[async_trait]
@@ -233,27 +274,37 @@ impl InboundHandler for ManagerInboundHandler {
 
         match result {
             Ok(response_text) => {
-                let content = response_text;
+                // Format response based on platform
+                let response = build_platform_response(&message, &response_text, agent_name);
 
-                // Format and send response
-                let _blocks = format_agent_response(&content, agent_name);
-                let _response = OutboundMessage {
-                    channel_id: message.channel_id.clone(),
-                    thread_id: message.thread_id.clone(),
-                    content,
-                    blocks: None, // Block Kit formatting available but optional
-                    ephemeral: false,
-                    user_id: None,
-                };
-
-                // Note: The actual send happens through the adapter that received
-                // the message. The manager needs a reference to the adapter to send.
-                // In practice this is wired up at registration time.
-                tracing::info!(
-                    agent = %agent_name,
-                    channel = %message.channel_id,
-                    "Agent response ready for delivery"
-                );
+                // Send response through the adapter
+                let adapter_guard = self.adapter.read().await;
+                if let Some(ref adapter) = *adapter_guard {
+                    match adapter.send_response(response).await {
+                        Ok(receipt) => {
+                            tracing::info!(
+                                agent = %agent_name,
+                                channel = %message.channel_id,
+                                delivered = %receipt.success,
+                                "Agent response delivered"
+                            );
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                agent = %agent_name,
+                                channel = %message.channel_id,
+                                error = %e,
+                                "Failed to deliver agent response"
+                            );
+                        }
+                    }
+                } else {
+                    tracing::warn!(
+                        agent = %agent_name,
+                        channel = %message.channel_id,
+                        "No adapter available for response delivery"
+                    );
+                }
 
                 Ok(())
             }
@@ -267,6 +318,78 @@ impl InboundHandler for ManagerInboundHandler {
                 Err(ChannelAdapterError::AgentError(e))
             }
         }
+    }
+}
+
+/// Build a platform-appropriate outbound message with formatted content.
+fn build_platform_response(
+    message: &InboundMessage,
+    content: &str,
+    agent_name: &str,
+) -> OutboundMessage {
+    match message.platform {
+        #[cfg(feature = "slack")]
+        ChatPlatform::Slack => {
+            let blocks = format_slack_response(content, agent_name);
+            OutboundMessage {
+                channel_id: message.channel_id.clone(),
+                thread_id: message.thread_id.clone(),
+                content: content.to_string(),
+                blocks: Some(blocks),
+                ephemeral: false,
+                user_id: None,
+                metadata: None,
+            }
+        }
+        #[cfg(feature = "teams")]
+        ChatPlatform::Teams => {
+            let card = format_teams_response(content, agent_name);
+            // Extract service_url and activity id from the raw_payload
+            // so the adapter can route the reply correctly.
+            let teams_meta = message.raw_payload.as_ref().map(|payload| {
+                serde_json::json!({
+                    "service_url": payload.get("serviceUrl")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(""),
+                    "activity_id": payload.get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(""),
+                })
+            });
+            OutboundMessage {
+                channel_id: message.channel_id.clone(),
+                thread_id: message.thread_id.clone(),
+                content: content.to_string(),
+                blocks: Some(card),
+                ephemeral: false,
+                user_id: None,
+                metadata: teams_meta,
+            }
+        }
+        #[cfg(feature = "mattermost")]
+        ChatPlatform::Mattermost => {
+            let formatted = format_mattermost_response(content, agent_name);
+            OutboundMessage {
+                channel_id: message.channel_id.clone(),
+                thread_id: message.thread_id.clone(),
+                content: formatted,
+                blocks: None,
+                ephemeral: false,
+                user_id: None,
+                metadata: None,
+            }
+        }
+        // Fallback for platforms without specific formatting
+        #[allow(unreachable_patterns)]
+        _ => OutboundMessage {
+            channel_id: message.channel_id.clone(),
+            thread_id: message.thread_id.clone(),
+            content: content.to_string(),
+            blocks: None,
+            ephemeral: false,
+            user_id: None,
+            metadata: None,
+        },
     }
 }
 
@@ -298,7 +421,7 @@ mod tests {
         let handler = ManagerInboundHandler {
             invoker: Arc::new(EchoInvoker),
             logger: logger.clone(),
-            adapters: HashMap::new(),
+            adapter: tokio::sync::RwLock::new(None),
             default_agent: Some("echo".to_string()),
             #[cfg(feature = "enterprise-hooks")]
             enterprise_hooks: None,
@@ -329,7 +452,7 @@ mod tests {
         let handler = ManagerInboundHandler {
             invoker: Arc::new(FailInvoker),
             logger: logger.clone(),
-            adapters: HashMap::new(),
+            adapter: tokio::sync::RwLock::new(None),
             default_agent: Some("broken".to_string()),
             #[cfg(feature = "enterprise-hooks")]
             enterprise_hooks: None,

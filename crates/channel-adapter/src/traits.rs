@@ -126,6 +126,7 @@ mod tests {
             blocks: None,
             ephemeral: false,
             user_id: None,
+            metadata: None,
         };
         let receipt = adapter.send_response(msg).await.unwrap();
         assert!(receipt.success);

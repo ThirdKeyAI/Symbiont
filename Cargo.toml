@@ -42,13 +42,21 @@ rust-version = "1.70"
 clap = { version = "4.0", features = ["derive"] }
 tokio = { version = "1.0", features = ["full"] }
 sysinfo = "0.30.13"
-symbi-runtime = { path = "crates/runtime", version = "1.0.1", features = ["http-input", "http-api"] }
+symbi-runtime = { path = "crates/runtime", version = "1.0.1", features = ["http-input", "http-api", "vector-db"] }
 cron = { version = "0.15", optional = true }
 chrono = { version = "0.4", features = ["serde"], optional = true }
 chrono-tz = { version = "0.10", optional = true }
 dsl = { path = "crates/dsl", version = "1.0.0", package = "symbi-dsl" }
+symbi-channel-adapter = { path = "crates/channel-adapter", version = "0.1.0", features = ["teams", "mattermost"] }
+async-trait = "0.1"
 reqwest = { version = "0.12", features = ["json"] }
 serde_json = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rmcp = { version = "0.14", features = ["transport-io"] }
+schemars = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+tempfile = "3.0"
 
 [features]
 default = ["cron"]
