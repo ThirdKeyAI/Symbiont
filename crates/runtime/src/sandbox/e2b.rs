@@ -164,6 +164,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires live E2B API endpoint"]
     async fn test_e2b_sandbox_execute() {
         let sandbox = E2BSandbox::new(
             "test_api_key".to_string(),

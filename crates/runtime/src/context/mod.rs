@@ -21,7 +21,7 @@
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let config = ContextManagerConfig::default();
-//! let context_manager = StandardContextManager::new(config);
+//! let context_manager = StandardContextManager::new(config, "my-agent").await?;
 //! context_manager.initialize().await?;
 //!
 //! let agent_id = AgentId::new();

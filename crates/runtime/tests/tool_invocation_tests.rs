@@ -154,7 +154,7 @@ async fn test_strict_mode_blocks_failed_tools() {
 async fn test_permissive_mode_allows_with_warnings() {
     let config = InvocationEnforcementConfig {
         policy: EnforcementPolicy::Permissive,
-        block_pending_verification: false,
+        block_pending_verification: true,
         ..Default::default()
     };
     let enforcer = DefaultToolInvocationEnforcer::with_config(config);
@@ -257,7 +257,7 @@ async fn test_execute_tool_succeeds_with_verified_tool() {
 async fn test_execute_tool_succeeds_with_warnings_in_permissive_mode() {
     let config = InvocationEnforcementConfig {
         policy: EnforcementPolicy::Permissive,
-        block_pending_verification: false,
+        block_pending_verification: true,
         ..Default::default()
     };
     let enforcer = DefaultToolInvocationEnforcer::with_config(config);
@@ -368,7 +368,7 @@ async fn test_error_message_clarity() {
 async fn test_warning_escalation() {
     let config = InvocationEnforcementConfig {
         policy: EnforcementPolicy::Permissive,
-        block_pending_verification: false,
+        block_pending_verification: true,
         max_warnings_before_escalation: 2,
         ..Default::default()
     };

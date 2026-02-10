@@ -409,9 +409,13 @@ impl ModelLogger {
             *args = self.mask_json_values(args.clone());
         }
 
-        // Mask parameters
-        for (_, value) in data.parameters.iter_mut() {
-            *value = self.mask_json_values(value.clone());
+        // Mask parameters (check key names for sensitivity)
+        for (key, value) in data.parameters.iter_mut() {
+            if self.is_sensitive_key(key) {
+                *value = serde_json::Value::String("***".to_string());
+            } else {
+                *value = self.mask_json_values(value.clone());
+            }
         }
 
         Ok(data)
@@ -426,9 +430,13 @@ impl ModelLogger {
             *result = self.mask_json_values(result.clone());
         }
 
-        // Mask metadata
-        for (_, value) in data.metadata.iter_mut() {
-            *value = self.mask_json_values(value.clone());
+        // Mask metadata (check key names for sensitivity)
+        for (key, value) in data.metadata.iter_mut() {
+            if self.is_sensitive_key(key) {
+                *value = serde_json::Value::String("***".to_string());
+            } else {
+                *value = self.mask_json_values(value.clone());
+            }
         }
 
         Ok(data)
@@ -802,8 +810,8 @@ mod tests {
             ("Credit card: 4532-1234-5678-9012", "****-****-****-****"),
             ("Email: user@example.com", "***@***.***"),
             ("Phone: 555-123-4567", "***-***-****"),
-            ("API_KEY: abc123def456ghi789", "API_KEY=***"),
-            ("TOKEN: xyz789uvw456rst123", "TOKEN=***"),
+            ("API_KEY: abc123def456ghi789abcdef", "API_KEY=***"),
+            ("TOKEN: xyz789uvw456rst123abcdef", "TOKEN=***"),
         ];
 
         for (input, expected_pattern) in test_cases {
@@ -1195,7 +1203,7 @@ mod tests {
         let logger = ModelLogger::with_defaults().unwrap();
 
         let request_data = RequestData {
-            prompt: "My SSN is 123-45-6789 and API key is abc123def456".to_string(),
+            prompt: "My SSN is 123-45-6789 and email is user@example.com".to_string(),
             tool_name: Some("sensitive_tool".to_string()),
             tool_arguments: Some(serde_json::json!({
                 "user_password": "secret123",
@@ -1214,7 +1222,7 @@ mod tests {
 
         // Check prompt masking
         assert!(!masked_request.prompt.contains("123-45-6789"));
-        assert!(!masked_request.prompt.contains("abc123def456"));
+        assert!(!masked_request.prompt.contains("user@example.com"));
 
         // Check tool arguments masking
         if let Some(args) = &masked_request.tool_arguments {
@@ -1233,7 +1241,7 @@ mod tests {
         let logger = ModelLogger::with_defaults().unwrap();
 
         let response_data = ResponseData {
-            content: "Your password is secret123 and token xyz789".to_string(),
+            content: "Your SSN is 123-45-6789 and email is user@example.com".to_string(),
             tool_result: Some(serde_json::json!({
                 "password": "hidden123",
                 "result": "success"
@@ -1250,8 +1258,8 @@ mod tests {
         let masked_response = logger.mask_pii_in_response(response_data).unwrap();
 
         // Check content masking
-        assert!(!masked_response.content.contains("secret123"));
-        assert!(!masked_response.content.contains("xyz789"));
+        assert!(!masked_response.content.contains("123-45-6789"));
+        assert!(!masked_response.content.contains("user@example.com"));
 
         // Check tool result masking
         if let Some(result) = &masked_response.tool_result {

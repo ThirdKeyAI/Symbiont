@@ -180,20 +180,20 @@ impl NativeRunner {
         // Note: This uses a wrapper script approach since Rust's std::process
         // doesn't provide direct rlimit setting
 
-        let mut limit_args = Vec::new();
+        let mut limit_cmds = Vec::new();
 
         if let Some(max_mem_mb) = self.config.max_memory_mb {
             // Virtual memory limit in KB
-            limit_args.push(format!("-v {}", max_mem_mb * 1024));
+            limit_cmds.push(format!("ulimit -v {}", max_mem_mb * 1024));
         }
 
         if let Some(max_cpu_sec) = self.config.max_cpu_seconds {
             // CPU time limit in seconds
-            limit_args.push(format!("-t {}", max_cpu_sec));
+            limit_cmds.push(format!("ulimit -t {}", max_cpu_sec));
         }
 
         // If we have limits, wrap the command with ulimit
-        if !limit_args.is_empty() {
+        if !limit_cmds.is_empty() {
             let original_program = command.as_std().get_program().to_string_lossy().to_string();
             let original_args: Vec<String> = command
                 .as_std()
@@ -201,12 +201,18 @@ impl NativeRunner {
                 .map(|s| s.to_string_lossy().to_string())
                 .collect();
 
-            // Create wrapper: sh -c "ulimit <limits> && <original_command>"
+            // Shell-escape each argument by wrapping in single quotes
+            fn shell_escape(s: &str) -> String {
+                format!("'{}'", s.replace('\'', "'\\''"))
+            }
+
+            // Create wrapper: sh -c "ulimit ... && ulimit ... && <original_command>"
+            let escaped_args: Vec<String> = original_args.iter().map(|a| shell_escape(a)).collect();
             let wrapper_cmd = format!(
-                "ulimit {} && {} {}",
-                limit_args.join(" "),
-                original_program,
-                original_args.join(" ")
+                "{} && {} {}",
+                limit_cmds.join(" && "),
+                shell_escape(&original_program),
+                escaped_args.join(" ")
             );
 
             *command = Command::new("sh");
@@ -243,15 +249,6 @@ impl SandboxRunner for NativeRunner {
         );
 
         let mut command = Command::new(&self.config.executable);
-        command.current_dir(&self.config.working_directory);
-
-        // Set environment variables
-        command.envs(env);
-
-        // Configure stdio
-        command.stdin(Stdio::piped());
-        command.stdout(Stdio::piped());
-        command.stderr(Stdio::piped());
 
         // Determine how to pass code to the executable
         // For interpreters, use -c flag; for shell, use -c
@@ -281,8 +278,16 @@ impl SandboxRunner for NativeRunner {
             }
         }
 
-        // Apply resource limits if configured
+        // Apply resource limits if configured (may replace the command)
         self.apply_resource_limits(&mut command)?;
+
+        // Set working directory, environment variables, and stdio
+        // AFTER apply_resource_limits, which may replace the command object
+        command.current_dir(&self.config.working_directory);
+        command.envs(env);
+        command.stdin(Stdio::piped());
+        command.stdout(Stdio::piped());
+        command.stderr(Stdio::piped());
 
         let start = std::time::Instant::now();
 

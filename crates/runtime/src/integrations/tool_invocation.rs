@@ -822,7 +822,7 @@ mod tests {
     async fn test_permissive_mode_allows_with_warnings() {
         let enforcer = DefaultToolInvocationEnforcer::with_config(InvocationEnforcementConfig {
             policy: EnforcementPolicy::Permissive,
-            block_pending_verification: false,
+            block_pending_verification: true,
             ..Default::default()
         });
 
@@ -881,7 +881,7 @@ mod tests {
     async fn test_execute_tool_succeeds_with_warnings() {
         let enforcer = DefaultToolInvocationEnforcer::with_config(InvocationEnforcementConfig {
             policy: EnforcementPolicy::Permissive,
-            block_pending_verification: false,
+            block_pending_verification: true,
             ..Default::default()
         });
 

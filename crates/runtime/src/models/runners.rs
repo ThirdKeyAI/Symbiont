@@ -24,16 +24,21 @@
 //!
 //! # Usage
 //!
-//! ```rust
-//! use symbiont_runtime::models::{SlmRunner, LocalGgufRunner};
-//! use symbiont_runtime::config::SandboxProfile;
+//! ```rust,no_run
+//! use symbi_runtime::models::{SlmRunner, LocalGgufRunner};
+//! use symbi_runtime::config::{SandboxProfile, ModelResourceRequirements};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let sandbox_profile = SandboxProfile::secure_default();
-//! let runner = LocalGgufRunner::new("/path/to/model.gguf", sandbox_profile).await?;
+//! let resource_requirements = ModelResourceRequirements {
+//!     min_memory_mb: 1024,
+//!     preferred_cpu_cores: 2.0,
+//!     gpu_requirements: None,
+//! };
+//! let runner = LocalGgufRunner::new("/path/to/model.gguf", sandbox_profile, resource_requirements).await?;
 //!
 //! let response = runner.execute("Hello, world!", None).await?;
-//! println!("Model response: {}", response);
+//! println!("Model response: {:?}", response);
 //! # Ok(())
 //! # }
 //! ```

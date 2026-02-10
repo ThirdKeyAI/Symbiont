@@ -255,6 +255,13 @@ impl DefaultRoutingEngine {
             Err(e) => {
                 if fallback_on_failure {
                     tracing::error!("SLM execution failed, falling back to LLM: {}", e);
+
+                    // Update statistics for fallback
+                    {
+                        let mut stats = self.statistics.write().await;
+                        stats.fallback_routes += 1;
+                    }
+
                     self.execute_llm_fallback(request, &format!("SLM execution failed: {}", e))
                         .await
                 } else {
@@ -605,7 +612,28 @@ mod tests {
         };
 
         let model_catalog = ModelCatalog::new(slm_config).unwrap();
-        let config = RoutingConfig::default();
+        let mut config = RoutingConfig::default();
+
+        // Add SLM routing rule for code generation tasks
+        config.policy.rules.push(super::super::config::RoutingRule {
+            name: "slm_code_rule".to_string(),
+            priority: 100,
+            conditions: super::super::config::RoutingConditions {
+                task_types: Some(vec![super::super::error::TaskType::CodeGeneration]),
+                agent_ids: None,
+                resource_constraints: None,
+                security_level: None,
+                custom_conditions: None,
+            },
+            action: super::super::config::RouteAction::UseSLM {
+                model_preference: super::super::config::ModelPreference::BestAvailable,
+                monitoring_level: crate::routing::MonitoringLevel::Basic,
+                fallback_on_low_confidence: true,
+                confidence_threshold: Some(0.8),
+            },
+            override_allowed: true,
+            action_extension: None,
+        });
 
         DefaultRoutingEngine::new(config, model_catalog, None)
             .await

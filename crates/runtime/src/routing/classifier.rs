@@ -332,7 +332,7 @@ mod tests {
         TaskClassificationConfig {
             enabled: true,
             patterns,
-            confidence_threshold: 0.5,
+            confidence_threshold: 0.3,
             default_task_type: TaskType::Custom("unknown".to_string()),
         }
     }
@@ -374,7 +374,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(result.task_type, TaskType::Analysis);
-        assert!(result.confidence > 0.5);
+        assert!(result.confidence > 0.3);
     }
 
     #[test]

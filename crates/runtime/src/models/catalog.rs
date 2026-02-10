@@ -7,8 +7,8 @@
 //! # Usage
 //!
 //! ```rust
-//! use symbiont_runtime::models::ModelCatalog;
-//! use symbiont_runtime::config::Slm;
+//! use symbi_runtime::models::ModelCatalog;
+//! use symbi_runtime::config::Slm;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let slm_config = Slm::default();
@@ -614,8 +614,8 @@ mod tests {
             None,
         );
         assert!(code_model.is_some());
-        // Should return large_model (lower memory than multi_cap_model)
-        assert_eq!(code_model.unwrap().id, "large_model");
+        // Should return multi_cap_model (lower memory: 1024MB vs large_model's 2048MB)
+        assert_eq!(code_model.unwrap().id, "multi_cap_model");
 
         // Test finding model with multiple capabilities
         let multi_cap_model = catalog.find_best_model_for_requirements(
@@ -671,8 +671,8 @@ mod tests {
             Some("code_agent"),
         );
         assert!(code_agent_model.is_some());
-        // Should get large_model as it's the only one with code generation in code_agent's list
-        assert_eq!(code_agent_model.unwrap().id, "large_model");
+        // Both large_model and multi_cap_model have code generation; multi_cap_model has lower memory
+        assert_eq!(code_agent_model.unwrap().id, "multi_cap_model");
 
         // Test finding model for restricted agent
         let restricted_model = catalog.find_best_model_for_requirements(
@@ -862,6 +862,7 @@ mod tests {
 
         let mut config = create_test_slm_config();
         config.model_allow_lists.global_models = vec![local_model, hf_model, openai_model];
+        config.model_allow_lists.agent_model_maps.clear();
 
         let catalog = ModelCatalog::new(config).unwrap();
         assert_eq!(catalog.list_models().len(), 3);
