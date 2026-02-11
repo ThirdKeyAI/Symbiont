@@ -4371,7 +4371,7 @@ dependencies = [
 
 [[package]]
 name = "repl-core"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5343,7 +5343,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "symbi"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -5394,7 +5394,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-dsl"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "anyhow",
  "cc",
@@ -5420,7 +5420,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-runtime"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "aes-gcm",
  "agentpin",
