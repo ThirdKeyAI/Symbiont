@@ -70,9 +70,8 @@ pub async fn validate_bot_framework_token(
 ) -> Result<BotFrameworkClaims, ChannelAdapterError> {
     if skip_jwks_verification {
         // Dev mode: decode without signature verification, just validate claims
-        let token_data =
-            jsonwebtoken::dangerous::insecure_decode::<BotFrameworkClaims>(token)
-                .map_err(|e| ChannelAdapterError::Auth(format!("JWT decode failed: {}", e)))?;
+        let token_data = jsonwebtoken::dangerous::insecure_decode::<BotFrameworkClaims>(token)
+            .map_err(|e| ChannelAdapterError::Auth(format!("JWT decode failed: {}", e)))?;
 
         let claims = &token_data.claims;
         if claims.iss != BOT_FRAMEWORK_ISSUER {
