@@ -70,14 +70,23 @@ pub async fn validate_bot_framework_token(
 ) -> Result<BotFrameworkClaims, ChannelAdapterError> {
     if skip_jwks_verification {
         // Dev mode: decode without signature verification, just validate claims
-        let mut validation = Validation::default();
-        validation.insecure_disable_signature_validation();
-        validation.set_audience(&[client_id]);
-        validation.set_issuer(&[BOT_FRAMEWORK_ISSUER]);
-
         let token_data =
-            decode::<BotFrameworkClaims>(token, &DecodingKey::from_secret(b""), &validation)
-                .map_err(|e| ChannelAdapterError::Auth(format!("JWT validation failed: {}", e)))?;
+            jsonwebtoken::dangerous::insecure_decode::<BotFrameworkClaims>(token)
+                .map_err(|e| ChannelAdapterError::Auth(format!("JWT decode failed: {}", e)))?;
+
+        let claims = &token_data.claims;
+        if claims.iss != BOT_FRAMEWORK_ISSUER {
+            return Err(ChannelAdapterError::Auth(format!(
+                "Invalid issuer: {}",
+                claims.iss
+            )));
+        }
+        if claims.aud != client_id {
+            return Err(ChannelAdapterError::Auth(format!(
+                "Invalid audience: {}",
+                claims.aud
+            )));
+        }
 
         return Ok(token_data.claims);
     }

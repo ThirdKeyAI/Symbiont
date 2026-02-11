@@ -6,6 +6,7 @@ authors = ["Jascha Wanger / ThirdKey.ai"]
 description = "Chat channel adapters for the Symbi platform — Slack, Teams, Mattermost"
 license = "MIT"
 repository = "https://github.com/thirdkeyai/symbiont"
+readme = "README.md"
 keywords = ["chat", "slack", "adapter", "symbiont", "agents"]
 
 [dependencies]
@@ -29,7 +30,7 @@ tower = { version = "0.4", optional = true }
 tower-http = { version = "0.5", features = ["cors", "trace"], optional = true }
 serde_urlencoded = { version = "0.7", optional = true }
 base64 = { version = "0.22", optional = true }
-jsonwebtoken = { version = "9", optional = true }
+jsonwebtoken = { version = "10", optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"
