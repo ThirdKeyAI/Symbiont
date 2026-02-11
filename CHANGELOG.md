@@ -5,6 +5,59 @@ All notable changes to the Symbiont project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-02-11
+
+### Added
+
+#### AgentPin Integration
+- **DiscoveryMode Resolver Dispatch**: Multi-strategy agent identity resolution
+  - `StaticDocument`: Use a pre-loaded discovery document (offline/testing)
+  - `WellKnown`: Fetch `.well-known/agent-identity.json` over HTTPS (default)
+  - `DnsRecord`: DNS TXT record lookup (future)
+  - Automatic fallback chain: Static → WellKnown → DnsRecord
+- **agentpin 0.2.0**: Switched from local path dependency to crates.io release
+  - Trust bundle support for fully offline verification
+  - Enhanced discovery document validation
+
+#### MCP Server
+- **Real MCP Server**: Replaced stub with full MCP server over stdio using `rmcp` SDK
+  - `symbi mcp` command now serves a proper MCP protocol endpoint
+  - Tool registration, invocation, and result marshalling
+
+#### Channel Adapters
+- **Bidirectional Slack Adapter**: Real-time Slack integration (Phase 1)
+  - Socket Mode for event streaming
+  - Message sending and channel management
+- **Teams & Mattermost Adapters**: Additional chat platform support
+  - Microsoft Teams webhook and Bot Framework integration
+  - Mattermost WebSocket and REST API integration
+- **Channel Management REST API**: CRUD endpoints for channel configurations
+- **Declarative `channel {}` Block**: DSL grammar support for channel definitions
+- **Enterprise Channel Governance**: Policy enforcement for channel operations
+
+#### Infrastructure
+- **`.claude/` Release Documentation**: Added CLAUDE.md development guidelines and RELEASE_RUNBOOK.md
+- **ROADMAP.md**: v1.1.0+ release planning document
+
+### Fixed
+- **Docker Build Cache**: Fixed cleanup glob to include `libsymbi*` and `.fingerprint/symbi*` cached artifacts
+- **Clippy**: Use `derive(Default)` for DiscoveryMode enum instead of manual impl
+- **CI Tests**: Fixed all failing CI tests and runtime bugs
+- **Compilation Warnings**: Resolved warnings, made Qdrant optional
+- **Runtime Init**: Fixed auth header and model defaults for HTTP-only mode
+
+### Changed
+- **Docker Base Image**: Bumped Rust image to 1.88 for dependency compatibility
+- **OSS Sync**: Hardened sync script with dry-run mode, interactive prompts, expanded safety checks
+
+### Crate Versions
+| Crate | Version |
+|-------|---------|
+| `symbi` | 1.0.1 |
+| `symbi-dsl` | 1.0.1 |
+| `symbi-runtime` | 1.0.2 |
+| `repl-core` | 1.0.1 |
+
 ## [1.0.0] - 2026-02-07
 
 ### Added

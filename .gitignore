@@ -341,4 +341,6 @@ dist
 
 # Claude Code
 .claude/
+!.claude/CLAUDE.md
+!.claude/RELEASE_RUNBOOK.md
 .clauderc
