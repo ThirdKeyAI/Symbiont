@@ -7,10 +7,11 @@ use std::path::PathBuf;
 use thiserror::Error;
 
 /// How discovery documents are resolved.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum DiscoveryMode {
     /// Standard `.well-known` HTTPS fetch (default).
+    #[default]
     WellKnown,
     /// Pre-shared trust bundle loaded from a file.
     Bundle,
@@ -18,12 +19,6 @@ pub enum DiscoveryMode {
     Local,
     /// Chain: try sync resolvers (bundle → local) then fall back to async.
     Chain,
-}
-
-impl Default for DiscoveryMode {
-    fn default() -> Self {
-        Self::WellKnown
-    }
 }
 
 /// AgentPin integration configuration
