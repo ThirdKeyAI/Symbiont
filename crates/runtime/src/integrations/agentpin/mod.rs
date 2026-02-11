@@ -10,5 +10,7 @@ pub mod verifier;
 
 // Re-export main types and traits for convenience
 pub use key_store::AgentPinKeyStore;
-pub use types::{AgentPinConfig, AgentPinError, AgentVerificationResult};
-pub use verifier::{AgentPinVerifier, DefaultAgentPinVerifier, MockAgentPinVerifier};
+pub use types::{AgentPinConfig, AgentPinError, AgentVerificationResult, DiscoveryMode};
+pub use verifier::{
+    AgentPinVerifier, CachingResolver, DefaultAgentPinVerifier, MockAgentPinVerifier,
+};

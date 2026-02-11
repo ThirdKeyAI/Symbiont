@@ -38,7 +38,7 @@ pub use sandbox_orchestrator::{
 // };
 pub use agentpin::{
     AgentPinConfig, AgentPinError, AgentPinKeyStore, AgentPinVerifier, AgentVerificationResult,
-    DefaultAgentPinVerifier, MockAgentPinVerifier,
+    CachingResolver, DefaultAgentPinVerifier, DiscoveryMode, MockAgentPinVerifier,
 };
 pub use mcp::{
     McpClient, McpClientConfig, McpClientError, McpTool, MockMcpClient, SecureMcpClient,

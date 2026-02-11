@@ -62,7 +62,9 @@ RUN mkdir -p src crates/dsl/src crates/runtime/src/bin \
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/app/target \
     cargo build --release && \
-    rm -rf target/release/deps/symbi* target/release/symbi*
+    rm -rf target/release/deps/symbi* target/release/deps/libsymbi* \
+           target/release/.fingerprint/symbi* \
+           target/release/symbi*
 
 # Copy actual source code (invalidates cache only when source changes)
 COPY src/ ./src/

@@ -65,7 +65,7 @@ url = "2.4"
 base64 = "0.21"
 base64ct = "=1.6.0"  # Force exact compatible version that doesn't require edition2024
 schemapin = "1.1.4"
-agentpin = { version = "0.1.0", features = ["fetch"] }
+agentpin = { version = "0.2.0", features = ["fetch"] }
 sha2 = "0.10"
 hex = "0.4"
 argon2 = "0.5"

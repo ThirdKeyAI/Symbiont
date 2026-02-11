@@ -6,6 +6,26 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use thiserror::Error;
 
+/// How discovery documents are resolved.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum DiscoveryMode {
+    /// Standard `.well-known` HTTPS fetch (default).
+    WellKnown,
+    /// Pre-shared trust bundle loaded from a file.
+    Bundle,
+    /// Local filesystem directory containing `{domain}.json` files.
+    Local,
+    /// Chain: try sync resolvers (bundle → local) then fall back to async.
+    Chain,
+}
+
+impl Default for DiscoveryMode {
+    fn default() -> Self {
+        Self::WellKnown
+    }
+}
+
 /// AgentPin integration configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentPinConfig {
@@ -29,6 +49,15 @@ pub struct AgentPinConfig {
     pub max_ttl_secs: i64,
     /// Expected audience claim (this service's domain)
     pub audience: Option<String>,
+    /// How discovery documents are obtained
+    #[serde(default)]
+    pub discovery_mode: DiscoveryMode,
+    /// Path to a trust bundle JSON file (used when discovery_mode = bundle or chain)
+    pub trust_bundle_path: Option<PathBuf>,
+    /// Path to a directory of discovery docs (used when discovery_mode = local or chain)
+    pub local_discovery_dir: Option<PathBuf>,
+    /// Path to a directory of revocation docs (used when discovery_mode = local or chain)
+    pub local_revocation_dir: Option<PathBuf>,
 }
 
 fn default_enabled() -> bool {
@@ -71,6 +100,10 @@ impl Default for AgentPinConfig {
             clock_skew_secs: default_clock_skew_secs(),
             max_ttl_secs: default_max_ttl_secs(),
             audience: None,
+            discovery_mode: DiscoveryMode::default(),
+            trust_bundle_path: None,
+            local_discovery_dir: None,
+            local_revocation_dir: None,
         }
     }
 }
@@ -166,6 +199,10 @@ mod tests {
             .key_store_path
             .to_string_lossy()
             .contains("agentpin_keys.json"));
+        assert_eq!(config.discovery_mode, DiscoveryMode::WellKnown);
+        assert!(config.trust_bundle_path.is_none());
+        assert!(config.local_discovery_dir.is_none());
+        assert!(config.local_revocation_dir.is_none());
     }
 
     #[test]
@@ -217,6 +254,26 @@ mod tests {
         let deserialized: AgentVerificationResult = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.valid, result.valid);
         assert_eq!(deserialized.agent_id, result.agent_id);
+    }
+
+    #[test]
+    fn test_discovery_mode_serde() {
+        assert_eq!(
+            serde_json::to_string(&DiscoveryMode::WellKnown).unwrap(),
+            "\"wellknown\""
+        );
+        assert_eq!(
+            serde_json::to_string(&DiscoveryMode::Bundle).unwrap(),
+            "\"bundle\""
+        );
+        assert_eq!(
+            serde_json::to_string(&DiscoveryMode::Local).unwrap(),
+            "\"local\""
+        );
+        assert_eq!(
+            serde_json::to_string(&DiscoveryMode::Chain).unwrap(),
+            "\"chain\""
+        );
     }
 
     #[test]
