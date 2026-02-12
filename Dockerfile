@@ -46,8 +46,10 @@ COPY crates/repl-lsp/Cargo.toml ./crates/repl-lsp/
 RUN mkdir -p src crates/dsl/src crates/runtime/src/bin \
     crates/channel-adapter/src \
     crates/repl-core/src crates/repl-proto/src \
-    crates/repl-cli/src crates/repl-lsp/src && \
+    crates/repl-cli/src crates/repl-lsp/src \
+    examples && \
     echo "fn main() {}" > src/main.rs && \
+    echo "fn main() {}" > examples/native-execution-example.rs && \
     echo "fn main() {}" > crates/dsl/src/main.rs && \
     echo "" > crates/dsl/src/lib.rs && \
     echo "fn main() {}" > crates/runtime/src/bin/symbiont_mcp.rs && \

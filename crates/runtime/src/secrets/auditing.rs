@@ -13,19 +13,14 @@ use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
 
 /// Controls whether audit failures block secret operations
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AuditFailureMode {
     /// Block the secret operation if audit logging fails (production default)
+    #[default]
     Strict,
     /// Log a warning and allow the operation to proceed
     Permissive,
-}
-
-impl Default for AuditFailureMode {
-    fn default() -> Self {
-        Self::Strict
-    }
 }
 
 /// Errors that can occur during audit operations
