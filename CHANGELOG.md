@@ -5,6 +5,37 @@ All notable changes to the Symbiont project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-02-12
+
+### Added
+
+#### Security Hardening v2 (symbi-runtime)
+- **Per-agent API key authentication** with Argon2 hashing and file-backed key store
+- **Per-IP rate limiting middleware** wired into HTTP router (governor, 100 req/min)
+- **Schema-driven argument redaction** via `sensitive_params` on MCP tools
+- **File locking for secret store** reads (fd-lock shared read locks)
+- **Safe sandbox defaults**: empty `allowed_executables`, shell warnings
+
+#### DSL Improvements (symbi-dsl)
+- **Structured `DslDiagnostic` type** replacing println-based error reporting
+- **Humantime-based timeout parsing** with backward-compatible `.seconds` suffix
+
+#### symbi-a2ui (experimental/alpha)
+- New Lit-based admin UI for fleet management, compliance dashboards, and audit trail viewing
+- Not published to npm — private, experimental
+
+### Fixed
+- **Teams Auth** (symbi-channel-adapter): Migrated to jsonwebtoken v10 API with proper claim validation
+
+### Crate Versions
+| Crate | Version |
+|-------|---------|
+| `symbi` | 1.1.0 |
+| `symbi-dsl` | 1.1.0 |
+| `symbi-runtime` | 1.1.0 |
+| `symbi-channel-adapter` | 0.1.1 |
+| `repl-core` | 1.0.1 |
+
 ## [1.0.1] - 2026-02-11
 
 ### Added

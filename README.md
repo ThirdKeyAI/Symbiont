@@ -83,10 +83,29 @@ cargo run -- mcp --port 8080
 * 🔒 **SchemaPin Security** – Cryptographic verification of tools and schemas.
 * 🔒 **AgentPin Identity** – Domain-anchored cryptographic identity for scheduled agents.
 * 🔒 **Secrets Management** – HashiCorp Vault / OpenBao integration, AES-256-GCM encrypted storage.
+* 🔑 **Per-Agent API Keys** – Argon2-hashed API key authentication with per-IP rate limiting.
+* 🛡️ **Sensitive Parameter Redaction** – Schema-driven redaction of sensitive arguments in MCP tool calls.
 * 📊 **RAG Engine** – Vector search (Qdrant) with hybrid semantic + keyword retrieval.
 * 🧩 **MCP Integration** – Native support for Model Context Protocol tools.
 * 📡 **Optional HTTP API** – Feature-gated REST interface for external integration.
 * 📋 **Delivery Routing** – Route scheduled agent output to webhooks, Slack, email, or custom channels.
+* 🖥️ **Admin UI** – Experimental Lit-based dashboard for fleet management and compliance (symbi-a2ui, alpha).
+
+---
+
+## 📦 Workspace Crates
+
+| Crate | Description | Status |
+|-------|-------------|--------|
+| `symbi` | Unified CLI binary | Stable |
+| `symbi-runtime` | Core agent runtime | Stable |
+| `symbi-dsl` | DSL parser and evaluator | Stable |
+| `symbi-channel-adapter` | Slack/Teams/Mattermost adapters | Stable |
+| `repl-core` | REPL engine | Stable |
+| `repl-proto` | JSON-RPC protocol | Stable |
+| `repl-cli` | Interactive CLI + JSON-RPC server | Stable |
+| `repl-lsp` | Language Server Protocol | Stable |
+| `symbi-a2ui` | Admin dashboard (Lit/TypeScript) | Alpha |
 
 ---
 

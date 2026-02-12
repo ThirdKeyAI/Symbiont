@@ -1,6 +1,6 @@
 [package]
 name = "symbi-dsl"
-version = "1.0.1"
+version = "1.1.0"
 edition = "2021"
 authors = ["Jascha Wanger / ThirdKey.ai"]
 description = "Symbi DSL - AI-native programming language with Tree-sitter integration"
