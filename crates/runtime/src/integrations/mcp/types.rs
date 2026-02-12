@@ -24,6 +24,9 @@ pub struct McpTool {
     pub verification_status: VerificationStatus,
     /// Additional metadata
     pub metadata: Option<HashMap<String, serde_json::Value>>,
+    /// Parameter names that contain sensitive data and should be redacted in logs
+    #[serde(default)]
+    pub sensitive_params: Vec<String>,
 }
 
 /// Tool provider information

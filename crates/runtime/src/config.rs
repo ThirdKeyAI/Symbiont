@@ -154,13 +154,7 @@ impl Default for NativeExecutionConfig {
             max_memory_mb: Some(2048),
             max_cpu_seconds: Some(300),
             max_execution_time_seconds: 300,
-            allowed_executables: vec![
-                "bash".to_string(),
-                "sh".to_string(),
-                "python3".to_string(),
-                "python".to_string(),
-                "node".to_string(),
-            ],
+            allowed_executables: vec![], // Empty — must be explicitly configured
         }
     }
 }

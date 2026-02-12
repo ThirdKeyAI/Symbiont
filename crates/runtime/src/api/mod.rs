@@ -13,6 +13,9 @@ pub mod routes;
 pub mod middleware;
 
 #[cfg(feature = "http-api")]
+pub mod api_keys;
+
+#[cfg(feature = "http-api")]
 pub mod types;
 
 #[cfg(feature = "http-api")]

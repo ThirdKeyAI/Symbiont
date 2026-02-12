@@ -158,6 +158,45 @@ pub trait ToolInvocationEnforcer: Send + Sync {
     fn update_enforcement_config(&mut self, config: InvocationEnforcementConfig);
 }
 
+/// Recursively mask sensitive argument values in a JSON object.
+///
+/// Keys matching any entry in `sensitive_params` (case-sensitive) are replaced
+/// with `[REDACTED:sensitive_param]`. Nested objects are traversed recursively.
+pub fn mask_sensitive_arguments(
+    arguments: &serde_json::Value,
+    sensitive_params: &[String],
+) -> serde_json::Value {
+    if sensitive_params.is_empty() {
+        return arguments.clone();
+    }
+
+    match arguments {
+        serde_json::Value::Object(map) => {
+            let mut masked = serde_json::Map::new();
+            for (key, value) in map {
+                if sensitive_params.iter().any(|p| p == key) {
+                    masked.insert(
+                        key.clone(),
+                        serde_json::Value::String(format!("[REDACTED:{}]", key)),
+                    );
+                } else {
+                    masked.insert(
+                        key.clone(),
+                        mask_sensitive_arguments(value, sensitive_params),
+                    );
+                }
+            }
+            serde_json::Value::Object(masked)
+        }
+        serde_json::Value::Array(arr) => serde_json::Value::Array(
+            arr.iter()
+                .map(|v| mask_sensitive_arguments(v, sensitive_params))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
 /// Default implementation of tool invocation enforcement
 pub struct DefaultToolInvocationEnforcer {
     config: InvocationEnforcementConfig,
@@ -497,11 +536,15 @@ impl ToolInvocationEnforcer for DefaultToolInvocationEnforcer {
         // Check if invocation is allowed
         let decision = self.check_invocation_allowed(tool, &context).await?;
 
+        // Mask sensitive arguments before logging
+        let redacted_arguments =
+            mask_sensitive_arguments(&context.arguments, &tool.sensitive_params);
+
         // Prepare request data for logging
         let request_data = RequestData {
             prompt: format!("Tool invocation: {}", tool.name),
             tool_name: Some(tool.name.clone()),
-            tool_arguments: Some(context.arguments.clone()),
+            tool_arguments: Some(redacted_arguments),
             parameters: {
                 let mut params = HashMap::new();
                 params.insert(
@@ -717,6 +760,7 @@ mod tests {
             },
             verification_status,
             metadata: None,
+            sensitive_params: vec![],
         }
     }
 
@@ -891,5 +935,37 @@ mod tests {
             result.unwrap_err(),
             ToolInvocationError::NoMcpClient { .. }
         ));
+    }
+
+    #[test]
+    fn test_mask_sensitive_arguments_empty_list() {
+        let args = serde_json::json!({"user": "alice", "password": "s3cret"});
+        let masked = mask_sensitive_arguments(&args, &[]);
+        assert_eq!(masked, args);
+    }
+
+    #[test]
+    fn test_mask_sensitive_arguments_flat() {
+        let args = serde_json::json!({"user": "alice", "password": "s3cret", "token": "abc"});
+        let masked =
+            mask_sensitive_arguments(&args, &["password".to_string(), "token".to_string()]);
+        assert_eq!(masked["user"], "alice");
+        assert_eq!(masked["password"], "[REDACTED:password]");
+        assert_eq!(masked["token"], "[REDACTED:token]");
+    }
+
+    #[test]
+    fn test_mask_sensitive_arguments_nested() {
+        let args = serde_json::json!({
+            "config": {
+                "api_key": "sk-123",
+                "endpoint": "https://api.example.com"
+            },
+            "name": "test"
+        });
+        let masked = mask_sensitive_arguments(&args, &["api_key".to_string()]);
+        assert_eq!(masked["config"]["api_key"], "[REDACTED:api_key]");
+        assert_eq!(masked["config"]["endpoint"], "https://api.example.com");
+        assert_eq!(masked["name"], "test");
     }
 }

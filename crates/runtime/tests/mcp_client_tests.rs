@@ -34,6 +34,7 @@ fn create_test_tool(name: &str, provider_id: &str) -> McpTool {
         },
         verification_status: VerificationStatus::Pending,
         metadata: None,
+        sensitive_params: vec![],
     }
 }
 

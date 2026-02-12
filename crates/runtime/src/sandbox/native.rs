@@ -53,39 +53,41 @@ impl Default for NativeConfig {
             max_memory_mb: Some(2048),
             max_cpu_seconds: Some(300),
             max_execution_time: Duration::from_secs(300),
-            allowed_executables: vec![
-                "bash".to_string(),
-                "sh".to_string(),
-                "python3".to_string(),
-                "python".to_string(),
-                "node".to_string(),
-            ],
+            allowed_executables: vec![],
             max_output_bytes: DEFAULT_MAX_OUTPUT_BYTES,
         }
     }
 }
 
+/// Shell executable names that warrant a security warning
+const SHELL_EXECUTABLES: &[&str] = &["bash", "sh", "zsh", "dash", "fish", "csh", "tcsh", "ksh"];
+
 impl NativeConfig {
     /// Validate the configuration
     pub fn validate(&self) -> Result<(), anyhow::Error> {
+        // Reject empty allowed_executables — force explicit configuration
+        if self.allowed_executables.is_empty() {
+            anyhow::bail!(
+                "allowed_executables must not be empty — explicitly list the executables this runner may invoke"
+            );
+        }
+
         // Check if executable is allowed
-        if !self.allowed_executables.is_empty() {
-            let exec_name = self
-                .executable
-                .split('/')
-                .next_back()
-                .unwrap_or(&self.executable);
-            if !self
-                .allowed_executables
-                .iter()
-                .any(|allowed| allowed == &self.executable || allowed == exec_name)
-            {
-                anyhow::bail!(
-                    "Executable '{}' not in allowed list: {:?}",
-                    self.executable,
-                    self.allowed_executables
-                );
-            }
+        let exec_name = self
+            .executable
+            .split('/')
+            .next_back()
+            .unwrap_or(&self.executable);
+        if !self
+            .allowed_executables
+            .iter()
+            .any(|allowed| allowed == &self.executable || allowed == exec_name)
+        {
+            anyhow::bail!(
+                "Executable '{}' not in allowed list: {:?}",
+                self.executable,
+                self.allowed_executables
+            );
         }
 
         // Validate working directory
@@ -98,9 +100,24 @@ impl NativeConfig {
 
         Ok(())
     }
+
+    /// Log warnings for any shell executables in the allowed list
+    pub fn warn_on_shell_executables(&self) {
+        for allowed in &self.allowed_executables {
+            let base_name = allowed.split('/').next_back().unwrap_or(allowed);
+            if SHELL_EXECUTABLES.contains(&base_name) {
+                tracing::warn!(
+                    "SECURITY: shell executable '{}' is in allowed_executables — \
+                     consider removing it unless explicitly required",
+                    allowed
+                );
+            }
+        }
+    }
 }
 
 /// Native sandbox runner for direct host execution
+#[derive(Debug)]
 pub struct NativeRunner {
     config: NativeConfig,
 }
@@ -142,6 +159,9 @@ impl NativeRunner {
 
         // Validate configuration
         config.validate()?;
+
+        // Warn about shell executables in the allow list
+        config.warn_on_shell_executables();
 
         // Ensure working directory exists
         if !config.working_directory.exists() {
@@ -405,23 +425,34 @@ impl SandboxRunner for NativeRunner {
 mod tests {
     use super::*;
 
+    /// Helper: create a NativeConfig with bash allowed (most tests need this)
+    fn config_with_bash() -> NativeConfig {
+        NativeConfig {
+            executable: "bash".to_string(),
+            allowed_executables: vec!["bash".to_string()],
+            ..Default::default()
+        }
+    }
+
     #[tokio::test]
     async fn test_native_runner_creation() {
-        let config = NativeConfig::default();
+        let config = config_with_bash();
         let runner = NativeRunner::new(config);
         assert!(runner.is_ok());
     }
 
     #[tokio::test]
-    async fn test_native_runner_with_defaults() {
-        let runner = NativeRunner::with_defaults();
-        assert!(runner.is_ok());
+    async fn test_default_config_rejected_without_executables() {
+        // Default has empty allowed_executables — validate() should reject it
+        let config = NativeConfig::default();
+        assert!(config.validate().is_err());
     }
 
     #[tokio::test]
     async fn test_native_python_execution() {
         let config = NativeConfig {
             executable: "python3".to_string(),
+            allowed_executables: vec!["python3".to_string()],
             ..Default::default()
         };
 
@@ -446,10 +477,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_native_bash_execution() {
-        let config = NativeConfig {
-            executable: "bash".to_string(),
-            ..Default::default()
-        };
+        let config = config_with_bash();
 
         let runner = NativeRunner::new(config).unwrap();
 
@@ -466,10 +494,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_native_execution_with_env_vars() {
-        let config = NativeConfig {
-            executable: "bash".to_string(),
-            ..Default::default()
-        };
+        let config = config_with_bash();
 
         let runner = NativeRunner::new(config).unwrap();
 
@@ -486,6 +511,7 @@ mod tests {
     async fn test_native_execution_timeout() {
         let config = NativeConfig {
             executable: "bash".to_string(),
+            allowed_executables: vec!["bash".to_string()],
             max_execution_time: Duration::from_secs(1),
             ..Default::default()
         };
@@ -514,6 +540,7 @@ mod tests {
     async fn test_working_directory_validation() {
         let config = NativeConfig {
             working_directory: PathBuf::from("relative/path"),
+            allowed_executables: vec!["bash".to_string()],
             ..Default::default()
         };
 
@@ -527,7 +554,8 @@ mod tests {
         let original = std::env::var("SYMBIONT_ENV").ok();
 
         std::env::set_var("SYMBIONT_ENV", "production");
-        let result = NativeRunner::new(NativeConfig::default());
+        let config = config_with_bash();
+        let result = NativeRunner::new(config);
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -545,6 +573,7 @@ mod tests {
     async fn test_output_truncation() {
         let config = NativeConfig {
             executable: "bash".to_string(),
+            allowed_executables: vec!["bash".to_string()],
             max_output_bytes: 50,
             ..Default::default()
         };

@@ -29,7 +29,11 @@ use dashmap::DashMap;
 #[cfg(feature = "http-api")]
 use std::env;
 
-/// Authentication middleware for bearer token validation
+/// Authentication middleware for bearer token validation.
+///
+/// Checks in order:
+/// 1. Per-agent API key store (Argon2-hashed, file-backed) if available as an Extension
+/// 2. Legacy `SYMBIONT_API_TOKEN` environment variable with constant-time comparison
 #[cfg(feature = "http-api")]
 pub async fn auth_middleware(request: Request, next: Next) -> Result<Response, StatusCode> {
     // Extract the Authorization header
@@ -50,7 +54,28 @@ pub async fn auth_middleware(request: Request, next: Next) -> Result<Response, S
     // Extract the token part (after "Bearer ")
     let token = &auth_value[7..];
 
-    // Get the expected token from environment variable (simplified for now)
+    // 1) Try per-agent API key store (if wired as an Extension)
+    let key_store: Option<axum::extract::Extension<std::sync::Arc<super::api_keys::ApiKeyStore>>> =
+        request
+            .extensions()
+            .get()
+            .cloned()
+            .map(axum::extract::Extension);
+
+    if let Some(axum::extract::Extension(store)) = key_store {
+        if store.has_records() {
+            if let Some(validated) = store.validate_key(token) {
+                tracing::info!(
+                    "Authenticated via API key store: key_id={}",
+                    validated.key_id
+                );
+                return Ok(next.run(request).await);
+            }
+            // Key store exists with records but key didn't match — still try legacy
+        }
+    }
+
+    // 2) Fall back to legacy SYMBIONT_API_TOKEN env var
     let expected_token = env::var("SYMBIONT_API_TOKEN").map_err(|_| {
         tracing::error!("SYMBIONT_API_TOKEN environment variable not set");
         StatusCode::UNAUTHORIZED

@@ -10,7 +10,6 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
-use tokio::fs as async_fs;
 
 /// File-based secrets store implementation
 pub struct FileSecretStore {
@@ -54,17 +53,43 @@ impl FileSecretStore {
         Ok(())
     }
 
-    /// Load and decrypt secrets from the file
+    /// Load and decrypt secrets from the file.
+    ///
+    /// Acquires a shared (read) file lock via `fd_lock::RwLock` so that
+    /// concurrent readers never observe a partially-written file.
+    /// The lock is released automatically when the guard drops.
     async fn load_secrets(&self) -> Result<HashMap<String, String>, SecretError> {
-        // Read the file content
-        let file_content =
-            async_fs::read(&self.config.path)
-                .await
+        let path = self.config.path.clone();
+        let encryption_enabled = self.config.encryption.enabled;
+
+        // Blocking I/O with file lock — run off the async executor
+        let file_content = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, SecretError> {
+            let file = std::fs::File::open(&path).map_err(|e| SecretError::IoError {
+                message: format!("Failed to open secrets file: {}", e),
+            })?;
+
+            let lock = fd_lock::RwLock::new(file);
+            let guard = lock.read().map_err(|e| SecretError::IoError {
+                message: format!("Failed to acquire read lock on secrets file: {}", e),
+            })?;
+
+            // Read via &File (std::io::Read is impl'd for &File)
+            use std::io::Read;
+            let mut buf = Vec::new();
+            (&*guard)
+                .read_to_end(&mut buf)
                 .map_err(|e| SecretError::IoError {
                     message: format!("Failed to read secrets file: {}", e),
                 })?;
+            // Lock released when `guard` drops here
+            Ok(buf)
+        })
+        .await
+        .map_err(|e| SecretError::IoError {
+            message: format!("Blocking task panicked: {}", e),
+        })??;
 
-        let secrets_data = if self.config.encryption.enabled {
+        let secrets_data = if encryption_enabled {
             // Decrypt the content
             self.decrypt_content(&file_content).await?
         } else {
@@ -440,5 +465,32 @@ mod tests {
         assert!(keys.contains(&"app_key1".to_string()));
         assert!(keys.contains(&"app_key2".to_string()));
         assert!(!keys.contains(&"other_key".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_reads_no_deadlock() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, r#"{{"secret_a": "val_a", "secret_b": "val_b"}}"#).unwrap();
+
+        let config = create_test_config(temp_file.path().to_path_buf());
+        let store = std::sync::Arc::new(
+            FileSecretStore::new(config, None, "test-agent".to_string())
+                .await
+                .unwrap(),
+        );
+
+        // Spawn multiple concurrent readers — shared read locks must not deadlock
+        let mut handles = Vec::new();
+        for _ in 0..10 {
+            let s = store.clone();
+            handles.push(tokio::spawn(async move {
+                let secret = s.get_secret("secret_a").await.unwrap();
+                assert_eq!(secret.value(), "val_a");
+            }));
+        }
+
+        for h in handles {
+            h.await.unwrap();
+        }
     }
 }

@@ -528,6 +528,7 @@ mod tests {
             },
             verification_status: VerificationStatus::Pending,
             metadata: None,
+            sensitive_params: vec![],
         }
     }
 

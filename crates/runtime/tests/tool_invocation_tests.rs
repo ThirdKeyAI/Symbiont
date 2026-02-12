@@ -32,6 +32,7 @@ fn create_test_tool_with_status(name: &str, status: VerificationStatus) -> McpTo
         },
         verification_status: status,
         metadata: None,
+        sensitive_params: vec![],
     }
 }
 

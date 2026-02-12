@@ -157,6 +157,10 @@ pub struct HttpApiConfig {
     pub enable_cors: bool,
     /// Enable request tracing
     pub enable_tracing: bool,
+    /// Enable per-IP rate limiting (100 req/min)
+    pub enable_rate_limiting: bool,
+    /// Optional path to API keys JSON file for per-agent authentication
+    pub api_keys_file: Option<std::path::PathBuf>,
 }
 
 #[cfg(feature = "http-api")]
@@ -167,6 +171,8 @@ impl Default for HttpApiConfig {
             port: 8080,
             enable_cors: true,
             enable_tracing: true,
+            enable_rate_limiting: true,
+            api_keys_file: None,
         }
     }
 }
@@ -177,6 +183,7 @@ pub struct HttpApiServer {
     config: HttpApiConfig,
     runtime_provider: Option<Arc<dyn RuntimeApiProvider>>,
     start_time: Instant,
+    api_key_store: Option<Arc<super::api_keys::ApiKeyStore>>,
 }
 
 #[cfg(feature = "http-api")]
@@ -187,6 +194,7 @@ impl HttpApiServer {
             config,
             runtime_provider: None,
             start_time: Instant::now(),
+            api_key_store: None,
         }
     }
 
@@ -197,7 +205,24 @@ impl HttpApiServer {
     }
 
     /// Start the HTTP API server
-    pub async fn start(&self) -> Result<(), RuntimeError> {
+    pub async fn start(&mut self) -> Result<(), RuntimeError> {
+        // Load API key store if configured
+        if let Some(ref keys_path) = self.config.api_keys_file {
+            match super::api_keys::ApiKeyStore::load_from_file(keys_path) {
+                Ok(store) => {
+                    tracing::info!("Loaded API key store from {}", keys_path.display());
+                    self.api_key_store = Some(Arc::new(store));
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to load API key store from {}: {} — falling back to legacy auth",
+                        keys_path.display(),
+                        e
+                    );
+                }
+            }
+        }
+
         let app = self.create_router();
 
         let addr = format!("{}:{}", self.config.bind_address, self.config.port);
@@ -313,6 +338,11 @@ impl HttpApiServer {
                 .merge(other_router);
         }
 
+        // Add API key store as extension if available
+        if let Some(ref store) = self.api_key_store {
+            router = router.layer(axum::Extension(store.clone()));
+        }
+
         // Add middleware conditionally
         if self.config.enable_tracing {
             router = router.layer(TraceLayer::new_for_http());
@@ -334,6 +364,13 @@ impl HttpApiServer {
                 .allow_credentials(false);
 
             router = router.layer(cors);
+        }
+
+        // Apply per-IP rate limiting
+        if self.config.enable_rate_limiting {
+            router = router.layer(axum::middleware::from_fn(
+                crate::api::middleware::rate_limit_middleware,
+            ));
         }
 
         // Apply security headers to all responses
