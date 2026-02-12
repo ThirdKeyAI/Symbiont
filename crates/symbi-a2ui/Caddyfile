@@ -1,0 +1,28 @@
+{
+	auto_https off
+}
+
+:3001 {
+	# Reverse proxy API requests to the Symbiont runtime
+	handle /api/* {
+		reverse_proxy symbi:8080
+	}
+
+	# Serve static files from the build output
+	handle {
+		root * /srv/www
+		encode gzip
+		try_files {path} /index.html
+		file_server
+	}
+
+	# Security headers
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		X-XSS-Protection "1; mode=block"
+		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+}

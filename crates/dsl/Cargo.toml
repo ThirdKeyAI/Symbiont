@@ -47,6 +47,9 @@ ring = "0.17.12"
 # File system operations
 walkdir = "2.0"
 
+# Duration parsing
+humantime = "2.1"
+
 [dev-dependencies]
 # Testing framework
 tokio-test = "0.4"

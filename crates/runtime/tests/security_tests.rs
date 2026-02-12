@@ -7,221 +7,184 @@
 //! - Production environment restrictions
 
 use std::env;
-use std::path::PathBuf;
-use std::sync::Mutex;
-use symbi_runtime::sandbox::{NativeConfig, NativeRunner, SandboxRunner};
-use tokio::time::Duration;
-
-/// Mutex to prevent parallel tests from interfering via environment variables
-static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
 // ============================================================================
-// Native Execution Security Tests
+// Native Execution Security Tests (require native-sandbox feature)
 // ============================================================================
 
-#[tokio::test]
-async fn test_native_execution_blocked_in_production() {
-    let _guard = ENV_MUTEX.lock().unwrap();
-    // Set production environment
-    env::set_var("SYMBIONT_ENV", "production");
+#[cfg(feature = "native-sandbox")]
+mod native_sandbox_tests {
+    use super::*;
+    use std::path::PathBuf;
+    use symbi_runtime::sandbox::{NativeConfig, NativeRunner, SandboxRunner};
+    use tokio::time::Duration;
 
-    let config = NativeConfig::default();
-    let result = NativeRunner::new(config);
-
-    // Should fail in production without explicit permission
-    assert!(
-        result.is_err(),
-        "Native execution should be blocked in production"
-    );
-
-    let error_msg = result.err().unwrap().to_string();
-    assert!(
-        error_msg.contains("production") && error_msg.contains("disabled"),
-        "Error message should mention production restriction: {}",
-        error_msg
-    );
-
-    // Cleanup
-    env::remove_var("SYMBIONT_ENV");
-}
-
-#[tokio::test]
-async fn test_native_execution_allowed_with_explicit_permission() {
-    let _guard = ENV_MUTEX.lock().unwrap();
-    // Set production environment with explicit permission
-    env::set_var("SYMBIONT_ENV", "production");
-    env::set_var("SYMBIONT_ALLOW_NATIVE_EXECUTION", "true");
-
-    let config = NativeConfig::default();
-    let result = NativeRunner::new(config);
-
-    // Should succeed with explicit permission
-    assert!(
-        result.is_ok(),
-        "Native execution should be allowed with explicit permission"
-    );
-
-    // Cleanup
-    env::remove_var("SYMBIONT_ENV");
-    env::remove_var("SYMBIONT_ALLOW_NATIVE_EXECUTION");
-}
-
-#[tokio::test]
-async fn test_native_execution_permission_case_variants() {
-    let _guard = ENV_MUTEX.lock().unwrap();
-    env::set_var("SYMBIONT_ENV", "production");
-
-    // Test various permission values
-    for permission in &["true", "TRUE", "True", "yes", "YES", "1"] {
-        env::set_var("SYMBIONT_ALLOW_NATIVE_EXECUTION", permission);
+    #[tokio::test]
+    async fn test_native_execution_blocked_in_production() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        // Set production environment
+        env::set_var("SYMBIONT_ENV", "production");
 
         let config = NativeConfig::default();
         let result = NativeRunner::new(config);
 
+        // Should fail in production — no runtime override possible
+        assert!(
+            result.is_err(),
+            "Native execution should be blocked in production"
+        );
+
+        let error_msg = result.err().unwrap().to_string();
+        assert!(
+            error_msg.contains("production") && error_msg.contains("disabled"),
+            "Error message should mention production restriction: {}",
+            error_msg
+        );
+
+        // Cleanup
+        env::remove_var("SYMBIONT_ENV");
+    }
+
+    #[tokio::test]
+    async fn test_native_execution_no_runtime_bypass_in_production() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        // Set production environment — env var bypass has been removed
+        env::set_var("SYMBIONT_ENV", "production");
+        env::set_var("SYMBIONT_ALLOW_NATIVE_EXECUTION", "true");
+
+        let config = NativeConfig::default();
+        let result = NativeRunner::new(config);
+
+        // Should STILL fail — the env var bypass was removed as a security fix
+        assert!(
+            result.is_err(),
+            "Native execution should be unconditionally blocked in production (no env var bypass)"
+        );
+
+        // Cleanup
+        env::remove_var("SYMBIONT_ENV");
+        env::remove_var("SYMBIONT_ALLOW_NATIVE_EXECUTION");
+    }
+
+    #[tokio::test]
+    async fn test_native_execution_allowed_in_development() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        // No SYMBIONT_ENV set (defaults to development)
+        env::remove_var("SYMBIONT_ENV");
+
+        let config = NativeConfig::default();
+        let result = NativeRunner::new(config);
+
+        // Should succeed in development
         assert!(
             result.is_ok(),
-            "Permission '{}' should be accepted",
-            permission
+            "Native execution should be allowed in development"
         );
     }
 
-    // Test invalid permission values
-    for permission in &["false", "no", "0", "maybe", ""] {
-        env::set_var("SYMBIONT_ALLOW_NATIVE_EXECUTION", permission);
+    #[tokio::test]
+    async fn test_native_execution_validates_config() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        env::remove_var("SYMBIONT_ENV");
+        // Set an invalid executable not in the allowed list
+        let config = NativeConfig {
+            executable: "/usr/bin/dangerous-binary".to_string(),
+            ..Default::default()
+        };
 
-        let config = NativeConfig::default();
+        let result = NativeRunner::new(config);
+
+        assert!(result.is_err(), "Invalid executable should be rejected");
+
+        let error_msg = result.err().unwrap().to_string();
+        assert!(
+            error_msg.contains("not in allowed list"),
+            "Error should mention allowed list: {}",
+            error_msg
+        );
+    }
+
+    #[tokio::test]
+    async fn test_native_execution_validates_working_directory() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        env::remove_var("SYMBIONT_ENV");
+        // Use a relative path (should fail - must be absolute)
+        let config = NativeConfig {
+            working_directory: PathBuf::from("relative/path"),
+            ..Default::default()
+        };
+
         let result = NativeRunner::new(config);
 
         assert!(
             result.is_err(),
-            "Permission '{}' should be rejected",
-            permission
+            "Relative working directory should be rejected"
+        );
+
+        let error_msg = result.err().unwrap().to_string();
+        assert!(
+            error_msg.contains("absolute path"),
+            "Error should mention absolute path requirement: {}",
+            error_msg
         );
     }
 
-    // Cleanup
-    env::remove_var("SYMBIONT_ENV");
-    env::remove_var("SYMBIONT_ALLOW_NATIVE_EXECUTION");
-}
+    #[tokio::test]
+    async fn test_native_execution_creates_working_directory() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        env::remove_var("SYMBIONT_ENV");
+        let temp_dir = std::env::temp_dir().join("symbiont-test-workdir");
 
-#[tokio::test]
-async fn test_native_execution_allowed_in_development() {
-    let _guard = ENV_MUTEX.lock().unwrap();
-    // No SYMBIONT_ENV set (defaults to development)
-    env::remove_var("SYMBIONT_ENV");
+        // Ensure directory doesn't exist
+        let _ = std::fs::remove_dir_all(&temp_dir);
 
-    let config = NativeConfig::default();
-    let result = NativeRunner::new(config);
+        let config = NativeConfig {
+            working_directory: temp_dir.clone(),
+            ..Default::default()
+        };
 
-    // Should succeed in development
-    assert!(
-        result.is_ok(),
-        "Native execution should be allowed in development"
-    );
-}
+        let result = NativeRunner::new(config);
 
-#[tokio::test]
-async fn test_native_execution_validates_config() {
-    let _guard = ENV_MUTEX.lock().unwrap();
-    env::remove_var("SYMBIONT_ENV");
-    // Set an invalid executable not in the allowed list
-    let config = NativeConfig {
-        executable: "/usr/bin/dangerous-binary".to_string(),
-        ..Default::default()
-    };
+        assert!(
+            result.is_ok(),
+            "Should create working directory if it doesn't exist"
+        );
+        assert!(
+            temp_dir.exists(),
+            "Working directory should have been created"
+        );
 
-    let result = NativeRunner::new(config);
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
 
-    assert!(result.is_err(), "Invalid executable should be rejected");
+    #[tokio::test]
+    async fn test_native_execution_respects_timeout() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        env::remove_var("SYMBIONT_ENV");
 
-    let error_msg = result.err().unwrap().to_string();
-    assert!(
-        error_msg.contains("not in allowed list"),
-        "Error should mention allowed list: {}",
-        error_msg
-    );
-}
+        let config = NativeConfig {
+            max_execution_time: Duration::from_millis(100),
+            executable: "bash".to_string(),
+            ..Default::default()
+        };
 
-#[tokio::test]
-async fn test_native_execution_validates_working_directory() {
-    let _guard = ENV_MUTEX.lock().unwrap();
-    env::remove_var("SYMBIONT_ENV");
-    // Use a relative path (should fail - must be absolute)
-    let config = NativeConfig {
-        working_directory: PathBuf::from("relative/path"),
-        ..Default::default()
-    };
+        let runner = NativeRunner::new(config).unwrap();
 
-    let result = NativeRunner::new(config);
+        // Try to sleep for 5 seconds (should timeout after 100ms)
+        let result = runner
+            .execute("sleep 5", std::collections::HashMap::new())
+            .await;
 
-    assert!(
-        result.is_err(),
-        "Relative working directory should be rejected"
-    );
+        assert!(result.is_err(), "Long-running execution should timeout");
 
-    let error_msg = result.err().unwrap().to_string();
-    assert!(
-        error_msg.contains("absolute path"),
-        "Error should mention absolute path requirement: {}",
-        error_msg
-    );
-}
-
-#[tokio::test]
-async fn test_native_execution_creates_working_directory() {
-    let _guard = ENV_MUTEX.lock().unwrap();
-    env::remove_var("SYMBIONT_ENV");
-    let temp_dir = std::env::temp_dir().join("symbiont-test-workdir");
-
-    // Ensure directory doesn't exist
-    let _ = std::fs::remove_dir_all(&temp_dir);
-
-    let config = NativeConfig {
-        working_directory: temp_dir.clone(),
-        ..Default::default()
-    };
-
-    let result = NativeRunner::new(config);
-
-    assert!(
-        result.is_ok(),
-        "Should create working directory if it doesn't exist"
-    );
-    assert!(
-        temp_dir.exists(),
-        "Working directory should have been created"
-    );
-
-    // Cleanup
-    let _ = std::fs::remove_dir_all(&temp_dir);
-}
-
-#[tokio::test]
-async fn test_native_execution_respects_timeout() {
-    let _guard = ENV_MUTEX.lock().unwrap();
-    env::remove_var("SYMBIONT_ENV");
-
-    let config = NativeConfig {
-        max_execution_time: Duration::from_millis(100),
-        executable: "bash".to_string(),
-        ..Default::default()
-    };
-
-    let runner = NativeRunner::new(config).unwrap();
-
-    // Try to sleep for 5 seconds (should timeout after 100ms)
-    let result = runner
-        .execute("sleep 5", std::collections::HashMap::new())
-        .await;
-
-    assert!(result.is_err(), "Long-running execution should timeout");
-
-    let error_msg = result.unwrap_err().to_string();
-    assert!(
-        error_msg.contains("timeout") || error_msg.contains("Execution timed out"),
-        "Error should mention timeout: {}",
-        error_msg
-    );
+        let error_msg = result.unwrap_err().to_string();
+        assert!(
+            error_msg.contains("timeout") || error_msg.contains("Execution timed out"),
+            "Error should mention timeout: {}",
+            error_msg
+        );
+    }
 }
 
 // ============================================================================

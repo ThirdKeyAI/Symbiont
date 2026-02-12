@@ -233,30 +233,22 @@ pub fn extract_with_blocks(tree: &Tree, source: &str) -> Result<Vec<WithBlock>, 
                                     Err(e) => return Err(e),
                                 },
                                 "timeout" => {
-                                    // Parse timeout (assuming it's in seconds)
                                     let timeout_str = value.trim_matches('"');
-                                    if let Some(timeout_value) =
-                                        timeout_str.strip_suffix(".seconds")
-                                    {
-                                        match timeout_value.parse::<u64>() {
-                                            Ok(seconds) => with_block.timeout = Some(seconds),
-                                            Err(_) => {
-                                                return Err(format!(
-                                                    "Invalid timeout value: {}",
-                                                    value
-                                                ))
-                                            }
-                                        }
+                                    // Strip legacy ".seconds" suffix for backward compatibility
+                                    let normalized = timeout_str
+                                        .strip_suffix(".seconds")
+                                        .or_else(|| timeout_str.strip_suffix(".minutes"))
+                                        .or_else(|| timeout_str.strip_suffix(".hours"))
+                                        .map(|n| format!("{}s", n.trim()))
+                                        .unwrap_or_else(|| timeout_str.to_string());
+
+                                    // Try humantime first, fall back to bare number as seconds
+                                    if let Ok(duration) = humantime::parse_duration(&normalized) {
+                                        with_block.timeout = Some(duration.as_secs());
+                                    } else if let Ok(seconds) = normalized.parse::<u64>() {
+                                        with_block.timeout = Some(seconds);
                                     } else {
-                                        match timeout_str.parse::<u64>() {
-                                            Ok(seconds) => with_block.timeout = Some(seconds),
-                                            Err(_) => {
-                                                return Err(format!(
-                                                    "Invalid timeout value: {}",
-                                                    value
-                                                ))
-                                            }
-                                        }
+                                        return Err(format!("Invalid timeout value: {}", value));
                                     }
                                 }
                                 _ => {} // Other attributes are stored but not specially parsed
@@ -610,26 +602,58 @@ pub fn extract_channel_definitions(
     Ok(channels)
 }
 
-/// Find and report errors in the AST
-pub fn find_errors(node: Node, source: &str, depth: usize) {
+/// A structured diagnostic emitted by error analysis
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DslDiagnostic {
+    /// 1-based start line
+    pub start_line: usize,
+    /// 1-based start column
+    pub start_col: usize,
+    /// 1-based end line
+    pub end_line: usize,
+    /// 1-based end column
+    pub end_col: usize,
+    /// The source text of the erroneous node
+    pub snippet: String,
+    /// Nesting depth at which the error was found
+    pub depth: usize,
+}
+
+impl std::fmt::Display for DslDiagnostic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "ERROR at {}:{}-{}:{}: '{}'",
+            self.start_line, self.start_col, self.end_line, self.end_col, self.snippet
+        )
+    }
+}
+
+/// Find errors in the AST and return them as structured diagnostics
+pub fn find_errors(node: Node, source: &str, depth: usize) -> Vec<DslDiagnostic> {
+    let mut diagnostics = Vec::new();
+    collect_errors(node, source, depth, &mut diagnostics);
+    diagnostics
+}
+
+fn collect_errors(node: Node, source: &str, depth: usize, diagnostics: &mut Vec<DslDiagnostic>) {
     if node.kind() == "ERROR" {
         let start = node.start_position();
         let end = node.end_position();
         let text = &source[node.start_byte()..node.end_byte()];
-        println!(
-            "{}ERROR at {}:{}-{}:{}: '{}'",
-            "  ".repeat(depth),
-            start.row + 1,
-            start.column + 1,
-            end.row + 1,
-            end.column + 1,
-            text
-        );
+        diagnostics.push(DslDiagnostic {
+            start_line: start.row + 1,
+            start_col: start.column + 1,
+            end_line: end.row + 1,
+            end_col: end.column + 1,
+            snippet: text.to_string(),
+            depth,
+        });
     }
 
     for i in 0..node.child_count() {
         if let Some(child) = node.child(i) {
-            find_errors(child, source, depth + 1);
+            collect_errors(child, source, depth + 1, diagnostics);
         }
     }
 }

@@ -58,9 +58,14 @@ schemars = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 tempfile = "3.0"
 
+[[example]]
+name = "native-execution-example"
+required-features = ["native-sandbox"]
+
 [features]
 default = ["cron"]
 cron = ["symbi-runtime/cron", "dep:cron", "dep:chrono", "dep:chrono-tz"]
+native-sandbox = ["symbi-runtime/native-sandbox"]
 
 [dev-dependencies]
 tracing = "0.1"

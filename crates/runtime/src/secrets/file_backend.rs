@@ -33,14 +33,25 @@ impl FileSecretStore {
         })
     }
 
-    /// Log an audit event if an audit sink is configured
-    async fn log_audit_event(&self, event: SecretAuditEvent) {
+    /// Log an audit event if an audit sink is configured.
+    /// In strict mode, returns an error if audit logging fails.
+    /// In permissive mode, logs a warning and continues.
+    async fn log_audit_event(&self, event: SecretAuditEvent) -> Result<(), SecretError> {
         if let Some(audit_sink) = &self.audit_sink {
             if let Err(e) = audit_sink.log_event(event).await {
-                // Log audit errors but don't fail the operation
-                eprintln!("Audit logging failed: {}", e);
+                match audit_sink.failure_mode() {
+                    crate::secrets::auditing::AuditFailureMode::Strict => {
+                        return Err(SecretError::AuditFailed {
+                            message: format!("Audit logging failed (strict mode): {}", e),
+                        });
+                    }
+                    crate::secrets::auditing::AuditFailureMode::Permissive => {
+                        tracing::warn!("Audit logging failed (permissive mode): {}", e);
+                    }
+                }
             }
         }
+        Ok(())
     }
 
     /// Load and decrypt secrets from the file
@@ -245,37 +256,22 @@ impl FileSecretStore {
         Ok(secrets)
     }
 
-    /// Parse environment file format secrets (key=value pairs)
+    /// Parse environment file format secrets (key=value pairs) using dotenvy
+    /// for robust handling of multiline values, escape sequences, export prefix, etc.
     fn parse_env_secrets(&self, data: &str) -> Result<HashMap<String, String>, SecretError> {
         let mut secrets = HashMap::new();
-
-        for line in data.lines() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue; // Skip empty lines and comments
-            }
-
-            if let Some(eq_pos) = line.find('=') {
-                let key = line[..eq_pos].trim().to_string();
-                let value = line[eq_pos + 1..].trim().to_string();
-
-                // Remove quotes if present
-                let value = if (value.starts_with('"') && value.ends_with('"'))
-                    || (value.starts_with('\'') && value.ends_with('\''))
-                {
-                    value[1..value.len() - 1].to_string()
-                } else {
-                    value
-                };
-
-                secrets.insert(key, value);
-            } else {
-                return Err(SecretError::ParseError {
-                    message: format!("Invalid env format line: {}", line),
-                });
+        for item in dotenvy::from_read_iter(data.as_bytes()) {
+            match item {
+                Ok((key, value)) => {
+                    secrets.insert(key, value);
+                }
+                Err(e) => {
+                    return Err(SecretError::ParseError {
+                        message: format!("Failed to parse env file: {}", e),
+                    });
+                }
             }
         }
-
         Ok(secrets)
     }
 
@@ -303,7 +299,7 @@ impl SecretStore for FileSecretStore {
         }
         .await;
 
-        // Log audit event
+        // Log audit event — in strict mode, audit failure blocks the operation
         let audit_event = match &result {
             Ok(_) => SecretAuditEvent::success(
                 self.agent_id.clone(),
@@ -317,7 +313,7 @@ impl SecretStore for FileSecretStore {
                 e.to_string(),
             ),
         };
-        self.log_audit_event(audit_event).await;
+        self.log_audit_event(audit_event).await?;
 
         result
     }
@@ -330,7 +326,7 @@ impl SecretStore for FileSecretStore {
         }
         .await;
 
-        // Log audit event
+        // Log audit event — in strict mode, audit failure blocks the operation
         let audit_event = match &result {
             Ok(keys) => {
                 SecretAuditEvent::success(self.agent_id.clone(), "list_secrets".to_string(), None)
@@ -345,7 +341,7 @@ impl SecretStore for FileSecretStore {
                 e.to_string(),
             ),
         };
-        self.log_audit_event(audit_event).await;
+        self.log_audit_event(audit_event).await?;
 
         result
     }

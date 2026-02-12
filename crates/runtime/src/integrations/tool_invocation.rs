@@ -9,10 +9,11 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 
-use crate::integrations::mcp::{McpTool, VerificationStatus};
+use crate::integrations::mcp::{McpClient, McpTool, VerificationStatus};
 use crate::logging::{ModelInteractionType, ModelLogger, RequestData, ResponseData};
 use crate::routing::{error::TaskType, ModelRequest, RoutingContext, RoutingEngine};
 use crate::types::{AgentId, RuntimeError};
+use dashmap::DashMap;
 use std::sync::Arc;
 
 /// Tool invocation enforcement errors
@@ -35,6 +36,9 @@ pub enum ToolInvocationError {
 
     #[error("Tool invocation timeout: {tool_name}")]
     Timeout { tool_name: String },
+
+    #[error("No MCP client configured for tool execution: {reason}")]
+    NoMcpClient { reason: String },
 
     #[error("Runtime error during tool invocation: {source}")]
     Runtime {
@@ -157,9 +161,10 @@ pub trait ToolInvocationEnforcer: Send + Sync {
 /// Default implementation of tool invocation enforcement
 pub struct DefaultToolInvocationEnforcer {
     config: InvocationEnforcementConfig,
-    warning_counts: std::sync::RwLock<HashMap<String, usize>>,
+    warning_counts: DashMap<String, usize>,
     model_logger: Option<Arc<ModelLogger>>,
     routing_engine: Option<Arc<dyn RoutingEngine>>,
+    mcp_client: Option<Arc<dyn McpClient>>,
 }
 
 impl DefaultToolInvocationEnforcer {
@@ -167,9 +172,10 @@ impl DefaultToolInvocationEnforcer {
     pub fn new() -> Self {
         Self {
             config: InvocationEnforcementConfig::default(),
-            warning_counts: std::sync::RwLock::new(HashMap::new()),
+            warning_counts: DashMap::new(),
             model_logger: None,
             routing_engine: None,
+            mcp_client: None,
         }
     }
 
@@ -177,9 +183,10 @@ impl DefaultToolInvocationEnforcer {
     pub fn with_config(config: InvocationEnforcementConfig) -> Self {
         Self {
             config,
-            warning_counts: std::sync::RwLock::new(HashMap::new()),
+            warning_counts: DashMap::new(),
             model_logger: None,
             routing_engine: None,
+            mcp_client: None,
         }
     }
 
@@ -187,9 +194,10 @@ impl DefaultToolInvocationEnforcer {
     pub fn with_logger(config: InvocationEnforcementConfig, logger: Arc<ModelLogger>) -> Self {
         Self {
             config,
-            warning_counts: std::sync::RwLock::new(HashMap::new()),
+            warning_counts: DashMap::new(),
             model_logger: Some(logger),
             routing_engine: None,
+            mcp_client: None,
         }
     }
 
@@ -201,9 +209,24 @@ impl DefaultToolInvocationEnforcer {
     ) -> Self {
         Self {
             config,
-            warning_counts: std::sync::RwLock::new(HashMap::new()),
+            warning_counts: DashMap::new(),
             model_logger: logger,
             routing_engine: Some(routing_engine),
+            mcp_client: None,
+        }
+    }
+
+    /// Create a new tool invocation enforcer with an MCP client for real tool execution
+    pub fn with_mcp_client(
+        config: InvocationEnforcementConfig,
+        mcp_client: Arc<dyn McpClient>,
+    ) -> Self {
+        Self {
+            config,
+            warning_counts: DashMap::new(),
+            model_logger: None,
+            routing_engine: None,
+            mcp_client: Some(mcp_client),
         }
     }
 
@@ -298,22 +321,28 @@ impl DefaultToolInvocationEnforcer {
 
     /// Increment warning count for a tool and check if escalation is needed
     fn handle_warning(&self, tool_name: &str, warning: &str) -> bool {
-        let mut warning_counts = self.warning_counts.write().unwrap();
-        let count = warning_counts.entry(tool_name.to_string()).or_insert(0);
+        let mut count = self
+            .warning_counts
+            .entry(tool_name.to_string())
+            .or_insert(0);
         *count += 1;
 
         if *count >= self.config.max_warnings_before_escalation {
-            eprintln!(
-                "WARNING: Tool '{}' has exceeded warning threshold ({} warnings): {}",
-                tool_name, *count, warning
+            tracing::warn!(
+                "Tool '{}' has exceeded warning threshold ({} warnings): {}",
+                tool_name,
+                *count,
+                warning
             );
             // Reset count after escalation
             *count = 0;
             true
         } else {
-            eprintln!(
-                "WARNING: Tool '{}' warning (count: {}): {}",
-                tool_name, *count, warning
+            tracing::warn!(
+                "Tool '{}' warning (count: {}): {}",
+                tool_name,
+                *count,
+                warning
             );
             false
         }
@@ -405,110 +434,40 @@ impl DefaultToolInvocationEnforcer {
             TaskType::QA
         }
     }
-    /// Execute the actual tool with proper MCP integration
+    /// Execute the actual tool via the configured MCP client.
+    /// Returns an error if no MCP client is configured.
     async fn execute_actual_tool(
         &self,
         tool: &McpTool,
         context: &InvocationContext,
-        execution_time: Duration,
+        _execution_time: Duration,
     ) -> Result<InvocationResult, ToolInvocationError> {
-        // In a real implementation, this would delegate to the MCP client
-        // to execute the tool via the appropriate MCP server
+        let mcp_client =
+            self.mcp_client
+                .as_ref()
+                .ok_or_else(|| ToolInvocationError::NoMcpClient {
+                    reason: format!(
+                        "No MCP client configured for tool execution of '{}'",
+                        tool.name
+                    ),
+                })?;
+
         tracing::info!(
-            "Executing tool '{}' for agent {} with provider '{}'",
+            "Executing tool '{}' for agent {} via MCP (provider: '{}')",
             tool.name,
             context.agent_id,
             tool.provider.identifier
         );
 
-        // For now, simulate tool execution with proper result structure
-        // In production, this would:
-        // 1. Connect to the MCP server specified by tool.provider
-        // 2. Send the tool invocation request with context.arguments
-        // 3. Wait for the response
-        // 4. Parse and validate the response
-        // 5. Return the structured result
+        let result = mcp_client
+            .invoke_tool(&tool.name, context.arguments.clone(), context.clone())
+            .await
+            .map_err(|e| ToolInvocationError::VerificationFailed {
+                tool_name: tool.name.clone(),
+                reason: format!("MCP invocation failed: {}", e),
+            })?;
 
-        let mut metadata = HashMap::new();
-        metadata.insert("provider".to_string(), tool.provider.identifier.clone());
-        metadata.insert("tool_name".to_string(), tool.name.clone());
-        metadata.insert(
-            "verification_status".to_string(),
-            format!("{:?}", tool.verification_status),
-        );
-
-        // Simulate different types of tool execution based on tool name patterns
-        let result = if tool.name.contains("file")
-            || tool.name.contains("read")
-            || tool.name.contains("write")
-        {
-            // File operations
-            metadata.insert("operation_type".to_string(), "file_operation".to_string());
-            serde_json::json!({
-                "status": "success",
-                "operation": "file_operation",
-                "tool": tool.name,
-                "arguments": context.arguments,
-                "result": "File operation completed successfully"
-            })
-        } else if tool.name.contains("http")
-            || tool.name.contains("fetch")
-            || tool.name.contains("request")
-        {
-            // HTTP operations
-            metadata.insert("operation_type".to_string(), "http_operation".to_string());
-            serde_json::json!({
-                "status": "success",
-                "operation": "http_operation",
-                "tool": tool.name,
-                "arguments": context.arguments,
-                "result": "HTTP request completed successfully",
-                "response": {
-                    "status": 200,
-                    "headers": {},
-                    "body": "Mock response data"
-                }
-            })
-        } else if tool.name.contains("database")
-            || tool.name.contains("db")
-            || tool.name.contains("query")
-        {
-            // Database operations
-            metadata.insert(
-                "operation_type".to_string(),
-                "database_operation".to_string(),
-            );
-            serde_json::json!({
-                "status": "success",
-                "operation": "database_operation",
-                "tool": tool.name,
-                "arguments": context.arguments,
-                "result": "Database operation completed successfully",
-                "rows_affected": 1
-            })
-        } else {
-            // Generic tool execution
-            metadata.insert(
-                "operation_type".to_string(),
-                "generic_operation".to_string(),
-            );
-            serde_json::json!({
-                "status": "success",
-                "operation": "generic_operation",
-                "tool": tool.name,
-                "provider": tool.provider.identifier,
-                "arguments": context.arguments,
-                "result": format!("Tool '{}' executed successfully", tool.name)
-            })
-        };
-
-        Ok(InvocationResult {
-            success: true,
-            result,
-            execution_time,
-            warnings: vec![],
-            metadata,
-        })
+        Ok(result)
     }
 }
 
@@ -742,7 +701,7 @@ impl ToolInvocationEnforcer for DefaultToolInvocationEnforcer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::integrations::mcp::{McpTool, ToolProvider, VerificationStatus};
+    use crate::integrations::mcp::{McpTool, MockMcpClient, ToolProvider, VerificationStatus};
     use crate::integrations::schemapin::VerificationResult;
 
     fn create_test_tool(verification_status: VerificationStatus) -> McpTool {
@@ -769,6 +728,22 @@ mod tests {
             timestamp: chrono::Utc::now(),
             metadata: HashMap::new(),
             agent_credential: None,
+        }
+    }
+
+    async fn create_enforcer_with_mock_mcp(
+        config: InvocationEnforcementConfig,
+        tool: &McpTool,
+    ) -> DefaultToolInvocationEnforcer {
+        let mock_client = Arc::new(MockMcpClient::new_success());
+        // Register the tool so invoke_tool can find it
+        let _ = mock_client.discover_tool(tool.clone()).await;
+        DefaultToolInvocationEnforcer {
+            config,
+            warning_counts: DashMap::new(),
+            model_logger: None,
+            routing_engine: None,
+            mcp_client: Some(mock_client),
         }
     }
 
@@ -879,13 +854,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_execute_tool_succeeds_with_warnings() {
-        let enforcer = DefaultToolInvocationEnforcer::with_config(InvocationEnforcementConfig {
-            policy: EnforcementPolicy::Permissive,
-            block_pending_verification: true,
-            ..Default::default()
-        });
-
         let tool = create_test_tool(VerificationStatus::Pending);
+        let enforcer = create_enforcer_with_mock_mcp(
+            InvocationEnforcementConfig {
+                policy: EnforcementPolicy::Permissive,
+                block_pending_verification: true,
+                ..Default::default()
+            },
+            &tool,
+        )
+        .await;
+
         let context = create_test_context();
         let result = enforcer
             .execute_tool_with_enforcement(&tool, context)
@@ -894,5 +873,23 @@ mod tests {
 
         assert!(result.success);
         assert!(!result.warnings.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_execute_tool_fails_without_mcp_client() {
+        let enforcer = DefaultToolInvocationEnforcer::with_config(InvocationEnforcementConfig {
+            policy: EnforcementPolicy::Disabled,
+            ..Default::default()
+        });
+
+        let tool = create_test_tool(VerificationStatus::Pending);
+        let context = create_test_context();
+        let result = enforcer.execute_tool_with_enforcement(&tool, context).await;
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            ToolInvocationError::NoMcpClient { .. }
+        ));
     }
 }

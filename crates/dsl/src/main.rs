@@ -23,7 +23,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let root_node = tree.root_node();
             if root_node.has_error() {
                 println!("\n⚠️  Warning: Parse tree contains errors");
-                find_errors(root_node, simple_test, 0);
+                for diag in find_errors(root_node, simple_test, 0) {
+                    println!("  {}", diag);
+                }
             } else {
                 println!("\n✅ No parsing errors detected!");
 
@@ -94,7 +96,9 @@ agent APIGateway {
 
                         if full_tree.root_node().has_error() {
                             println!("\n⚠️  Warning: Full parse tree contains errors");
-                            find_errors(full_tree.root_node(), sample_dsl, 0);
+                            for diag in find_errors(full_tree.root_node(), sample_dsl, 0) {
+                                println!("  {}", diag);
+                            }
                         } else {
                             println!("\n✅ No parsing errors in full sample!");
                         }

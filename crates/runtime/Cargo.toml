@@ -72,6 +72,8 @@ argon2 = "0.5"
 subtle = "2.5"
 vaultrs = "0.7"
 sysinfo = "0.30"
+rlimit = { version = "0.10", optional = true }
+dotenvy = "0.15"
 # OS keychain access dependencies
 keyring = { version = "2.0", optional = true }
 security-framework = { version = "2.9", optional = true }
@@ -103,6 +105,7 @@ http-api = ["axum", "tower", "tower-http", "tokio-tungstenite", "governor", "uto
 http-input = ["axum", "tower", "tower-http"]
 keychain = ["keyring", "security-framework", "secret-service", "winapi"]
 cron = ["dep:cron", "dep:chrono-tz", "dep:rusqlite"]
+native-sandbox = ["rlimit"]
 enterprise = []  # Enterprise feature for conditional compilation
 full = ["vector-db", "embedding-models", "http-api", "http-input", "keychain", "cron"]
 minimal = []  # Minimal build for faster CI

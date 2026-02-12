@@ -4,6 +4,7 @@
 //! including Docker, GVisor, Firecracker, E2B.dev, and native (non-isolated) execution.
 
 pub mod e2b;
+#[cfg(feature = "native-sandbox")]
 pub mod native;
 
 use async_trait::async_trait;
@@ -11,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub use e2b::E2BSandbox;
+#[cfg(feature = "native-sandbox")]
 pub use native::{NativeConfig, NativeRunner};
 
 /// Sandbox tier enumeration representing different isolation levels
@@ -41,6 +43,12 @@ pub struct ExecutionResult {
     pub execution_time_ms: u64,
     /// Whether execution was successful
     pub success: bool,
+    /// Whether stdout was truncated due to size limits
+    #[serde(default)]
+    pub stdout_truncated: bool,
+    /// Whether stderr was truncated due to size limits
+    #[serde(default)]
+    pub stderr_truncated: bool,
 }
 
 impl ExecutionResult {
@@ -52,6 +60,8 @@ impl ExecutionResult {
             stderr: String::new(),
             execution_time_ms,
             success: true,
+            stdout_truncated: false,
+            stderr_truncated: false,
         }
     }
 
@@ -63,6 +73,8 @@ impl ExecutionResult {
             stderr,
             execution_time_ms,
             success: false,
+            stdout_truncated: false,
+            stderr_truncated: false,
         }
     }
 
@@ -74,6 +86,8 @@ impl ExecutionResult {
             stderr: error_message,
             execution_time_ms: 0,
             success: false,
+            stdout_truncated: false,
+            stderr_truncated: false,
         }
     }
 }

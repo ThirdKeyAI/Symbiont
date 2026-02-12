@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+/* ── Brand tokens ── */
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Roboto Mono', ui-monospace, monospace;
+
+  /* Primary palette */
+  --color-brand-teal: #2dd4bf;
+  --color-brand-cyan: #38bdf8;
+
+  /* Surfaces */
+  --color-surface-base: #0A0A0A;
+  --color-surface-card: #111827;
+  --color-surface-elevated: #1a1a2e;
+  --color-surface-code: #011627;
+
+  /* Borders */
+  --color-border-subtle: rgba(255, 255, 255, 0.1);
+  --color-border-default: #374151;
+
+  /* Text */
+  --color-text-primary: #E2E8F0;
+  --color-text-secondary: #64748b;
+  --color-text-muted: #cbd5e1;
+
+  /* Status */
+  --color-status-healthy: #22c55e;
+  --color-status-warning: #eab308;
+  --color-status-error: #ef4444;
+}
+
+/* ── Glass effect ── */
+.glass {
+  background: rgba(17, 24, 39, 0.5);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* ── Gradient text ── */
+.gradient-text {
+  background: linear-gradient(to right, #2dd4bf, #38bdf8);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #374151;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #4b5563;
+}
+
+/* ── Dot grid background ── */
+.dot-grid {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 24px 24px;
+}

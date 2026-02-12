@@ -75,6 +75,10 @@ pub enum SecretError {
     /// Operation not supported by this backend
     #[error("Operation not supported by backend: {operation}")]
     UnsupportedOperation { operation: String },
+
+    /// Audit logging failed in strict mode — operation blocked
+    #[error("Audit logging failed (strict mode): {message}")]
+    AuditFailed { message: String },
 }
 
 /// A secret value retrieved from a secrets backend

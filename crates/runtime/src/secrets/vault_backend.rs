@@ -208,14 +208,25 @@ impl VaultSecretStore {
         }
     }
 
-    /// Log an audit event if an audit sink is configured
-    async fn log_audit_event(&self, event: SecretAuditEvent) {
+    /// Log an audit event if an audit sink is configured.
+    /// In strict mode, returns an error if audit logging fails.
+    /// In permissive mode, logs a warning and continues.
+    async fn log_audit_event(&self, event: SecretAuditEvent) -> Result<(), SecretError> {
         if let Some(audit_sink) = &self.audit_sink {
             if let Err(e) = audit_sink.log_event(event).await {
-                // Log audit errors but don't fail the operation
-                eprintln!("Audit logging failed: {}", e);
+                match audit_sink.failure_mode() {
+                    crate::secrets::auditing::AuditFailureMode::Strict => {
+                        return Err(SecretError::AuditFailed {
+                            message: format!("Audit logging failed (strict mode): {}", e),
+                        });
+                    }
+                    crate::secrets::auditing::AuditFailureMode::Permissive => {
+                        tracing::warn!("Audit logging failed (permissive mode): {}", e);
+                    }
+                }
             }
         }
+        Ok(())
     }
 }
 
@@ -315,7 +326,7 @@ impl SecretStore for VaultSecretStore {
         }
         .await;
 
-        // Log audit event
+        // Log audit event — in strict mode, audit failure blocks the operation
         let audit_event = match &result {
             Ok(_) => SecretAuditEvent::success(
                 self.agent_id.clone(),
@@ -329,7 +340,7 @@ impl SecretStore for VaultSecretStore {
                 e.to_string(),
             ),
         };
-        self.log_audit_event(audit_event).await;
+        self.log_audit_event(audit_event).await?;
 
         result
     }
@@ -356,7 +367,7 @@ impl SecretStore for VaultSecretStore {
         }
         .await;
 
-        // Log audit event
+        // Log audit event — in strict mode, audit failure blocks the operation
         let audit_event = match &result {
             Ok(keys) => {
                 SecretAuditEvent::success(self.agent_id.clone(), "list_secrets".to_string(), None)
@@ -371,7 +382,7 @@ impl SecretStore for VaultSecretStore {
                 e.to_string(),
             ),
         };
-        self.log_audit_event(audit_event).await;
+        self.log_audit_event(audit_event).await?;
 
         result
     }

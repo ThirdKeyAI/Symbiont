@@ -1,18 +1,27 @@
 //! Native Process Sandbox Runner
 //!
-//! Executes code directly on the host system without container isolation.
-//! **WARNING**: This provides NO security isolation and should only be used
-//! in trusted development environments.
+//! Executes code directly on the host system with resource limits enforced
+//! via direct `rlimit` syscalls (no shell wrapping).
+//!
+//! **WARNING**: This provides minimal security isolation and should only be used
+//! in trusted development environments. Gated behind the `native-sandbox` feature.
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
+use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tokio::time::{timeout, Duration};
 
 use super::{ExecutionResult, SandboxRunner};
+
+/// Default maximum output size in bytes (10 MB)
+const DEFAULT_MAX_OUTPUT_BYTES: usize = 10 * 1024 * 1024;
+
+/// Default file size limit in bytes (100 MB)
+const DEFAULT_MAX_FSIZE_BYTES: u64 = 100 * 1024 * 1024;
 
 /// Configuration for native (non-isolated) execution
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,6 +40,8 @@ pub struct NativeConfig {
     pub max_execution_time: Duration,
     /// Allowed executables (if empty, all are allowed)
     pub allowed_executables: Vec<String>,
+    /// Maximum output bytes per stream before truncation (default: 10MB)
+    pub max_output_bytes: usize,
 }
 
 impl Default for NativeConfig {
@@ -49,6 +60,7 @@ impl Default for NativeConfig {
                 "python".to_string(),
                 "node".to_string(),
             ],
+            max_output_bytes: DEFAULT_MAX_OUTPUT_BYTES,
         }
     }
 }
@@ -107,46 +119,25 @@ impl NativeRunner {
     ///
     /// **USE ONLY IN TRUSTED DEVELOPMENT ENVIRONMENTS**
     ///
-    /// # Safety Checks
-    ///
-    /// This method will perform the following safety checks:
-    /// 1. Refuse to run if SYMBIONT_ENV=production (unless explicitly allowed)
-    /// 2. Require explicit opt-in via environment variable or security config
-    /// 3. Log prominent security warnings
-    /// 4. Validate configuration
+    /// This runner is gated behind the `native-sandbox` compile-time feature.
+    /// It will refuse to run in production environments (`SYMBIONT_ENV=production`).
     pub fn new(config: NativeConfig) -> Result<Self, anyhow::Error> {
-        // Check environment - refuse in production unless explicitly allowed
+        // Hard-block in production — no runtime override
         if let Ok(env) = std::env::var("SYMBIONT_ENV") {
-            if env.to_lowercase() == "production" {
-                // Check if explicitly allowed via environment variable
-                let allow_native = std::env::var("SYMBIONT_ALLOW_NATIVE_EXECUTION")
-                    .unwrap_or_default()
-                    .to_lowercase();
-
-                if allow_native != "true" && allow_native != "yes" && allow_native != "1" {
-                    anyhow::bail!(
-                        "SECURITY: Native execution is disabled in production environments. \
-                         Set SYMBIONT_ALLOW_NATIVE_EXECUTION=true to override (not recommended)."
-                    );
-                }
-
-                tracing::error!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-                tracing::error!("⚠️  CRITICAL SECURITY WARNING");
-                tracing::error!("⚠️  Native execution enabled in PRODUCTION environment!");
-                tracing::error!("⚠️  This provides ZERO isolation and is NOT recommended.");
-                tracing::error!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-
-                eprintln!("\n⚠️  CRITICAL: Native execution in production!");
-                eprintln!("⚠️  NO sandboxing - full host access granted to code.\n");
+            if env.eq_ignore_ascii_case("production") {
+                anyhow::bail!(
+                    "SECURITY: Native execution is unconditionally disabled in production. \
+                     Use a proper sandbox (Docker, gVisor, Firecracker, or E2B) instead."
+                );
             }
         }
 
         // Always log warning when native execution is initialized
         tracing::warn!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        tracing::warn!("⚠️  Native Sandbox: NO ISOLATION");
-        tracing::warn!("⚠️  Executable: {}", config.executable);
-        tracing::warn!("⚠️  Working dir: {}", config.working_directory.display());
-        tracing::warn!("⚠️  Code will run directly on host system");
+        tracing::warn!("Native Sandbox: NO ISOLATION");
+        tracing::warn!("Executable: {}", config.executable);
+        tracing::warn!("Working dir: {}", config.working_directory.display());
+        tracing::warn!("Code will run directly on host system");
         tracing::warn!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
         // Validate configuration
@@ -169,55 +160,46 @@ impl NativeRunner {
         Self::new(NativeConfig::default())
     }
 
-    /// Apply resource limits (Unix only)
+    /// Apply resource limits via direct rlimit syscalls in a pre_exec closure (Unix only).
+    /// No shell wrapping — the command directly invokes the target executable.
     #[cfg(unix)]
     fn apply_resource_limits(&self, command: &mut Command) -> Result<(), anyhow::Error> {
         if !self.config.enforce_resource_limits {
             return Ok(());
         }
 
-        // Use process limits via ulimit wrapper
-        // Note: This uses a wrapper script approach since Rust's std::process
-        // doesn't provide direct rlimit setting
+        let max_memory_mb = self.config.max_memory_mb;
+        let max_cpu_seconds = self.config.max_cpu_seconds;
 
-        let mut limit_cmds = Vec::new();
+        // SAFETY: pre_exec runs between fork() and exec() in the child process.
+        // We only call async-signal-safe functions (setrlimit is async-signal-safe).
+        unsafe {
+            command.pre_exec(move || {
+                // Set virtual memory limit (RLIMIT_AS)
+                if let Some(mem_mb) = max_memory_mb {
+                    let mem_bytes = mem_mb * 1024 * 1024;
+                    rlimit::setrlimit(rlimit::Resource::AS, mem_bytes, mem_bytes).map_err(|e| {
+                        std::io::Error::other(format!("Failed to set RLIMIT_AS: {}", e))
+                    })?;
+                }
 
-        if let Some(max_mem_mb) = self.config.max_memory_mb {
-            // Virtual memory limit in KB
-            limit_cmds.push(format!("ulimit -v {}", max_mem_mb * 1024));
-        }
+                // Set CPU time limit (RLIMIT_CPU)
+                if let Some(cpu_sec) = max_cpu_seconds {
+                    rlimit::setrlimit(rlimit::Resource::CPU, cpu_sec, cpu_sec).map_err(|e| {
+                        std::io::Error::other(format!("Failed to set RLIMIT_CPU: {}", e))
+                    })?;
+                }
 
-        if let Some(max_cpu_sec) = self.config.max_cpu_seconds {
-            // CPU time limit in seconds
-            limit_cmds.push(format!("ulimit -t {}", max_cpu_sec));
-        }
+                // Set file size limit (RLIMIT_FSIZE) — 100MB default
+                rlimit::setrlimit(
+                    rlimit::Resource::FSIZE,
+                    DEFAULT_MAX_FSIZE_BYTES,
+                    DEFAULT_MAX_FSIZE_BYTES,
+                )
+                .map_err(|e| std::io::Error::other(format!("Failed to set RLIMIT_FSIZE: {}", e)))?;
 
-        // If we have limits, wrap the command with ulimit
-        if !limit_cmds.is_empty() {
-            let original_program = command.as_std().get_program().to_string_lossy().to_string();
-            let original_args: Vec<String> = command
-                .as_std()
-                .get_args()
-                .map(|s| s.to_string_lossy().to_string())
-                .collect();
-
-            // Shell-escape each argument by wrapping in single quotes
-            fn shell_escape(s: &str) -> String {
-                format!("'{}'", s.replace('\'', "'\\''"))
-            }
-
-            // Create wrapper: sh -c "ulimit ... && ulimit ... && <original_command>"
-            let escaped_args: Vec<String> = original_args.iter().map(|a| shell_escape(a)).collect();
-            let wrapper_cmd = format!(
-                "{} && {} {}",
-                limit_cmds.join(" && "),
-                shell_escape(&original_program),
-                escaped_args.join(" ")
-            );
-
-            *command = Command::new("sh");
-            command.arg("-c");
-            command.arg(wrapper_cmd);
+                Ok(())
+            });
         }
 
         Ok(())
@@ -232,6 +214,40 @@ impl NativeRunner {
         }
         Ok(())
     }
+
+    /// Read output from a child stream with a size limit, returning the string and
+    /// whether it was truncated.
+    async fn read_limited_output<R: AsyncReadExt + Unpin>(
+        reader: &mut R,
+        max_bytes: usize,
+    ) -> (String, bool) {
+        let mut buf = vec![0u8; max_bytes + 1];
+        let mut total = 0usize;
+
+        loop {
+            match reader.read(&mut buf[total..]).await {
+                Ok(0) => break,
+                Ok(n) => {
+                    total += n;
+                    if total > max_bytes {
+                        total = max_bytes;
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+
+        let truncated = total == max_bytes;
+        let output = String::from_utf8_lossy(&buf[..total]).to_string();
+
+        if truncated {
+            let with_marker = format!("{}\n... [output truncated at {} bytes]", output, max_bytes);
+            (with_marker, true)
+        } else {
+            (output, false)
+        }
+    }
 }
 
 #[async_trait]
@@ -241,7 +257,7 @@ impl SandboxRunner for NativeRunner {
         code: &str,
         env: HashMap<String, String>,
     ) -> Result<ExecutionResult, anyhow::Error> {
-        tracing::warn!("⚠️  EXECUTING CODE WITHOUT ISOLATION - Native execution mode is active");
+        tracing::warn!("EXECUTING CODE WITHOUT ISOLATION - Native execution mode is active");
         tracing::debug!(
             "Native execution: executable={}, working_dir={}",
             self.config.executable,
@@ -250,8 +266,7 @@ impl SandboxRunner for NativeRunner {
 
         let mut command = Command::new(&self.config.executable);
 
-        // Determine how to pass code to the executable
-        // For interpreters, use -c flag; for shell, use -c
+        // Determine how to pass code to the executable — direct argv, no shell wrapping
         match self
             .config
             .executable
@@ -278,30 +293,76 @@ impl SandboxRunner for NativeRunner {
             }
         }
 
-        // Apply resource limits if configured (may replace the command)
-        self.apply_resource_limits(&mut command)?;
-
-        // Set working directory, environment variables, and stdio
-        // AFTER apply_resource_limits, which may replace the command object
+        // Set working directory, environment variables, and stdio BEFORE apply_resource_limits
         command.current_dir(&self.config.working_directory);
         command.envs(env);
-        command.stdin(Stdio::piped());
+        command.stdin(Stdio::null());
         command.stdout(Stdio::piped());
         command.stderr(Stdio::piped());
 
-        let start = std::time::Instant::now();
+        // Apply resource limits via pre_exec rlimit syscalls — no shell wrapping
+        self.apply_resource_limits(&mut command)?;
 
-        // Execute with timeout
-        let output_result = timeout(self.config.max_execution_time, command.output()).await;
+        let start = std::time::Instant::now();
+        let max_output = self.config.max_output_bytes;
+
+        // Spawn the child process
+        let mut child = command.spawn().map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to spawn process '{}': {}",
+                self.config.executable,
+                e
+            )
+        })?;
+
+        // Take ownership of stdout/stderr handles
+        let mut child_stdout = child.stdout.take();
+        let mut child_stderr = child.stderr.take();
+
+        // Execute with timeout, reading output with limits
+        let output_result = timeout(self.config.max_execution_time, async {
+            let stdout_future = async {
+                match child_stdout.as_mut() {
+                    Some(stdout) => Self::read_limited_output(stdout, max_output).await,
+                    None => (String::new(), false),
+                }
+            };
+
+            let stderr_future = async {
+                match child_stderr.as_mut() {
+                    Some(stderr) => Self::read_limited_output(stderr, max_output).await,
+                    None => (String::new(), false),
+                }
+            };
+
+            let ((stdout, stdout_truncated), (stderr, stderr_truncated)) =
+                tokio::join!(stdout_future, stderr_future);
+
+            let status = child.wait().await;
+
+            (stdout, stdout_truncated, stderr, stderr_truncated, status)
+        })
+        .await;
 
         let execution_time = start.elapsed();
 
         match output_result {
-            Ok(Ok(output)) => {
-                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-                let exit_code = output.status.code().unwrap_or(-1);
-                let success = output.status.success();
+            Ok((stdout, stdout_truncated, stderr, stderr_truncated, Ok(status))) => {
+                let exit_code = status.code().unwrap_or(-1);
+                let success = status.success();
+
+                if stdout_truncated {
+                    tracing::warn!(
+                        "stdout truncated at {} bytes for native execution",
+                        max_output
+                    );
+                }
+                if stderr_truncated {
+                    tracing::warn!(
+                        "stderr truncated at {} bytes for native execution",
+                        max_output
+                    );
+                }
 
                 tracing::debug!(
                     "Native execution completed: exit_code={}, success={}, duration={:?}",
@@ -316,13 +377,17 @@ impl SandboxRunner for NativeRunner {
                     exit_code,
                     success,
                     execution_time_ms: execution_time.as_millis() as u64,
+                    stdout_truncated,
+                    stderr_truncated,
                 })
             }
-            Ok(Err(e)) => {
+            Ok((_, _, _, _, Err(e))) => {
                 tracing::error!("Native execution failed: {}", e);
                 Err(anyhow::anyhow!("Process execution failed: {}", e))
             }
             Err(_) => {
+                // Kill the child on timeout
+                let _ = child.kill().await;
                 tracing::error!(
                     "Native execution timed out after {:?}",
                     self.config.max_execution_time
@@ -375,6 +440,7 @@ mod tests {
         if let Ok(output) = result {
             assert!(output.success);
             assert!(output.stdout.contains("Hello from native!"));
+            assert!(!output.stdout_truncated);
         }
     }
 
@@ -394,6 +460,8 @@ mod tests {
 
         assert!(result.success);
         assert!(result.stdout.contains("Testing native execution"));
+        assert!(!result.stdout_truncated);
+        assert!(!result.stderr_truncated);
     }
 
     #[tokio::test]
@@ -451,5 +519,48 @@ mod tests {
 
         let result = NativeRunner::new(config);
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_production_environment_blocked() {
+        // Save original value
+        let original = std::env::var("SYMBIONT_ENV").ok();
+
+        std::env::set_var("SYMBIONT_ENV", "production");
+        let result = NativeRunner::new(NativeConfig::default());
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("unconditionally disabled"));
+
+        // Restore original value
+        match original {
+            Some(val) => std::env::set_var("SYMBIONT_ENV", val),
+            None => std::env::remove_var("SYMBIONT_ENV"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_output_truncation() {
+        let config = NativeConfig {
+            executable: "bash".to_string(),
+            max_output_bytes: 50,
+            ..Default::default()
+        };
+
+        let runner = NativeRunner::new(config).unwrap();
+
+        // Generate output larger than 50 bytes
+        let result = runner
+            .execute(
+                "for i in $(seq 1 100); do echo 'line'; done",
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        assert!(result.stdout_truncated);
+        assert!(result.stdout.contains("[output truncated at 50 bytes]"));
     }
 }
