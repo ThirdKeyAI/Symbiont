@@ -10,12 +10,15 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
+use std::time::SystemTime;
+use tokio::sync::RwLock;
 
 /// File-based secrets store implementation
 pub struct FileSecretStore {
     config: FileConfig,
     audit_sink: Option<BoxedAuditSink>,
     agent_id: String,
+    cache: RwLock<Option<(SystemTime, HashMap<String, String>)>>,
 }
 
 impl FileSecretStore {
@@ -29,6 +32,7 @@ impl FileSecretStore {
             config,
             audit_sink,
             agent_id,
+            cache: RwLock::new(None),
         })
     }
 
@@ -51,6 +55,39 @@ impl FileSecretStore {
             }
         }
         Ok(())
+    }
+
+    /// Load secrets with mtime-based caching.
+    ///
+    /// Returns cached data if the file's mtime hasn't changed, avoiding
+    /// expensive re-decryption (Argon2 KDF) on every call.
+    async fn load_secrets_cached(&self) -> Result<HashMap<String, String>, SecretError> {
+        let mtime = fs::metadata(&self.config.path)
+            .and_then(|m| m.modified())
+            .map_err(|e| SecretError::IoError {
+                message: format!("Failed to stat secrets file: {}", e),
+            })?;
+
+        // Fast path: return cached data if mtime matches
+        {
+            let guard = self.cache.read().await;
+            if let Some((cached_mtime, ref secrets)) = *guard {
+                if cached_mtime == mtime {
+                    return Ok(secrets.clone());
+                }
+            }
+        }
+
+        // Slow path: reload from disk
+        let secrets = self.load_secrets().await?;
+
+        // Update cache
+        {
+            let mut guard = self.cache.write().await;
+            *guard = Some((mtime, secrets.clone()));
+        }
+
+        Ok(secrets)
     }
 
     /// Load and decrypt secrets from the file.
@@ -313,7 +350,7 @@ impl SecretStore for FileSecretStore {
     /// Retrieve a secret by key
     async fn get_secret(&self, key: &str) -> Result<Secret, SecretError> {
         let result: Result<Secret, SecretError> = async {
-            let secrets = self.load_secrets().await?;
+            let secrets = self.load_secrets_cached().await?;
 
             match secrets.get(key) {
                 Some(value) => Ok(Secret::new(key.to_string(), value.clone())),
@@ -346,7 +383,7 @@ impl SecretStore for FileSecretStore {
     /// List all available secret keys, optionally filtered by prefix
     async fn list_secrets(&self) -> Result<Vec<String>, SecretError> {
         let result: Result<Vec<String>, SecretError> = async {
-            let secrets = self.load_secrets().await?;
+            let secrets = self.load_secrets_cached().await?;
             Ok(secrets.keys().cloned().collect())
         }
         .await;
@@ -376,7 +413,7 @@ impl SecretStore for FileSecretStore {
 impl FileSecretStore {
     /// List secrets with prefix filtering
     pub async fn list_secrets_with_prefix(&self, prefix: &str) -> Result<Vec<String>, SecretError> {
-        let secrets = self.load_secrets().await?;
+        let secrets = self.load_secrets_cached().await?;
         Ok(secrets
             .keys()
             .filter(|key| key.starts_with(prefix))

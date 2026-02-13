@@ -73,6 +73,7 @@ subtle = "2.5"
 vaultrs = "0.7"
 sysinfo = "0.30"
 rlimit = { version = "0.10", optional = true }
+libc = { version = "0.2", optional = true }
 dotenvy = "0.15"
 fd-lock = "4.0"
 # OS keychain access dependencies
@@ -106,7 +107,7 @@ http-api = ["axum", "tower", "tower-http", "tokio-tungstenite", "governor", "uto
 http-input = ["axum", "tower", "tower-http"]
 keychain = ["keyring", "security-framework", "secret-service", "winapi"]
 cron = ["dep:cron", "dep:chrono-tz", "dep:rusqlite"]
-native-sandbox = ["rlimit"]
+native-sandbox = ["rlimit", "libc"]
 enterprise = []  # Enterprise feature for conditional compilation
 full = ["vector-db", "embedding-models", "http-api", "http-input", "keychain", "cron"]
 minimal = []  # Minimal build for faster CI

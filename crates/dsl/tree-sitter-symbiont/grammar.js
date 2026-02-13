@@ -258,12 +258,14 @@ module.exports = grammar({
 
     value: $ => choice(
       $.string,
+      $.duration_literal,
       $.number,
       $.boolean
     ),
 
     identifier: $ => token(prec(-1, /[a-zA-Z_][a-zA-Z0-9_]*/)),
     string: $ => /"[^"]*"/,
+    duration_literal: $ => /\d+\.(seconds|minutes|hours)/,
     number: $ => /\d+(\.\d+)?/,
     boolean: $ => choice('true', 'false'),
 

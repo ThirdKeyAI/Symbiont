@@ -192,9 +192,13 @@ impl NativeRunner {
         let max_cpu_seconds = self.config.max_cpu_seconds;
 
         // SAFETY: pre_exec runs between fork() and exec() in the child process.
-        // We only call async-signal-safe functions (setrlimit is async-signal-safe).
+        // We only call async-signal-safe functions (setrlimit, setpgid are async-signal-safe).
         unsafe {
             command.pre_exec(move || {
+                // Put the child in its own process group so we can kill the
+                // entire group on timeout (prevents leaked sub-processes).
+                libc::setpgid(0, 0);
+
                 // Set virtual memory limit (RLIMIT_AS)
                 if let Some(mem_mb) = max_memory_mb {
                     let mem_bytes = mem_mb * 1024 * 1024;
@@ -406,7 +410,13 @@ impl SandboxRunner for NativeRunner {
                 Err(anyhow::anyhow!("Process execution failed: {}", e))
             }
             Err(_) => {
-                // Kill the child on timeout
+                // Kill the entire process group on timeout, then fall back
+                // to killing the immediate child.
+                if let Some(id) = child.id() {
+                    unsafe {
+                        libc::killpg(id as i32, libc::SIGKILL);
+                    }
+                }
                 let _ = child.kill().await;
                 tracing::error!(
                     "Native execution timed out after {:?}",

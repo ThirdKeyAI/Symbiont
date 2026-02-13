@@ -37,6 +37,9 @@ pub enum ToolInvocationError {
     #[error("Tool invocation timeout: {tool_name}")]
     Timeout { tool_name: String },
 
+    #[error("Tool execution failed: {tool_name} - {reason}")]
+    ExecutionFailed { tool_name: String, reason: String },
+
     #[error("No MCP client configured for tool execution: {reason}")]
     NoMcpClient { reason: String },
 
@@ -501,7 +504,7 @@ impl DefaultToolInvocationEnforcer {
         let result = mcp_client
             .invoke_tool(&tool.name, context.arguments.clone(), context.clone())
             .await
-            .map_err(|e| ToolInvocationError::VerificationFailed {
+            .map_err(|e| ToolInvocationError::ExecutionFailed {
                 tool_name: tool.name.clone(),
                 reason: format!("MCP invocation failed: {}", e),
             })?;

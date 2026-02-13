@@ -1109,6 +1109,10 @@
         },
         {
           "type": "SYMBOL",
+          "name": "duration_literal"
+        },
+        {
+          "type": "SYMBOL",
           "name": "number"
         },
         {
@@ -1131,6 +1135,10 @@
     "string": {
       "type": "PATTERN",
       "value": "\"[^\"]*\""
+    },
+    "duration_literal": {
+      "type": "PATTERN",
+      "value": "\\d+\\.(seconds|minutes|hours)"
     },
     "number": {
       "type": "PATTERN",

@@ -5465,6 +5465,7 @@ dependencies = [
  "hf-hub",
  "humantime-serde",
  "keyring",
+ "libc",
  "octocrab",
  "parking_lot",
  "qdrant-client",

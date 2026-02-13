@@ -234,13 +234,18 @@ pub fn extract_with_blocks(tree: &Tree, source: &str) -> Result<Vec<WithBlock>, 
                                 },
                                 "timeout" => {
                                     let timeout_str = value.trim_matches('"');
-                                    // Strip legacy ".seconds" suffix for backward compatibility
-                                    let normalized = timeout_str
-                                        .strip_suffix(".seconds")
-                                        .or_else(|| timeout_str.strip_suffix(".minutes"))
-                                        .or_else(|| timeout_str.strip_suffix(".hours"))
-                                        .map(|n| format!("{}s", n.trim()))
-                                        .unwrap_or_else(|| timeout_str.to_string());
+                                    // Normalize DSL time suffixes to humantime units
+                                    let normalized = if let Some(n) =
+                                        timeout_str.strip_suffix(".seconds")
+                                    {
+                                        format!("{}s", n.trim())
+                                    } else if let Some(n) = timeout_str.strip_suffix(".minutes") {
+                                        format!("{}m", n.trim())
+                                    } else if let Some(n) = timeout_str.strip_suffix(".hours") {
+                                        format!("{}h", n.trim())
+                                    } else {
+                                        timeout_str.to_string()
+                                    };
 
                                     // Try humantime first, fall back to bare number as seconds
                                     if let Ok(duration) = humantime::parse_duration(&normalized) {
@@ -873,5 +878,65 @@ mod tests {
             assert_eq!(with_block.sandbox_tier, Some(SandboxTier::Docker));
             assert_eq!(with_block.timeout, Some(30));
         }
+    }
+
+    #[test]
+    fn test_timeout_seconds_suffix() {
+        let dsl = r#"
+        agent runner(s: String) -> Output {
+            with timeout = 45.seconds {
+                return execute(s);
+            }
+        }
+        "#;
+        let tree = parse_dsl(dsl).unwrap();
+        let blocks = extract_with_blocks(&tree, dsl).unwrap();
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].timeout, Some(45));
+    }
+
+    #[test]
+    fn test_timeout_minutes_suffix() {
+        let dsl = r#"
+        agent runner(s: String) -> Output {
+            with timeout = 30.minutes {
+                return execute(s);
+            }
+        }
+        "#;
+        let tree = parse_dsl(dsl).unwrap();
+        let blocks = extract_with_blocks(&tree, dsl).unwrap();
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].timeout, Some(30 * 60));
+    }
+
+    #[test]
+    fn test_timeout_hours_suffix() {
+        let dsl = r#"
+        agent runner(s: String) -> Output {
+            with timeout = 2.hours {
+                return execute(s);
+            }
+        }
+        "#;
+        let tree = parse_dsl(dsl).unwrap();
+        let blocks = extract_with_blocks(&tree, dsl).unwrap();
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].timeout, Some(2 * 3600));
+    }
+
+    #[test]
+    fn test_timeout_bare_number() {
+        let dsl = r#"
+        agent runner(s: String) -> Output {
+            with timeout = 120 {
+                return execute(s);
+            }
+        }
+        "#;
+        let tree = parse_dsl(dsl).unwrap();
+        let blocks = extract_with_blocks(&tree, dsl).unwrap();
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].timeout, Some(120));
     }
 }
