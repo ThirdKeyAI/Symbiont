@@ -6,11 +6,12 @@ The following versions of Symbiont are currently supported with security updates
 
 | Version | Supported          |
 | ------- | ------------------ |
+| 1.4.x   | :white_check_mark: |
 | 1.1.x   | :white_check_mark: |
-| 1.0.x   | :white_check_mark: |
+| 1.0.x   | :x:                |
 | < 1.0   | :x:                |
 
-*Last updated: 2026-02-13*
+*Last updated: 2026-02-15*
 
 ## Reporting a Vulnerability
 
@@ -69,6 +70,8 @@ Symbiont includes several security features:
 - **Per-IP Rate Limiting**: Governor-based rate limiting middleware (configurable, default 100 req/min)
 - **Tool Verification (SchemaPin)**: Cryptographic schema verification for MCP tool invocations with configurable enforcement policies (strict/permissive/development/disabled)
 - **Agent Identity (AgentPin)**: Domain-anchored ES256 cryptographic identity verification for AI agents
+- **Webhook Signature Verification**: HMAC-SHA256 and JWT verification with provider presets (GitHub, Stripe, Slack) and constant-time comparison
+- **AgentSkills Security**: Verified skill loading with SchemaPin signatures, content scanning with ClawHavoc defense rules
 - **Sensitive Argument Redaction**: Schema-driven masking of sensitive tool parameters in logs
 - **Audit Logging**: Comprehensive logging of security-relevant events with strict/permissive failure modes
 - **Policy Engine**: Fine-grained access control and security policies with DSL-defined rules
