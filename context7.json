@@ -1,4 +1,61 @@
 {
+  "$schema": "https://context7.com/schema/context7.json",
   "url": "https://context7.com/thirdkeyai/symbiont",
-  "public_key": "pk_Ehy7QXQTu2Keb0e5BNeyx"
+  "public_key": "pk_Ehy7QXQTu2Keb0e5BNeyx",
+  "projectTitle": "Symbiont",
+  "description": "AI-native agent runtime with zero-trust security, policy-as-code, multi-tier sandboxing, webhook verification, markdown memory persistence, skill scanning, metrics collection, scheduling, channel adapters, and a declarative DSL. Part of the ThirdKey trust stack.",
+  "folders": [
+    "SKILL.md",
+    "README.md",
+    "CHANGELOG.md",
+    "docs/dsl-guide.md",
+    "docs/dsl-specification.md",
+    "docs/api-reference.md",
+    "docs/getting-started.md",
+    "docs/runtime-architecture.md",
+    "docs/security-model.md",
+    "docs/scheduling.md",
+    "docs/http-input.md",
+    "docs/native-execution-guide.md",
+    "docs/repl-guide.md",
+    "src",
+    "crates/runtime/src",
+    "crates/dsl/src",
+    "crates/channel-adapter/src",
+    "crates/repl-core/src",
+    "crates/repl-cli/src",
+    "agents"
+  ],
+  "excludeFolders": [
+    "**/target",
+    "**/node_modules",
+    "docs/assets",
+    "docs/_sass",
+    "docs/_includes",
+    "docs/_plugins",
+    "enterprise",
+    "scripts",
+    "docker"
+  ],
+  "excludeFiles": [
+    "**/*.png",
+    "**/*.jpg",
+    "**/*.ico",
+    "docs/*.de.md",
+    "docs/*.es.md",
+    "docs/*.ja.md",
+    "docs/*.pt.md",
+    "docs/*.zh-cn.md"
+  ],
+  "rules": [
+    "Symbiont uses a declarative DSL for agent definitions — metadata, agent blocks, policy blocks, and with-clauses for memory/security/timeout configuration",
+    "Zero-trust by default: all inputs are untrusted, explicit allow/deny policies required, multi-tier sandboxing (Docker → gVisor → Firecracker)",
+    "Policy-as-code: security rules are declared inline with 'policy' blocks containing allow, deny, require, and audit directives",
+    "Workspace crates: runtime (core engine with http-input, http-api, vector-db features), dsl (parser + compiler), channel-adapter (Slack/Teams/Mattermost), repl-core/repl-cli/repl-lsp (REPL tooling)",
+    "Webhook verification: HmacVerifier and JwtVerifier with provider presets for GitHub, Stripe, Slack — constant-time signature comparison",
+    "Markdown memory persistence: agent context stored as markdown files with daily logs, retention-based compaction, and atomic writes",
+    "Skill scanning: 10 built-in ClawHavoc security rules detect pipe-to-shell, env file references, SOUL.md tampering, eval+fetch, base64-decode-exec, rm-rf, chmod-777",
+    "Metrics collection: FileMetricsExporter (atomic JSON), CompositeExporter (fan-out), background MetricsCollector — runtime exposes /metrics/snapshot, /metrics/scheduler, /metrics/system endpoints",
+    "SchemaPin integration for MCP tool schema verification; AgentPin integration for agent identity credentials (ES256 only)"
+  ]
 }
