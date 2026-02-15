@@ -1,8 +1,20 @@
 metadata {
-    version = "1.0.0"
+    version = "1.4.0"
     author = "Symbiont Community"
     description = "Webhook handler with signature verification and alert routing"
     tags = ["webhook", "event-processing", "alerting", "security"]
+}
+
+// v1.4.0: First-class webhook block with provider preset and event filter
+webhook slack_alerts {
+    path     "/hooks/slack"
+    provider slack
+    secret   "vault://webhooks/slack/secret"
+    agent    webhook_handler
+    filter {
+        json_path "$.type"
+        equals    "security_alert"
+    }
 }
 
 agent webhook_handler(body: JSON) -> Maybe<Alert> {
@@ -22,7 +34,7 @@ agent webhook_handler(body: JSON) -> Maybe<Alert> {
 
         audit: {
             log_level: "info",
-            include_input: false,  // Don't log potentially sensitive webhook data
+            include_input: false,
             include_output: true,
             include_metadata: true,
             retention_days: 90
