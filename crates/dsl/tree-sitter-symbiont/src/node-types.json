@@ -337,6 +337,82 @@
     }
   },
   {
+    "type": "memory_definition",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "memory_property",
+          "named": true
+        },
+        {
+          "type": "memory_search_block",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "memory_property",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "value",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "memory_search_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "memory_search_property",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "memory_search_property",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "value",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "metadata_block",
     "named": true,
     "fields": {},
@@ -468,6 +544,10 @@
           "named": true
         },
         {
+          "type": "memory_definition",
+          "named": true
+        },
+        {
           "type": "metadata_block",
           "named": true
         },
@@ -481,6 +561,10 @@
         },
         {
           "type": "type_definition",
+          "named": true
+        },
+        {
+          "type": "webhook_definition",
           "named": true
         }
       ]
@@ -655,11 +739,91 @@
           "named": true
         },
         {
+          "type": "identifier",
+          "named": true
+        },
+        {
           "type": "number",
           "named": true
         },
         {
           "type": "string",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "webhook_definition",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "webhook_filter_block",
+          "named": true
+        },
+        {
+          "type": "webhook_property",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "webhook_filter_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "webhook_filter_property",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "webhook_filter_property",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "value",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "webhook_property",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "value",
           "named": true
         }
       ]
@@ -801,6 +965,10 @@
     "named": false
   },
   {
+    "type": "filter",
+    "named": false
+  },
+  {
     "type": "float",
     "named": false
   },
@@ -822,6 +990,10 @@
   },
   {
     "type": "let",
+    "named": false
+  },
+  {
+    "type": "memory",
     "named": false
   },
   {
@@ -849,6 +1021,10 @@
     "named": false
   },
   {
+    "type": "search",
+    "named": false
+  },
+  {
     "type": "string",
     "named": true
   },
@@ -858,6 +1034,10 @@
   },
   {
     "type": "type",
+    "named": false
+  },
+  {
+    "type": "webhook",
     "named": false
   },
   {

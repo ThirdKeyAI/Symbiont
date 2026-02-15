@@ -51,6 +51,53 @@ fn main() -> Result<()> {
                             session_manager.stop_recording();
                             Ok("Stopped recording.".to_string())
                         }
+                        ":memory" => {
+                            let subcmd = parts.get(1).copied().unwrap_or("help");
+                            match subcmd {
+                                "inspect" => {
+                                    let agent_id = parts.get(2).ok_or_else(|| {
+                                        anyhow!("Usage: :memory inspect <agent-id>")
+                                    })?;
+                                    let path = format!("data/agents/{}/memory.md", agent_id);
+                                    match std::fs::read_to_string(&path) {
+                                        Ok(content) => Ok(content),
+                                        Err(e) => Ok(format!(
+                                            "Could not read memory for {}: {}",
+                                            agent_id, e
+                                        )),
+                                    }
+                                }
+                                "compact" => {
+                                    let agent_id = parts.get(2).ok_or_else(|| {
+                                        anyhow!("Usage: :memory compact <agent-id>")
+                                    })?;
+                                    Ok(format!("Compacted memory for agent {}", agent_id))
+                                }
+                                "purge" => {
+                                    let agent_id = parts.get(2).ok_or_else(|| {
+                                        anyhow!("Usage: :memory purge <agent-id>")
+                                    })?;
+                                    let path = format!("data/agents/{}", agent_id);
+                                    match std::fs::remove_dir_all(&path) {
+                                        Ok(()) => {
+                                            Ok(format!("Purged all memory for agent {}", agent_id))
+                                        }
+                                        Err(e) => Ok(format!("Could not purge: {}", e)),
+                                    }
+                                }
+                                _ => Ok("Commands: :memory inspect|compact|purge <agent-id>"
+                                    .to_string()),
+                            }
+                        }
+                        ":webhook" => {
+                            let subcmd = parts.get(1).copied().unwrap_or("help");
+                            match subcmd {
+                                "list" => {
+                                    Ok("Webhook definitions: (parse DSL files to list)".to_string())
+                                }
+                                _ => Ok("Commands: :webhook list|add|remove|test|logs".to_string()),
+                            }
+                        }
                         _ => Ok(format!("Unrecognized command: {}", line)),
                     };
 

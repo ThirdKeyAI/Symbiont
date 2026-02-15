@@ -339,6 +339,9 @@ dist
 # Note: enterprise/ folder is intentionally NOT ignored here - it should be
 # committed to Gitea but excluded only during OSS sync by the sync script
 
+# SchemaPin signing keys (private key - never commit)
+.keys/
+
 # Claude Code
 .claude/
 !.claude/CLAUDE.md

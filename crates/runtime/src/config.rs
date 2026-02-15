@@ -49,6 +49,9 @@ pub struct Config {
     pub native_execution: Option<NativeExecutionConfig>,
     /// AgentPin integration configuration (optional)
     pub agentpin: Option<crate::integrations::agentpin::AgentPinConfig>,
+    /// CLI executor configuration (optional, requires `cli-executor` feature)
+    #[cfg(feature = "cli-executor")]
+    pub cli_executor: Option<CliExecutorConfigToml>,
 }
 
 /// API configuration
@@ -157,6 +160,37 @@ impl Default for NativeExecutionConfig {
             allowed_executables: vec![], // Empty — must be explicitly configured
         }
     }
+}
+
+/// CLI executor TOML configuration for AI CLI tool orchestration.
+/// Gated behind the `cli-executor` feature.
+#[cfg(feature = "cli-executor")]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CliExecutorConfigToml {
+    /// Wall-clock timeout in seconds (default: 600).
+    pub max_runtime_seconds: Option<u64>,
+    /// Idle timeout in seconds — kill if no output for this long (default: 120).
+    pub idle_timeout_seconds: Option<u64>,
+    /// Maximum output bytes per stream (default: 10MB).
+    pub max_output_bytes: Option<usize>,
+    /// Per-adapter configurations keyed by adapter name.
+    pub adapters: Option<HashMap<String, AdapterConfigToml>>,
+}
+
+/// Per-adapter TOML configuration.
+#[cfg(feature = "cli-executor")]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AdapterConfigToml {
+    /// Path or name of the executable.
+    pub executable: Option<String>,
+    /// Model override for this adapter.
+    pub model: Option<String>,
+    /// Maximum agentic turns (adapter-specific).
+    pub max_turns: Option<u32>,
+    /// Allowed tools list (adapter-specific).
+    pub allowed_tools: Option<Vec<String>>,
+    /// Disallowed tools list (adapter-specific).
+    pub disallowed_tools: Option<Vec<String>>,
 }
 
 /// Storage configuration

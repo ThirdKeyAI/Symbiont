@@ -11,6 +11,7 @@ pub mod error_handler;
 pub mod integrations;
 pub mod lifecycle;
 pub mod logging;
+pub mod metrics;
 pub mod models;
 pub mod rag;
 pub mod resource;
@@ -18,7 +19,11 @@ pub mod routing;
 pub mod sandbox;
 pub mod scheduler;
 pub mod secrets;
+pub mod skills;
 pub mod types;
+
+#[cfg(feature = "cli-executor")]
+pub mod cli_executor;
 
 #[cfg(feature = "http-api")]
 pub mod api;

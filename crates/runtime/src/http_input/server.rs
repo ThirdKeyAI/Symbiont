@@ -95,6 +95,34 @@ impl HttpInputServer {
             );
         }
 
+        // Resolve webhook signature verifier if configured
+        let webhook_verifier: Option<Arc<dyn super::webhook_verify::SignatureVerifier>> =
+            if let Some(ref verify_config) = config.webhook_verify {
+                let provider = match verify_config.provider.to_lowercase().as_str() {
+                    "github" => super::webhook_verify::WebhookProvider::GitHub,
+                    "stripe" => super::webhook_verify::WebhookProvider::Stripe,
+                    "slack" => super::webhook_verify::WebhookProvider::Slack,
+                    _ => super::webhook_verify::WebhookProvider::Custom,
+                };
+                let secret_value = if let Some(ref store) = self.secret_store {
+                    match resolve_secret_reference(store.as_ref(), &verify_config.secret).await {
+                        Ok(resolved) => resolved,
+                        Err(e) => {
+                            tracing::warn!(
+                                "Failed to resolve webhook secret reference: {}. Using literal value.",
+                                e
+                            );
+                            verify_config.secret.clone()
+                        }
+                    }
+                } else {
+                    verify_config.secret.clone()
+                };
+                Some(Arc::from(provider.verifier(secret_value.as_bytes())))
+            } else {
+                None
+            };
+
         // Create shared server state
         let server_state = ServerState {
             config: self.config.clone(),
@@ -103,6 +131,7 @@ impl HttpInputServer {
             resolved_auth_header: self.resolved_auth_header.clone(),
             llm_client,
             agent_dsl_sources: Arc::new(agent_dsl_sources),
+            webhook_verifier,
         };
 
         // Build the router
@@ -172,6 +201,8 @@ struct ServerState {
     llm_client: Option<Arc<LlmClient>>,
     /// Agent DSL sources: (filename, content)
     agent_dsl_sources: Arc<Vec<(String, String)>>,
+    /// Optional webhook signature verifier
+    webhook_verifier: Option<Arc<dyn super::webhook_verify::SignatureVerifier>>,
 }
 
 /// Authentication middleware
@@ -210,12 +241,36 @@ async fn auth_middleware(
 async fn webhook_handler(
     State(state): State<ServerState>,
     headers: HeaderMap,
-    Json(payload): Json<Value>,
+    body: axum::body::Bytes,
 ) -> Result<Response, StatusCode> {
     // Check concurrency limits
     let _permit = state.concurrency_limiter.try_acquire().map_err(|_| {
         tracing::warn!("Concurrency limit exceeded");
         StatusCode::TOO_MANY_REQUESTS
+    })?;
+
+    // Verify webhook signature if configured
+    if let Some(ref verifier) = state.webhook_verifier {
+        let header_pairs: Vec<(String, String)> = headers
+            .iter()
+            .filter_map(|(name, value)| {
+                value
+                    .to_str()
+                    .ok()
+                    .map(|v| (name.to_string(), v.to_string()))
+            })
+            .collect();
+
+        if let Err(e) = verifier.verify(&header_pairs, &body).await {
+            tracing::warn!("Webhook signature verification failed: {}", e);
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+    }
+
+    // Parse JSON from raw body
+    let payload: Value = serde_json::from_slice(&body).map_err(|e| {
+        tracing::warn!("Invalid JSON body: {}", e);
+        StatusCode::BAD_REQUEST
     })?;
 
     let config = state.config.read().await;

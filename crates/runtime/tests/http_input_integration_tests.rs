@@ -38,6 +38,7 @@ fn create_test_config(port: u16) -> HttpInputConfig {
         forward_headers: vec![],
         cors_enabled: true,
         audit_enabled: true,
+        webhook_verify: None,
     }
 }
 

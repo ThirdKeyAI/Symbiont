@@ -3,8 +3,9 @@ use std::path::Path;
 
 // Import the functions we want to test from main.rs
 use dsl::{
-    extract_channel_definitions, extract_metadata, extract_with_blocks, parse_dsl, print_ast,
-    SandboxTier, WithBlock,
+    extract_channel_definitions, extract_memory_definitions, extract_metadata,
+    extract_webhook_definitions, extract_with_blocks, parse_dsl, print_ast, MemoryStoreType,
+    SandboxTier, WebhookProvider, WithBlock,
 };
 
 #[cfg(test)]
@@ -718,5 +719,141 @@ mod parser_tests {
         let channels = extract_channel_definitions(&tree, dsl).unwrap();
         assert_eq!(channels.len(), 1);
         assert_eq!(channels[0].name, "slack_ops");
+    }
+
+    // ── Memory definition tests ──────────────────────────────────────
+
+    #[test]
+    fn test_memory_definition_parsing() {
+        let dsl = r#"
+        memory agent_memory {
+            store    markdown
+            path     "data/agents"
+            retention 90d
+        }
+        "#;
+        let tree = parse_dsl(dsl).expect("should parse");
+        let memories = extract_memory_definitions(&tree, dsl).unwrap();
+        assert_eq!(memories.len(), 1);
+        let m = &memories[0];
+        assert_eq!(m.name, "agent_memory");
+        assert_eq!(m.store, MemoryStoreType::Markdown);
+        assert_eq!(m.path, std::path::PathBuf::from("data/agents"));
+        assert_eq!(m.retention, std::time::Duration::from_secs(90 * 86400));
+        assert!(m.search.is_none());
+    }
+
+    #[test]
+    fn test_memory_definition_with_search_config() {
+        let dsl = r#"
+        memory agent_memory {
+            store    markdown
+            path     "data/agents"
+            retention 90d
+            search {
+                vector_weight  0.7
+                keyword_weight 0.3
+            }
+        }
+        "#;
+        let tree = parse_dsl(dsl).expect("should parse");
+        let memories = extract_memory_definitions(&tree, dsl).unwrap();
+        assert_eq!(memories.len(), 1);
+        let m = &memories[0];
+        let search = m.search.as_ref().unwrap();
+        assert!((search.vector_weight - 0.7).abs() < f64::EPSILON);
+        assert!((search.keyword_weight - 0.3).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_memory_definition_defaults() {
+        let dsl = r#"
+        memory minimal {
+            store markdown
+        }
+        "#;
+        let tree = parse_dsl(dsl).expect("should parse");
+        let memories = extract_memory_definitions(&tree, dsl).unwrap();
+        assert_eq!(memories.len(), 1);
+        assert_eq!(memories[0].path, std::path::PathBuf::from("data/agents"));
+        assert_eq!(
+            memories[0].retention,
+            std::time::Duration::from_secs(90 * 86400)
+        );
+    }
+
+    // ── Webhook definition tests ──────────────────────────────────────
+
+    #[test]
+    fn test_webhook_definition_parsing() {
+        let dsl = r#"
+        webhook github_events {
+            path     "/hooks/github"
+            provider github
+            secret   "secret://vault/github-webhook-secret"
+            agent    code_review_agent
+        }
+        "#;
+        let tree = parse_dsl(dsl).expect("should parse");
+        let webhooks = extract_webhook_definitions(&tree, dsl).unwrap();
+        assert_eq!(webhooks.len(), 1);
+        let w = &webhooks[0];
+        assert_eq!(w.name, "github_events");
+        assert_eq!(w.path, "/hooks/github");
+        assert_eq!(w.provider, WebhookProvider::GitHub);
+        assert_eq!(w.secret, "secret://vault/github-webhook-secret");
+        assert_eq!(w.agent.as_deref(), Some("code_review_agent"));
+        assert!(w.filter.is_none());
+    }
+
+    #[test]
+    fn test_webhook_definition_with_filter() {
+        let dsl = r#"
+        webhook github_prs {
+            path     "/hooks/github"
+            provider github
+            secret   "my-secret"
+            agent    pr_agent
+            filter {
+                json_path "$.action"
+                equals    "opened"
+            }
+        }
+        "#;
+        let tree = parse_dsl(dsl).expect("should parse");
+        let webhooks = extract_webhook_definitions(&tree, dsl).unwrap();
+        assert_eq!(webhooks.len(), 1);
+        let f = webhooks[0].filter.as_ref().unwrap();
+        assert_eq!(f.json_path, "$.action");
+        assert_eq!(f.equals.as_deref(), Some("opened"));
+    }
+
+    #[test]
+    fn test_webhook_definition_custom_provider() {
+        let dsl = r#"
+        webhook custom_hook {
+            path     "/hooks/custom"
+            provider custom
+            secret   "test-secret"
+        }
+        "#;
+        let tree = parse_dsl(dsl).expect("should parse");
+        let webhooks = extract_webhook_definitions(&tree, dsl).unwrap();
+        assert_eq!(webhooks[0].provider, WebhookProvider::Custom);
+        assert!(webhooks[0].agent.is_none());
+    }
+
+    #[test]
+    fn test_webhook_definition_missing_path_fails() {
+        let dsl = r#"
+        webhook no_path {
+            provider github
+            secret   "test"
+        }
+        "#;
+        let tree = parse_dsl(dsl).expect("should parse");
+        let result = extract_webhook_definitions(&tree, dsl);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("path"));
     }
 }

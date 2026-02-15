@@ -64,9 +64,10 @@ toml = "0.8"
 url = "2.4"
 base64 = "0.21"
 base64ct = "=1.6.0"  # Force exact compatible version that doesn't require edition2024
-schemapin = "1.1.4"
+schemapin = "1.3.0"
 agentpin = { version = "0.2.0", features = ["fetch"] }
 sha2 = "0.10"
+hmac = "0.12"
 hex = "0.4"
 argon2 = "0.5"
 subtle = "2.5"
@@ -86,10 +87,16 @@ winapi = { version = "0.3", features = ["wincred"], optional = true }
 axum = { version = "0.7", optional = true }
 tower = { version = "0.4", optional = true }
 tower-http = { version = "0.5", features = ["cors", "trace"], optional = true }
+jsonwebtoken = { version = "10", optional = true }
 tokio-tungstenite = { version = "0.21", optional = true }
 governor = { version = "0.10", optional = true }
 utoipa = { version = "4.2", features = ["axum_extras", "chrono"], optional = true }
 utoipa-swagger-ui = { version = "6.0", features = ["axum"], optional = true }
+
+# Metrics/telemetry dependencies (optional)
+opentelemetry = { version = "0.31", optional = true }
+opentelemetry_sdk = { version = "0.31", features = ["metrics"], optional = true }
+opentelemetry-otlp = { version = "0.31", default-features = false, features = ["metrics", "grpc-tonic", "http-proto", "http-json"], optional = true }
 
 # Enterprise features removed for OSS build
 
@@ -98,18 +105,21 @@ tokio-test = "0.4"
 tempfile = "3.0"
 criterion = "0.5"
 serial_test = "3.0"
+filetime = "0.2"
 
 [features]
 default = ["keychain"]
 vector-db = ["dep:qdrant-client"]
 embedding-models = ["candle-core", "candle-nn", "candle-transformers", "tokenizers", "hf-hub"]
 http-api = ["axum", "tower", "tower-http", "tokio-tungstenite", "governor", "utoipa", "utoipa-swagger-ui"]
-http-input = ["axum", "tower", "tower-http"]
+http-input = ["axum", "tower", "tower-http", "dep:jsonwebtoken"]
 keychain = ["keyring", "security-framework", "secret-service", "winapi"]
 cron = ["dep:cron", "dep:chrono-tz", "dep:rusqlite"]
 native-sandbox = ["rlimit", "libc"]
+cli-executor = ["libc"]
+metrics = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp"]
 enterprise = []  # Enterprise feature for conditional compilation
-full = ["vector-db", "embedding-models", "http-api", "http-input", "keychain", "cron"]
+full = ["vector-db", "embedding-models", "http-api", "http-input", "keychain", "cron", "metrics"]
 minimal = []  # Minimal build for faster CI
 
 

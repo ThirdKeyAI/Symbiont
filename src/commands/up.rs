@@ -161,6 +161,7 @@ pub async fn run(matches: &ArgMatches) {
         response_control: None,
         forward_headers: vec![],
         jwt_public_key_path: None,
+        webhook_verify: None,
     };
 
     // Use environment variable for Vault token, or disable Vault in dev mode

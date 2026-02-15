@@ -1,6 +1,10 @@
 module.exports = grammar({
   name: 'symbiont',
 
+  conflicts: $ => [
+    [$.expression, $.value],
+  ],
+
   rules: {
     program: $ => repeat($._item),
 
@@ -12,7 +16,9 @@ module.exports = grammar({
       $.type_definition,
       $.function_definition,
       $.schedule_definition,
-      $.channel_definition
+      $.channel_definition,
+      $.memory_definition,
+      $.webhook_definition
     ),
 
     metadata_block: $ => seq(
@@ -146,6 +152,66 @@ module.exports = grammar({
       optional(',')
     ),
 
+    memory_definition: $ => seq(
+      'memory',
+      $.identifier,
+      '{',
+      repeat(choice(
+        $.memory_property,
+        $.memory_search_block
+      )),
+      '}'
+    ),
+
+    memory_property: $ => seq(
+      $.identifier,
+      $.value,
+      optional(',')
+    ),
+
+    memory_search_block: $ => seq(
+      'search',
+      '{',
+      repeat($.memory_search_property),
+      '}'
+    ),
+
+    memory_search_property: $ => seq(
+      $.identifier,
+      $.value,
+      optional(',')
+    ),
+
+    webhook_definition: $ => seq(
+      'webhook',
+      $.identifier,
+      '{',
+      repeat(choice(
+        $.webhook_property,
+        $.webhook_filter_block
+      )),
+      '}'
+    ),
+
+    webhook_property: $ => seq(
+      $.identifier,
+      $.value,
+      optional(',')
+    ),
+
+    webhook_filter_block: $ => seq(
+      'filter',
+      '{',
+      repeat($.webhook_filter_property),
+      '}'
+    ),
+
+    webhook_filter_property: $ => seq(
+      $.identifier,
+      $.value,
+      optional(',')
+    ),
+
     parameter: $ => seq(
       $.identifier,
       ':',
@@ -260,12 +326,13 @@ module.exports = grammar({
       $.string,
       $.duration_literal,
       $.number,
-      $.boolean
+      $.boolean,
+      $.identifier
     ),
 
     identifier: $ => token(prec(-1, /[a-zA-Z_][a-zA-Z0-9_]*/)),
     string: $ => /"[^"]*"/,
-    duration_literal: $ => /\d+\.(seconds|minutes|hours)/,
+    duration_literal: $ => /\d+(\.seconds|\.minutes|\.hours|s|m|h|d|w|months|y)/,
     number: $ => /\d+(\.\d+)?/,
     boolean: $ => choice('true', 'false'),
 

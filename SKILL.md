@@ -2,7 +2,7 @@
 
 **Purpose**: This guide helps AI assistants quickly build secure, compliant Symbiont agents following best practices.
 
-**For Full Documentation**: See `docs/dsl-guide.md`, `docs/dsl-specification.md`, and `agents/README.md`
+**For Full Documentation**: See [DSL Guide](https://github.com/thirdkeyai/symbiont/blob/main/docs/dsl-guide.md), [DSL Specification](https://github.com/thirdkeyai/symbiont/blob/main/docs/dsl-specification.md), and [Example Agents](https://github.com/thirdkeyai/symbiont/blob/main/agents/README.md)
 
 ## What Makes Symbiont Unique
 
@@ -11,6 +11,8 @@
 - **Multi-Tier Sandboxing**: Docker → gVisor → Firecracker isolation
 - **Enterprise Compliance**: HIPAA, SOC2, GDPR patterns built-in
 - **Cryptographic Verification**: SchemaPin for MCP tools, Ed25519 signatures
+- **Webhook DX**: Signature verification middleware with GitHub/Stripe/Slack presets
+- **Persistent Memory**: Markdown-backed agent memory with retention and compaction
 
 ---
 
@@ -514,7 +516,56 @@ agent scheduled_cleanup() -> String {
 }
 ```
 
-### 5. Persistent Memory & RAG Engine
+### 5. Persistent Memory (DSL Configuration)
+
+```dsl
+// Top-level memory block — configures Markdown-backed agent memory
+memory agent_memory {
+    store    markdown           // Storage backend (markdown only for now)
+    path     "data/agents"     // Root directory for memory files
+    retention 90d              // How long daily logs are kept
+    search {
+        vector_weight  0.7     // Semantic similarity weight
+        keyword_weight 0.3     // BM25 keyword match weight
+    }
+}
+```
+
+Memory files are human-readable Markdown stored at `data/agents/{agent_id}/memory.md` with sections for Facts, Procedures, and Learned Patterns. Daily interaction logs are appended to `logs/{date}.md` and compacted based on retention policy.
+
+**REPL Commands**:
+- `:memory inspect <agent-id>` — Display agent's memory.md
+- `:memory compact <agent-id>` — Flush daily logs, remove expired entries
+- `:memory purge <agent-id>` — Delete all memory for an agent
+
+### 6. Webhook Endpoints (DSL Configuration)
+
+```dsl
+// Top-level webhook block — defines verified webhook endpoints
+webhook github_events {
+    path     "/hooks/github"
+    provider github                              // Preset: github, stripe, slack, custom
+    secret   "secret://vault/github-webhook-secret"  // HMAC secret (supports vault refs)
+    agent    code_review_agent                   // Route to this agent
+    filter {
+        json_path "$.action"
+        equals    "opened"                       // Only process "opened" events
+    }
+}
+```
+
+Provider presets configure signature verification automatically:
+- **github**: `X-Hub-Signature-256` header, `sha256=` prefix, HMAC-SHA256
+- **stripe**: `Stripe-Signature` header, HMAC-SHA256
+- **slack**: `X-Slack-Signature` header, `v0=` prefix, HMAC-SHA256
+- **custom**: `X-Signature` header, HMAC-SHA256
+
+All signatures are verified using constant-time comparison before the request reaches the agent handler. Invalid signatures return HTTP 401.
+
+**REPL Commands**:
+- `:webhook list` — Show configured webhook definitions
+
+### 7. Persistent Memory & RAG Engine
 
 ```dsl
 agent knowledge_assistant(query: String) -> String {
@@ -564,7 +615,7 @@ agent knowledge_assistant(query: String) -> String {
 }
 ```
 
-### 6. Inter-Agent Communication
+### 8. Inter-Agent Communication
 
 ```dsl
 agent coordinator(task: String) -> String {
@@ -1272,13 +1323,13 @@ Before deploying an agent, verify:
 
 ### Documentation Links
 
-- **Full DSL Guide**: `docs/dsl-guide.md`
-- **DSL Specification**: `docs/dsl-specification.md`
-- **Example Agents**: `agents/README.md` (8 production examples)
-- **Runtime Architecture**: `docs/runtime-architecture.md`
-- **API Reference**: `docs/api-reference.md`
-- **Tool Review Workflow**: `docs/tool_review_workflow.md`
-- **Getting Started**: `docs/getting-started.md`
+- **Full DSL Guide**: [docs/dsl-guide.md](https://github.com/thirdkeyai/symbiont/blob/main/docs/dsl-guide.md)
+- **DSL Specification**: [docs/dsl-specification.md](https://github.com/thirdkeyai/symbiont/blob/main/docs/dsl-specification.md)
+- **Example Agents**: [agents/README.md](https://github.com/thirdkeyai/symbiont/blob/main/agents/README.md) (8 production examples)
+- **Runtime Architecture**: [docs/runtime-architecture.md](https://github.com/thirdkeyai/symbiont/blob/main/docs/runtime-architecture.md)
+- **API Reference**: [docs/api-reference.md](https://github.com/thirdkeyai/symbiont/blob/main/docs/api-reference.md)
+- **Tool Review Workflow**: [docs/tool_review_workflow.md](https://github.com/thirdkeyai/symbiont/blob/main/docs/tool_review_workflow.md)
+- **Getting Started**: [docs/getting-started.md](https://github.com/thirdkeyai/symbiont/blob/main/docs/getting-started.md)
 
 ---
 

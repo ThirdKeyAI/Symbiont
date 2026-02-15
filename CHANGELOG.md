@@ -5,6 +5,48 @@ All notable changes to the Symbiont project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-02-15
+
+### Added
+
+#### Persistent Memory (`MarkdownMemoryStore`)
+- **Markdown-backed agent memory** implementing `ContextPersistence` trait
+  - Facts, Procedures, and Learned Patterns sections in `memory.md`
+  - Daily log append with timestamped entries
+  - Retention-based compaction with configurable max age
+- **DSL `memory` block**: Declarative memory configuration in agent definitions
+  - `store`: Storage format (`markdown`)
+  - `path`: File path for memory persistence
+  - `retention`: Duration-based retention (`90d`, `6months`, etc.) via `humantime`
+  - `compact_after`: Compaction threshold
+- **REPL `:memory` command**: Inspect, compact, and purge agent memory at runtime
+
+#### Webhook DX (`SignatureVerifier`)
+- **`SignatureVerifier` trait** with two implementations:
+  - `HmacVerifier`: HMAC-SHA256 with constant-time comparison via `subtle` crate
+  - `JwtVerifier`: HS256 JWT token verification
+- **`WebhookProvider` presets**: GitHub, Stripe, Slack, Custom — each maps provider name to correct header and signing scheme
+- **DSL `webhook` block**: Declarative webhook endpoint configuration
+  - `provider`: Provider preset name
+  - `secret`: Secret key or environment variable reference (`$ENV_VAR`)
+  - `path`: HTTP endpoint path
+  - `filter`: Event type filtering
+- **Wired into `HttpInputServer`**: Pre-handler signature verification on raw `Bytes` before JSON parsing. Returns 401 on failure, 400 on bad JSON.
+- **REPL `:webhook` command**: List configured webhook endpoints
+
+#### DSL Parser Fixes
+- **Bare identifier in `value` rule**: `store markdown`, `provider github` now parse correctly
+- **Short-form duration literals**: `90d`, `6m`, `1y` alongside existing `90.seconds` form
+- **Conflict resolution**: `conflicts` declaration for `expression`/`value` ambiguity
+
+### Crate Versions
+| Crate | Version |
+|-------|---------|
+| `symbi` | 1.4.0 |
+| `symbi-dsl` | 1.4.0 |
+| `symbi-runtime` | 1.4.0 |
+| `repl-core` | 1.4.0 |
+
 ## [1.1.0] - 2026-02-12
 
 ### Added

@@ -40,7 +40,9 @@
 //! - **Retention Policies**: Automatic archiving and cleanup of old context data
 //! - **Access Control**: Policy-driven access control for context operations
 
+pub mod embedding;
 pub mod manager;
+pub mod markdown_memory;
 pub mod types;
 pub mod vector_db;
 
@@ -54,6 +56,13 @@ pub use types::{
 };
 
 pub use manager::{ContextManager, ContextManagerConfig, FilePersistence, StandardContextManager};
+
+pub use markdown_memory::MarkdownMemoryStore;
+
+pub use embedding::{
+    create_embedding_service, create_embedding_service_from_env, EmbeddingConfig,
+    EmbeddingProvider, OllamaEmbeddingService, OpenAiEmbeddingService,
+};
 
 pub use vector_db::{
     EmbeddingService, MockEmbeddingService, NoOpVectorDatabase, QdrantConfig, QdrantDistance,

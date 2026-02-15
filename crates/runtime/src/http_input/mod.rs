@@ -14,7 +14,12 @@ pub mod llm_client;
 pub mod server;
 
 #[cfg(feature = "http-input")]
-pub use config::{AgentRoutingRule, HttpInputConfig, ResponseControlConfig, RouteMatch};
+pub mod webhook_verify;
+
+#[cfg(feature = "http-input")]
+pub use config::{
+    AgentRoutingRule, HttpInputConfig, ResponseControlConfig, RouteMatch, WebhookVerifyConfig,
+};
 
 #[cfg(feature = "http-input")]
 pub use server::{start_http_input, HttpInputServer};

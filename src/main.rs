@@ -317,6 +317,62 @@ async fn main() {
                 ),
         )
         .subcommand(
+            Command::new("skills")
+                .about("Manage agent skills (load, verify, sign, scan)")
+                .subcommand(Command::new("list").about("List loaded skills with verification status"))
+                .subcommand(
+                    Command::new("scan")
+                        .about("Scan a skill directory for policy violations")
+                        .arg(
+                            Arg::new("dir")
+                                .value_name("DIR")
+                                .help("Skill directory to scan")
+                                .required(true),
+                        ),
+                )
+                .subcommand(
+                    Command::new("verify")
+                        .about("Verify a skill's cryptographic signature")
+                        .arg(
+                            Arg::new("dir")
+                                .value_name("DIR")
+                                .help("Skill directory to verify")
+                                .required(true),
+                        )
+                        .arg(
+                            Arg::new("domain")
+                                .long("domain")
+                                .value_name("DOMAIN")
+                                .help("Expected signer domain")
+                                .required(true),
+                        ),
+                )
+                .subcommand(
+                    Command::new("sign")
+                        .about("Sign a skill folder with a private key")
+                        .arg(
+                            Arg::new("dir")
+                                .value_name("DIR")
+                                .help("Skill directory to sign")
+                                .required(true),
+                        )
+                        .arg(
+                            Arg::new("key")
+                                .long("key")
+                                .value_name("KEY_FILE")
+                                .help("Path to PEM private key file")
+                                .required(true),
+                        )
+                        .arg(
+                            Arg::new("domain")
+                                .long("domain")
+                                .value_name("DOMAIN")
+                                .help("Signer domain")
+                                .required(true),
+                        ),
+                ),
+        )
+        .subcommand(
             Command::new("cron")
                 .about("Manage cron-scheduled agent jobs")
                 .subcommand(Command::new("list").about("List all scheduled jobs"))
@@ -450,6 +506,9 @@ async fn main() {
         }
         Some(("chat", sub_matches)) => {
             commands::chat::run(sub_matches).await;
+        }
+        Some(("skills", sub_matches)) => {
+            commands::skills::run(sub_matches).await;
         }
         Some(("cron", sub_matches)) => {
             commands::cron::run(sub_matches).await;

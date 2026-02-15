@@ -4,5 +4,6 @@ pub mod doctor;
 pub mod dsl;
 pub mod logs;
 pub mod new;
+pub mod skills;
 pub mod status;
 pub mod up;

@@ -4,6 +4,8 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::time::Duration;
 use tree_sitter::{Language, Node, Parser, Tree};
 
 /// Sandbox tier enumeration representing different isolation levels
@@ -406,6 +408,439 @@ pub fn extract_schedule_definitions(
 
     traverse_for_schedules(root_node, source, &mut schedules)?;
     Ok(schedules)
+}
+
+/// Memory store backend type.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum MemoryStoreType {
+    /// Markdown-file-based memory store.
+    Markdown,
+}
+
+/// Search configuration for a memory store.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MemorySearchConfig {
+    /// Weight for vector/semantic similarity (0.0–1.0).
+    pub vector_weight: f64,
+    /// Weight for keyword/BM25 matching (0.0–1.0).
+    pub keyword_weight: f64,
+}
+
+impl Default for MemorySearchConfig {
+    fn default() -> Self {
+        Self {
+            vector_weight: 0.7,
+            keyword_weight: 0.3,
+        }
+    }
+}
+
+/// A parsed memory definition from DSL `memory` blocks.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MemoryDefinition {
+    /// Name identifier for this memory store.
+    pub name: String,
+    /// Backend store type.
+    pub store: MemoryStoreType,
+    /// Filesystem path for the memory store.
+    pub path: PathBuf,
+    /// How long to retain memory entries.
+    pub retention: Duration,
+    /// Optional search configuration.
+    pub search: Option<MemorySearchConfig>,
+}
+
+impl MemoryDefinition {
+    fn new(name: String) -> Self {
+        Self {
+            name,
+            store: MemoryStoreType::Markdown,
+            path: PathBuf::from("data/agents"),
+            retention: Duration::from_secs(90 * 86400),
+            search: None,
+        }
+    }
+}
+
+/// Extract memory definitions from parsed AST.
+///
+/// Looks for `memory <name> { key value, ... }` blocks and returns
+/// structured `MemoryDefinition` values.
+pub fn extract_memory_definitions(
+    tree: &Tree,
+    source: &str,
+) -> Result<Vec<MemoryDefinition>, String> {
+    let mut memories = Vec::new();
+    let root_node = tree.root_node();
+
+    fn traverse_for_memories(
+        node: Node,
+        source: &str,
+        memories: &mut Vec<MemoryDefinition>,
+    ) -> Result<(), String> {
+        if node.kind() == "memory_definition" {
+            // Child 0 = "memory" keyword, Child 1 = identifier, then "{", properties, "}"
+            let name_node = node
+                .child(1)
+                .ok_or_else(|| "memory_definition missing name".to_string())?;
+            let name = source[name_node.start_byte()..name_node.end_byte()].to_string();
+            let mut mem = MemoryDefinition::new(name);
+
+            for i in 0..node.child_count() {
+                if let Some(child) = node.child(i) {
+                    match child.kind() {
+                        "memory_property" => {
+                            // memory_property: identifier value (space-separated, NO colon)
+                            // child(0) = key, child(1) = value
+                            if let (Some(key_node), Some(val_node)) =
+                                (child.child(0), child.child(1))
+                            {
+                                let key =
+                                    source[key_node.start_byte()..key_node.end_byte()].to_string();
+                                let raw_value =
+                                    source[val_node.start_byte()..val_node.end_byte()].to_string();
+                                let value = raw_value.trim_matches('"').to_string();
+
+                                match key.as_str() {
+                                    "store" => match value.to_lowercase().as_str() {
+                                        "markdown" => mem.store = MemoryStoreType::Markdown,
+                                        _ => {
+                                            return Err(format!(
+                                                "memory '{}': unknown store type '{}'",
+                                                mem.name, value
+                                            ));
+                                        }
+                                    },
+                                    "path" => mem.path = PathBuf::from(value),
+                                    "retention" => {
+                                        mem.retention =
+                                            humantime::parse_duration(&value).map_err(|e| {
+                                                format!(
+                                                    "memory '{}': invalid retention '{}': {}",
+                                                    mem.name, value, e
+                                                )
+                                            })?;
+                                    }
+                                    _ => {
+                                        // Unknown properties are silently ignored for forward compat.
+                                    }
+                                }
+                            }
+                        }
+                        "memory_search_block" => {
+                            // memory_search_block: 'search' '{' repeat(memory_search_property) '}'
+                            let mut search = MemorySearchConfig::default();
+                            for j in 0..child.child_count() {
+                                if let Some(prop_node) = child.child(j) {
+                                    if prop_node.kind() == "memory_search_property" {
+                                        // memory_search_property: identifier value (space-separated)
+                                        // child(0) = key, child(1) = value
+                                        if let (Some(key_node), Some(val_node)) =
+                                            (prop_node.child(0), prop_node.child(1))
+                                        {
+                                            let key = source
+                                                [key_node.start_byte()..key_node.end_byte()]
+                                                .to_string();
+                                            let raw_value = source
+                                                [val_node.start_byte()..val_node.end_byte()]
+                                                .to_string();
+
+                                            match key.as_str() {
+                                                "vector_weight" => {
+                                                    search.vector_weight = raw_value
+                                                        .parse::<f64>()
+                                                        .map_err(|e| {
+                                                            format!(
+                                                                "memory: invalid vector_weight '{}': {}",
+                                                                raw_value, e
+                                                            )
+                                                        })?;
+                                                }
+                                                "keyword_weight" => {
+                                                    search.keyword_weight = raw_value
+                                                        .parse::<f64>()
+                                                        .map_err(|e| {
+                                                            format!(
+                                                                "memory: invalid keyword_weight '{}': {}",
+                                                                raw_value, e
+                                                            )
+                                                        })?;
+                                                }
+                                                _ => {
+                                                    // Unknown search properties ignored.
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            mem.search = Some(search);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            memories.push(mem);
+        }
+
+        // Recurse into children.
+        for i in 0..node.child_count() {
+            if let Some(child) = node.child(i) {
+                traverse_for_memories(child, source, memories)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    traverse_for_memories(root_node, source, &mut memories)?;
+    Ok(memories)
+}
+
+/// Webhook provider type.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WebhookProvider {
+    /// GitHub webhook provider.
+    GitHub,
+    /// Stripe webhook provider.
+    Stripe,
+    /// Slack webhook provider.
+    Slack,
+    /// Custom/unknown webhook provider.
+    Custom,
+}
+
+impl std::str::FromStr for WebhookProvider {
+    type Err = std::convert::Infallible;
+
+    /// Parse a provider name case-insensitively. Unknown providers become `Custom`.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s.to_lowercase().as_str() {
+            "github" => WebhookProvider::GitHub,
+            "stripe" => WebhookProvider::Stripe,
+            "slack" => WebhookProvider::Slack,
+            _ => WebhookProvider::Custom,
+        })
+    }
+}
+
+impl WebhookProvider {
+    /// Parse a provider name case-insensitively. Unknown providers become `Custom`.
+    pub fn parse(s: &str) -> Self {
+        s.parse().unwrap()
+    }
+}
+
+/// Filter configuration for a webhook.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WebhookFilter {
+    /// JSON path expression to match against the webhook payload.
+    pub json_path: String,
+    /// Exact match value.
+    pub equals: Option<String>,
+    /// Substring match value.
+    pub contains: Option<String>,
+}
+
+/// A parsed webhook definition from DSL `webhook` blocks.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WebhookDefinition {
+    /// Name identifier for this webhook.
+    pub name: String,
+    /// URL path to receive webhooks on.
+    pub path: String,
+    /// Webhook provider type.
+    pub provider: WebhookProvider,
+    /// Secret for webhook signature verification.
+    pub secret: String,
+    /// Name of the agent to invoke on webhook receipt.
+    pub agent: Option<String>,
+    /// Optional filter to apply to incoming webhook payloads.
+    pub filter: Option<WebhookFilter>,
+}
+
+impl WebhookDefinition {
+    fn new(name: String) -> Self {
+        Self {
+            name,
+            path: String::new(),
+            provider: WebhookProvider::Custom,
+            secret: String::new(),
+            agent: None,
+            filter: None,
+        }
+    }
+}
+
+/// Extract webhook definitions from parsed AST.
+///
+/// Looks for `webhook <name> { key value, ... }` blocks and returns
+/// structured `WebhookDefinition` values. Validates that `path` is present.
+pub fn extract_webhook_definitions(
+    tree: &Tree,
+    source: &str,
+) -> Result<Vec<WebhookDefinition>, String> {
+    let mut webhooks = Vec::new();
+    let root_node = tree.root_node();
+
+    /// Apply a key-value pair to the webhook definition.
+    fn apply_webhook_property(
+        key: &str,
+        value: &str,
+        webhook: &mut WebhookDefinition,
+        has_path: &mut bool,
+    ) {
+        match key {
+            "path" => {
+                webhook.path = value.to_string();
+                *has_path = true;
+            }
+            "provider" => {
+                webhook.provider = WebhookProvider::parse(value);
+            }
+            "secret" => webhook.secret = value.to_string(),
+            "agent" => webhook.agent = Some(value.to_string()),
+            _ => {
+                // Unknown properties are silently ignored for forward compat.
+            }
+        }
+    }
+
+    /// Extract key-value pairs from a node, handling both webhook_property nodes
+    /// and ERROR nodes that contain identifier pairs (for unquoted values).
+    fn extract_webhook_props_from_node(
+        node: Node,
+        source: &str,
+        webhook: &mut WebhookDefinition,
+        has_path: &mut bool,
+    ) {
+        match node.kind() {
+            "webhook_property" => {
+                // webhook_property: identifier value (space-separated, NO colon)
+                // child(0) = key, child(1) = value
+                if let (Some(key_node), Some(val_node)) = (node.child(0), node.child(1)) {
+                    let key = source[key_node.start_byte()..key_node.end_byte()].to_string();
+                    let raw_value = source[val_node.start_byte()..val_node.end_byte()].to_string();
+                    let value = raw_value.trim_matches('"').to_string();
+                    apply_webhook_property(&key, &value, webhook, has_path);
+                }
+            }
+            "ERROR" => {
+                // When tree-sitter encounters an unquoted identifier as a value
+                // (e.g. `provider github`), it wraps the pair in an ERROR node
+                // with two identifier children. We also recurse to find any
+                // webhook_property nodes nested inside the ERROR node.
+                let mut i = 0;
+                while i < node.child_count() {
+                    if let Some(child) = node.child(i) {
+                        if child.kind() == "identifier" {
+                            // Check if next sibling is also an identifier (unquoted value pair)
+                            if let Some(next) = node.child(i + 1) {
+                                if next.kind() == "identifier" {
+                                    let key =
+                                        source[child.start_byte()..child.end_byte()].to_string();
+                                    let value =
+                                        source[next.start_byte()..next.end_byte()].to_string();
+                                    apply_webhook_property(&key, &value, webhook, has_path);
+                                    i += 2;
+                                    continue;
+                                }
+                            }
+                        } else if child.kind() == "webhook_property" {
+                            // Nested webhook_property inside ERROR node
+                            extract_webhook_props_from_node(child, source, webhook, has_path);
+                        }
+                    }
+                    i += 1;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn traverse_for_webhooks(
+        node: Node,
+        source: &str,
+        webhooks: &mut Vec<WebhookDefinition>,
+    ) -> Result<(), String> {
+        if node.kind() == "webhook_definition" {
+            // Child 0 = "webhook" keyword, Child 1 = identifier, then "{", properties, "}"
+            let name_node = node
+                .child(1)
+                .ok_or_else(|| "webhook_definition missing name".to_string())?;
+            let name = source[name_node.start_byte()..name_node.end_byte()].to_string();
+            let mut webhook = WebhookDefinition::new(name);
+            let mut has_path = false;
+
+            for i in 0..node.child_count() {
+                if let Some(child) = node.child(i) {
+                    if child.kind() == "webhook_filter_block" {
+                        // webhook_filter_block: 'filter' '{' repeat(webhook_filter_property) '}'
+                        let mut json_path = String::new();
+                        let mut equals = None;
+                        let mut contains = None;
+
+                        for j in 0..child.child_count() {
+                            if let Some(prop_node) = child.child(j) {
+                                if prop_node.kind() == "webhook_filter_property" {
+                                    // webhook_filter_property: identifier value (space-separated)
+                                    // child(0) = key, child(1) = value
+                                    if let (Some(key_node), Some(val_node)) =
+                                        (prop_node.child(0), prop_node.child(1))
+                                    {
+                                        let key = source
+                                            [key_node.start_byte()..key_node.end_byte()]
+                                            .to_string();
+                                        let raw_value = source
+                                            [val_node.start_byte()..val_node.end_byte()]
+                                            .to_string();
+                                        let value = raw_value.trim_matches('"').to_string();
+
+                                        match key.as_str() {
+                                            "json_path" => json_path = value,
+                                            "equals" => equals = Some(value),
+                                            "contains" => contains = Some(value),
+                                            _ => {
+                                                // Unknown filter properties ignored.
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        webhook.filter = Some(WebhookFilter {
+                            json_path,
+                            equals,
+                            contains,
+                        });
+                    } else {
+                        extract_webhook_props_from_node(child, source, &mut webhook, &mut has_path);
+                    }
+                }
+            }
+
+            // Validate: path is required.
+            if !has_path {
+                return Err(format!("webhook '{}': must specify 'path'", webhook.name));
+            }
+
+            webhooks.push(webhook);
+        }
+
+        // Recurse into children.
+        for i in 0..node.child_count() {
+            if let Some(child) = node.child(i) {
+                traverse_for_webhooks(child, source, webhooks)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    traverse_for_webhooks(root_node, source, &mut webhooks)?;
+    Ok(webhooks)
 }
 
 /// A parsed channel definition from DSL `channel` blocks.

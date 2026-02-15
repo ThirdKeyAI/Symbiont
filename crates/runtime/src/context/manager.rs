@@ -11,12 +11,11 @@ use tokio::fs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::RwLock;
 
+use super::embedding::create_embedding_service_from_env;
 use super::types::*;
 #[cfg(feature = "vector-db")]
 use super::vector_db::QdrantClientWrapper;
-use super::vector_db::{
-    EmbeddingService, MockEmbeddingService, NoOpVectorDatabase, QdrantConfig, VectorDatabase,
-};
+use super::vector_db::{EmbeddingService, NoOpVectorDatabase, QdrantConfig, VectorDatabase};
 use crate::integrations::policy_engine::{MockPolicyEngine, PolicyEngine};
 use crate::secrets::{SecretStore, SecretsConfig};
 use crate::types::AgentId;
@@ -107,7 +106,7 @@ pub struct StandardContextManager {
     /// Vector database for semantic search and knowledge storage
     vector_db: Arc<dyn VectorDatabase>,
     /// Embedding service for generating vector embeddings
-    embedding_service: Arc<MockEmbeddingService>,
+    embedding_service: Arc<dyn EmbeddingService>,
     /// Persistent storage for contexts
     persistence: Arc<dyn ContextPersistence>,
     /// Secrets store for secure secret management
@@ -560,9 +559,8 @@ impl StandardContextManager {
             }
         };
 
-        let embedding_service = Arc::new(MockEmbeddingService::new(
-            config.qdrant_config.vector_dimension,
-        ));
+        let embedding_service =
+            create_embedding_service_from_env(config.qdrant_config.vector_dimension)?;
 
         let persistence: Arc<dyn ContextPersistence> = if config.enable_persistence {
             Arc::new(FilePersistence::new(config.persistence_config.clone()))
