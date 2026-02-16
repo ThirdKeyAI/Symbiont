@@ -12,7 +12,9 @@ use symbi_runtime::integrations::{
     MockNativeSchemaPinClient, SecureMcpClient, ToolInvocationEnforcer, ToolInvocationError,
     ToolProvider, VerificationStatus,
 };
+use symbi_runtime::integrations::schemapin::{KeyStoreConfig, PinnedKey};
 use symbi_runtime::types::AgentId;
+use tempfile::TempDir;
 
 fn create_test_tool_with_status(name: &str, status: VerificationStatus) -> McpTool {
     McpTool {
@@ -319,7 +321,27 @@ async fn test_mcp_client_integration_blocks_unverified() {
 async fn test_secure_mcp_client_with_enforcer() {
     let config = symbi_runtime::integrations::McpClientConfig::default();
     let schema_pin = Arc::new(MockNativeSchemaPinClient::new_success());
-    let key_store = Arc::new(LocalKeyStore::new().unwrap());
+
+    // Use a temp-dir backed key store with the provider key pre-pinned
+    // so that fetch_and_pin_key hits the TOFU early-return path instead
+    // of making a real HTTPS request.
+    let temp_dir = TempDir::new().unwrap();
+    let store_path = temp_dir.path().join("test_keys.json");
+    let key_store = LocalKeyStore::with_config(KeyStoreConfig {
+        store_path,
+        create_if_missing: true,
+        file_permissions: Some(0o600),
+    })
+    .unwrap();
+    key_store
+        .pin_key(PinnedKey::new(
+            "test.example.com".to_string(),
+            "test_public_key".to_string(),
+            "ES256".to_string(),
+            "sha256:test_fingerprint".to_string(),
+        ))
+        .unwrap();
+    let key_store = Arc::new(key_store);
 
     let client = SecureMcpClient::new(config, schema_pin, key_store);
 
