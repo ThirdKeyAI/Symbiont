@@ -42,10 +42,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Wired into `HttpInputServer`**: Pre-handler signature verification on raw `Bytes` before JSON parsing. Returns 401 on failure, 400 on bad JSON.
 - **REPL `:webhook` command**: List configured webhook endpoints
 
+#### Skill Scanning (ClawHavoc)
+- **`SkillScanner`** with 10 built-in defense rules for detecting malicious patterns in agent skills:
+  - `pipe-to-shell` (Critical): `curl ... | sh`
+  - `wget-pipe-to-shell` (Critical): `wget ... | sh`
+  - `env-file-reference` (Warning): References to `.env` files
+  - `soul-md-modification` (Critical): Attempts to rewrite `SOUL.md`
+  - `memory-md-modification` (Critical): Attempts to rewrite `MEMORY.md`
+  - `eval-with-fetch` (Critical): `eval()` + network fetch
+  - `fetch-with-eval` (Critical): Network fetch + `eval()`
+  - `base64-decode-exec` (Critical): Base64 decode piped to shell
+  - `rm-rf-pattern` (Critical): `rm -rf /`
+  - `chmod-777` (Warning): World-writable permissions
+- **Automatic scanning on skill load**: Every text file in the skill directory scanned line-by-line
+- **Custom rules**: Add domain-specific regex patterns alongside ClawHavoc defaults
+- **SchemaPin integration**: Skills are both signature-verified and content-scanned
+
+#### Metrics & Telemetry
+- **`FileMetricsExporter`**: Atomic JSON file writes (tempfile + rename) for metric snapshots
+- **`OtlpExporter`**: Send metrics to any OpenTelemetry-compatible endpoint via gRPC or HTTP (behind `metrics` feature flag)
+- **`CompositeExporter`**: Fan-out to multiple backends simultaneously; individual failures logged but don't block others
+- **`MetricsCollector`**: Background thread for periodic snapshot collection from scheduler, task manager, load balancer, and system resources
+- **`/api/v1/metrics` endpoint**: Full snapshot covering job counts, task queue depths, worker utilization, CPU, and memory usage
+
 #### DSL Parser Fixes
 - **Bare identifier in `value` rule**: `store markdown`, `provider github` now parse correctly
 - **Short-form duration literals**: `90d`, `6m`, `1y` alongside existing `90.seconds` form
 - **Conflict resolution**: `conflicts` declaration for `expression`/`value` ambiguity
+
+### SDK Parity (v0.6.0)
+
+Both SDKs ship at v0.6.0 with full feature parity:
+
+- **Python SDK** ([PyPI](https://pypi.org/project/symbiont-sdk/0.6.0/)): `MarkdownMemoryStore`, `HmacVerifier`, `JwtVerifier`, `WebhookProvider`, `SkillScanner`, `SkillLoader` with SchemaPin integration, `MetricsClient`, `FileMetricsExporter`, `CompositeExporter` — 120 tests passing
+- **JavaScript SDK** ([npm](https://www.npmjs.com/package/symbiont-sdk-js)): `MarkdownMemoryStore`, `HmacVerifier`, `JwtVerifier`, `WebhookProvider`, `SkillScanner` with all 10 ClawHavoc rules, `MetricsApiClient`, `FileMetricsExporter` — 1,037 tests passing
 
 ### Crate Versions
 | Crate | Version |
@@ -53,7 +83,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 | `symbi` | 1.4.0 |
 | `symbi-dsl` | 1.4.0 |
 | `symbi-runtime` | 1.4.0 |
+| `symbi-channel-adapter` | 0.1.1 |
 | `repl-core` | 1.4.0 |
+| `repl-proto` | 1.4.0 |
+| `repl-cli` | 1.4.0 |
+| `repl-lsp` | 1.4.0 |
 
 ## [1.1.0] - 2026-02-12
 
