@@ -45,21 +45,16 @@ pub enum MetricsError {
 // ---------------------------------------------------------------------------
 
 /// OTLP transport protocol.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum OtlpProtocol {
     /// gRPC (default port 4317).
+    #[default]
     Grpc,
     /// HTTP with protobuf encoding (default port 4318).
     HttpBinary,
     /// HTTP with JSON encoding (default port 4318).
     HttpJson,
-}
-
-impl Default for OtlpProtocol {
-    fn default() -> Self {
-        Self::Grpc
-    }
 }
 
 /// OTLP exporter configuration.
