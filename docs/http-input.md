@@ -40,7 +40,7 @@ use symbiont_runtime::http_input::HttpInputConfig;
 use symbiont_runtime::types::AgentId;
 
 let config = HttpInputConfig {
-    bind_address: "0.0.0.0".to_string(),
+    bind_address: "127.0.0.1".to_string(),
     port: 8081,
     path: "/webhook".to_string(),
     agent: AgentId::from_str("webhook_handler")?,
@@ -53,7 +53,7 @@ let config = HttpInputConfig {
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `bind_address` | `String` | `"0.0.0.0"` | IP address to bind the HTTP server |
+| `bind_address` | `String` | `"127.0.0.1"` | IP address to bind the HTTP server |
 | `port` | `u16` | `8081` | Port number to listen on |
 | `path` | `String` | `"/webhook"` | HTTP path endpoint |
 | `agent` | `AgentId` | New ID | Default agent to invoke for requests |
@@ -64,7 +64,7 @@ let config = HttpInputConfig {
 | `routing_rules` | `Option<Vec<AgentRoutingRule>>` | `None` | Request routing rules |
 | `response_control` | `Option<ResponseControlConfig>` | `None` | Response formatting config |
 | `forward_headers` | `Vec<String>` | `[]` | Headers to forward to agents |
-| `cors_enabled` | `bool` | `false` | Enable CORS support |
+| `cors_origins` | `Vec<String>` | `[]` | Allowed CORS origins (empty = CORS disabled) |
 | `audit_enabled` | `bool` | `true` | Enable request audit logging |
 
 ### Agent Routing Rules
@@ -169,7 +169,7 @@ let config = HttpInputConfig {
     agent: AgentId::from_str("webhook_handler")?,
     auth_header: Some("Bearer secret-token".to_string()),
     audit_enabled: true,
-    cors_enabled: true,
+    cors_origins: vec!["https://example.com".to_string()],
     ..Default::default()
 };
 
@@ -236,7 +236,7 @@ The server returns a JSON response with the agent's output:
 
 ```json
 {
-  "status": "invoked",
+  "status": "execution_started",
   "agent_id": "webhook_handler",
   "timestamp": "2024-01-15T10:30:00Z"
 }
@@ -270,7 +270,7 @@ let config = HttpInputConfig {
     bind_address: "0.0.0.0".to_string(),
     port: 8081,
     path: "/api/webhook".to_string(),
-    cors_enabled: true,
+    cors_origins: vec!["https://example.com".to_string()],
     forward_headers: vec![
         "X-Forwarded-For".to_string(),
         "X-Request-ID".to_string(),

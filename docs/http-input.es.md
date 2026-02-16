@@ -40,7 +40,7 @@ use symbiont_runtime::http_input::HttpInputConfig;
 use symbiont_runtime::types::AgentId;
 
 let config = HttpInputConfig {
-    bind_address: "0.0.0.0".to_string(),
+    bind_address: "127.0.0.1".to_string(),
     port: 8081,
     path: "/webhook".to_string(),
     agent: AgentId::from_str("webhook_handler")?,
@@ -53,7 +53,7 @@ let config = HttpInputConfig {
 
 | Campo | Tipo | Por Defecto | Descripción |
 |-------|------|---------|-------------|
-| `bind_address` | `String` | `"0.0.0.0"` | Dirección IP para vincular el servidor HTTP |
+| `bind_address` | `String` | `"127.0.0.1"` | Dirección IP para vincular el servidor HTTP |
 | `port` | `u16` | `8081` | Número de puerto en el que escuchar |
 | `path` | `String` | `"/webhook"` | Endpoint de ruta HTTP |
 | `agent` | `AgentId` | Nuevo ID | Agente por defecto a invocar para peticiones |
@@ -64,7 +64,7 @@ let config = HttpInputConfig {
 | `routing_rules` | `Option<Vec<AgentRoutingRule>>` | `None` | Reglas de enrutamiento de peticiones |
 | `response_control` | `Option<ResponseControlConfig>` | `None` | Configuración de formato de respuesta |
 | `forward_headers` | `Vec<String>` | `[]` | Cabeceras a reenviar a los agentes |
-| `cors_enabled` | `bool` | `false` | Habilitar soporte CORS |
+| `cors_origins` | `Vec<String>` | `[]` | Orígenes CORS permitidos (vacío = CORS deshabilitado) |
 | `audit_enabled` | `bool` | `true` | Habilitar registro de auditoría de peticiones |
 
 ### Reglas de Enrutamiento de Agentes
@@ -169,7 +169,7 @@ let config = HttpInputConfig {
     agent: AgentId::from_str("webhook_handler")?,
     auth_header: Some("Bearer secret-token".to_string()),
     audit_enabled: true,
-    cors_enabled: true,
+    cors_origins: vec!["https://example.com".to_string()],
     ..Default::default()
 };
 
@@ -236,7 +236,7 @@ El servidor devuelve una respuesta JSON con la salida del agente:
 
 ```json
 {
-  "status": "invoked",
+  "status": "execution_started",
   "agent_id": "webhook_handler",
   "timestamp": "2024-01-15T10:30:00Z"
 }
@@ -270,7 +270,7 @@ let config = HttpInputConfig {
     bind_address: "0.0.0.0".to_string(),
     port: 8081,
     path: "/api/webhook".to_string(),
-    cors_enabled: true,
+    cors_origins: vec!["https://example.com".to_string()],
     forward_headers: vec![
         "X-Forwarded-For".to_string(),
         "X-Request-ID".to_string(),

@@ -40,7 +40,7 @@ use symbiont_runtime::http_input::HttpInputConfig;
 use symbiont_runtime::types::AgentId;
 
 let config = HttpInputConfig {
-    bind_address: "0.0.0.0".to_string(),
+    bind_address: "127.0.0.1".to_string(),
     port: 8081,
     path: "/webhook".to_string(),
     agent: AgentId::from_str("webhook_handler")?,
@@ -53,7 +53,7 @@ let config = HttpInputConfig {
 
 | フィールド | 型 | デフォルト | 説明 |
 |-------|------|---------|-------------|
-| `bind_address` | `String` | `"0.0.0.0"` | HTTP サーバーをバインドする IP アドレス |
+| `bind_address` | `String` | `"127.0.0.1"` | HTTP サーバーをバインドする IP アドレス |
 | `port` | `u16` | `8081` | リッスンするポート番号 |
 | `path` | `String` | `"/webhook"` | HTTP パスエンドポイント |
 | `agent` | `AgentId` | 新規 ID | リクエストに対して呼び出すデフォルトエージェント |
@@ -64,7 +64,7 @@ let config = HttpInputConfig {
 | `routing_rules` | `Option<Vec<AgentRoutingRule>>` | `None` | リクエストルーティングルール |
 | `response_control` | `Option<ResponseControlConfig>` | `None` | レスポンスフォーマット設定 |
 | `forward_headers` | `Vec<String>` | `[]` | エージェントに転送するヘッダー |
-| `cors_enabled` | `bool` | `false` | CORS サポートを有効にする |
+| `cors_origins` | `Vec<String>` | `[]` | 許可された CORS オリジン（空 = CORS 無効） |
 | `audit_enabled` | `bool` | `true` | リクエスト監査ログを有効にする |
 
 ### エージェントルーティングルール
@@ -169,7 +169,7 @@ let config = HttpInputConfig {
     agent: AgentId::from_str("webhook_handler")?,
     auth_header: Some("Bearer secret-token".to_string()),
     audit_enabled: true,
-    cors_enabled: true,
+    cors_origins: vec!["https://example.com".to_string()],
     ..Default::default()
 };
 
@@ -236,7 +236,7 @@ curl -X POST http://localhost:8081/webhook \
 
 ```json
 {
-  "status": "invoked",
+  "status": "execution_started",
   "agent_id": "webhook_handler",
   "timestamp": "2024-01-15T10:30:00Z"
 }
@@ -270,7 +270,7 @@ let config = HttpInputConfig {
     bind_address: "0.0.0.0".to_string(),
     port: 8081,
     path: "/api/webhook".to_string(),
-    cors_enabled: true,
+    cors_origins: vec!["https://example.com".to_string()],
     forward_headers: vec![
         "X-Forwarded-For".to_string(),
         "X-Request-ID".to_string(),

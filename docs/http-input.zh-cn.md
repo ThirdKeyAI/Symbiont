@@ -40,7 +40,7 @@ use symbiont_runtime::http_input::HttpInputConfig;
 use symbiont_runtime::types::AgentId;
 
 let config = HttpInputConfig {
-    bind_address: "0.0.0.0".to_string(),
+    bind_address: "127.0.0.1".to_string(),
     port: 8081,
     path: "/webhook".to_string(),
     agent: AgentId::from_str("webhook_handler")?,
@@ -53,7 +53,7 @@ let config = HttpInputConfig {
 
 | 字段 | 类型 | 默认值 | 描述 |
 |-------|------|---------|-------------|
-| `bind_address` | `String` | `"0.0.0.0"` | HTTP 服务器绑定的 IP 地址 |
+| `bind_address` | `String` | `"127.0.0.1"` | HTTP 服务器绑定的 IP 地址 |
 | `port` | `u16` | `8081` | 监听的端口号 |
 | `path` | `String` | `"/webhook"` | HTTP 路径端点 |
 | `agent` | `AgentId` | 新 ID | 为请求调用的默认代理 |
@@ -64,7 +64,7 @@ let config = HttpInputConfig {
 | `routing_rules` | `Option<Vec<AgentRoutingRule>>` | `None` | 请求路由规则 |
 | `response_control` | `Option<ResponseControlConfig>` | `None` | 响应格式配置 |
 | `forward_headers` | `Vec<String>` | `[]` | 转发给代理的请求头 |
-| `cors_enabled` | `bool` | `false` | 启用 CORS 支持 |
+| `cors_origins` | `Vec<String>` | `[]` | 允许的 CORS 来源（空 = 禁用 CORS） |
 | `audit_enabled` | `bool` | `true` | 启用请求审计日志记录 |
 
 ### 代理路由规则
@@ -169,7 +169,7 @@ let config = HttpInputConfig {
     agent: AgentId::from_str("webhook_handler")?,
     auth_header: Some("Bearer secret-token".to_string()),
     audit_enabled: true,
-    cors_enabled: true,
+    cors_origins: vec!["https://example.com".to_string()],
     ..Default::default()
 };
 
@@ -236,7 +236,7 @@ curl -X POST http://localhost:8081/webhook \
 
 ```json
 {
-  "status": "invoked",
+  "status": "execution_started",
   "agent_id": "webhook_handler",
   "timestamp": "2024-01-15T10:30:00Z"
 }
@@ -270,7 +270,7 @@ let config = HttpInputConfig {
     bind_address: "0.0.0.0".to_string(),
     port: 8081,
     path: "/api/webhook".to_string(),
-    cors_enabled: true,
+    cors_origins: vec!["https://example.com".to_string()],
     forward_headers: vec![
         "X-Forwarded-For".to_string(),
         "X-Request-ID".to_string(),

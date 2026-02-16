@@ -40,7 +40,7 @@ use symbiont_runtime::http_input::HttpInputConfig;
 use symbiont_runtime::types::AgentId;
 
 let config = HttpInputConfig {
-    bind_address: "0.0.0.0".to_string(),
+    bind_address: "127.0.0.1".to_string(),
     port: 8081,
     path: "/webhook".to_string(),
     agent: AgentId::from_str("webhook_handler")?,
@@ -53,7 +53,7 @@ let config = HttpInputConfig {
 
 | Feld | Typ | Standard | Beschreibung |
 |-------|------|---------|-------------|
-| `bind_address` | `String` | `"0.0.0.0"` | IP-Adresse zum Binden des HTTP-Servers |
+| `bind_address` | `String` | `"127.0.0.1"` | IP-Adresse zum Binden des HTTP-Servers |
 | `port` | `u16` | `8081` | Portnummer zum Lauschen |
 | `path` | `String` | `"/webhook"` | HTTP-Pfad-Endpunkt |
 | `agent` | `AgentId` | Neue ID | Standard-Agent für Anfragen aufzurufen |
@@ -64,7 +64,7 @@ let config = HttpInputConfig {
 | `routing_rules` | `Option<Vec<AgentRoutingRule>>` | `None` | Anfrage-Routing-Regeln |
 | `response_control` | `Option<ResponseControlConfig>` | `None` | Antwortformatierungskonfiguration |
 | `forward_headers` | `Vec<String>` | `[]` | Header zur Weiterleitung an Agenten |
-| `cors_enabled` | `bool` | `false` | CORS-Unterstützung aktivieren |
+| `cors_origins` | `Vec<String>` | `[]` | Erlaubte CORS-Ursprünge (leer = CORS deaktiviert) |
 | `audit_enabled` | `bool` | `true` | Anfrage-Audit-Logging aktivieren |
 
 ### Agenten-Routing-Regeln
@@ -169,7 +169,7 @@ let config = HttpInputConfig {
     agent: AgentId::from_str("webhook_handler")?,
     auth_header: Some("Bearer secret-token".to_string()),
     audit_enabled: true,
-    cors_enabled: true,
+    cors_origins: vec!["https://example.com".to_string()],
     ..Default::default()
 };
 
@@ -236,7 +236,7 @@ Der Server gibt eine JSON-Antwort mit der Ausgabe des Agenten zurück:
 
 ```json
 {
-  "status": "invoked",
+  "status": "execution_started",
   "agent_id": "webhook_handler",
   "timestamp": "2024-01-15T10:30:00Z"
 }
@@ -270,7 +270,7 @@ let config = HttpInputConfig {
     bind_address: "0.0.0.0".to_string(),
     port: 8081,
     path: "/api/webhook".to_string(),
-    cors_enabled: true,
+    cors_origins: vec!["https://example.com".to_string()],
     forward_headers: vec![
         "X-Forwarded-For".to_string(),
         "X-Request-ID".to_string(),
