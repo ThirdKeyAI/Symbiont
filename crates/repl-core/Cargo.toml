@@ -1,6 +1,6 @@
 [package]
 name = "repl-core"
-version = "1.0.1"
+version = "1.4.0"
 edition = "2021"
 authors = ["Jascha Wanger / ThirdKey.ai"]
 description = "Core REPL engine for the Symbi platform"
@@ -24,7 +24,7 @@ serde_json = "1.0"
 uuid = { version = "1.0", features = ["v4", "serde"] }
 tokio = { version = "1.0", features = ["sync"] }
 tracing = "0.1"
-symbi-runtime = { path = "../runtime", version = "1.0.2" }
+symbi-runtime = { path = "../runtime", version = "1.4.0" }
 
 [dev-dependencies]
 tokio-test = "0.4"

@@ -5,9 +5,17 @@ All notable changes to the Symbiont project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.4.0] - 2026-02-15
+## [1.4.0] - 2026-02-16
 
 ### Added
+
+#### HTTP Input Security Hardening
+- **Loopback-only default binding**: `bind_address` defaults to `127.0.0.1` instead of `0.0.0.0`
+- **Explicit CORS origin allow-lists**: Replaced `cors_enabled` boolean with `cors_origins: Vec<String>`
+- **JWT EdDSA validation**: Full Ed25519 public key loading and JWT verification in auth middleware
+- **Health endpoint separation**: `/health` exempt from authentication for load balancers
+- **PathPrefix route matching**: Implement `RouteMatch::PathPrefix` in HTTP input routing
+- **Runtime agent execution**: Replace `invoke_agent` stub with real runtime dispatch
 
 #### Persistent Memory (`MarkdownMemoryStore`)
 - **Markdown-backed agent memory** implementing `ContextPersistence` trait

@@ -1,6 +1,6 @@
 [package]
 name = "symbi"
-version = "1.1.0"
+version = "1.4.0"
 edition = "2021"
 authors = ["Jascha Wanger / ThirdKey.ai"]
 description = "AI-native agent framework for building autonomous, policy-aware agents that can safely collaborate with humans, other agents, and large language models"
@@ -42,7 +42,7 @@ rust-version = "1.70"
 clap = { version = "4.0", features = ["derive"] }
 tokio = { version = "1.0", features = ["full"] }
 sysinfo = "0.30.13"
-symbi-runtime = { path = "crates/runtime", version = "1.1.0", features = ["http-input", "http-api", "vector-db"] }
+symbi-runtime = { path = "crates/runtime", version = "1.4.0", features = ["http-input", "http-api", "vector-db"] }
 cron = { version = "0.15", optional = true }
 chrono = { version = "0.4", features = ["serde"], optional = true }
 chrono-tz = { version = "0.10", optional = true }
