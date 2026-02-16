@@ -156,6 +156,9 @@ pub enum McpClientError {
     #[error("Serialization error: {reason}")]
     SerializationError { reason: String },
 
+    #[error("Key fetch failed for provider '{provider}': {reason}")]
+    KeyFetchFailed { provider: String, reason: String },
+
     #[error("Timeout occurred during operation")]
     Timeout,
 }

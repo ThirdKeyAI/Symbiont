@@ -230,6 +230,13 @@ impl HttpApiServer {
             .await
             .map_err(|e| RuntimeError::Internal(format!("Failed to bind to {}: {}", addr, e)))?;
 
+        if std::env::var("SYMBIONT_API_TOKEN").is_err() {
+            tracing::warn!(
+                "SYMBIONT_API_TOKEN not set — API routes are effectively unauthenticated. \
+                 Set this variable in production."
+            );
+        }
+
         tracing::info!("HTTP API server starting on {}", addr);
 
         axum::serve(listener, app)
@@ -323,19 +330,24 @@ impl HttpApiServer {
                 .layer(middleware::from_fn(auth_middleware))
                 .with_state(provider.clone());
 
-            // Other routes with authentication
-            let other_router = Router::new()
+            // Protected routes (workflows + metrics) with authentication
+            let protected_router = Router::new()
                 .route("/api/v1/workflows/execute", post(execute_workflow))
                 .route("/api/v1/metrics", get(get_metrics))
-                .route("/api/v1/health/scheduler", get(get_scheduler_health))
                 .layer(middleware::from_fn(auth_middleware))
+                .with_state(provider.clone());
+
+            // Health routes — no auth so load-balancer probes work without credentials
+            let health_router = Router::new()
+                .route("/api/v1/health/scheduler", get(get_scheduler_health))
                 .with_state(provider.clone());
 
             router = router
                 .merge(agent_router)
                 .merge(schedule_router)
                 .merge(channel_router)
-                .merge(other_router);
+                .merge(protected_router)
+                .merge(health_router);
         }
 
         // Add API key store as extension if available

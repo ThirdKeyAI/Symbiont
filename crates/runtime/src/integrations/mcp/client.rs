@@ -3,6 +3,7 @@
 //! Provides a secure MCP client that verifies tool schemas using SchemaPin
 
 use async_trait::async_trait;
+use sha2::Digest;
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::Arc;
@@ -67,6 +68,8 @@ pub struct SecureMcpClient {
     tools: Arc<RwLock<HashMap<String, McpTool>>>,
     /// Tool invocation enforcer
     enforcer: Arc<dyn ToolInvocationEnforcer>,
+    /// HTTP client for fetching provider public keys (HTTPS-only)
+    http_client: reqwest::Client,
 }
 
 impl SecureMcpClient {
@@ -77,12 +80,18 @@ impl SecureMcpClient {
         key_store: Arc<LocalKeyStore>,
     ) -> Self {
         let enforcer = Arc::new(DefaultToolInvocationEnforcer::new());
+        let http_client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .https_only(true)
+            .build()
+            .expect("Failed to build HTTPS-only reqwest client");
         Self {
             config,
             schema_pin,
             key_store,
             tools: Arc::new(RwLock::new(HashMap::new())),
             enforcer,
+            http_client,
         }
     }
 
@@ -93,12 +102,18 @@ impl SecureMcpClient {
         key_store: Arc<LocalKeyStore>,
         enforcer: Arc<dyn ToolInvocationEnforcer>,
     ) -> Self {
+        let http_client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .https_only(true)
+            .build()
+            .expect("Failed to build HTTPS-only reqwest client");
         Self {
             config,
             schema_pin,
             key_store,
             tools: Arc::new(RwLock::new(HashMap::new())),
             enforcer,
+            http_client,
         }
     }
 
@@ -160,25 +175,85 @@ impl SecureMcpClient {
     }
 
     /// Fetch and pin a provider's public key using TOFU
+    ///
+    /// On first contact with a provider, fetches the public key from
+    /// `provider.public_key_url` over HTTPS, computes a SHA-256 fingerprint,
+    /// and pins it in the local key store. Subsequent calls for the same
+    /// provider identifier are no-ops (trust-on-first-use).
     async fn fetch_and_pin_key(&self, provider: &ToolProvider) -> Result<(), McpClientError> {
         // Check if we already have this key pinned
         if self.key_store.has_key(&provider.identifier)? {
-            // Key already pinned, TOFU will handle verification
+            tracing::debug!(
+                provider = %provider.identifier,
+                "Key already pinned, skipping fetch"
+            );
             return Ok(());
         }
 
-        // For this implementation, we'll create a mock key since we don't have
-        // actual key fetching logic. In a real implementation, you would
-        // fetch the key from the provider.public_key_url
+        // Fetch the real public key from the provider's HTTPS endpoint
+        tracing::info!(
+            provider = %provider.identifier,
+            url = %provider.public_key_url,
+            "Fetching provider public key for TOFU pinning"
+        );
+
+        let response = self
+            .http_client
+            .get(&provider.public_key_url)
+            .send()
+            .await
+            .map_err(|e| McpClientError::KeyFetchFailed {
+                provider: provider.identifier.clone(),
+                reason: format!("HTTP request failed: {}", e),
+            })?;
+
+        if !response.status().is_success() {
+            return Err(McpClientError::KeyFetchFailed {
+                provider: provider.identifier.clone(),
+                reason: format!(
+                    "Server returned HTTP {} from {}",
+                    response.status(),
+                    provider.public_key_url
+                ),
+            });
+        }
+
+        let key_data = response
+            .text()
+            .await
+            .map_err(|e| McpClientError::KeyFetchFailed {
+                provider: provider.identifier.clone(),
+                reason: format!("Failed to read response body: {}", e),
+            })?;
+
+        if key_data.trim().is_empty() {
+            return Err(McpClientError::KeyFetchFailed {
+                provider: provider.identifier.clone(),
+                reason: "Server returned an empty key".to_string(),
+            });
+        }
+
+        // Compute SHA-256 fingerprint of the key material
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(key_data.as_bytes());
+        let fingerprint = hex::encode(hasher.finalize());
+
         let pinned_key = PinnedKey::new(
             provider.identifier.clone(),
-            format!("mock_public_key_for_{}", provider.identifier),
-            "Ed25519".to_string(),
-            format!("mock_fingerprint_for_{}", provider.identifier),
+            key_data,
+            "ES256".to_string(),
+            fingerprint.clone(),
         );
 
         // Pin the key (TOFU will prevent key substitution attacks)
         self.key_store.pin_key(pinned_key)?;
+
+        tracing::info!(
+            provider = %provider.identifier,
+            url = %provider.public_key_url,
+            fingerprint = %fingerprint,
+            "Provider public key pinned successfully (TOFU)"
+        );
 
         Ok(())
     }
@@ -508,6 +583,7 @@ impl McpClient for MockMcpClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::integrations::schemapin::types::KeyStoreConfig;
     use crate::integrations::schemapin::MockNativeSchemaPinClient;
 
     fn create_test_tool() -> McpTool {
@@ -530,6 +606,20 @@ mod tests {
             metadata: None,
             sensitive_params: vec![],
         }
+    }
+
+    /// Create an isolated key store backed by a temp directory so tests
+    /// never collide with each other or with the user's real key store.
+    fn create_temp_key_store() -> (LocalKeyStore, tempfile::TempDir) {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let store_path = temp_dir.path().join("test_keys.json");
+        let config = KeyStoreConfig {
+            store_path,
+            create_if_missing: true,
+            file_permissions: Some(0o600),
+        };
+        let store = LocalKeyStore::with_config(config).unwrap();
+        (store, temp_dir)
     }
 
     #[tokio::test]
@@ -561,7 +651,19 @@ mod tests {
     async fn test_secure_client_with_mock_components() {
         let config = McpClientConfig::default();
         let schema_pin = Arc::new(MockNativeSchemaPinClient::new_success());
-        let key_store = Arc::new(LocalKeyStore::new().unwrap());
+        let (key_store, _temp_dir) = create_temp_key_store();
+
+        // Pre-pin so the real HTTPS fetch is skipped in tests
+        key_store
+            .pin_key(PinnedKey::new(
+                "example.com".to_string(),
+                "test_key".to_string(),
+                "ES256".to_string(),
+                "test_fingerprint".to_string(),
+            ))
+            .unwrap();
+
+        let key_store = Arc::new(key_store);
 
         let client = SecureMcpClient::new(config, schema_pin, key_store);
         let tool = create_test_tool();
@@ -582,7 +684,19 @@ mod tests {
         };
 
         let schema_pin = Arc::new(MockNativeSchemaPinClient::new_failure());
-        let key_store = Arc::new(LocalKeyStore::new().unwrap());
+        let (key_store, _temp_dir) = create_temp_key_store();
+
+        // Pre-pin so the real HTTPS fetch is skipped in tests
+        key_store
+            .pin_key(PinnedKey::new(
+                "example.com".to_string(),
+                "test_key".to_string(),
+                "ES256".to_string(),
+                "test_fingerprint".to_string(),
+            ))
+            .unwrap();
+
+        let key_store = Arc::new(key_store);
 
         let client = SecureMcpClient::new(config, schema_pin, key_store);
         let tool = create_test_tool();

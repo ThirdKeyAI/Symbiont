@@ -37,10 +37,10 @@ async fn main() {
                         .help("Bearer token for HTTP authentication (use 'env:VAR' for environment variable)"),
                 )
                 .arg(
-                    Arg::new("http-cors")
-                        .long("http.cors")
-                        .action(ArgAction::SetTrue)
-                        .help("Enable CORS with sensible defaults"),
+                    Arg::new("http-cors-origins")
+                        .long("http.cors-origins")
+                        .value_name("ORIGINS")
+                        .help("Comma-separated CORS origin allow-list (e.g. 'https://app.example.com,https://staging.example.com' or '*' for permissive)"),
                 )
                 .arg(
                     Arg::new("http-audit")

@@ -43,8 +43,6 @@ use api::types::{
 };
 #[cfg(feature = "http-api")]
 use async_trait::async_trait;
-#[cfg(feature = "http-api")]
-use std::time::SystemTime;
 
 #[cfg(feature = "http-input")]
 pub mod http_input;
@@ -618,29 +616,16 @@ impl RuntimeApiProvider for AgentRuntime {
                 .map_err(RuntimeError::Lifecycle)?;
         }
         let execution_id = uuid::Uuid::new_v4().to_string();
-        let payload = types::EncryptedPayload {
-            data: serde_json::to_vec(&request)
-                .map_err(|e| RuntimeError::Internal(e.to_string()))?
-                .into(),
-            encryption_algorithm: types::EncryptionAlgorithm::None,
-            nonce: vec![],
-        };
-        let signature = types::MessageSignature {
-            signature: vec![],
-            algorithm: types::SignatureAlgorithm::None,
-            public_key: vec![],
-        };
-        let message = types::SecureMessage {
-            id: types::MessageId::new(),
-            sender: AgentId::new(), // System sender
-            recipient: Some(agent_id),
-            topic: None,
-            payload,
-            signature,
-            timestamp: SystemTime::now(),
-            ttl: std::time::Duration::from_secs(300),
-            message_type: types::MessageType::Direct(agent_id),
-        };
+        let payload_data: bytes::Bytes = serde_json::to_vec(&request)
+            .map_err(|e| RuntimeError::Internal(e.to_string()))?
+            .into();
+        let message = self.communication.create_internal_message(
+            AgentId::new(), // System sender
+            agent_id,
+            payload_data,
+            types::MessageType::Direct(agent_id),
+            std::time::Duration::from_secs(300),
+        );
         self.communication
             .send_message(message)
             .await

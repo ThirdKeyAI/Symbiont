@@ -36,7 +36,7 @@ fn create_test_config(port: u16) -> HttpInputConfig {
         routing_rules: None,
         response_control: None,
         forward_headers: vec![],
-        cors_enabled: true,
+        cors_origins: vec!["*".to_string()],
         audit_enabled: true,
         webhook_verify: None,
     }
@@ -127,7 +127,7 @@ async fn test_valid_request_returns_200_ok() {
         .await
         .expect("Failed to parse JSON response");
     assert!(response_body.get("status").is_some());
-    assert_eq!(response_body["status"], "invoked");
+    assert_eq!(response_body["status"], "execution_started");
 }
 
 #[cfg(feature = "http-input")]
@@ -274,9 +274,10 @@ async fn test_agent_interaction_and_invocation() {
         .await
         .expect("Failed to parse JSON response");
 
-    // Check that the agent was invoked correctly
-    assert_eq!(response_body["status"], "invoked");
+    // Check that the agent was dispatched via runtime execution
+    assert_eq!(response_body["status"], "execution_started");
     assert!(response_body.get("agent_id").is_some());
+    assert!(response_body.get("message_id").is_some());
     assert!(response_body.get("timestamp").is_some());
 
     // Verify the timestamp is a valid RFC3339 format

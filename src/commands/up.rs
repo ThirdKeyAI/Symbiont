@@ -30,7 +30,10 @@ pub async fn run(matches: &ArgMatches) {
         .get_one::<String>("http-port")
         .expect("http-port argument is required");
     let http_token = matches.get_one::<String>("http-token");
-    let http_cors = matches.get_flag("http-cors");
+    let cors_origins: Vec<String> = matches
+        .get_one::<String>("http-cors-origins")
+        .map(|s| s.split(',').map(|o| o.trim().to_string()).collect())
+        .unwrap_or_default();
     let http_audit = matches.get_flag("http-audit");
     let preset = matches.get_one::<String>("preset");
     let slack_token = matches.get_one::<String>("slack-token");
@@ -106,8 +109,12 @@ pub async fn run(matches: &ArgMatches) {
         println!("→ Using preset: {}", preset_name);
     }
 
-    if http_cors {
-        println!("→ CORS enabled with sensible defaults");
+    if !cors_origins.is_empty() {
+        if cors_origins.iter().any(|o| o == "*") {
+            println!("→ CORS enabled with wildcard origin (not recommended for production)");
+        } else {
+            println!("→ CORS enabled for origins: {}", cors_origins.join(", "));
+        }
     }
 
     if http_audit {
@@ -148,12 +155,12 @@ pub async fn run(matches: &ArgMatches) {
     };
 
     let http_config = HttpInputConfig {
-        bind_address: "0.0.0.0".to_string(),
+        bind_address: "127.0.0.1".to_string(),
         port: http_port_num,
         path: "/webhook".to_string(),
         agent: agent_id,
         auth_header: Some(format!("Bearer {}", auth_token)), // Always require authentication
-        cors_enabled: http_cors,
+        cors_origins,
         audit_enabled: http_audit,
         concurrency: 10,
         max_body_bytes: 1_048_576,

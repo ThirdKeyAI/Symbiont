@@ -7,7 +7,7 @@ use tempfile::TempDir;
 
 use symbi_runtime::integrations::{
     KeyStoreConfig, LocalKeyStore, McpClient, McpClientConfig, McpClientError, McpTool,
-    MockMcpClient, MockNativeSchemaPinClient, SecureMcpClient, ToolProvider,
+    MockMcpClient, MockNativeSchemaPinClient, PinnedKey, SecureMcpClient, ToolProvider,
     ToolVerificationRequest, VerificationStatus,
 };
 
@@ -51,6 +51,19 @@ fn create_test_key_store() -> (LocalKeyStore, TempDir) {
 
     let store = LocalKeyStore::with_config(config).unwrap();
     (store, temp_dir)
+}
+
+/// Pre-pin a synthetic test key so that `fetch_and_pin_key` skips the real
+/// HTTPS fetch (TOFU early-return path).  This mirrors production behaviour
+/// after the first successful key fetch.
+fn prepin_test_key(key_store: &LocalKeyStore, provider_id: &str) {
+    let key = PinnedKey::new(
+        provider_id.to_string(),
+        format!("test_public_key_for_{}", provider_id),
+        "ES256".to_string(),
+        format!("sha256:test_fingerprint_for_{}", provider_id),
+    );
+    key_store.pin_key(key).unwrap();
 }
 
 #[tokio::test]
@@ -111,6 +124,10 @@ async fn test_secure_client_with_successful_verification() {
     let config = McpClientConfig::default();
     let schema_pin = Arc::new(MockNativeSchemaPinClient::new_success());
     let (key_store, _temp_dir) = create_test_key_store();
+
+    // Pre-pin the provider key so the HTTPS fetch is skipped (TOFU early return)
+    prepin_test_key(&key_store, "secure.example.com");
+
     let key_store = Arc::new(key_store);
 
     let client = SecureMcpClient::new(config, schema_pin, key_store);
@@ -136,6 +153,10 @@ async fn test_secure_client_with_failed_verification() {
     let config = McpClientConfig::default();
     let schema_pin = Arc::new(MockNativeSchemaPinClient::new_failure());
     let (key_store, _temp_dir) = create_test_key_store();
+
+    // Pre-pin the provider key so the HTTPS fetch is skipped (TOFU early return)
+    prepin_test_key(&key_store, "failing.example.com");
+
     let key_store = Arc::new(key_store);
 
     let client = SecureMcpClient::new(config, schema_pin, key_store);
@@ -301,6 +322,12 @@ async fn test_key_store_tofu_mechanism() {
     let config = McpClientConfig::default();
     let schema_pin = Arc::new(MockNativeSchemaPinClient::new_success());
     let (key_store, _temp_dir) = create_test_key_store();
+
+    // Pre-pin the provider key to simulate a prior successful HTTPS fetch.
+    // In production the first `discover_tool` call fetches the key over HTTPS;
+    // here we pre-pin so the test doesn't require network access.
+    prepin_test_key(&key_store, "tofu.example.com");
+
     let key_store = Arc::new(key_store);
 
     let client = SecureMcpClient::new(config, schema_pin, key_store.clone());
@@ -309,10 +336,10 @@ async fn test_key_store_tofu_mechanism() {
     let tool1 = create_test_tool("tool1", "tofu.example.com");
     let tool2 = create_test_tool("tool2", "tofu.example.com");
 
-    // Discover first tool - should pin the key
+    // Discover first tool - key is already pinned from pre-pin above
     let _event1 = client.discover_tool(tool1).await.unwrap();
 
-    // Verify key was pinned
+    // Verify key is pinned
     assert!(key_store.has_key("tofu.example.com").unwrap());
 
     // Discover second tool from same provider - should use existing key

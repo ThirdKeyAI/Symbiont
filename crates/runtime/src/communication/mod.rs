@@ -67,6 +67,16 @@ pub trait CommunicationBus {
 
     /// Check the health of the communication bus
     async fn check_health(&self) -> Result<ComponentHealth, CommunicationError>;
+
+    /// Create a properly signed internal message with real crypto
+    fn create_internal_message(
+        &self,
+        sender: AgentId,
+        recipient: AgentId,
+        payload_data: bytes::Bytes,
+        message_type: MessageType,
+        ttl: std::time::Duration,
+    ) -> SecureMessage;
 }
 
 /// Communication bus configuration
@@ -504,33 +514,13 @@ impl DefaultCommunicationBus {
         request_payload: bytes::Bytes,
         timeout_duration: Duration,
     ) -> Result<SecureMessage, CommunicationError> {
-        // Generate proper nonce
-        let nonce = Self::generate_nonce();
-
-        // Create encrypted payload
-        let payload = EncryptedPayload {
-            data: request_payload,
-            nonce,
-            encryption_algorithm: EncryptionAlgorithm::Aes256Gcm,
-        };
-
-        // Create a message to sign (we'll sign the payload data)
-        let message_data_to_sign = [payload.data.as_ref(), &payload.nonce].concat();
-
-        // Generate signature
-        let signature = self.sign_message_data(&message_data_to_sign);
-
-        Ok(SecureMessage {
-            id: MessageId::new(),
-            sender: self.system_agent_id,
-            recipient: Some(target_agent),
-            topic: None,
-            message_type: MessageType::Request(request_id),
-            payload,
-            signature,
-            ttl: timeout_duration,
-            timestamp: SystemTime::now(),
-        })
+        Ok(self.create_internal_message(
+            self.system_agent_id,
+            target_agent,
+            request_payload,
+            MessageType::Request(request_id),
+            timeout_duration,
+        ))
     }
 }
 
@@ -758,6 +748,39 @@ impl CommunicationBus for DefaultCommunicationBus {
             .with_metric("dead_letters".to_string(), dead_letter_count.to_string())
             .with_metric("message_trackers".to_string(), tracker_count.to_string()))
     }
+
+    fn create_internal_message(
+        &self,
+        sender: AgentId,
+        recipient: AgentId,
+        payload_data: bytes::Bytes,
+        message_type: MessageType,
+        ttl: Duration,
+    ) -> SecureMessage {
+        let nonce = Self::generate_nonce();
+
+        let payload = EncryptedPayload {
+            data: payload_data,
+            nonce,
+            encryption_algorithm: EncryptionAlgorithm::Aes256Gcm,
+        };
+
+        // Sign the payload data concatenated with the nonce
+        let message_data_to_sign = [payload.data.as_ref(), &payload.nonce].concat();
+        let signature = self.sign_message_data(&message_data_to_sign);
+
+        SecureMessage {
+            id: MessageId::new(),
+            sender,
+            recipient: Some(recipient),
+            topic: None,
+            message_type,
+            payload,
+            signature,
+            ttl,
+            timestamp: SystemTime::now(),
+        }
+    }
 }
 
 /// Message queue for an agent
@@ -892,6 +915,20 @@ mod tests {
 
     fn create_test_message(sender: AgentId, recipient: AgentId) -> SecureMessage {
         use crate::types::RequestId;
+        use aes_gcm::{aead::AeadCore, Aes256Gcm};
+        use ed25519_dalek::Signer;
+
+        let mut secret_bytes = [0u8; 32];
+        OsRng.fill_bytes(&mut secret_bytes);
+        let signing_key = SigningKey::from_bytes(&secret_bytes);
+        let verifying_key = signing_key.verifying_key();
+
+        let nonce = Aes256Gcm::generate_nonce(&mut OsRng).to_vec();
+        let data: bytes::Bytes = b"test message".to_vec().into();
+
+        let message_data_to_sign = [data.as_ref(), &nonce].concat();
+        let signature = signing_key.sign(&message_data_to_sign);
+
         SecureMessage {
             id: MessageId::new(),
             sender,
@@ -899,14 +936,14 @@ mod tests {
             message_type: MessageType::Request(RequestId::new()),
             topic: Some("test".to_string()),
             payload: EncryptedPayload {
-                data: b"test message".to_vec().into(),
-                nonce: [0u8; 12].to_vec(),
+                data,
+                nonce,
                 encryption_algorithm: EncryptionAlgorithm::Aes256Gcm,
             },
             signature: MessageSignature {
-                signature: vec![0u8; 64],
+                signature: signature.to_bytes().to_vec(),
                 algorithm: SignatureAlgorithm::Ed25519,
-                public_key: vec![0u8; 32],
+                public_key: verifying_key.to_bytes().to_vec(),
             },
             ttl: Duration::from_secs(3600),
             timestamp: SystemTime::now(),
@@ -1108,27 +1145,15 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert!(matches!(messages[0].message_type, MessageType::Request(_)));
 
-        // Extract request ID and send response
+        // Extract request ID and send response using create_internal_message
         if let MessageType::Request(request_id) = &messages[0].message_type {
-            let response_message = SecureMessage {
-                id: MessageId::new(),
-                sender: responder,
-                recipient: Some(requester),
-                topic: None,
-                message_type: MessageType::Response(*request_id),
-                payload: EncryptedPayload {
-                    data: response_payload.clone(),
-                    nonce: vec![0u8; 12],
-                    encryption_algorithm: EncryptionAlgorithm::Aes256Gcm,
-                },
-                signature: MessageSignature {
-                    signature: vec![0u8; 64],
-                    algorithm: SignatureAlgorithm::Ed25519,
-                    public_key: vec![0u8; 32],
-                },
-                ttl: Duration::from_secs(3600),
-                timestamp: SystemTime::now(),
-            };
+            let response_message = bus_clone.create_internal_message(
+                responder,
+                requester,
+                response_payload.clone(),
+                MessageType::Response(*request_id),
+                Duration::from_secs(3600),
+            );
 
             bus_clone.send_message(response_message).await.unwrap();
         }

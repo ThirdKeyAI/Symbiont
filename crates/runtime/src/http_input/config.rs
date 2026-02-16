@@ -12,7 +12,7 @@ use crate::types::AgentId;
 #[cfg(feature = "http-input")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpInputConfig {
-    /// Address to bind the HTTP server (e.g., "0.0.0.0" or "127.0.0.1")
+    /// Address to bind the HTTP server (default: "127.0.0.1"; use "0.0.0.0" to listen on all interfaces)
     pub bind_address: String,
 
     /// Port number to listen on (e.g., 8081)
@@ -45,8 +45,8 @@ pub struct HttpInputConfig {
     /// Optional headers to inject into agent input context
     pub forward_headers: Vec<String>,
 
-    /// Optional CORS support for browser-facing apps
-    pub cors_enabled: bool,
+    /// Optional CORS origin allow-list (empty = CORS disabled, `["*"]` = permissive)
+    pub cors_origins: Vec<String>,
 
     /// Enable structured audit logging of all received events
     pub audit_enabled: bool,
@@ -59,7 +59,7 @@ pub struct HttpInputConfig {
 impl Default for HttpInputConfig {
     fn default() -> Self {
         Self {
-            bind_address: "0.0.0.0".to_string(),
+            bind_address: "127.0.0.1".to_string(),
             port: 8081,
             path: "/webhook".to_string(),
             agent: AgentId::new(),
@@ -70,7 +70,7 @@ impl Default for HttpInputConfig {
             routing_rules: None,
             response_control: None,
             forward_headers: vec![],
-            cors_enabled: false,
+            cors_origins: vec![],
             audit_enabled: true,
             webhook_verify: None,
         }

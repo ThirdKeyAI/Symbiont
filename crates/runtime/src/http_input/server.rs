@@ -9,7 +9,7 @@ use std::sync::Arc;
 #[cfg(feature = "http-input")]
 use axum::{
     extract::{DefaultBodyLimit, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode, Uri},
     middleware,
     response::{IntoResponse, Response},
     routing::post,
@@ -73,6 +73,20 @@ impl HttpInputServer {
         let config = self.config.read().await;
         let addr = format!("{}:{}", config.bind_address, config.port);
 
+        // Warn when binding to a non-loopback address without any authentication
+        if config.bind_address != "127.0.0.1"
+            && config.bind_address != "localhost"
+            && config.auth_header.is_none()
+            && config.jwt_public_key_path.is_none()
+            && config.webhook_verify.is_none()
+        {
+            tracing::warn!(
+                bind = %config.bind_address,
+                "HTTP input binding to non-loopback address with no authentication configured. \
+                 Set auth_header, jwt_public_key_path, or webhook_verify for production use."
+            );
+        }
+
         // Resolve auth header if it's a secret reference
         if let Some(auth_header) = &config.auth_header {
             if let Some(secret_store) = &self.secret_store {
@@ -82,6 +96,34 @@ impl HttpInputServer {
                 *self.resolved_auth_header.write().await = Some(auth_header.clone());
             }
         }
+
+        // Load JWT public key if configured (fail fast on invalid key)
+        let jwt_decoding_key = if let Some(ref key_path) = config.jwt_public_key_path {
+            let key_bytes = std::fs::read(key_path).map_err(|e| {
+                RuntimeError::Configuration(crate::types::ConfigError::Invalid(format!(
+                    "Failed to read JWT public key file '{}': {}",
+                    key_path, e
+                )))
+            })?;
+
+            // Try PEM first, fall back to raw DER (32-byte Ed25519 public key)
+            let decoding_key = if key_bytes.starts_with(b"-----") {
+                jsonwebtoken::DecodingKey::from_ed_pem(&key_bytes).map_err(|e| {
+                    RuntimeError::Configuration(crate::types::ConfigError::Invalid(format!(
+                        "Invalid Ed25519 PEM public key in '{}': {}",
+                        key_path, e
+                    )))
+                })?
+            } else {
+                // Assume raw DER-encoded Ed25519 public key
+                jsonwebtoken::DecodingKey::from_ed_der(&key_bytes)
+            };
+
+            tracing::info!(path = %key_path, "Loaded JWT EdDSA public key for Bearer token validation");
+            Some(Arc::new(decoding_key))
+        } else {
+            None
+        };
 
         // Initialize LLM client from environment
         let llm_client = LlmClient::from_env().map(Arc::new);
@@ -132,6 +174,7 @@ impl HttpInputServer {
             llm_client,
             agent_dsl_sources: Arc::new(agent_dsl_sources),
             webhook_verifier,
+            jwt_decoding_key,
         };
 
         // Build the router
@@ -140,6 +183,10 @@ impl HttpInputServer {
         // Add the webhook endpoint
         let path = config.path.clone();
         app = app.route(&path, post(webhook_handler));
+
+        // Add wildcard catch-all route for PathPrefix routing on subpaths
+        let wildcard_path = format!("{}/*rest", path.trim_end_matches('/'));
+        app = app.route(&wildcard_path, post(webhook_handler));
 
         // Add middleware
         app = app.layer(middleware::from_fn_with_state(
@@ -150,9 +197,27 @@ impl HttpInputServer {
         // Add body size limit
         app = app.layer(DefaultBodyLimit::max(config.max_body_bytes));
 
-        // Add CORS if enabled
-        if config.cors_enabled {
-            app = app.layer(CorsLayer::permissive());
+        // Add CORS if origins are configured
+        if !config.cors_origins.is_empty() {
+            use axum::http::{header, HeaderValue, Method};
+
+            let cors = if config.cors_origins.iter().any(|o| o == "*") {
+                tracing::warn!(
+                    "CORS configured with wildcard origin — not recommended for production"
+                );
+                CorsLayer::permissive()
+            } else {
+                let origins: Vec<HeaderValue> = config
+                    .cors_origins
+                    .iter()
+                    .filter_map(|o| o.parse().ok())
+                    .collect();
+                CorsLayer::new()
+                    .allow_origin(origins)
+                    .allow_methods([Method::POST])
+                    .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
+            };
+            app = app.layer(cors);
         }
 
         tracing::info!("Starting HTTP Input server on {}", addr);
@@ -203,9 +268,26 @@ struct ServerState {
     agent_dsl_sources: Arc<Vec<(String, String)>>,
     /// Optional webhook signature verifier
     webhook_verifier: Option<Arc<dyn super::webhook_verify::SignatureVerifier>>,
+    /// Optional JWT EdDSA verifying key for Bearer token validation
+    jwt_decoding_key: Option<Arc<jsonwebtoken::DecodingKey>>,
+}
+
+/// JWT claims structure for EdDSA token validation
+#[cfg(feature = "http-input")]
+#[derive(serde::Deserialize)]
+struct JwtClaims {
+    /// Expiration time (validated automatically by jsonwebtoken)
+    #[allow(dead_code)]
+    exp: u64,
 }
 
 /// Authentication middleware
+///
+/// Auth flow:
+/// 1. Try static `auth_header` match (constant-time comparison) — if it matches, allow through
+/// 2. Try JWT: extract Bearer token, verify Ed25519 signature + `exp` expiration
+/// 3. If neither method validates AND at least one is configured, return 401
+/// 4. If no auth is configured at all, allow through (startup warning handles this)
 #[cfg(feature = "http-input")]
 async fn auth_middleware(
     State(state): State<ServerState>,
@@ -213,33 +295,64 @@ async fn auth_middleware(
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Result<Response, StatusCode> {
-    // Check if authentication is required
     let resolved_auth = state.resolved_auth_header.read().await;
-    if let Some(expected_auth) = resolved_auth.as_ref() {
-        // Extract Authorization header
-        let auth_header = headers.get("Authorization").and_then(|h| h.to_str().ok());
+    let has_static_auth = resolved_auth.is_some();
+    let has_jwt_auth = state.jwt_decoding_key.is_some();
 
-        match auth_header {
-            Some(provided_auth) => {
-                if provided_auth != expected_auth {
-                    tracing::warn!("Authentication failed: invalid authorization header");
-                    return Err(StatusCode::UNAUTHORIZED);
-                }
-            }
-            None => {
-                tracing::warn!("Authentication failed: missing authorization header");
-                return Err(StatusCode::UNAUTHORIZED);
+    // If no auth is configured at all, allow through
+    if !has_static_auth && !has_jwt_auth {
+        return Ok(next.run(req).await);
+    }
+
+    let auth_header = headers.get("Authorization").and_then(|h| h.to_str().ok());
+
+    // 1. Try static auth_header match first (constant-time comparison)
+    if let Some(expected_auth) = resolved_auth.as_ref() {
+        if let Some(provided_auth) = auth_header {
+            if subtle::ConstantTimeEq::ct_eq(provided_auth.as_bytes(), expected_auth.as_bytes())
+                .into()
+            {
+                return Ok(next.run(req).await);
             }
         }
     }
 
-    Ok(next.run(req).await)
+    // 2. Try JWT Bearer token validation
+    if let Some(ref decoding_key) = state.jwt_decoding_key {
+        if let Some(provided_auth) = auth_header {
+            if let Some(token) = provided_auth.strip_prefix("Bearer ") {
+                let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::EdDSA);
+                // Require exp claim; do not enforce audience/issuer
+                validation.set_required_spec_claims(&["exp"]);
+                validation.validate_aud = false;
+                validation.leeway = 30; // 30s clock skew tolerance
+
+                match jsonwebtoken::decode::<JwtClaims>(token, decoding_key, &validation) {
+                    Ok(_token_data) => {
+                        return Ok(next.run(req).await);
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "JWT validation failed");
+                    }
+                }
+            }
+        }
+    }
+
+    // Neither auth method succeeded
+    if auth_header.is_none() {
+        tracing::warn!("Authentication failed: missing Authorization header");
+    } else {
+        tracing::warn!("Authentication failed: no configured auth method accepted the token");
+    }
+    Err(StatusCode::UNAUTHORIZED)
 }
 
 /// Main webhook handler
 #[cfg(feature = "http-input")]
 async fn webhook_handler(
     State(state): State<ServerState>,
+    uri: Uri,
     headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> Result<Response, StatusCode> {
@@ -284,7 +397,7 @@ async fn webhook_handler(
     }
 
     // Route to appropriate agent
-    let agent_id = route_request(&config, &payload, &headers).await;
+    let agent_id = route_request(&config, uri.path(), &payload, &headers).await;
 
     // Invoke agent
     match invoke_agent(
@@ -310,11 +423,16 @@ async fn webhook_handler(
 
 /// Route incoming request to appropriate agent
 #[cfg(feature = "http-input")]
-async fn route_request(config: &HttpInputConfig, payload: &Value, headers: &HeaderMap) -> AgentId {
+async fn route_request(
+    config: &HttpInputConfig,
+    request_path: &str,
+    payload: &Value,
+    headers: &HeaderMap,
+) -> AgentId {
     // Check routing rules if configured
     if let Some(routing_rules) = &config.routing_rules {
         for rule in routing_rules {
-            if matches_route_condition(&rule.condition, payload, headers).await {
+            if matches_route_condition(&rule.condition, request_path, payload, headers).await {
                 tracing::debug!("Request routed to agent {} via rule", rule.agent);
                 return rule.agent;
             }
@@ -330,14 +448,12 @@ async fn route_request(config: &HttpInputConfig, payload: &Value, headers: &Head
 #[cfg(feature = "http-input")]
 async fn matches_route_condition(
     condition: &RouteMatch,
+    request_path: &str,
     payload: &Value,
     headers: &HeaderMap,
 ) -> bool {
     match condition {
-        RouteMatch::PathPrefix(_path) => {
-            // Path matching would be handled at router level
-            false
-        }
+        RouteMatch::PathPrefix(prefix) => request_path.starts_with(prefix),
         RouteMatch::HeaderEquals(header_name, expected_value) => headers
             .get(header_name)
             .and_then(|h| h.to_str().ok())
@@ -351,10 +467,10 @@ async fn matches_route_condition(
     }
 }
 
-/// Invoke an agent with the provided input data, using LLM if available
+/// Invoke an agent with the provided input data, using runtime execution or LLM
 #[cfg(feature = "http-input")]
 async fn invoke_agent(
-    _runtime: Option<&crate::AgentRuntime>,
+    runtime: Option<&crate::AgentRuntime>,
     agent_id: AgentId,
     input_data: Value,
     llm_client: Option<&LlmClient>,
@@ -362,20 +478,61 @@ async fn invoke_agent(
 ) -> Result<Value, RuntimeError> {
     let start = std::time::Instant::now();
 
-    // If no LLM client is available, fall back to stub behavior
+    // Try runtime execution first when available
+    if let Some(rt) = runtime {
+        tracing::info!("Attempting runtime execution for agent {}", agent_id);
+        let payload_data: bytes::Bytes = serde_json::to_vec(&input_data)
+            .map_err(|e| RuntimeError::Internal(e.to_string()))?
+            .into();
+        let message = rt.communication.create_internal_message(
+            AgentId::new(), // System sender
+            agent_id,
+            payload_data,
+            crate::types::MessageType::Direct(agent_id),
+            std::time::Duration::from_secs(300),
+        );
+        match rt
+            .communication
+            .send_message(message)
+            .await
+            .map_err(RuntimeError::Communication)
+        {
+            Ok(message_id) => {
+                let latency = start.elapsed();
+                tracing::info!(
+                    "Runtime execution dispatched for agent {}: message_id={} latency={:?}",
+                    agent_id,
+                    message_id,
+                    latency,
+                );
+                return Ok(serde_json::json!({
+                    "status": "execution_started",
+                    "agent_id": agent_id.to_string(),
+                    "message_id": message_id.to_string(),
+                    "latency_ms": latency.as_millis(),
+                    "timestamp": chrono::Utc::now().to_rfc3339()
+                }));
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Runtime execution failed for agent {}, falling back to LLM: {}",
+                    agent_id,
+                    e,
+                );
+                // Fall through to LLM path
+            }
+        }
+    }
+
+    // Fall back to LLM invocation
     let llm = match llm_client {
         Some(client) => client,
         None => {
-            tracing::info!(
-                "No LLM client available, returning stub response for agent {}",
+            return Err(RuntimeError::Internal(format!(
+                "No runtime or LLM client available for agent {}. \
+                 Configure an LLM provider or ensure the runtime is running.",
                 agent_id
-            );
-            return Ok(serde_json::json!({
-                "status": "invoked",
-                "agent_id": agent_id.to_string(),
-                "message": "No LLM provider configured. Set OPENROUTER_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY.",
-                "timestamp": chrono::Utc::now().to_rfc3339()
-            }));
+            )));
         }
     };
 
