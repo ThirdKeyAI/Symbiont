@@ -1,7 +1,6 @@
 ---
-title: Symbiont
+name: symbiont
 description: AI-native agent runtime with zero-trust security, policy-as-code, multi-tier sandboxing, webhook verification, markdown memory, skill scanning, metrics, scheduling, and a declarative DSL
-version: 1.4.0
 ---
 
 # Symbiont Agent Development Skills Guide
