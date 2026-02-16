@@ -76,20 +76,23 @@ cargo run -- mcp --port 8080
 
 ## 🔧 Key Features
 
-* ✅ **DSL Grammar** – Define agents declaratively with built-in security policies.
+* ✅ **DSL Grammar** – Define agents declaratively with built-in security policies, `memory`, `webhook`, `schedule`, and `channel` blocks.
 * ✅ **Agent Runtime** – Task scheduling, resource management, and lifecycle control.
 * ⏰ **Cron Scheduling** – Persistent SQLite-backed cron engine with jitter, concurrency guards, dead-letter queues, and heartbeat pattern.
+* 🧠 **Persistent Memory** – Markdown-backed agent memory with facts, procedures, learned patterns, daily logs, and retention-based compaction.
+* 🪝 **Webhook Verification** – HMAC-SHA256 and JWT signature verification with GitHub, Stripe, and Slack presets.
+* 🛡️ **Skill Scanning** – ClawHavoc scanner with 10 rules detecting pipe-to-shell, env exfiltration, identity tampering, eval+fetch, and more.
+* 📈 **Metrics & Telemetry** – File and OTLP metric exporters with composite fan-out and background collection.
+* 🔒 **HTTP Security Hardening** – Loopback-only binding, CORS allow-lists, JWT EdDSA validation, health endpoint separation.
 * 🔒 **Sandboxing** – Tier-1 Docker isolation for agent execution.
 * 🔒 **SchemaPin Security** – Cryptographic verification of tools and schemas.
 * 🔒 **AgentPin Identity** – Domain-anchored cryptographic identity for scheduled agents.
 * 🔒 **Secrets Management** – HashiCorp Vault / OpenBao integration, AES-256-GCM encrypted storage.
 * 🔑 **Per-Agent API Keys** – Argon2-hashed API key authentication with per-IP rate limiting.
-* 🛡️ **Sensitive Parameter Redaction** – Schema-driven redaction of sensitive arguments in MCP tool calls.
 * 📊 **RAG Engine** – Vector search (Qdrant) with hybrid semantic + keyword retrieval.
 * 🧩 **MCP Integration** – Native support for Model Context Protocol tools.
 * 📡 **Optional HTTP API** – Feature-gated REST interface for external integration.
 * 📋 **Delivery Routing** – Route scheduled agent output to webhooks, Slack, email, or custom channels.
-* 🖥️ **Admin UI** – Experimental Lit-based dashboard for fleet management and compliance (symbi-a2ui, alpha).
 
 ---
 

@@ -128,6 +128,7 @@ graph TB
         J[Context Manager]
         K[Vector Database]
         L[RAG Engine]
+        MD[Markdown Memory]
     end
 
     subgraph "Secure Integrations"
@@ -135,6 +136,13 @@ graph TB
         N[SchemaPin Verification]
         O[Policy Engine]
         P[AgentPin Identity]
+        SK[Skill Scanner]
+    end
+
+    subgraph "Observability"
+        MET[Metrics Collector]
+        FE[File Exporter]
+        OT[OTLP Exporter]
     end
 
     C --> S
@@ -145,11 +153,16 @@ graph TB
     R --> MM
     C --> J
     C --> M
+    C --> SK
     J --> K
     J --> L
+    J --> MD
     M --> N
     M --> O
     C --> P
+    C --> MET
+    MET --> FE
+    MET --> OT
 ```
 
 ---
@@ -170,20 +183,22 @@ graph TB
 
 ## Project Status
 
-### v1.0.0 Stable
+### v1.4.0 Production
 
-Symbiont v1.0.0 is the first stable release, delivering a complete AI agent framework with production-grade capabilities:
+Symbiont v1.4.0 is the latest stable release, delivering a complete AI agent framework with production-grade capabilities:
 
+- **Persistent Memory**: Markdown-backed agent memory with facts, procedures, and learned patterns — retention-based compaction, daily logs, DSL `memory` block
+- **Webhook Verification**: `SignatureVerifier` trait with HMAC-SHA256 and JWT implementations, built-in presets for GitHub, Stripe, Slack, and Custom providers — DSL `webhook` block
+- **HTTP Security Hardening**: Loopback-only default binding, explicit CORS origin allow-lists, JWT EdDSA validation, health endpoint separation
+- **Skill Scanning**: ClawHavoc scanner with 10 built-in rules detecting pipe-to-shell, env exfiltration, identity tampering, eval+fetch, base64 obfuscation, and destructive operations
+- **Metrics & Telemetry**: File and OTLP exporters with composite fan-out, background collection, `/metrics` API endpoint
 - **Scheduling Engine**: Cron-based task execution with session isolation, delivery routing, dead-letter queues, jitter, and concurrency limits
 - **Channel Adapters**: Slack (community), Microsoft Teams and Mattermost (enterprise) with webhook verification and HMAC signing
-- **Channel Management API**: REST endpoints for adapter lifecycle — register, start, stop, health checks, identity mapping, and audit logs
 - **HTTP Input Module**: Webhook server for external integrations with Bearer/JWT auth, rate limiting, and CORS
-- **DSL Extensions**: `schedule` and `channel` blocks for declarative scheduling and channel configuration
+- **DSL Extensions**: `schedule`, `channel`, `memory`, and `webhook` blocks for declarative agent configuration
 - **AgentPin Identity**: Cryptographic agent identity verification via ES256 JWTs with domain-anchored well-known endpoints
 - **Secrets Management**: HashiCorp Vault, encrypted file, and OS keychain backends with runtime provider abstraction
-- **Policy Enforcement**: Security and compliance gates with time-window and capability checks
-- **JavaScript & Python SDKs**: Full API clients covering scheduling, channels, agents, and enterprise features
-- **Observability**: Prometheus-compatible metrics, structured audit events, and health endpoints
+- **JavaScript & Python SDKs**: Full API clients covering scheduling, channels, webhooks, memory, skills, metrics, and more
 
 ### 🔮 Planned Features
 - Multi-modal RAG support (images, audio, structured data)

@@ -268,22 +268,142 @@ Retrieve the execution history for a specific agent.
 GET /api/v1/metrics
 ```
 
-Retrieve comprehensive system performance metrics.
+Retrieve a comprehensive metrics snapshot covering scheduler, task manager, load balancer, and system resources.
 
 **Response (200 OK):**
 ```json
 {
-  "system": {
-    "uptime_seconds": 3600,
-    "memory_usage": "75%",
-    "cpu_usage": "45%"
+  "timestamp": "2026-02-16T12:00:00Z",
+  "scheduler": {
+    "total_jobs": 12,
+    "active_jobs": 8,
+    "paused_jobs": 2,
+    "failed_jobs": 1,
+    "total_runs": 450,
+    "successful_runs": 445,
+    "dead_letter_count": 2
   },
-  "agents": {
-    "total": 5,
-    "active": 3,
-    "idle": 2
+  "task_manager": {
+    "queued_tasks": 3,
+    "running_tasks": 5,
+    "completed_tasks": 1200,
+    "failed_tasks": 15
+  },
+  "load_balancer": {
+    "total_workers": 4,
+    "active_workers": 3,
+    "requests_per_second": 12.5
+  },
+  "system": {
+    "cpu_usage_percent": 45.2,
+    "memory_usage_bytes": 536870912,
+    "memory_total_bytes": 17179869184,
+    "uptime_seconds": 3600
   }
 }
+```
+
+The metrics snapshot can also be exported to files (atomic JSON write) or OTLP endpoints using the runtime's `MetricsExporter` system. See the [Metrics & Telemetry](#metrics--telemetry) section below.
+
+---
+
+### Metrics & Telemetry
+
+Symbiont supports exporting runtime metrics to multiple backends:
+
+#### File Exporter
+
+Writes metric snapshots as atomic JSON files (tempfile + rename):
+
+```rust
+use symbi_runtime::metrics::{FileMetricsExporter, MetricsExporterConfig};
+
+let exporter = FileMetricsExporter::new("/var/lib/symbi/metrics.json");
+exporter.export(&snapshot)?;
+```
+
+#### OTLP Exporter
+
+Sends metrics to any OpenTelemetry-compatible endpoint (requires the `metrics` feature):
+
+```rust
+use symbi_runtime::metrics::{OtlpExporter, OtlpExporterConfig, OtlpProtocol};
+
+let config = OtlpExporterConfig {
+    endpoint: "http://localhost:4317".to_string(),
+    protocol: OtlpProtocol::Grpc,
+    ..Default::default()
+};
+```
+
+#### Composite Exporter
+
+Fan-out to multiple backends simultaneously — individual export failures are logged but don't block other exporters:
+
+```rust
+use symbi_runtime::metrics::CompositeExporter;
+
+let composite = CompositeExporter::new(vec![
+    Box::new(file_exporter),
+    Box::new(otlp_exporter),
+]);
+```
+
+#### Background Collection
+
+The `MetricsCollector` runs as a background thread, periodically gathering snapshots and exporting them:
+
+```rust
+use symbi_runtime::metrics::MetricsCollector;
+
+let collector = MetricsCollector::new(exporter, interval);
+collector.start();
+// ... later ...
+collector.stop();
+```
+
+---
+
+### Skill Scanning (ClawHavoc)
+
+The `SkillScanner` inspects agent skill content for malicious patterns before loading. It ships with 10 built-in ClawHavoc defense rules:
+
+| Rule | Severity | What It Detects |
+|------|----------|----------------|
+| `pipe-to-shell` | Critical | `curl ... \| sh` — piping downloads to shell |
+| `wget-pipe-to-shell` | Critical | `wget ... \| sh` — same via wget |
+| `env-file-reference` | Warning | References to `.env` files (secret leakage) |
+| `soul-md-modification` | Critical | Attempts to write/modify `SOUL.md` (identity tampering) |
+| `memory-md-modification` | Critical | Attempts to write/modify `MEMORY.md` (memory tampering) |
+| `eval-with-fetch` | Critical | `eval()` combined with network fetch (code injection) |
+| `fetch-with-eval` | Critical | Network fetch combined with `eval()` (code injection) |
+| `base64-decode-exec` | Critical | Base64 decode piped to shell (obfuscation) |
+| `rm-rf-pattern` | Critical | `rm -rf /` — recursive deletion from root |
+| `chmod-777` | Warning | World-writable permissions |
+
+#### Usage
+
+```rust
+use symbi_runtime::skills::SkillScanner;
+
+let scanner = SkillScanner::new(); // includes all 10 default rules
+let result = scanner.scan_skill("/path/to/skill/");
+
+if !result.passed {
+    for finding in &result.findings {
+        eprintln!("[{}] {}: {} (line {})",
+            finding.severity, finding.rule, finding.message, finding.line);
+    }
+}
+```
+
+Custom deny patterns can be added alongside the defaults:
+
+```rust
+let scanner = SkillScanner::with_custom_rules(vec![
+    ("custom-pattern".into(), r"my_dangerous_pattern".into(),
+     ScanSeverity::Warning, "Custom rule description".into()),
+]);
 ```
 
 ### Server Configuration

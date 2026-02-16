@@ -133,22 +133,36 @@ let config = HttpInputConfig {
 };
 ```
 
-#### JWT Authentication
+#### JWT Authentication (EdDSA)
 
-Configure JWT-based authentication:
+Configure JWT-based authentication with Ed25519 public keys:
 
 ```rust
 let config = HttpInputConfig {
-    jwt_public_key_path: Some("/path/to/jwt/public.key".to_string()),
+    jwt_public_key_path: Some("/path/to/jwt/ed25519-public.pem".to_string()),
     ..Default::default()
 };
 ```
 
+The JWT verifier loads an Ed25519 public key from the specified PEM file and validates incoming `Authorization: Bearer <jwt>` tokens. Only the **EdDSA** algorithm is accepted — HS256, RS256, and other algorithms are rejected.
+
+#### Health Endpoint
+
+The `/health` endpoint is **exempt from authentication**, allowing load balancers and monitoring systems to probe the server without credentials:
+
+```bash
+curl http://127.0.0.1:8081/health
+# => {"status": "ok"}
+```
+
+This endpoint is automatically available on the HTTP Input server and cannot be disabled.
+
 ### Security Controls
 
+- **Loopback-Only Default**: `bind_address` defaults to `127.0.0.1` — the server only accepts local connections unless explicitly configured otherwise
+- **CORS Disabled by Default**: `cors_origins` defaults to an empty list, meaning CORS is disabled; add specific origins to enable cross-origin access
 - **Request Size Limits**: Configurable maximum body size prevents resource exhaustion
 - **Concurrency Limits**: Built-in semaphore controls concurrent request processing
-- **CORS Support**: Optional CORS headers for browser-based applications
 - **Audit Logging**: Structured logging of all incoming requests when enabled
 - **Secret Resolution**: Integration with Vault and file-based secret stores
 
@@ -281,7 +295,7 @@ let config = HttpInputConfig {
 
 ### Health Check Endpoint
 
-The server automatically provides health check capabilities for load balancers and monitoring systems.
+The server exposes `/health` exempt from authentication for load balancers and monitoring systems. See the [Health Endpoint](#health-endpoint) section above for details.
 
 ## Error Handling
 
