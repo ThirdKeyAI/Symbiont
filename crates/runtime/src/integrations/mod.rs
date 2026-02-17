@@ -9,6 +9,9 @@ pub mod sandbox_orchestrator;
 pub mod schemapin;
 pub mod tool_invocation;
 
+#[cfg(feature = "composio")]
+pub mod composio;
+
 // Enterprise-only modules (gated behind feature flag)
 // Enterprise modules removed for OSS build
 // #[cfg(feature = "enterprise")]
@@ -64,6 +67,12 @@ pub use schemapin::{
 pub use tool_invocation::{
     DefaultToolInvocationEnforcer, EnforcementDecision, EnforcementPolicy, InvocationContext,
     InvocationEnforcementConfig, InvocationResult, ToolInvocationEnforcer, ToolInvocationError,
+};
+
+#[cfg(feature = "composio")]
+pub use composio::{
+    load_mcp_config, ComposioGlobalConfig, ComposioMcpSource, McpConfigFile, McpServerEntry,
+    ServerPolicy, SseTransport,
 };
 
 // Re-export error types from the types module

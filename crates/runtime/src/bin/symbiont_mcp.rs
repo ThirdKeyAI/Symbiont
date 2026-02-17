@@ -13,6 +13,9 @@ use symbi_runtime::crypto::{Aes256GcmCrypto, KeyUtils};
 use tempfile::NamedTempFile;
 use tracing::{info, Level};
 
+#[cfg(feature = "composio")]
+use symbi_runtime::integrations::composio::{config::McpServerEntry, load_mcp_config};
+
 #[derive(Parser)]
 #[command(name = "symbiont-mcp")]
 #[command(about = "Symbiont MCP Server Management CLI")]
@@ -136,23 +139,14 @@ async fn main() -> Result<()> {
             source,
             name,
             skip_verification,
-        } => {
-            println!("Add command not yet implemented");
-            println!(
-                "Source: {}, Name: {:?}, Skip verification: {}",
-                source, name, skip_verification
-            );
-            Ok(())
-        }
+        } => handle_add_command(&cli.config, source, name, skip_verification).await,
         Commands::Remove { name, force } => {
             println!("Remove command not yet implemented");
             println!("Name: {}, Force: {}", name, force);
             Ok(())
         }
         Commands::List { detailed, status } => {
-            println!("List command not yet implemented");
-            println!("Detailed: {}, Status: {:?}", detailed, status);
-            Ok(())
+            handle_list_command(&cli.config, detailed, status).await
         }
         Commands::Status { name, health_check } => {
             println!("Status command not yet implemented");
@@ -344,5 +338,201 @@ async fn edit_encrypted_file(file_path: &PathBuf) -> Result<()> {
         "Successfully updated encrypted file '{}'",
         file_path.display()
     );
+    Ok(())
+}
+
+#[cfg(feature = "composio")]
+async fn handle_add_command(
+    config_path: &std::path::Path,
+    source: String,
+    name: Option<String>,
+    _skip_verification: bool,
+) -> Result<()> {
+    // Detect if the source looks like a Composio server URL
+    if source.contains("composio.dev") || source.starts_with("composio:") {
+        // Parse composio:<server_id>/<user_id> or URL format
+        let (server_id, user_id) = parse_composio_source(&source)?;
+        let server_name = name.unwrap_or_else(|| server_id.clone());
+
+        // Load existing config (or create new)
+        let resolved_path = resolve_config_path(config_path);
+        let mut config = load_mcp_config(Some(&resolved_path)).unwrap_or_default();
+
+        // Check for duplicate names
+        if config.mcp_servers.iter().any(|s| s.name() == server_name) {
+            return Err(anyhow::anyhow!(
+                "Server '{}' already exists. Use 'update' to modify it.",
+                server_name
+            ));
+        }
+
+        config.mcp_servers.push(McpServerEntry::Composio {
+            name: server_name.clone(),
+            server_id,
+            user_id,
+            url: None,
+            policy: None,
+        });
+
+        // Save config
+        save_mcp_config(&resolved_path, &config)?;
+        println!("Added Composio server '{}'", server_name);
+    } else {
+        println!(
+            "Non-Composio source '{}' — stdio server support coming soon",
+            source
+        );
+    }
+    Ok(())
+}
+
+#[cfg(not(feature = "composio"))]
+async fn handle_add_command(
+    _config_path: &std::path::Path,
+    source: String,
+    name: Option<String>,
+    skip_verification: bool,
+) -> Result<()> {
+    println!("Add command not yet implemented (composio feature not enabled)");
+    println!(
+        "Source: {}, Name: {:?}, Skip verification: {}",
+        source, name, skip_verification
+    );
+    Ok(())
+}
+
+#[cfg(feature = "composio")]
+async fn handle_list_command(
+    config_path: &std::path::Path,
+    detailed: bool,
+    _status: Option<String>,
+) -> Result<()> {
+    let resolved_path = resolve_config_path(config_path);
+    let config = load_mcp_config(Some(&resolved_path)).unwrap_or_default();
+
+    if config.mcp_servers.is_empty() {
+        println!("No MCP servers configured.");
+        println!("Config file: {}", resolved_path.display());
+        return Ok(());
+    }
+
+    println!("Registered MCP servers:");
+    println!("{:-<60}", "");
+
+    for server in &config.mcp_servers {
+        match server {
+            McpServerEntry::Composio {
+                name,
+                server_id,
+                user_id,
+                url,
+                policy,
+            } => {
+                println!("  {} (composio)", name);
+                if detailed {
+                    println!("    Server ID: {}", server_id);
+                    println!("    User ID:   {}", user_id);
+                    if let Some(u) = url {
+                        println!("    URL:       {}", u);
+                    }
+                    if let Some(p) = policy {
+                        if !p.allowed_tools.is_empty() {
+                            println!("    Allowed:   {:?}", p.allowed_tools);
+                        }
+                        if let Some(rate) = p.max_calls_per_minute {
+                            println!("    Rate limit: {}/min", rate);
+                        }
+                    }
+                }
+            }
+            McpServerEntry::Stdio {
+                name,
+                command,
+                args,
+                ..
+            } => {
+                println!("  {} (stdio)", name);
+                if detailed {
+                    println!("    Command: {} {}", command, args.join(" "));
+                }
+            }
+        }
+    }
+
+    if config.composio.is_some() {
+        println!();
+        println!("Composio: configured");
+    }
+
+    Ok(())
+}
+
+#[cfg(not(feature = "composio"))]
+async fn handle_list_command(
+    _config_path: &std::path::Path,
+    detailed: bool,
+    status: Option<String>,
+) -> Result<()> {
+    println!("List command not yet implemented (composio feature not enabled)");
+    println!("Detailed: {}, Status: {:?}", detailed, status);
+    Ok(())
+}
+
+#[cfg(feature = "composio")]
+fn resolve_config_path(config_path: &std::path::Path) -> PathBuf {
+    let path_str = config_path.to_string_lossy();
+    if let Some(stripped) = path_str.strip_prefix("~/") {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(stripped);
+        }
+    }
+    config_path.to_path_buf()
+}
+
+#[cfg(feature = "composio")]
+fn parse_composio_source(source: &str) -> Result<(String, String)> {
+    // Format: composio:<server_id>/<user_id>
+    if let Some(rest) = source.strip_prefix("composio:") {
+        let parts: Vec<&str> = rest.splitn(2, '/').collect();
+        if parts.len() == 2 {
+            return Ok((parts[0].to_string(), parts[1].to_string()));
+        }
+        return Err(anyhow::anyhow!(
+            "Invalid composio source format. Expected: composio:<server_id>/<user_id>"
+        ));
+    }
+
+    // Format: URL with server_id and user_id query param
+    if let Ok(url) = url::Url::parse(source) {
+        let path_segments: Vec<&str> = url.path_segments().map_or(vec![], |s| s.collect());
+        // Expected path: /v3/mcp/<server_id>
+        if let Some(server_id) = path_segments.last() {
+            let user_id = url
+                .query_pairs()
+                .find(|(k, _)| k == "user_id")
+                .map(|(_, v)| v.to_string())
+                .unwrap_or_else(|| "default".to_string());
+            return Ok((server_id.to_string(), user_id));
+        }
+    }
+
+    Err(anyhow::anyhow!(
+        "Could not parse Composio source. Use format: composio:<server_id>/<user_id>"
+    ))
+}
+
+#[cfg(feature = "composio")]
+fn save_mcp_config(
+    path: &std::path::Path,
+    config: &symbi_runtime::integrations::composio::McpConfigFile,
+) -> Result<()> {
+    // Ensure parent directory exists
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let content = toml::to_string_pretty(config)
+        .map_err(|e| anyhow::anyhow!("Failed to serialize config: {}", e))?;
+    fs::write(path, content)
+        .map_err(|e| anyhow::anyhow!("Failed to write config to {}: {}", path.display(), e))?;
     Ok(())
 }

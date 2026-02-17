@@ -118,8 +118,9 @@ cron = ["dep:cron", "dep:chrono-tz", "dep:rusqlite"]
 native-sandbox = ["rlimit", "libc"]
 cli-executor = ["libc"]
 metrics = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp"]
+composio = []  # Composio MCP integration — uses reqwest (already required) for SSE
 enterprise = []  # Enterprise feature for conditional compilation
-full = ["vector-db", "embedding-models", "http-api", "http-input", "keychain", "cron", "metrics"]
+full = ["vector-db", "embedding-models", "http-api", "http-input", "keychain", "cron", "metrics", "composio"]
 minimal = []  # Minimal build for faster CI
 
 
