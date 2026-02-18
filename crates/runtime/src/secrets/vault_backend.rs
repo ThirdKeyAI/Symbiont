@@ -420,11 +420,7 @@ impl VaultSecretStore {
     /// Use this when the secret contains multiple fields (e.g. `username`,
     /// `password`) and you need to access a specific one rather than the
     /// default `value`/`content` key used by [`get_secret`].
-    pub async fn get_secret_field(
-        &self,
-        key: &str,
-        field: &str,
-    ) -> Result<Secret, SecretError> {
+    pub async fn get_secret_field(&self, key: &str, field: &str) -> Result<Secret, SecretError> {
         self.log_audit_event(
             SecretAuditEvent::attempt(
                 self.agent_id.clone(),

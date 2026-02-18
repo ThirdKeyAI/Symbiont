@@ -234,10 +234,7 @@ impl HttpApiServer {
             .map_err(|e| RuntimeError::Internal(format!("Failed to bind to {}: {}", addr, e)))?;
 
         // Warn about authentication configuration
-        let has_key_store = self
-            .api_key_store
-            .as_ref()
-            .is_some_and(|s| s.has_records());
+        let has_key_store = self.api_key_store.as_ref().is_some_and(|s| s.has_records());
         let has_env_token = std::env::var("SYMBIONT_API_TOKEN").is_ok();
 
         if has_key_store && has_env_token {

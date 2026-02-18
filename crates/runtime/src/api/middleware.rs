@@ -353,8 +353,8 @@ pub async fn logging_middleware(request: Request, next: Next) -> Result<Response
     // Extract request details
     let method = request.method().clone();
     let uri = request.uri().clone();
-    let client_ip = extract_client_ip(&request)
-        .unwrap_or(IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED));
+    let client_ip =
+        extract_client_ip(&request).unwrap_or(IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED));
 
     // Create a structured span for this request
     let span = tracing::info_span!(
