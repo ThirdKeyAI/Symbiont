@@ -19,3 +19,35 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --workspace -- -D warnings
       - run: cargo test --workspace
+
+  fuzz:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tools/fuzz
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+      - name: Fuzz (short CI run)
+        run: |
+          cd tools/fuzz
+          for target in \
+            policy_parser \
+            fail_closed_tool_invocation \
+            tofu_key_substitution \
+            slack_signature_verification \
+            enforcement_policy_matrix \
+            dsl_lexer_parser \
+            schema_verification_garbage \
+            sensitive_arg_masking \
+            tool_substitution_detection; do
+            echo "--- Fuzzing $target (15s) ---"
+            cargo +nightly fuzz run --fuzz-dir . "$target" -- -max_total_time=15 || exit 1
+          done

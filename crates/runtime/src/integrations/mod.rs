@@ -65,8 +65,9 @@ pub use schemapin::{
 //     ToolReviewError, ToolReviewResult, ReviewId, AnalysisId
 // };
 pub use tool_invocation::{
-    DefaultToolInvocationEnforcer, EnforcementDecision, EnforcementPolicy, InvocationContext,
-    InvocationEnforcementConfig, InvocationResult, ToolInvocationEnforcer, ToolInvocationError,
+    mask_sensitive_arguments, DefaultToolInvocationEnforcer, EnforcementDecision,
+    EnforcementPolicy, InvocationContext, InvocationEnforcementConfig, InvocationResult,
+    ToolInvocationEnforcer, ToolInvocationError,
 };
 
 #[cfg(feature = "composio")]
