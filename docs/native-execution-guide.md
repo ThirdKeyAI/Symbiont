@@ -105,9 +105,15 @@ timeout_seconds = 30
 max_body_size = 10485760
 
 [database]
-qdrant_url = "http://localhost:6333"
-qdrant_collection = "symbiont"
+# Default: LanceDB embedded (zero-config, no external services needed)
+vector_backend = "lancedb"
+vector_data_path = "./data/vector_db"
 vector_dimension = 384
+
+# Optional: Qdrant (uncomment to use Qdrant instead of LanceDB)
+# vector_backend = "qdrant"
+# qdrant_url = "http://localhost:6333"
+# qdrant_collection = "symbiont"
 
 [logging]
 level = "info"

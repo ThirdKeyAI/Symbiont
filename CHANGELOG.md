@@ -5,6 +5,22 @@ All notable changes to the Symbiont project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-02-18
+
+### Added
+
+#### LanceDB Embedded Vector Backend
+- **`VectorDb` trait abstraction**: Backend-agnostic async trait (`initialize`, `store`, `store_batch`, `search`, `delete`, `count`, `drop_collection`, `health_check`) with unified `VectorSearchResult` and typed `VectorDbError`
+- **LanceDB as default embedded backend**: Zero-config vector search using Arrow-based `lancedb` crate — no Docker, no external services required. Default data path: `./data/vector_db/`
+- **Qdrant moved to optional backend**: Existing Qdrant support preserved behind `vector-qdrant` feature flag (`qdrant-client` dep gated on `#[cfg(feature = "vector-qdrant")]`)
+- **Backend factory**: `resolve_vector_config()` and `create_vector_backend()` select backend via `SYMBIONT_VECTOR_BACKEND` env var, config file, or default to LanceDB
+- **Consumer updates**: `StandardRAGEngine` and `StandardContextManager` now accept `Arc<dyn VectorDb>` instead of concrete `QdrantClientWrapper`
+
+### Changed
+- Default vector backend is now LanceDB (previously Qdrant was required)
+- Docker Compose examples no longer include Qdrant by default
+- Development setup no longer requires `docker-compose up -d qdrant`
+
 ## [1.4.0] - 2026-02-16
 
 ### Added

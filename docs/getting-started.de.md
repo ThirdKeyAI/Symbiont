@@ -38,8 +38,9 @@ Bevor Sie mit Symbi beginnen, stellen Sie sicher, dass Sie Folgendes installiert
 
 ### Optionale Abhängigkeiten
 
-- **Qdrant** Vektordatenbank (für semantische Suchfunktionen)
 - **SchemaPin Go CLI** (für Tool-Verifizierung)
+
+> **Hinweis:** Vektorsuche ist integriert. Symbi wird mit [LanceDB](https://lancedb.com/) als eingebetteter Vektordatenbank ausgeliefert -- kein externer Dienst erforderlich.
 
 ---
 
@@ -243,17 +244,16 @@ cd crates/runtime && cargo run --features http-api --example full_system
 - `GET /api/v1/agents` - Alle aktiven Agenten auflisten
 - `POST /api/v1/workflows/execute` - Arbeitsabläufe ausführen
 
-#### Vektordatenbank-Integration
+#### Vektordatenbank (integriert)
 
-Für semantische Suchfunktionen:
+Symbi enthält LanceDB als konfigurationsfreie eingebettete Vektordatenbank. Semantische Suche und RAG funktionieren sofort -- kein separater Dienst erforderlich:
 
 ```bash
-# Qdrant-Vektordatenbank starten
-docker run -p 6333:6333 qdrant/qdrant
-
-# Agent mit RAG-Funktionen ausführen
+# Agent mit RAG-Funktionen ausführen (Vektorsuche funktioniert sofort)
 cd crates/runtime && cargo run --example rag_example
 ```
+
+> **Enterprise-Option:** Für Teams, die eine dedizierte Vektordatenbank benötigen, ist Qdrant als optionales Feature-gated Backend verfügbar. Setzen Sie `SYMBIONT_VECTOR_BACKEND=qdrant` und `QDRANT_URL`.
 
 ---
 
@@ -268,8 +268,10 @@ Richten Sie Ihre Umgebung für optimale Leistung ein:
 export SYMBI_LOG_LEVEL=info
 export SYMBI_RUNTIME_MODE=development
 
-# Vektordatenbank (optional)
-export QDRANT_URL=http://localhost:6333
+# Vektorsuche funktioniert sofort mit dem integrierten LanceDB-Backend.
+# Um stattdessen Qdrant zu verwenden (optional, Enterprise):
+# export SYMBIONT_VECTOR_BACKEND=qdrant
+# export QDRANT_URL=http://localhost:6333
 
 # MCP-Integration (optional)
 export MCP_SERVER_URLS="http://localhost:8080"
@@ -292,8 +294,9 @@ policy_enforcement = "strict"
 
 [vector_db]
 enabled = true
-url = "http://localhost:6333"
+backend = "lancedb"              # Standard; unterstützt auch "qdrant"
 collection_name = "symbi_knowledge"
+# url = "http://localhost:6333"  # nur erforderlich bei backend = "qdrant"
 ```
 
 ---

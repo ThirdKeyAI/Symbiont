@@ -39,7 +39,7 @@ Symbiont-Agenten arbeiten sicher mit Menschen, Tools und LLMs zusammen — ohne 
 ### Voraussetzungen
 
 * Docker (empfohlen) oder Rust 1.88+
-* Qdrant Vektordatenbank (für semantische Suche)
+* Keine externe Vektordatenbank erforderlich (LanceDB eingebettet; Qdrant optional für skalierte Deployments)
 
 ### Ausführung mit vorgefertigten Containern
 
@@ -81,7 +81,7 @@ cargo run -- mcp --port 8080
 * 🔒 **Sandboxing** – Tier-1 Docker-Isolation für Agenten-Ausführung.
 * 🔒 **SchemaPin Security** – Kryptografische Verifikation von Tools und Schemas.
 * 🔒 **Secrets Management** – HashiCorp Vault / OpenBao Integration, AES-256-GCM verschlüsselter Speicher.
-* 📊 **RAG Engine** – Vektorsuche (Qdrant) mit hybrider semantischer + Keyword-Suche.
+* 📊 **RAG Engine** – Vektorsuche (LanceDB eingebettet) mit hybrider semantischer + Keyword-Suche. Optionales Qdrant-Backend für skalierte Deployments.
 * 🧩 **MCP Integration** – Native Unterstützung für Model Context Protocol Tools.
 * 📡 **Optionale HTTP API** – Feature-gesteuerte REST-Schnittstelle für externe Integration.
 

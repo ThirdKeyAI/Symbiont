@@ -108,7 +108,8 @@ Docker automatically pulls the correct architecture for your platform.
 - `SYMBI_LOG_LEVEL` - Set logging level (debug, info, warn, error)
 - `SYMBI_HTTP_PORT` - HTTP API port (default: 8080)
 - `SYMBI_MCP_PORT` - MCP server port (default: 3000)
-- `QDRANT_URL` - Vector database URL
+- `SYMBIONT_VECTOR_BACKEND` - Vector backend: `lancedb` (default) or `qdrant`
+- `QDRANT_URL` - Qdrant vector database URL (only if using optional Qdrant backend)
 - `DSL_OUTPUT_FORMAT` - DSL output format (json, yaml, text)
 
 ### Volume Mounts
@@ -126,6 +127,10 @@ Docker automatically pulls the correct architecture for your platform.
 
 ## Docker Compose Example
 
+By default, Symbiont uses **LanceDB** as an embedded vector database -- no external services required. If you need a distributed vector backend for scaled deployments, you can optionally add Qdrant.
+
+### Minimal (LanceDB default -- no Qdrant needed)
+
 ```yaml
 version: '3.8'
 
@@ -141,6 +146,30 @@ services:
       - symbi-data:/var/lib/symbi/data
     environment:
       - SYMBI_LOG_LEVEL=info
+    command: ["mcp", "--http-api", "--port", "8080"]
+
+volumes:
+  symbi-data:
+```
+
+### With Optional Qdrant Backend
+
+```yaml
+version: '3.8'
+
+services:
+  symbi:
+    image: ghcr.io/thirdkeyai/symbi:latest
+    ports:
+      - "8080:8080"
+      - "3000:3000"
+    volumes:
+      - ./agents:/var/lib/symbi/agents
+      - ./config:/etc/symbi
+      - symbi-data:/var/lib/symbi/data
+    environment:
+      - SYMBI_LOG_LEVEL=info
+      - SYMBIONT_VECTOR_BACKEND=qdrant
       - QDRANT_URL=http://qdrant:6334
     depends_on:
       - qdrant

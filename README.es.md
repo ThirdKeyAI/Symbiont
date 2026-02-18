@@ -39,7 +39,7 @@ Los agentes Symbiont colaboran de forma segura con humanos, herramientas y LLMs 
 ### Prerrequisitos
 
 * Docker (recomendado) o Rust 1.88+
-* Base de datos vectorial Qdrant (para búsqueda semántica)
+* No se requiere base de datos vectorial externa (LanceDB integrado; Qdrant opcional para despliegues a escala)
 
 ### Ejecutar con Contenedores Pre-construidos
 
@@ -81,7 +81,7 @@ cargo run -- mcp --port 8080
 * 🔒 **Sandboxing** – Aislamiento Docker Tier-1 para ejecución de agentes.
 * 🔒 **Seguridad SchemaPin** – Verificación criptográfica de herramientas y esquemas.
 * 🔒 **Gestión de Secretos** – Integración HashiCorp Vault / OpenBao, almacenamiento cifrado AES-256-GCM.
-* 📊 **Motor RAG** – Búsqueda vectorial (Qdrant) con recuperación híbrida semántica + palabra clave.
+* 📊 **Motor RAG** – Búsqueda vectorial (LanceDB integrado) con recuperación híbrida semántica + palabra clave. Backend Qdrant opcional para despliegues a escala.
 * 🧩 **Integración MCP** – Soporte nativo para herramientas del Protocolo de Contexto de Modelo.
 * 📡 **API HTTP Opcional** – Interfaz REST controlada por características para integración externa.
 

@@ -311,14 +311,22 @@ pub trait ContextManager {
 - **Batch-Operationen**: Effiziente Massenoperationen
 - **Echtzeit-Updates**: Dynamische Wissensbasis-Updates
 
-**Qdrant-Integration:**
+**Vektordatenbank-Abstraktion:**
+
+Symbi verwendet ein austauschbares Vektordatenbank-Backend. **LanceDB** ist der konfigurationsfreie Standard (eingebettet, kein externer Dienst erforderlich). **Qdrant** ist als optionales Backend hinter dem Feature-Flag `vector-qdrant` verfügbar.
+
+| Backend | Feature-Flag | Konfiguration | Anwendungsfall |
+|---------|-------------|---------------|----------------|
+| LanceDB (Standard) | _integriert_ | Keine (Zero-Config) | Entwicklung, Einzelknoten, eingebettete Deployments |
+| Qdrant | `vector-qdrant` | `SYMBIONT_VECTOR_HOST` | Verteilte Produktionscluster |
+
 ```rust
 pub struct VectorConfig {
-    pub dimension: usize,           // 1536 for OpenAI embeddings
+    pub backend: VectorBackend,       // LanceDB (Standard) oder Qdrant
+    pub dimension: usize,             // 1536 für OpenAI-Einbettungen
     pub distance_metric: DistanceMetric::Cosine,
     pub index_type: IndexType::HNSW,
-    pub ef_construct: 200,
-    pub m: 16,
+    pub data_path: PathBuf,           // LanceDB-Speicherpfad
 }
 ```
 
@@ -517,10 +525,16 @@ audit_enabled = true
 crypto_provider = "ring"
 
 [context]
-vector_db_url = "http://localhost:6333"
+vector_backend = "lancedb"            # "lancedb" (Standard) oder "qdrant"
+vector_data_path = "./data/vectors"   # LanceDB-Speicherpfad
 embedding_dimension = 1536
 context_cache_size = "1GB"
 knowledge_retention_days = 365
+
+# Optional: nur erforderlich wenn vector_backend = "qdrant"
+# [context.qdrant]
+# host = "localhost"
+# port = 6334
 
 [mcp]
 discovery_enabled = true
@@ -541,8 +555,15 @@ export SYMBI_CONFIG_PATH=/etc/symbi/config.toml
 export SYMBI_CRYPTO_PROVIDER=ring
 export SYMBI_AUDIT_STORAGE=/var/log/symbi/audit
 
-# External dependencies
-export QDRANT_URL=http://localhost:6333
+# Vektordatenbank (LanceDB ist der konfigurationsfreie Standard)
+export SYMBIONT_VECTOR_BACKEND=lancedb          # oder "qdrant"
+export SYMBIONT_VECTOR_DATA_PATH=./data/vectors # LanceDB-Speicherpfad
+
+# Optional: nur erforderlich bei Verwendung des Qdrant-Backends
+# export SYMBIONT_VECTOR_HOST=localhost
+# export SYMBIONT_VECTOR_PORT=6334
+
+# Externe Abhängigkeiten
 export OPENAI_API_KEY=your_api_key_here
 export MCP_SERVER_DISCOVERY=enabled
 ```
@@ -646,8 +667,8 @@ spec:
 ### Lokale Entwicklung
 
 ```bash
-# Start dependencies
-docker-compose up -d qdrant redis postgres
+# Abhängigkeiten starten (LanceDB ist eingebettet — kein externer Dienst nötig)
+docker-compose up -d redis postgres
 
 # Run in development mode
 RUST_LOG=debug cargo run --example full_system

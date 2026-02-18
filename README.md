@@ -39,7 +39,7 @@ Symbiont agents collaborate safely with humans, tools, and LLMs — without sacr
 ### Prerequisites
 
 * Docker (recommended) or Rust 1.88+
-* Qdrant vector database (for semantic search)
+* No external vector database required (LanceDB embedded; Qdrant optional for scaled deployments)
 
 ### Run with Pre-Built Containers
 
@@ -89,7 +89,7 @@ cargo run -- mcp --port 8080
 * 🔒 **AgentPin Identity** – Domain-anchored cryptographic identity for scheduled agents.
 * 🔒 **Secrets Management** – HashiCorp Vault / OpenBao integration, AES-256-GCM encrypted storage.
 * 🔑 **Per-Agent API Keys** – Argon2-hashed API key authentication with per-IP rate limiting.
-* 📊 **RAG Engine** – Vector search (Qdrant) with hybrid semantic + keyword retrieval.
+* 📊 **RAG Engine** – Vector search (LanceDB embedded) with hybrid semantic + keyword retrieval. Optional Qdrant backend for scaled deployments.
 * 🧩 **MCP Integration** – Native support for Model Context Protocol tools.
 * 📡 **Optional HTTP API** – Feature-gated REST interface for external integration.
 * 📋 **Delivery Routing** – Route scheduled agent output to webhooks, Slack, email, or custom channels.

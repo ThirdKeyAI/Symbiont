@@ -652,7 +652,7 @@ network_policy:
       ports: [443]
       protocol: "https"
     - ip_range: "10.0.0.0/8"
-      ports: [6333]  # Qdrant
+      ports: [6333]  # Qdrant (only needed if using optional Qdrant backend)
       protocol: "http"
   
   monitoring:

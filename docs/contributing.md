@@ -87,7 +87,7 @@ cargo tarpaulin --out html
 4. **Start Development Services**
 ```bash
 # Start required services with Docker Compose
-docker-compose up -d qdrant redis postgres
+docker-compose up -d redis postgres
 
 # Verify services are running
 cargo run --example basic_agent

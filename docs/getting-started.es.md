@@ -38,8 +38,9 @@ Antes de comenzar con Symbi, asegúrate de tener lo siguiente instalado:
 
 ### Dependencias Opcionales
 
-- **Qdrant** base de datos vectorial (para capacidades de búsqueda semántica)
 - **SchemaPin Go CLI** (para verificación de herramientas)
+
+> **Nota:** La búsqueda vectorial está integrada. Symbi incluye [LanceDB](https://lancedb.com/) como base de datos vectorial embebida -- no se necesita ningún servicio externo.
 
 ---
 
@@ -243,17 +244,16 @@ cd crates/runtime && cargo run --features http-api --example full_system
 - `GET /api/v1/agents` - Listar todos los agentes activos
 - `POST /api/v1/workflows/execute` - Ejecutar flujos de trabajo
 
-#### Integración de Base de Datos Vectorial
+#### Base de Datos Vectorial (integrada)
 
-Para capacidades de búsqueda semántica:
+Symbi incluye LanceDB como base de datos vectorial embebida sin configuración. La búsqueda semántica y RAG funcionan de inmediato -- no se necesita iniciar ningún servicio separado:
 
 ```bash
-# Iniciar base de datos vectorial Qdrant
-docker run -p 6333:6333 qdrant/qdrant
-
-# Ejecutar agente con capacidades RAG
+# Ejecutar agente con capacidades RAG (la búsqueda vectorial funciona automáticamente)
 cd crates/runtime && cargo run --example rag_example
 ```
+
+> **Opción enterprise:** Para equipos que necesiten una base de datos vectorial dedicada, Qdrant está disponible como backend opcional con feature gate. Configura `SYMBIONT_VECTOR_BACKEND=qdrant` y `QDRANT_URL` para usarlo.
 
 ---
 
@@ -268,8 +268,10 @@ Configurar tu entorno para rendimiento óptimo:
 export SYMBI_LOG_LEVEL=info
 export SYMBI_RUNTIME_MODE=development
 
-# Base de datos vectorial (opcional)
-export QDRANT_URL=http://localhost:6333
+# La búsqueda vectorial funciona automáticamente con el backend LanceDB integrado.
+# Para usar Qdrant en su lugar (opcional, enterprise):
+# export SYMBIONT_VECTOR_BACKEND=qdrant
+# export QDRANT_URL=http://localhost:6333
 
 # Integración MCP (opcional)
 export MCP_SERVER_URLS="http://localhost:8080"
@@ -292,8 +294,9 @@ policy_enforcement = "strict"
 
 [vector_db]
 enabled = true
-url = "http://localhost:6333"
+backend = "lancedb"              # por defecto; también soporta "qdrant"
 collection_name = "symbi_knowledge"
+# url = "http://localhost:6333"  # solo necesario cuando backend = "qdrant"
 ```
 
 ---

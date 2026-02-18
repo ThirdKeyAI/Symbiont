@@ -38,8 +38,9 @@ nav_exclude: true
 
 ### 可选的依赖项
 
-- **Qdrant** 向量数据库（用于语义搜索功能）
 - **SchemaPin Go CLI**（用于工具验证）
+
+> **注意：** 向量搜索已内置。Symbi 自带 [LanceDB](https://lancedb.com/) 作为嵌入式向量数据库，无需外部服务。
 
 ---
 
@@ -243,17 +244,16 @@ cd crates/runtime && cargo run --features http-api --example full_system
 - `GET /api/v1/agents` - 列出所有活跃代理
 - `POST /api/v1/workflows/execute` - 执行工作流
 
-#### 向量数据库集成
+#### 向量数据库（内置）
 
-用于语义搜索功能：
+Symbi 包含 LanceDB 作为零配置嵌入式向量数据库。语义搜索和 RAG 开箱即用，无需启动额外服务：
 
 ```bash
-# 启动 Qdrant 向量数据库
-docker run -p 6333:6333 qdrant/qdrant
-
-# 运行具有 RAG 功能的代理
+# 运行具有 RAG 功能的代理（向量搜索直接可用）
 cd crates/runtime && cargo run --example rag_example
 ```
+
+> **企业选项：** 对于需要专用向量数据库的团队，Qdrant 可作为可选的 feature-gated 后端使用。设置 `SYMBIONT_VECTOR_BACKEND=qdrant` 和 `QDRANT_URL` 即可启用。
 
 ---
 
@@ -268,8 +268,10 @@ cd crates/runtime && cargo run --example rag_example
 export SYMBI_LOG_LEVEL=info
 export SYMBI_RUNTIME_MODE=development
 
-# 向量数据库（可选）
-export QDRANT_URL=http://localhost:6333
+# 向量搜索通过内置的 LanceDB 后端开箱即用。
+# 如需改用 Qdrant（可选，企业版）：
+# export SYMBIONT_VECTOR_BACKEND=qdrant
+# export QDRANT_URL=http://localhost:6333
 
 # MCP 集成（可选）
 export MCP_SERVER_URLS="http://localhost:8080"
@@ -292,8 +294,9 @@ policy_enforcement = "strict"
 
 [vector_db]
 enabled = true
-url = "http://localhost:6333"
+backend = "lancedb"              # 默认值；也支持 "qdrant"
 collection_name = "symbi_knowledge"
+# url = "http://localhost:6333"  # 仅在 backend = "qdrant" 时需要
 ```
 
 ---

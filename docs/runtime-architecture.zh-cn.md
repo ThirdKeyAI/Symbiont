@@ -311,14 +311,22 @@ pub trait ContextManager {
 - **批量操作**：高效的批量操作
 - **实时更新**：动态知识库更新
 
-**与 Qdrant 集成：**
+**向量数据库抽象：**
+
+Symbi 使用可插拔的向量数据库后端。**LanceDB** 是零配置的默认选项（嵌入式，无需外部服务）。**Qdrant** 作为可选后端，通过 `vector-qdrant` 功能标志启用。
+
+| 后端 | 功能标志 | 所需配置 | 用例 |
+|------|---------|---------|------|
+| LanceDB（默认） | _内置_ | 无（零配置） | 开发、单节点、嵌入式部署 |
+| Qdrant | `vector-qdrant` | `SYMBIONT_VECTOR_HOST` | 分布式生产集群 |
+
 ```rust
 pub struct VectorConfig {
-    pub dimension: usize,           // 1536 for OpenAI embeddings
+    pub backend: VectorBackend,       // LanceDB（默认）或 Qdrant
+    pub dimension: usize,             // 1536 用于 OpenAI 嵌入
     pub distance_metric: DistanceMetric::Cosine,
     pub index_type: IndexType::HNSW,
-    pub ef_construct: 200,
-    pub m: 16,
+    pub data_path: PathBuf,           // LanceDB 存储路径
 }
 ```
 
@@ -517,10 +525,16 @@ audit_enabled = true
 crypto_provider = "ring"
 
 [context]
-vector_db_url = "http://localhost:6333"
+vector_backend = "lancedb"            # "lancedb"（默认）或 "qdrant"
+vector_data_path = "./data/vectors"   # LanceDB 存储路径
 embedding_dimension = 1536
 context_cache_size = "1GB"
 knowledge_retention_days = 365
+
+# 可选：仅在 vector_backend = "qdrant" 时需要
+# [context.qdrant]
+# host = "localhost"
+# port = 6334
 
 [mcp]
 discovery_enabled = true
@@ -541,8 +555,15 @@ export SYMBI_CONFIG_PATH=/etc/symbi/config.toml
 export SYMBI_CRYPTO_PROVIDER=ring
 export SYMBI_AUDIT_STORAGE=/var/log/symbi/audit
 
-# External dependencies
-export QDRANT_URL=http://localhost:6333
+# 向量数据库（LanceDB 是零配置的默认选项）
+export SYMBIONT_VECTOR_BACKEND=lancedb          # 或 "qdrant"
+export SYMBIONT_VECTOR_DATA_PATH=./data/vectors # LanceDB 存储路径
+
+# 可选：仅在使用 Qdrant 后端时需要
+# export SYMBIONT_VECTOR_HOST=localhost
+# export SYMBIONT_VECTOR_PORT=6334
+
+# 外部依赖
 export OPENAI_API_KEY=your_api_key_here
 export MCP_SERVER_DISCOVERY=enabled
 ```
@@ -646,8 +667,8 @@ spec:
 ### 本地开发
 
 ```bash
-# Start dependencies
-docker-compose up -d qdrant redis postgres
+# 启动依赖项（LanceDB 是嵌入式的 — 无需外部服务）
+docker-compose up -d redis postgres
 
 # Run in development mode
 RUST_LOG=debug cargo run --example full_system

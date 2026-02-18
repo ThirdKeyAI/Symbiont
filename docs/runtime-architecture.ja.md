@@ -311,14 +311,22 @@ pub trait ContextManager {
 - **バッチ操作**: 効率的な一括操作
 - **リアルタイム更新**: 動的なナレッジベース更新
 
-**Qdrant統合:**
+**ベクトルデータベース抽象化:**
+
+Symbiはプラガブルなベクトルデータベースバックエンドを使用します。**LanceDB** がゼロコンフィグのデフォルトです（組み込み型、外部サービス不要）。**Qdrant** は `vector-qdrant` フィーチャーフラグによるオプションのバックエンドとして利用可能です。
+
+| バックエンド | フィーチャーフラグ | 設定 | ユースケース |
+|-------------|-------------------|------|-------------|
+| LanceDB（デフォルト） | _組み込み_ | 不要（ゼロコンフィグ） | 開発、シングルノード、組み込みデプロイメント |
+| Qdrant | `vector-qdrant` | `SYMBIONT_VECTOR_HOST` | 分散本番クラスター |
+
 ```rust
 pub struct VectorConfig {
-    pub dimension: usize,           // 1536 for OpenAI embeddings
+    pub backend: VectorBackend,       // LanceDB（デフォルト）または Qdrant
+    pub dimension: usize,             // OpenAI埋め込み用 1536
     pub distance_metric: DistanceMetric::Cosine,
     pub index_type: IndexType::HNSW,
-    pub ef_construct: 200,
-    pub m: 16,
+    pub data_path: PathBuf,           // LanceDBストレージパス
 }
 ```
 
@@ -517,10 +525,16 @@ audit_enabled = true
 crypto_provider = "ring"
 
 [context]
-vector_db_url = "http://localhost:6333"
+vector_backend = "lancedb"            # "lancedb"（デフォルト）または "qdrant"
+vector_data_path = "./data/vectors"   # LanceDBストレージパス
 embedding_dimension = 1536
 context_cache_size = "1GB"
 knowledge_retention_days = 365
+
+# オプション: vector_backend = "qdrant" の場合のみ必要
+# [context.qdrant]
+# host = "localhost"
+# port = 6334
 
 [mcp]
 discovery_enabled = true
@@ -541,8 +555,15 @@ export SYMBI_CONFIG_PATH=/etc/symbi/config.toml
 export SYMBI_CRYPTO_PROVIDER=ring
 export SYMBI_AUDIT_STORAGE=/var/log/symbi/audit
 
-# External dependencies
-export QDRANT_URL=http://localhost:6333
+# ベクトルデータベース（LanceDBがゼロコンフィグのデフォルト）
+export SYMBIONT_VECTOR_BACKEND=lancedb          # または "qdrant"
+export SYMBIONT_VECTOR_DATA_PATH=./data/vectors # LanceDBストレージパス
+
+# オプション: Qdrantバックエンド使用時のみ必要
+# export SYMBIONT_VECTOR_HOST=localhost
+# export SYMBIONT_VECTOR_PORT=6334
+
+# 外部依存関係
 export OPENAI_API_KEY=your_api_key_here
 export MCP_SERVER_DISCOVERY=enabled
 ```
@@ -646,8 +667,8 @@ spec:
 ### ローカル開発
 
 ```bash
-# Start dependencies
-docker-compose up -d qdrant redis postgres
+# 依存関係を起動（LanceDBは組み込み型 — 外部サービス不要）
+docker-compose up -d redis postgres
 
 # Run in development mode
 RUST_LOG=debug cargo run --example full_system

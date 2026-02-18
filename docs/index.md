@@ -37,7 +37,7 @@ Symbiont is an AI-native agent framework for building autonomous, policy-aware a
 - **🌐 HTTP Input Module**: Webhook server for external integrations with Bearer/JWT auth, rate limiting, and CORS
 - **🔑 AgentPin Identity**: Cryptographic agent identity verification via ES256 JWTs anchored to well-known endpoints
 - **🔐 Secrets Management**: HashiCorp Vault integration with encrypted file and OS keychain backends
-- **🧠 Context & Knowledge**: RAG-enhanced knowledge systems with vector search (Qdrant) and optional local embeddings
+- **🧠 Context & Knowledge**: RAG-enhanced knowledge systems with vector search (LanceDB embedded default, Qdrant optional) and optional local embeddings
 - **🔗 MCP Integration**: Model Context Protocol client with SchemaPin cryptographic tool verification
 - **⚡ Multi-Language SDKs**: JavaScript and Python SDKs for full API access including scheduling, channels, and enterprise features
 - **🏗️ High Performance**: Rust-native runtime optimized for production workloads with async execution throughout

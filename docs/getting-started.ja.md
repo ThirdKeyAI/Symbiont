@@ -38,8 +38,9 @@ Symbi を使い始める前に、以下がインストールされているこ�
 
 ### オプションの依存関係
 
-- **Qdrant** ベクトルデータベース（セマンティック検索機能用）
 - **SchemaPin Go CLI**（ツール検証用）
+
+> **注意:** ベクトル検索は組み込みです。Symbi は [LanceDB](https://lancedb.com/) を組み込みベクトルデータベースとして同梱しており、外部サービスは不要です。
 
 ---
 
@@ -243,17 +244,16 @@ cd crates/runtime && cargo run --features http-api --example full_system
 - `GET /api/v1/agents` - すべてのアクティブエージェントを一覧表示
 - `POST /api/v1/workflows/execute` - ワークフローを実行
 
-#### ベクトルデータベース統合
+#### ベクトルデータベース（組み込み）
 
-セマンティック検索機能用：
+Symbi は LanceDB をゼロ設定の組み込みベクトルデータベースとして含んでいます。セマンティック検索と RAG は追加設定なしで動作します：
 
 ```bash
-# Qdrant ベクトルデータベースを開始
-docker run -p 6333:6333 qdrant/qdrant
-
-# RAG 機能を持つエージェントを実行
+# RAG 機能を持つエージェントを実行（ベクトル検索はそのまま動作）
 cd crates/runtime && cargo run --example rag_example
 ```
+
+> **エンタープライズオプション:** 専用のベクトルデータベースが必要なチームには、Qdrant がオプションのフィーチャーゲート付きバックエンドとして利用可能です。`SYMBIONT_VECTOR_BACKEND=qdrant` と `QDRANT_URL` を設定してください。
 
 ---
 
@@ -268,8 +268,10 @@ cd crates/runtime && cargo run --example rag_example
 export SYMBI_LOG_LEVEL=info
 export SYMBI_RUNTIME_MODE=development
 
-# ベクトルデータベース（オプション）
-export QDRANT_URL=http://localhost:6333
+# ベクトル検索は組み込みの LanceDB バックエンドでそのまま動作します。
+# 代わりに Qdrant を使用する場合（オプション、エンタープライズ向け）：
+# export SYMBIONT_VECTOR_BACKEND=qdrant
+# export QDRANT_URL=http://localhost:6333
 
 # MCP 統合（オプション）
 export MCP_SERVER_URLS="http://localhost:8080"
@@ -292,8 +294,9 @@ policy_enforcement = "strict"
 
 [vector_db]
 enabled = true
-url = "http://localhost:6333"
+backend = "lancedb"              # デフォルト；"qdrant" もサポート
 collection_name = "symbi_knowledge"
+# url = "http://localhost:6333"  # backend = "qdrant" の場合のみ必要
 ```
 
 ---
