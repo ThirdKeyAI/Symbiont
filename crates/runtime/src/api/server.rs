@@ -206,6 +206,9 @@ impl HttpApiServer {
 
     /// Start the HTTP API server
     pub async fn start(&mut self) -> Result<(), RuntimeError> {
+        // Initialize trusted proxy configuration from SYMBIONT_TRUSTED_PROXIES
+        super::middleware::init_trusted_proxies();
+
         // Load API key store if configured
         if let Some(ref keys_path) = self.config.api_keys_file {
             match super::api_keys::ApiKeyStore::load_from_file(keys_path) {
@@ -230,10 +233,27 @@ impl HttpApiServer {
             .await
             .map_err(|e| RuntimeError::Internal(format!("Failed to bind to {}: {}", addr, e)))?;
 
-        if std::env::var("SYMBIONT_API_TOKEN").is_err() {
+        // Warn about authentication configuration
+        let has_key_store = self
+            .api_key_store
+            .as_ref()
+            .is_some_and(|s| s.has_records());
+        let has_env_token = std::env::var("SYMBIONT_API_TOKEN").is_ok();
+
+        if has_key_store && has_env_token {
             tracing::warn!(
-                "SYMBIONT_API_TOKEN not set — API routes are effectively unauthenticated. \
-                 Set this variable in production."
+                "API key store is configured — SYMBIONT_API_TOKEN will be ignored. \
+                 Remove the env var to avoid confusion."
+            );
+        } else if !has_key_store && has_env_token {
+            tracing::warn!(
+                "Using legacy SYMBIONT_API_TOKEN for authentication. \
+                 Migrate to an API key store (--api-keys-file) for production."
+            );
+        } else if !has_key_store && !has_env_token {
+            tracing::error!(
+                "No API key store and no SYMBIONT_API_TOKEN — \
+                 all authenticated endpoints will reject requests."
             );
         }
 

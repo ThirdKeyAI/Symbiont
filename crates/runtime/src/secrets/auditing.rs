@@ -66,6 +66,8 @@ pub struct SecretAuditEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AuditOutcome {
+    /// Intent to perform an operation (logged *before* the call)
+    Attempt,
     /// Operation completed successfully
     Success,
     /// Operation failed
@@ -73,6 +75,22 @@ pub enum AuditOutcome {
 }
 
 impl SecretAuditEvent {
+    /// Create an intent-to-access audit event, logged **before** the backend call.
+    ///
+    /// This ensures that even if the process crashes during the Vault/file read,
+    /// there is a paper trail showing the access was attempted.
+    pub fn attempt(agent_id: String, operation: String, secret_key: Option<String>) -> Self {
+        Self {
+            timestamp: Utc::now(),
+            agent_id,
+            operation,
+            secret_key,
+            outcome: AuditOutcome::Attempt,
+            error_message: None,
+            metadata: None,
+        }
+    }
+
     /// Create a new audit event for a successful operation
     pub fn success(agent_id: String, operation: String, secret_key: Option<String>) -> Self {
         Self {

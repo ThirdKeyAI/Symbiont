@@ -349,6 +349,15 @@ impl FileSecretStore {
 impl SecretStore for FileSecretStore {
     /// Retrieve a secret by key
     async fn get_secret(&self, key: &str) -> Result<Secret, SecretError> {
+        // Intent log — ensures a paper trail even if the process crashes
+        // during decryption or file I/O.
+        self.log_audit_event(SecretAuditEvent::attempt(
+            self.agent_id.clone(),
+            "get_secret".to_string(),
+            Some(key.to_string()),
+        ))
+        .await?;
+
         let result: Result<Secret, SecretError> = async {
             let secrets = self.load_secrets_cached().await?;
 
@@ -382,6 +391,13 @@ impl SecretStore for FileSecretStore {
 
     /// List all available secret keys, optionally filtered by prefix
     async fn list_secrets(&self) -> Result<Vec<String>, SecretError> {
+        self.log_audit_event(SecretAuditEvent::attempt(
+            self.agent_id.clone(),
+            "list_secrets".to_string(),
+            None,
+        ))
+        .await?;
+
         let result: Result<Vec<String>, SecretError> = async {
             let secrets = self.load_secrets_cached().await?;
             Ok(secrets.keys().cloned().collect())

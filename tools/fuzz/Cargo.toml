@@ -16,8 +16,9 @@ libfuzzer-sys = "0.4"
 sha2 = "0.10"
 tempfile = "3.0"
 symbi-channel-adapter = { path = "../../crates/channel-adapter", package = "symbi-channel-adapter", default-features = false, features = ["slack"] }
-symbi-runtime = { path = "../../crates/runtime", package = "symbi-runtime", default-features = false }
+symbi-runtime = { path = "../../crates/runtime", package = "symbi-runtime", default-features = false, features = ["composio"] }
 repl-core = { path = "../../crates/repl-core", package = "repl-core" }
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 
@@ -83,6 +84,27 @@ bench = false
 [[bin]]
 name = "tool_substitution_detection"
 path = "fuzz_targets/tool_substitution_detection.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sse_jsonrpc_parsing"
+path = "fuzz_targets/sse_jsonrpc_parsing.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "schemapin_keystore_roundtrip"
+path = "fuzz_targets/schemapin_keystore_roundtrip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dsl_structure_aware"
+path = "fuzz_targets/dsl_structure_aware.rs"
 test = false
 doc = false
 bench = false

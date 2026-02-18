@@ -18,7 +18,7 @@ use governor::{
 
 #[cfg(feature = "http-api")]
 use std::{
-    net::IpAddr,
+    net::{IpAddr, SocketAddr},
     num::NonZeroU32,
     sync::{Arc, OnceLock},
 };
@@ -27,67 +27,203 @@ use std::{
 use dashmap::DashMap;
 
 #[cfg(feature = "http-api")]
+use axum::extract::ConnectInfo;
+
+#[cfg(feature = "http-api")]
 use std::env;
+
+/// A single CIDR range used for trusted proxy matching.
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone)]
+struct TrustedProxyCidr {
+    addr: IpAddr,
+    prefix_len: u8,
+}
+
+#[cfg(feature = "http-api")]
+impl TrustedProxyCidr {
+    fn parse(s: &str) -> Option<Self> {
+        let s = s.trim();
+        if let Some((addr_str, prefix_str)) = s.split_once('/') {
+            let addr = addr_str.parse::<IpAddr>().ok()?;
+            let prefix_len = prefix_str.parse::<u8>().ok()?;
+            let max_prefix = if addr.is_ipv4() { 32 } else { 128 };
+            if prefix_len > max_prefix {
+                return None;
+            }
+            Some(Self { addr, prefix_len })
+        } else {
+            let addr = s.parse::<IpAddr>().ok()?;
+            let prefix_len = if addr.is_ipv4() { 32 } else { 128 };
+            Some(Self { addr, prefix_len })
+        }
+    }
+
+    fn contains(&self, ip: &IpAddr) -> bool {
+        match (self.addr, ip) {
+            (IpAddr::V4(net), IpAddr::V4(candidate)) => {
+                if self.prefix_len == 0 {
+                    return true;
+                }
+                if self.prefix_len >= 32 {
+                    return net == *candidate;
+                }
+                let mask = u32::MAX << (32 - self.prefix_len);
+                (u32::from(net) & mask) == (u32::from(*candidate) & mask)
+            }
+            (IpAddr::V6(net), IpAddr::V6(candidate)) => {
+                if self.prefix_len == 0 {
+                    return true;
+                }
+                if self.prefix_len >= 128 {
+                    return net == *candidate;
+                }
+                let mask = u128::MAX << (128 - self.prefix_len);
+                (u128::from(net) & mask) == (u128::from(*candidate) & mask)
+            }
+            _ => false,
+        }
+    }
+}
+
+/// Set of trusted proxy CIDRs. Only requests originating from these addresses
+/// will have their `X-Forwarded-For` / `X-Real-IP` headers respected.
+#[cfg(feature = "http-api")]
+#[derive(Debug)]
+struct TrustedProxies {
+    cidrs: Vec<TrustedProxyCidr>,
+}
+
+#[cfg(feature = "http-api")]
+impl TrustedProxies {
+    fn is_trusted(&self, ip: &IpAddr) -> bool {
+        self.cidrs.iter().any(|cidr| cidr.contains(ip))
+    }
+}
+
+#[cfg(feature = "http-api")]
+static TRUSTED_PROXIES: OnceLock<TrustedProxies> = OnceLock::new();
+
+/// Initialize the trusted proxy configuration from the `SYMBIONT_TRUSTED_PROXIES`
+/// environment variable. The value should be a comma-separated list of IP
+/// addresses or CIDR ranges (e.g. `"127.0.0.1,10.0.0.0/8,172.16.0.0/12"`).
+///
+/// If the variable is unset or empty, **no** proxies are trusted and forwarded
+/// headers (`X-Forwarded-For`, `X-Real-IP`) are always ignored — the connecting
+/// IP is used directly for rate limiting and logging.
+#[cfg(feature = "http-api")]
+pub(crate) fn init_trusted_proxies() {
+    TRUSTED_PROXIES.get_or_init(|| {
+        let cidrs: Vec<TrustedProxyCidr> = env::var("SYMBIONT_TRUSTED_PROXIES")
+            .unwrap_or_default()
+            .split(',')
+            .filter_map(|s| {
+                let s = s.trim();
+                if s.is_empty() {
+                    return None;
+                }
+                match TrustedProxyCidr::parse(s) {
+                    Some(cidr) => {
+                        tracing::info!("Trusted proxy: {}", s);
+                        Some(cidr)
+                    }
+                    None => {
+                        tracing::warn!("Invalid trusted proxy entry, skipping: {}", s);
+                        None
+                    }
+                }
+            })
+            .collect();
+
+        if cidrs.is_empty() {
+            tracing::info!(
+                "No trusted proxies configured — forwarded headers will be ignored. \
+                 Set SYMBIONT_TRUSTED_PROXIES to trust proxy headers."
+            );
+        }
+
+        TrustedProxies { cidrs }
+    });
+}
 
 /// Authentication middleware for bearer token validation.
 ///
-/// Checks in order:
-/// 1. Per-agent API key store (Argon2-hashed, file-backed) if available as an Extension
-/// 2. Legacy `SYMBIONT_API_TOKEN` environment variable with constant-time comparison
+/// Authentication strategy (fail-closed):
+///
+/// 1. If an [`ApiKeyStore`](super::api_keys::ApiKeyStore) extension is present
+///    **and** contains at least one record, authentication is performed
+///    exclusively against the key store. The legacy env-var path is skipped
+///    entirely so a leaked static token cannot bypass per-agent controls.
+///
+/// 2. If no key store is configured (or it is empty), the middleware falls
+///    back to the `SYMBIONT_API_TOKEN` environment variable with
+///    constant-time comparison. A deprecation warning is emitted on every
+///    successful legacy auth to encourage migration.
+///
+/// 3. If neither mechanism can authenticate the request, `401 Unauthorized`
+///    is returned.
 #[cfg(feature = "http-api")]
 pub async fn auth_middleware(request: Request, next: Next) -> Result<Response, StatusCode> {
-    // Extract the Authorization header
-    let headers = request.headers();
-    let auth_header = headers.get("authorization");
+    let auth_value = request
+        .headers()
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    // Check if Authorization header is present
-    let auth_value = match auth_header {
-        Some(value) => value.to_str().map_err(|_| StatusCode::UNAUTHORIZED)?,
-        None => return Err(StatusCode::UNAUTHORIZED),
-    };
-
-    // Check if it's a Bearer token
     if !auth_value.starts_with("Bearer ") {
         return Err(StatusCode::UNAUTHORIZED);
     }
 
-    // Extract the token part (after "Bearer ")
     let token = &auth_value[7..];
 
-    // 1) Try per-agent API key store (if wired as an Extension)
-    let key_store: Option<axum::extract::Extension<std::sync::Arc<super::api_keys::ApiKeyStore>>> =
-        request
-            .extensions()
-            .get()
-            .cloned()
-            .map(axum::extract::Extension);
+    // --- Primary path: per-agent API key store ---
+    let key_store: Option<Arc<super::api_keys::ApiKeyStore>> = request
+        .extensions()
+        .get::<Arc<super::api_keys::ApiKeyStore>>()
+        .cloned();
 
-    if let Some(axum::extract::Extension(store)) = key_store {
+    if let Some(store) = &key_store {
         if store.has_records() {
-            if let Some(validated) = store.validate_key(token) {
-                tracing::info!(
-                    "Authenticated via API key store: key_id={}",
-                    validated.key_id
-                );
-                return Ok(next.run(request).await);
-            }
-            // Key store exists with records but key didn't match — still try legacy
+            // Key store is the sole authority — do NOT fall through to the
+            // legacy env-var token. This prevents a leaked static token from
+            // bypassing per-agent, rotatable, Argon2-hashed keys.
+            return match store.validate_key(token) {
+                Some(validated) => {
+                    tracing::info!(
+                        "Authenticated via API key store: key_id={}",
+                        validated.key_id
+                    );
+                    Ok(next.run(request).await)
+                }
+                None => {
+                    tracing::warn!("Authentication failed: key not found in API key store");
+                    Err(StatusCode::UNAUTHORIZED)
+                }
+            };
         }
     }
 
-    // 2) Fall back to legacy SYMBIONT_API_TOKEN env var
+    // --- Legacy fallback: static SYMBIONT_API_TOKEN env var ---
+    // Only reachable when no key store with records is configured.
     let expected_token = env::var("SYMBIONT_API_TOKEN").map_err(|_| {
-        tracing::error!("SYMBIONT_API_TOKEN environment variable not set");
+        tracing::error!(
+            "No API key store configured and SYMBIONT_API_TOKEN not set — \
+             all requests will be rejected. Configure an API key store or set \
+             SYMBIONT_API_TOKEN for development."
+        );
         StatusCode::UNAUTHORIZED
     })?;
 
-    // Validate the token using constant-time comparison to prevent timing attacks
     if !bool::from(token.as_bytes().ct_eq(expected_token.as_bytes())) {
         tracing::warn!("Authentication failed: invalid token provided");
         return Err(StatusCode::UNAUTHORIZED);
     }
 
-    // Token is valid, proceed with the request
+    tracing::warn!(
+        "Authenticated via legacy SYMBIONT_API_TOKEN — this is deprecated. \
+         Migrate to the API key store (--api-keys-file) for per-agent keys, \
+         Argon2 hashing, and key rotation."
+    );
     Ok(next.run(request).await)
 }
 
@@ -113,36 +249,62 @@ fn get_rate_limiter_for_ip(ip: IpAddr) -> Arc<RateLimiter<NotKeyed, InMemoryStat
     }
 }
 
-/// Extract client IP address from request
+/// Extract the client IP address from a request.
+///
+/// Uses Axum's [`ConnectInfo`] to obtain the real connecting IP. Forwarded
+/// headers (`X-Forwarded-For`, `X-Real-IP`) are only respected when the
+/// connecting IP belongs to a trusted proxy (see [`init_trusted_proxies`]).
+/// This prevents attackers from spoofing their IP to bypass rate limiting
+/// when the server is directly exposed to the internet.
+///
+/// Returns `None` when the connecting IP cannot be determined **and** no
+/// forwarded headers are available from a trusted proxy. Callers should
+/// reject these requests rather than falling back to a shared default
+/// bucket (which would be a DoS vector).
 #[cfg(feature = "http-api")]
-fn extract_client_ip(request: &Request) -> IpAddr {
-    // Try to get real IP from X-Forwarded-For header first (for proxy setups)
-    if let Some(forwarded_for) = request.headers().get("x-forwarded-for") {
-        if let Ok(forwarded_str) = forwarded_for.to_str() {
-            // X-Forwarded-For can contain multiple IPs; take the rightmost
-            // (last) entry which is the one added by our trusted proxy,
-            // preventing client-side spoofing of earlier entries.
-            if let Some(last_ip) = forwarded_str.split(',').next_back() {
-                if let Ok(ip) = last_ip.trim().parse::<IpAddr>() {
-                    return ip;
+fn extract_client_ip(request: &Request) -> Option<IpAddr> {
+    let connecting_ip: Option<IpAddr> = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|ci| ci.0.ip());
+
+    let from_trusted_proxy = connecting_ip
+        .as_ref()
+        .and_then(|ip| TRUSTED_PROXIES.get().map(|tp| tp.is_trusted(ip)))
+        .unwrap_or(false);
+
+    if from_trusted_proxy {
+        // Connection is from a trusted proxy — respect forwarded headers.
+        // Take the rightmost X-Forwarded-For entry (appended by our proxy).
+        if let Some(forwarded_for) = request.headers().get("x-forwarded-for") {
+            if let Ok(forwarded_str) = forwarded_for.to_str() {
+                if let Some(last_ip) = forwarded_str.split(',').next_back() {
+                    if let Ok(ip) = last_ip.trim().parse::<IpAddr>() {
+                        return Some(ip);
+                    }
                 }
             }
         }
-    }
 
-    // Try X-Real-IP header
-    if let Some(real_ip) = request.headers().get("x-real-ip") {
-        if let Ok(real_ip_str) = real_ip.to_str() {
-            if let Ok(ip) = real_ip_str.parse::<IpAddr>() {
-                return ip;
+        // Try X-Real-IP header
+        if let Some(real_ip) = request.headers().get("x-real-ip") {
+            if let Ok(real_ip_str) = real_ip.to_str() {
+                if let Ok(ip) = real_ip_str.parse::<IpAddr>() {
+                    return Some(ip);
+                }
             }
         }
+    } else if request.headers().contains_key("x-forwarded-for")
+        || request.headers().contains_key("x-real-ip")
+    {
+        tracing::debug!(
+            connecting_ip = ?connecting_ip,
+            "Ignoring forwarded headers from untrusted source. \
+             Set SYMBIONT_TRUSTED_PROXIES to trust proxy headers.",
+        );
     }
 
-    // Fallback to connection info or default
-    // In a real setup, you'd extract this from the connection info
-    // For now, we'll use a default IP as fallback
-    "127.0.0.1".parse().unwrap()
+    connecting_ip
 }
 
 /// Rate limiting middleware using token bucket algorithm
@@ -152,22 +314,25 @@ fn extract_client_ip(request: &Request) -> IpAddr {
 ///
 /// Rate limiters are stored in a global concurrent HashMap and are created
 /// on-demand for each unique IP address.
+///
+/// If the client IP cannot be determined the request is rejected with
+/// `400 Bad Request` to avoid funnelling unknown traffic into a single
+/// shared bucket (which would be a DoS amplification vector).
 #[cfg(feature = "http-api")]
 pub async fn rate_limit_middleware(request: Request, next: Next) -> Result<Response, StatusCode> {
-    // Extract client IP address
-    let client_ip = extract_client_ip(&request);
+    let client_ip = match extract_client_ip(&request) {
+        Some(ip) => ip,
+        None => {
+            tracing::warn!("Rejecting request: could not determine client IP");
+            return Err(StatusCode::BAD_REQUEST);
+        }
+    };
 
-    // Get the rate limiter for this IP
     let rate_limiter = get_rate_limiter_for_ip(client_ip);
 
-    // Check if the request is allowed
     match rate_limiter.check() {
-        Ok(_) => {
-            // Request is allowed, proceed
-            Ok(next.run(request).await)
-        }
+        Ok(_) => Ok(next.run(request).await),
         Err(_) => {
-            // Rate limit exceeded
             tracing::warn!("Rate limit exceeded for IP: {}", client_ip);
             Err(StatusCode::TOO_MANY_REQUESTS)
         }
@@ -188,7 +353,8 @@ pub async fn logging_middleware(request: Request, next: Next) -> Result<Response
     // Extract request details
     let method = request.method().clone();
     let uri = request.uri().clone();
-    let client_ip = extract_client_ip(&request);
+    let client_ip = extract_client_ip(&request)
+        .unwrap_or(IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED));
 
     // Create a structured span for this request
     let span = tracing::info_span!(
@@ -280,4 +446,84 @@ pub async fn security_headers_middleware(
     );
 
     Ok(response)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+    #[test]
+    fn cidr_parse_ipv4_exact() {
+        let cidr = TrustedProxyCidr::parse("10.0.0.1").unwrap();
+        assert_eq!(cidr.prefix_len, 32);
+        assert!(cidr.contains(&IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))));
+        assert!(!cidr.contains(&IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2))));
+    }
+
+    #[test]
+    fn cidr_parse_ipv4_slash_24() {
+        let cidr = TrustedProxyCidr::parse("192.168.1.0/24").unwrap();
+        assert!(cidr.contains(&IpAddr::V4(Ipv4Addr::new(192, 168, 1, 0))));
+        assert!(cidr.contains(&IpAddr::V4(Ipv4Addr::new(192, 168, 1, 255))));
+        assert!(!cidr.contains(&IpAddr::V4(Ipv4Addr::new(192, 168, 2, 1))));
+    }
+
+    #[test]
+    fn cidr_parse_ipv4_slash_8() {
+        let cidr = TrustedProxyCidr::parse("10.0.0.0/8").unwrap();
+        assert!(cidr.contains(&IpAddr::V4(Ipv4Addr::new(10, 255, 255, 255))));
+        assert!(!cidr.contains(&IpAddr::V4(Ipv4Addr::new(11, 0, 0, 1))));
+    }
+
+    #[test]
+    fn cidr_parse_ipv4_slash_0_matches_all() {
+        let cidr = TrustedProxyCidr::parse("0.0.0.0/0").unwrap();
+        assert!(cidr.contains(&IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4))));
+        assert!(cidr.contains(&IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255))));
+    }
+
+    #[test]
+    fn cidr_ipv4_does_not_match_ipv6() {
+        let cidr = TrustedProxyCidr::parse("0.0.0.0/0").unwrap();
+        assert!(!cidr.contains(&IpAddr::V6(Ipv6Addr::LOCALHOST)));
+    }
+
+    #[test]
+    fn cidr_parse_ipv6() {
+        let cidr = TrustedProxyCidr::parse("::1").unwrap();
+        assert!(cidr.contains(&IpAddr::V6(Ipv6Addr::LOCALHOST)));
+        assert!(!cidr.contains(&IpAddr::V6(Ipv6Addr::UNSPECIFIED)));
+    }
+
+    #[test]
+    fn cidr_rejects_invalid_prefix() {
+        assert!(TrustedProxyCidr::parse("10.0.0.0/33").is_none());
+        assert!(TrustedProxyCidr::parse("::1/129").is_none());
+    }
+
+    #[test]
+    fn cidr_rejects_garbage() {
+        assert!(TrustedProxyCidr::parse("not-an-ip").is_none());
+        assert!(TrustedProxyCidr::parse("").is_none());
+    }
+
+    #[test]
+    fn trusted_proxies_empty_trusts_nothing() {
+        let tp = TrustedProxies { cidrs: vec![] };
+        assert!(!tp.is_trusted(&IpAddr::V4(Ipv4Addr::LOCALHOST)));
+    }
+
+    #[test]
+    fn trusted_proxies_matches_configured_ranges() {
+        let tp = TrustedProxies {
+            cidrs: vec![
+                TrustedProxyCidr::parse("127.0.0.1").unwrap(),
+                TrustedProxyCidr::parse("172.16.0.0/12").unwrap(),
+            ],
+        };
+        assert!(tp.is_trusted(&IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))));
+        assert!(tp.is_trusted(&IpAddr::V4(Ipv4Addr::new(172, 17, 0, 1))));
+        assert!(!tp.is_trusted(&IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))));
+    }
 }

@@ -47,7 +47,10 @@ jobs:
             dsl_lexer_parser \
             schema_verification_garbage \
             sensitive_arg_masking \
-            tool_substitution_detection; do
+            tool_substitution_detection \
+            dsl_structure_aware \
+            sse_jsonrpc_parsing \
+            schemapin_keystore_roundtrip; do
             echo "--- Fuzzing $target (15s) ---"
             cargo +nightly fuzz run --fuzz-dir . "$target" -- -max_total_time=15 || exit 1
           done

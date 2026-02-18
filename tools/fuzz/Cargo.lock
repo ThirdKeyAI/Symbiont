@@ -6784,6 +6784,7 @@ dependencies = [
  "hmac",
  "libfuzzer-sys",
  "repl-core",
+ "serde",
  "serde_json",
  "sha2",
  "symbi-channel-adapter",

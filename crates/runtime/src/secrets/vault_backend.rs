@@ -234,6 +234,15 @@ impl VaultSecretStore {
 impl SecretStore for VaultSecretStore {
     /// Retrieve a secret by key from Vault KV v2
     async fn get_secret(&self, key: &str) -> Result<Secret, SecretError> {
+        // Intent log — ensures a paper trail even if the process crashes
+        // during the Vault call.
+        self.log_audit_event(SecretAuditEvent::attempt(
+            self.agent_id.clone(),
+            "get_secret".to_string(),
+            Some(key.to_string()),
+        ))
+        .await?;
+
         let path = self.get_secret_path(key);
 
         let result: Result<Secret, SecretError> = async {
@@ -248,20 +257,30 @@ impl SecretStore for VaultSecretStore {
                             message: "Invalid Vault response structure".to_string(),
                         })?;
 
-                    // Extract the secret value - assume it's stored under a "value" key
+                    // Extract the secret value from a well-known key.
+                    // We require secrets to use "value" or "content" — no
+                    // heuristic fallback to the "first string value" which
+                    // is non-deterministic on unordered JSON objects and could
+                    // silently return the wrong field.
                     let secret_value = data
                         .get("value")
+                        .or_else(|| data.get("content"))
                         .and_then(|v| v.as_str())
                         .map(|s| s.to_string())
-                        .or_else(|| {
-                            // Fallback: if no "value" key, try to get the first string value
-                            data.as_object()
-                                .and_then(|obj| obj.values().next())
-                                .and_then(|v| v.as_str())
-                                .map(|s| s.to_string())
-                        })
-                        .ok_or_else(|| SecretError::BackendError {
-                            message: format!("No string value found for key '{}'", key),
+                        .ok_or_else(|| {
+                            let available_keys: Vec<&str> = data
+                                .as_object()
+                                .map(|obj| obj.keys().map(|k| k.as_str()).collect())
+                                .unwrap_or_default();
+                            SecretError::BackendError {
+                                message: format!(
+                                    "Secret '{}' has no 'value' or 'content' key. \
+                                     Available keys: [{}]. Store secrets with a 'value' key, \
+                                     or use get_secret_field() to request a specific key.",
+                                    key,
+                                    available_keys.join(", ")
+                                ),
+                            }
                         })?;
 
                     // Extract metadata from the Vault response
@@ -347,6 +366,13 @@ impl SecretStore for VaultSecretStore {
 
     /// List all secret keys under the agent's secrets path
     async fn list_secrets(&self) -> Result<Vec<String>, SecretError> {
+        self.log_audit_event(SecretAuditEvent::attempt(
+            self.agent_id.clone(),
+            "list_secrets".to_string(),
+            None,
+        ))
+        .await?;
+
         let base_path = self.get_base_path();
 
         let result: Result<Vec<String>, SecretError> = async {
@@ -388,8 +414,99 @@ impl SecretStore for VaultSecretStore {
     }
 }
 
-/// Extension trait for prefix filtering
 impl VaultSecretStore {
+    /// Retrieve a specific field from a Vault secret by key.
+    ///
+    /// Use this when the secret contains multiple fields (e.g. `username`,
+    /// `password`) and you need to access a specific one rather than the
+    /// default `value`/`content` key used by [`get_secret`].
+    pub async fn get_secret_field(
+        &self,
+        key: &str,
+        field: &str,
+    ) -> Result<Secret, SecretError> {
+        self.log_audit_event(
+            SecretAuditEvent::attempt(
+                self.agent_id.clone(),
+                "get_secret_field".to_string(),
+                Some(key.to_string()),
+            )
+            .with_metadata(serde_json::json!({ "field": field })),
+        )
+        .await?;
+
+        let path = self.get_secret_path(key);
+
+        let result: Result<Secret, SecretError> = async {
+            match kv2::read::<serde_json::Value>(&self.client, &self.config.mount_path, &path).await
+            {
+                Ok(secret_response) => {
+                    let data = secret_response
+                        .get("data")
+                        .and_then(|d| d.get("data"))
+                        .ok_or_else(|| SecretError::BackendError {
+                            message: "Invalid Vault response structure".to_string(),
+                        })?;
+
+                    let secret_value = data
+                        .get(field)
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .ok_or_else(|| {
+                            let available_keys: Vec<&str> = data
+                                .as_object()
+                                .map(|obj| obj.keys().map(|k| k.as_str()).collect())
+                                .unwrap_or_default();
+                            SecretError::BackendError {
+                                message: format!(
+                                    "Secret '{}' has no field '{}'. Available keys: [{}]",
+                                    key,
+                                    field,
+                                    available_keys.join(", ")
+                                ),
+                            }
+                        })?;
+
+                    Ok(Secret::new(key.to_string(), secret_value))
+                }
+                Err(e) => {
+                    let mapped = self.map_vault_error(e);
+                    match mapped {
+                        SecretError::NotFound { .. } => Err(SecretError::NotFound {
+                            key: key.to_string(),
+                        }),
+                        SecretError::PermissionDenied { .. } => {
+                            Err(SecretError::PermissionDenied {
+                                key: key.to_string(),
+                            })
+                        }
+                        other => Err(other),
+                    }
+                }
+            }
+        }
+        .await;
+
+        let audit_event = match &result {
+            Ok(_) => SecretAuditEvent::success(
+                self.agent_id.clone(),
+                "get_secret_field".to_string(),
+                Some(key.to_string()),
+            )
+            .with_metadata(serde_json::json!({ "field": field })),
+            Err(e) => SecretAuditEvent::failure(
+                self.agent_id.clone(),
+                "get_secret_field".to_string(),
+                Some(key.to_string()),
+                e.to_string(),
+            )
+            .with_metadata(serde_json::json!({ "field": field })),
+        };
+        self.log_audit_event(audit_event).await?;
+
+        result
+    }
+
     /// List secrets with prefix filtering
     pub async fn list_secrets_with_prefix(&self, prefix: &str) -> Result<Vec<String>, SecretError> {
         let all_keys = self.list_secrets().await?;
