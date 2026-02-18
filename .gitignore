@@ -345,6 +345,9 @@ dist
 # SchemaPin signing keys (private key - never commit)
 .keys/
 
+# Vector database (LanceDB embedded storage)
+data/vector_db/
+
 # Claude Code
 .claude/
 !.claude/CLAUDE.md

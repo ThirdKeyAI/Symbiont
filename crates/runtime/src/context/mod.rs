@@ -45,6 +45,9 @@ pub mod manager;
 pub mod markdown_memory;
 pub mod types;
 pub mod vector_db;
+pub mod vector_db_factory;
+pub mod vector_db_lance;
+pub mod vector_db_trait;
 
 // Re-export commonly used types and traits
 pub use types::{
@@ -69,8 +72,12 @@ pub use vector_db::{
     TfIdfEmbeddingService, VectorDatabase, VectorDatabaseStats,
 };
 
-#[cfg(feature = "vector-db")]
+#[cfg(feature = "vector-qdrant")]
 pub use vector_db::QdrantClientWrapper;
+
+pub use vector_db_factory::{create_vector_backend, resolve_vector_config, VectorBackendConfig};
+pub use vector_db_lance::{LanceDbBackend, LanceDbConfig};
+pub use vector_db_trait::{DistanceMetric, VectorDb};
 
 #[cfg(test)]
 mod tests {

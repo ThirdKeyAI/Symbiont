@@ -547,6 +547,7 @@ pub struct VectorDatabaseConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum VectorDatabaseProvider {
     Qdrant,
+    LanceDb,
     ChromaDB,
     Pinecone,
     Weaviate,

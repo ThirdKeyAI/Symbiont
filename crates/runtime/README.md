@@ -14,7 +14,7 @@ The Symbi Agent Runtime System provides a complete infrastructure for executing 
 - **Audit Trail**: Cryptographic audit logging for compliance and debugging
 - **Context Management**: Persistent agent memory and knowledge storage
 - **RAG Engine**: Retrieval-augmented generation with semantic search
-- **Vector Database**: Qdrant integration for embedding storage and similarity search
+- **Vector Database**: LanceDB embedded (default, zero-config) or Qdrant (optional) for embedding storage and similarity search
 - **Secure MCP Integration**: Cryptographically verified external tool access
 - **SchemaPin Security**: Tool verification with Trust-On-First-Use (TOFU)
 - **AI Tool Review**: Automated security analysis and signing workflow
@@ -207,37 +207,36 @@ let response = rag_engine.process_query(request).await?;
 println!("RAG Response: {}", response.content);
 ```
 
-### 5. Vector Database Integration
+### 5. Vector Database
 
-Semantic search with Qdrant:
+Symbiont uses **LanceDB** as the default embedded vector backend — zero config,
+no Docker, no external services. For scaled deployments, **Qdrant** is available
+as an optional backend.
+
+```bash
+# Default: LanceDB embedded (just works)
+cargo run --example context_example
+
+# Optional: Qdrant
+docker run -p 6333:6333 qdrant/qdrant
+SYMBIONT_VECTOR_BACKEND=qdrant cargo run --features vector-qdrant --example context_example
+```
+
+| Env var | Description | Default |
+|---------|-------------|---------|
+| `SYMBIONT_VECTOR_BACKEND` | `lancedb` or `qdrant` | `lancedb` |
+| `SYMBIONT_VECTOR_DATA_PATH` | LanceDB storage dir | `./data/vector_db` |
+| `SYMBIONT_VECTOR_HOST` | Qdrant host | `localhost` |
+| `SYMBIONT_VECTOR_PORT` | Qdrant port | `6333` |
+| `SYMBIONT_VECTOR_DIMENSION` | Vector dimension | `384` |
 
 ```rust
-use symbi_runtime::context::vector_db::*;
+use symbi_runtime::context::{create_vector_backend, VectorBackendConfig, LanceDbConfig};
 
-let config = VectorDbConfig {
-    qdrant_url: "http://localhost:6333".to_string(),
-    collection_name: "agent_knowledge".to_string(),
-    vector_dimension: 384,
-    distance_metric: DistanceMetric::Cosine,
-};
-
-let vector_db = QdrantClientWrapper::new(config).await?;
-
-// Store knowledge with embeddings
-vector_db.store_knowledge_item(KnowledgeItem {
-    content: "Machine learning is a subset of AI".to_string(),
-    metadata: metadata! {
-        "topic" => "AI",
-        "source" => "documentation"
-    },
-    timestamp: SystemTime::now(),
-}).await?;
-
-// Semantic search
-let results = vector_db.semantic_search(
-    "What is artificial intelligence?",
-    5
-).await?;
+// Zero-config LanceDB — no Docker required
+let config = VectorBackendConfig::LanceDb(LanceDbConfig::default());
+let vector_db = create_vector_backend(config).await?;
+vector_db.initialize().await?;
 ```
 
 ### 6. Secure MCP Integration
@@ -538,7 +537,9 @@ audit_trail.record_event(event).await?;
 - `SYMBI_LOG_LEVEL`: Set logging level (debug, info, warn, error)
 - `SYMBI_MAX_AGENTS`: Maximum number of concurrent agents
 - `SYMBI_RESOURCE_ENFORCEMENT`: Enable/disable resource enforcement
-- `SYMBI_QDRANT_URL`: Qdrant vector database URL
+- `SYMBIONT_VECTOR_BACKEND`: Vector backend (`lancedb` or `qdrant`, default: `lancedb`)
+- `SYMBIONT_VECTOR_DATA_PATH`: LanceDB storage directory (default: `./data/vector_db`)
+- `SYMBI_QDRANT_URL`: Qdrant vector database URL (when using `vector-qdrant` feature)
 - `SYMBI_SCHEMAPIN_PATH`: Path to SchemaPin CLI binary
 
 ### Configuration Files
@@ -562,7 +563,8 @@ enable_compression = true
 max_context_size_mb = 100
 
 [vector_db]
-qdrant_url = "http://localhost:6333"
+backend = "lancedb"           # or "qdrant"
+data_path = "./data/vector_db" # LanceDB storage dir
 collection_name = "agent_knowledge"
 vector_dimension = 384
 
@@ -757,7 +759,7 @@ For issues and questions:
 
 ### ✅ Phase 4: Context & Knowledge Systems (COMPLETED)
 - [x] Agent Context Manager with persistent storage
-- [x] Vector Database integration (Qdrant)
+- [x] Vector Database integration (LanceDB default + Qdrant optional)
 - [x] RAG Engine implementation
 - [x] Knowledge persistence and sharing
 - [x] Semantic search capabilities

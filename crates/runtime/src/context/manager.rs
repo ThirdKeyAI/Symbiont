@@ -13,9 +13,9 @@ use tokio::sync::RwLock;
 
 use super::embedding::create_embedding_service_from_env;
 use super::types::*;
-#[cfg(feature = "vector-db")]
-use super::vector_db::QdrantClientWrapper;
-use super::vector_db::{EmbeddingService, NoOpVectorDatabase, QdrantConfig, VectorDatabase};
+use super::vector_db::{EmbeddingService, NoOpVectorDatabase, QdrantConfig};
+use super::vector_db_factory::{create_vector_backend, resolve_vector_config, VectorBackendConfig};
+use super::vector_db_trait::VectorDb;
 use crate::integrations::policy_engine::{MockPolicyEngine, PolicyEngine};
 use crate::secrets::{SecretStore, SecretsConfig};
 use crate::types::AgentId;
@@ -104,7 +104,7 @@ pub struct StandardContextManager {
     /// Shared knowledge store
     shared_knowledge: Arc<RwLock<HashMap<KnowledgeId, SharedKnowledgeItem>>>,
     /// Vector database for semantic search and knowledge storage
-    vector_db: Arc<dyn VectorDatabase>,
+    vector_db: Arc<dyn VectorDb>,
     /// Embedding service for generating vector embeddings
     embedding_service: Arc<dyn EmbeddingService>,
     /// Persistent storage for contexts
@@ -135,7 +135,9 @@ pub struct ContextManagerConfig {
     pub max_memory_items_per_agent: usize,
     /// Maximum knowledge items per agent
     pub max_knowledge_items_per_agent: usize,
-    /// Qdrant vector database configuration
+    /// Vector backend configuration (if set, used instead of qdrant_config)
+    pub vector_backend: Option<VectorBackendConfig>,
+    /// Qdrant vector database configuration (legacy, use vector_backend instead)
     pub qdrant_config: QdrantConfig,
     /// Enable vector database integration
     pub enable_vector_db: bool,
@@ -158,6 +160,7 @@ impl Default for ContextManagerConfig {
             archiving_interval: std::time::Duration::from_secs(3600), // 1 hour
             max_memory_items_per_agent: 10000,
             max_knowledge_items_per_agent: 5000,
+            vector_backend: None,
             qdrant_config: QdrantConfig::default(),
             enable_vector_db: false,
             persistence_config: FilePersistenceConfig::default(),
@@ -543,20 +546,23 @@ impl ContextPersistence for FilePersistence {
 impl StandardContextManager {
     /// Create a new StandardContextManager
     pub async fn new(config: ContextManagerConfig, agent_id: &str) -> Result<Self, ContextError> {
-        let vector_db: Arc<dyn VectorDatabase> = {
-            #[cfg(feature = "vector-db")]
-            {
-                if config.enable_vector_db {
-                    Arc::new(QdrantClientWrapper::new(config.qdrant_config.clone()))
-                } else {
+        let vector_db: Arc<dyn VectorDb> = if config.enable_vector_db {
+            if let Some(ref backend_config) = config.vector_backend {
+                create_vector_backend(backend_config.clone())
+                    .await
+                    .unwrap_or_else(|e| {
+                        tracing::warn!("Failed to create vector backend: {}, using NoOp", e);
+                        Arc::new(NoOpVectorDatabase)
+                    })
+            } else {
+                let resolved = resolve_vector_config();
+                create_vector_backend(resolved).await.unwrap_or_else(|e| {
+                    tracing::warn!("Failed to create vector backend: {}, using NoOp", e);
                     Arc::new(NoOpVectorDatabase)
-                }
+                })
             }
-            #[cfg(not(feature = "vector-db"))]
-            {
-                let _ = &config.enable_vector_db;
-                Arc::new(NoOpVectorDatabase)
-            }
+        } else {
+            Arc::new(NoOpVectorDatabase)
         };
 
         let embedding_service =

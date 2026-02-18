@@ -1,6 +1,6 @@
 //! Integration tests for Vector Database functionality
 
-#![cfg(feature = "vector-db")]
+#![cfg(feature = "vector-qdrant")]
 
 use std::collections::HashMap;
 use std::time::SystemTime;
