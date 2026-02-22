@@ -604,6 +604,113 @@ impl StandardContextManager {
         self.secrets.as_ref()
     }
 
+    /// Check token usage and run compaction if thresholds are crossed.
+    ///
+    /// Returns `Some(CompactionResult)` if compaction was performed, `None` if
+    /// usage was below all thresholds.
+    pub async fn check_and_compact(
+        &self,
+        agent_id: &AgentId,
+        session_id: &SessionId,
+        config: &super::compaction::CompactionConfig,
+        counter: &dyn super::token_counter::TokenCounter,
+    ) -> Result<Option<super::compaction::CompactionResult>, ContextError> {
+        use super::compaction::{select_tier, truncate_items, CompactionTier};
+
+        if !config.enabled {
+            return Ok(None);
+        }
+
+        // Retrieve current context
+        let context = match self.retrieve_context(*agent_id, Some(*session_id)).await? {
+            Some(ctx) => ctx,
+            None => return Ok(None),
+        };
+
+        // Count current token usage
+        let current_tokens = counter.count_messages(&context.conversation_history);
+        let limit = counter.model_context_limit();
+
+        if limit == 0 {
+            return Ok(None);
+        }
+
+        let usage_ratio = current_tokens as f32 / limit as f32;
+
+        let tier = match select_tier(usage_ratio, config) {
+            Some(t) => t,
+            None => return Ok(None),
+        };
+
+        let start = std::time::Instant::now();
+
+        match tier {
+            CompactionTier::Truncate => {
+                let (new_items, affected) = truncate_items(
+                    &context.conversation_history,
+                    config,
+                    config.summarize_threshold,
+                );
+
+                if affected == 0 {
+                    return Ok(None);
+                }
+
+                let tokens_after = counter.count_messages(&new_items);
+
+                let mut updated = context.clone();
+                updated.conversation_history = new_items;
+                self.store_context(*agent_id, updated).await?;
+
+                Ok(Some(super::compaction::CompactionResult {
+                    tier_applied: CompactionTier::Truncate,
+                    tokens_before: current_tokens,
+                    tokens_after,
+                    tokens_saved: current_tokens.saturating_sub(tokens_after),
+                    items_affected: affected,
+                    duration_ms: start.elapsed().as_millis() as u64,
+                    summary_generated: None,
+                }))
+            }
+            CompactionTier::Summarize => {
+                // Summarize requires an LLM call — for now, fall back to truncate.
+                // Full LLM integration deferred to heartbeat scheduler wiring.
+                tracing::info!(
+                    agent = %agent_id,
+                    "compaction: Summarize tier selected but no LLM client in context manager, falling back to truncate"
+                );
+                let (new_items, affected) = truncate_items(
+                    &context.conversation_history,
+                    config,
+                    config.summarize_threshold,
+                );
+
+                if affected == 0 {
+                    return Ok(None);
+                }
+
+                let tokens_after = counter.count_messages(&new_items);
+                let mut updated = context.clone();
+                updated.conversation_history = new_items;
+                self.store_context(*agent_id, updated).await?;
+
+                Ok(Some(super::compaction::CompactionResult {
+                    tier_applied: CompactionTier::Truncate, // Actually fell back
+                    tokens_before: current_tokens,
+                    tokens_after,
+                    tokens_saved: current_tokens.saturating_sub(tokens_after),
+                    items_affected: affected,
+                    duration_ms: start.elapsed().as_millis() as u64,
+                    summary_generated: None,
+                }))
+            }
+            CompactionTier::CompressEpisodic | CompactionTier::ArchiveToMemory => {
+                // Enterprise tiers — stub returns None in OSS
+                Ok(None)
+            }
+        }
+    }
+
     /// Initialize the context manager
     pub async fn initialize(&self) -> Result<(), ContextError> {
         // Initialize vector database connection and collection
@@ -3516,5 +3623,37 @@ impl ContextManager for StandardContextManager {
     async fn shutdown(&self) -> Result<(), ContextError> {
         // Delegate to the concrete implementation's shutdown method
         StandardContextManager::shutdown(self).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn check_and_compact_noop_when_below_threshold() {
+        use super::super::compaction::CompactionConfig;
+        use super::super::token_counter::HeuristicTokenCounter;
+
+        let config = ContextManagerConfig::default();
+        let agent_id = AgentId::new();
+        let manager = StandardContextManager::new(config, &agent_id.to_string())
+            .await
+            .unwrap();
+        manager.initialize().await.unwrap();
+        let session_id = manager.create_session(agent_id).await.unwrap();
+
+        let compaction_config = CompactionConfig::default();
+        let counter = HeuristicTokenCounter::new(200_000);
+
+        let result = manager
+            .check_and_compact(&agent_id, &session_id, &compaction_config, &counter)
+            .await
+            .unwrap();
+
+        assert!(
+            result.is_none(),
+            "should be no-op when context is nearly empty"
+        );
     }
 }

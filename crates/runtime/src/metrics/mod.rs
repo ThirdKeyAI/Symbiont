@@ -8,6 +8,7 @@
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use thiserror::Error;
@@ -177,6 +178,8 @@ pub struct MetricsSnapshot {
     pub load_balancer: LoadBalancerMetrics,
     /// System resource metrics.
     pub system: SystemResourceMetrics,
+    /// Context compaction metrics.
+    pub compaction: Option<CompactionMetrics>,
 }
 
 /// Scheduler-level counters and gauges.
@@ -216,6 +219,19 @@ pub struct LoadBalancerMetrics {
 pub struct SystemResourceMetrics {
     pub memory_usage_mb: f64,
     pub cpu_usage_percent: f64,
+}
+
+/// Compaction pipeline metrics.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CompactionMetrics {
+    /// Total number of compaction runs.
+    pub total_compactions: u64,
+    /// Cumulative tokens reclaimed.
+    pub total_tokens_saved: u64,
+    /// Compactions by tier: (tier_name, count).
+    pub compactions_by_tier: HashMap<String, u64>,
+    /// Current context utilization ratio (0.0–1.0), if known.
+    pub context_utilization_ratio: Option<f64>,
 }
 
 // ---------------------------------------------------------------------------
@@ -383,6 +399,7 @@ mod tests {
                 memory_usage_mb: 512.0,
                 cpu_usage_percent: 30.0,
             },
+            compaction: None,
         };
 
         let json = serde_json::to_string(&snapshot).unwrap();
@@ -467,9 +484,18 @@ mod tests {
                 memory_usage_mb: 0.0,
                 cpu_usage_percent: 0.0,
             },
+            compaction: None,
         };
 
         assert!(composite.export(&snapshot).await.is_ok());
         assert!(composite.shutdown().await.is_ok());
+    }
+
+    #[test]
+    fn compaction_metrics_default() {
+        let m = CompactionMetrics::default();
+        assert_eq!(m.total_compactions, 0);
+        assert_eq!(m.total_tokens_saved, 0);
+        assert!(m.context_utilization_ratio.is_none());
     }
 }

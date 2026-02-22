@@ -12,11 +12,6 @@ use crate::sandbox::{ExecutionResult, SandboxRunner, SandboxTier};
 use crate::types::*;
 use std::sync::Arc;
 
-// Import audit trail types - conditional compilation for runtime vs enterprise
-// NOTE: audit_trail module is currently disabled in integrations/mod.rs
-// #[cfg(feature = "enterprise")]
-// use crate::integrations::audit_trail::{AuditTrail, AuditEvent, AuditEventType, AuditSeverity, AuditCategory, AuditDetails, AuditContext, AuditOutcome};
-
 /// Sandbox orchestrator trait for managing agent sandboxes
 #[async_trait]
 pub trait SandboxOrchestrator: Send + Sync {

@@ -1,21 +1,14 @@
-//! Confidence monitoring API stubs and trait definitions
+//! Confidence monitoring trait and types
 //!
-//! This module provides the public API contract for confidence monitoring
-//! functionality. The actual implementation is provided by the enterprise crate.
+//! Defines `ConfidenceMonitorTrait` for evaluating SLM response quality
+//! and `NoOpConfidenceMonitor` as the default pass-through implementation.
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-use super::decision::{ModelRequest, ModelResponse, RoutingContext};
-use super::error::TaskType;
+use super::decision::{ModelRequest, ModelResponse};
 use crate::context::AgentContext as Context;
-
-/// Configuration for confidence monitoring
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
-pub struct ConfidenceConfig {
-    // Stub implementation - actual fields will be defined in enterprise crate
-}
 
 /// Result of confidence evaluation
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -50,12 +43,6 @@ impl fmt::Display for ConfidenceError {
 
 impl std::error::Error for ConfidenceError {}
 
-/// Statistics for confidence monitoring
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
-pub struct ConfidenceStatistics {
-    pub total_evaluations: u64,
-}
-
 /// Trait for confidence monitoring implementations
 #[async_trait]
 pub trait ConfidenceMonitorTrait: Send + Sync {
@@ -66,52 +53,6 @@ pub trait ConfidenceMonitorTrait: Send + Sync {
         _request: &ModelRequest,
         _response: &ModelResponse,
     ) -> Result<ConfidenceEvaluation, ConfidenceError>;
-}
-
-/// Concrete confidence monitor implementation (stub)
-#[derive(Debug)]
-pub struct ConfidenceMonitor {
-    _config: ConfidenceConfig,
-    statistics: ConfidenceStatistics,
-}
-
-impl ConfidenceMonitor {
-    /// Create a new confidence monitor with the given configuration
-    pub fn new(config: ConfidenceConfig) -> Self {
-        Self {
-            _config: config,
-            statistics: ConfidenceStatistics::default(),
-        }
-    }
-
-    /// Evaluate confidence for a response
-    pub async fn evaluate_confidence(
-        &self,
-        _response: &ModelResponse,
-        _task_type: &TaskType,
-        _context: &RoutingContext,
-    ) -> Result<ConfidenceEvaluation, ConfidenceError> {
-        Ok(ConfidenceEvaluation {
-            meets_threshold: true,
-            recommendation: ConfidenceRecommendation::UseResponse,
-        })
-    }
-
-    /// Record an evaluation result
-    pub async fn record_evaluation(
-        &mut self,
-        _task_type: TaskType,
-        _confidence_score: f64,
-        _model_id: String,
-        _user_feedback: Option<bool>,
-    ) {
-        self.statistics.total_evaluations += 1;
-    }
-
-    /// Get confidence monitoring statistics
-    pub async fn get_statistics(&self) -> ConfidenceStatistics {
-        self.statistics.clone()
-    }
 }
 
 /// No-operation confidence monitor implementation for trait usage

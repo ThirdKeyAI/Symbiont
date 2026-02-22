@@ -54,6 +54,7 @@ candle-core = { version = "0.9.1", optional = true }
 candle-nn = { version = "0.9.1", optional = true }
 candle-transformers = { version = "0.9.1", optional = true }
 tokenizers = { version = "0.15", optional = true }
+tiktoken-rs = "0.6"
 hf-hub = { version = "0.3", optional = true }
 cron = { version = "0.15", optional = true }
 chrono-tz = { version = "0.10", optional = true }
@@ -67,7 +68,7 @@ octocrab = "0.49"
 toml = "0.8"
 url = "2.4"
 base64 = "0.21"
-base64ct = "=1.6.0"  # Force exact compatible version that doesn't require edition2024
+base64ct = "1"
 schemapin = "1.3.0"
 agentpin = { version = "0.2.0", features = ["fetch"] }
 sha2 = "0.10"
@@ -124,7 +125,8 @@ native-sandbox = ["rlimit", "libc"]
 cli-executor = ["libc"]
 metrics = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp"]
 composio = []  # Composio MCP integration — uses reqwest (already required) for SSE
-enterprise = []  # Enterprise feature for conditional compilation
+enterprise = []  # Enterprise sandbox variants (gVisor, Firecracker)
+enterprise-compaction = []  # Enterprise compaction tiers (Tier 2: semantic, Tier 3: vector)
 full = ["vector-lancedb", "vector-qdrant", "embedding-models", "http-api", "http-input", "keychain", "cron", "metrics", "composio"]
 minimal = []  # Minimal build for faster CI
 

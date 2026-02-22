@@ -6,6 +6,8 @@ use crate::sandbox::SandboxTier;
 use crate::types::AgentId;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 use std::time::Duration;
 
 /// Routing decision outcome
@@ -154,38 +156,80 @@ pub struct TokenUsage {
     pub total_tokens: u32,
 }
 
-/// Routing statistics for monitoring with improved precision and memory efficiency
-#[derive(Debug, Clone)]
+/// Routing statistics for monitoring with lock-free atomic counters
+///
+/// All counter fields use `AtomicU64` for lock-free concurrent updates.
+/// Only the confidence score circular buffer requires a `Mutex`, which is
+/// held very briefly during score insertion or averaging.
 pub struct RoutingStatistics {
-    pub total_requests: u64,
-    pub slm_routes: u64,
-    pub llm_routes: u64,
-    pub denied_routes: u64,
-    pub fallback_routes: u64,
-    /// Cumulative response time in nanoseconds for precise averaging
-    cumulative_response_time_nanos: u128,
-    /// Average response time calculated from cumulative time
-    pub average_response_time: Duration,
-    pub success_rate: f64,
-    /// Circular buffer for confidence scores (memory efficient)
-    confidence_scores: VecDeque<f64>,
-    /// Maximum confidence scores to retain
-    max_confidence_scores: usize,
+    total_requests: AtomicU64,
+    slm_routes: AtomicU64,
+    llm_routes: AtomicU64,
+    denied_routes: AtomicU64,
+    fallback_routes: AtomicU64,
+    /// Cumulative response time in nanoseconds (truncated to u64)
+    cumulative_response_time_nanos: AtomicU64,
+    /// Number of successful requests (for computing success_rate)
+    successful_requests: AtomicU64,
+    /// Confidence scores protected by a std Mutex (held briefly)
+    confidence_state: Mutex<ConfidenceState>,
+}
+
+/// Internal state for confidence score tracking
+struct ConfidenceState {
+    scores: VecDeque<f64>,
+    max_scores: usize,
 }
 
 impl Default for RoutingStatistics {
     fn default() -> Self {
         Self {
-            total_requests: 0,
-            slm_routes: 0,
-            llm_routes: 0,
-            denied_routes: 0,
-            fallback_routes: 0,
-            cumulative_response_time_nanos: 0,
-            average_response_time: Duration::from_millis(0),
-            success_rate: 0.0,
-            confidence_scores: VecDeque::new(),
-            max_confidence_scores: 1000,
+            total_requests: AtomicU64::new(0),
+            slm_routes: AtomicU64::new(0),
+            llm_routes: AtomicU64::new(0),
+            denied_routes: AtomicU64::new(0),
+            fallback_routes: AtomicU64::new(0),
+            cumulative_response_time_nanos: AtomicU64::new(0),
+            successful_requests: AtomicU64::new(0),
+            confidence_state: Mutex::new(ConfidenceState {
+                scores: VecDeque::new(),
+                max_scores: 1000,
+            }),
+        }
+    }
+}
+
+impl std::fmt::Debug for RoutingStatistics {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RoutingStatistics")
+            .field("total_requests", &self.total_requests())
+            .field("slm_routes", &self.slm_routes())
+            .field("llm_routes", &self.llm_routes())
+            .field("denied_routes", &self.denied_routes())
+            .field("fallback_routes", &self.fallback_routes())
+            .field("average_response_time", &self.average_response_time())
+            .field("success_rate", &self.success_rate())
+            .finish()
+    }
+}
+
+impl Clone for RoutingStatistics {
+    fn clone(&self) -> Self {
+        let confidence_state = self.confidence_state.lock().unwrap();
+        Self {
+            total_requests: AtomicU64::new(self.total_requests.load(Ordering::Relaxed)),
+            slm_routes: AtomicU64::new(self.slm_routes.load(Ordering::Relaxed)),
+            llm_routes: AtomicU64::new(self.llm_routes.load(Ordering::Relaxed)),
+            denied_routes: AtomicU64::new(self.denied_routes.load(Ordering::Relaxed)),
+            fallback_routes: AtomicU64::new(self.fallback_routes.load(Ordering::Relaxed)),
+            cumulative_response_time_nanos: AtomicU64::new(
+                self.cumulative_response_time_nanos.load(Ordering::Relaxed),
+            ),
+            successful_requests: AtomicU64::new(self.successful_requests.load(Ordering::Relaxed)),
+            confidence_state: Mutex::new(ConfidenceState {
+                scores: confidence_state.scores.clone(),
+                max_scores: confidence_state.max_scores,
+            }),
         }
     }
 }
@@ -259,44 +303,102 @@ impl ModelRequest {
 }
 
 impl RoutingStatistics {
-    /// Update statistics with a new routing decision
-    pub fn update(&mut self, decision: &RouteDecision, response_time: Duration, success: bool) {
-        self.total_requests += 1;
+    // --- Accessor methods (lock-free reads) ---
+
+    /// Get total number of requests processed
+    pub fn total_requests(&self) -> u64 {
+        self.total_requests.load(Ordering::Relaxed)
+    }
+
+    /// Get number of requests routed to SLM
+    pub fn slm_routes(&self) -> u64 {
+        self.slm_routes.load(Ordering::Relaxed)
+    }
+
+    /// Get number of requests routed to LLM
+    pub fn llm_routes(&self) -> u64 {
+        self.llm_routes.load(Ordering::Relaxed)
+    }
+
+    /// Get number of denied requests
+    pub fn denied_routes(&self) -> u64 {
+        self.denied_routes.load(Ordering::Relaxed)
+    }
+
+    /// Get number of fallback routes (SLM -> LLM)
+    pub fn fallback_routes(&self) -> u64 {
+        self.fallback_routes.load(Ordering::Relaxed)
+    }
+
+    /// Compute average response time from cumulative nanos and total requests
+    pub fn average_response_time(&self) -> Duration {
+        let total = self.total_requests.load(Ordering::Relaxed);
+        if total == 0 {
+            return Duration::ZERO;
+        }
+        let cumulative = self.cumulative_response_time_nanos.load(Ordering::Relaxed);
+        Duration::from_nanos(cumulative / total)
+    }
+
+    /// Compute success rate from successful and total requests
+    pub fn success_rate(&self) -> f64 {
+        let total = self.total_requests.load(Ordering::Relaxed);
+        if total == 0 {
+            return 0.0;
+        }
+        let successful = self.successful_requests.load(Ordering::Relaxed);
+        successful as f64 / total as f64
+    }
+
+    // --- Mutation methods (lock-free atomic increments) ---
+
+    /// Record a completed request, updating all relevant counters atomically
+    pub fn record_request(&self, decision: &RouteDecision, response_time: Duration, success: bool) {
+        self.total_requests.fetch_add(1, Ordering::Relaxed);
 
         match decision {
-            RouteDecision::UseSLM { .. } => self.slm_routes += 1,
-            RouteDecision::UseLLM { .. } => self.llm_routes += 1,
-            RouteDecision::Deny { .. } => self.denied_routes += 1,
+            RouteDecision::UseSLM { .. } => {
+                self.slm_routes.fetch_add(1, Ordering::Relaxed);
+            }
+            RouteDecision::UseLLM { .. } => {
+                self.llm_routes.fetch_add(1, Ordering::Relaxed);
+            }
+            RouteDecision::Deny { .. } => {
+                self.denied_routes.fetch_add(1, Ordering::Relaxed);
+            }
         }
 
-        // Update cumulative response time and calculate average
-        self.cumulative_response_time_nanos += response_time.as_nanos();
-        self.average_response_time = Duration::from_nanos(
-            (self.cumulative_response_time_nanos / self.total_requests as u128) as u64,
-        );
+        // Truncate to u64 nanos (good for ~584 years of cumulative time)
+        let nanos = response_time.as_nanos() as u64;
+        self.cumulative_response_time_nanos
+            .fetch_add(nanos, Ordering::Relaxed);
 
-        // Update success rate
-        let successful_requests = if success { 1 } else { 0 };
-        self.success_rate = (self.success_rate * (self.total_requests - 1) as f64
-            + successful_requests as f64)
-            / self.total_requests as f64;
-    }
-
-    /// Add confidence score to statistics
-    pub fn add_confidence_score(&mut self, score: f64) {
-        self.confidence_scores.push_back(score);
-        // Keep only last 1000 scores to prevent unbounded growth
-        if self.confidence_scores.len() > self.max_confidence_scores {
-            self.confidence_scores.pop_front();
+        if success {
+            self.successful_requests.fetch_add(1, Ordering::Relaxed);
         }
     }
 
-    /// Get average confidence score
+    /// Record a fallback from SLM to LLM
+    pub fn record_fallback(&self) {
+        self.fallback_routes.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Add a confidence score (takes Mutex briefly)
+    pub fn add_confidence_score(&self, score: f64) {
+        let mut state = self.confidence_state.lock().unwrap();
+        state.scores.push_back(score);
+        if state.scores.len() > state.max_scores {
+            state.scores.pop_front();
+        }
+    }
+
+    /// Get average confidence score (takes Mutex briefly)
     pub fn average_confidence(&self) -> Option<f64> {
-        if self.confidence_scores.is_empty() {
+        let state = self.confidence_state.lock().unwrap();
+        if state.scores.is_empty() {
             None
         } else {
-            Some(self.confidence_scores.iter().sum::<f64>() / self.confidence_scores.len() as f64)
+            Some(state.scores.iter().sum::<f64>() / state.scores.len() as f64)
         }
     }
 }

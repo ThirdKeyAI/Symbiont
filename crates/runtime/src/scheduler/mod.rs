@@ -955,6 +955,7 @@ impl DefaultAgentScheduler {
                 memory_usage_mb: resource_usage.memory_used as f64 / (1024.0 * 1024.0),
                 cpu_usage_percent: resource_usage.cpu_utilization as f64,
             },
+            compaction: None,
         }
     }
 

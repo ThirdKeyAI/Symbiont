@@ -1,13 +1,12 @@
 //! SchemaPin Integration Tests
 //!
-//! Tests for the SchemaPin CLI wrapper integration
+//! Tests for the SchemaPin native client integration
 
 use std::collections::HashMap;
 
 use symbi_runtime::integrations::schemapin::{
     KeyStoreConfig, KeyStoreError, LocalKeyStore, MockNativeSchemaPinClient, NativeSchemaPinClient,
-    PinnedKey, SchemaPinClient, SchemaPinConfig, SchemaPinError, SignatureInfo, VerificationResult,
-    VerifyArgs,
+    PinnedKey, SchemaPinClient, SchemaPinError, SignatureInfo, VerificationResult, VerifyArgs,
 };
 
 #[tokio::test]
@@ -178,36 +177,6 @@ async fn test_verify_args_construction() {
         "--format=json",
     ];
     assert_eq!(cmd_args, expected);
-}
-
-#[tokio::test]
-async fn test_schemapin_config() {
-    let mut env = HashMap::new();
-    env.insert("SCHEMAPIN_DEBUG".to_string(), "true".to_string());
-
-    let _config = SchemaPinConfig {
-        binary_path: "/custom/path/schemapin-cli".to_string(),
-        timeout_seconds: 60,
-        capture_stderr: false,
-        environment: env,
-    };
-
-    // Note: NativeSchemaPinClient doesn't use external config like CLI wrapper
-    let _cli = NativeSchemaPinClient::new();
-    // Native client doesn't expose config in the same way as CLI wrapper
-    // This test is mainly for CLI wrapper compatibility
-}
-
-#[tokio::test]
-async fn test_default_config() {
-    let config = SchemaPinConfig::default();
-    assert_eq!(
-        config.binary_path,
-        "/home/jascha/Documents/repos/SchemaPin/go/bin/schemapin-cli"
-    );
-    assert_eq!(config.timeout_seconds, 30);
-    assert!(config.capture_stderr);
-    assert!(config.environment.is_empty());
 }
 
 #[tokio::test]

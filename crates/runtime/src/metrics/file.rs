@@ -109,6 +109,7 @@ mod tests {
                 memory_usage_mb: 512.0,
                 cpu_usage_percent: 30.0,
             },
+            compaction: None,
         }
     }
 

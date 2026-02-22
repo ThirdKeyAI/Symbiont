@@ -40,9 +40,11 @@
 //! - **Retention Policies**: Automatic archiving and cleanup of old context data
 //! - **Access Control**: Policy-driven access control for context operations
 
+pub mod compaction;
 pub mod embedding;
 pub mod manager;
 pub mod markdown_memory;
+pub mod token_counter;
 pub mod types;
 pub mod vector_db;
 pub mod vector_db_factory;
@@ -75,6 +77,11 @@ pub use vector_db::{
 #[cfg(feature = "vector-qdrant")]
 pub use vector_db::QdrantClientWrapper;
 
+pub use compaction::{CompactionConfig, CompactionResult, CompactionTier};
+pub use token_counter::{
+    context_limit_for_model, create_token_counter, HeuristicTokenCounter, TiktokenCounter,
+    TokenCounter,
+};
 pub use vector_db_factory::{create_vector_backend, resolve_vector_config, VectorBackendConfig};
 pub use vector_db_lance::{LanceDbBackend, LanceDbConfig};
 pub use vector_db_trait::{DistanceMetric, VectorDb};

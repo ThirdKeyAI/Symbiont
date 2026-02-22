@@ -79,30 +79,6 @@ pub enum SchemaPinError {
     InvalidPrivateKey { reason: String },
 }
 
-/// Configuration for SchemaPin CLI wrapper
-#[derive(Debug, Clone)]
-pub struct SchemaPinConfig {
-    /// Path to the schemapin-cli binary
-    pub binary_path: String,
-    /// Default timeout for CLI operations in seconds
-    pub timeout_seconds: u64,
-    /// Whether to capture stderr output
-    pub capture_stderr: bool,
-    /// Environment variables to set for CLI execution
-    pub environment: HashMap<String, String>,
-}
-
-impl Default for SchemaPinConfig {
-    fn default() -> Self {
-        Self {
-            binary_path: "/home/jascha/Documents/repos/SchemaPin/go/bin/schemapin-cli".to_string(),
-            timeout_seconds: 30,
-            capture_stderr: true,
-            environment: HashMap::new(),
-        }
-    }
-}
-
 /// Arguments for schema verification
 #[derive(Debug, Clone)]
 pub struct VerifyArgs {
@@ -382,18 +358,6 @@ mod tests {
                 "--verbose"
             ]
         );
-    }
-
-    #[test]
-    fn test_default_config() {
-        let config = SchemaPinConfig::default();
-        assert_eq!(
-            config.binary_path,
-            "/home/jascha/Documents/repos/SchemaPin/go/bin/schemapin-cli"
-        );
-        assert_eq!(config.timeout_seconds, 30);
-        assert!(config.capture_stderr);
-        assert!(config.environment.is_empty());
     }
 
     #[test]

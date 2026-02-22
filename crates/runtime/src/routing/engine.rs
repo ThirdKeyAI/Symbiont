@@ -11,7 +11,7 @@ use super::confidence::{ConfidenceMonitorTrait, NoOpConfidenceMonitor};
 use super::config::RoutingConfig;
 use super::decision::{
     FinishReason, LLMProvider, ModelRequest, ModelResponse, RouteDecision, RoutingContext,
-    RoutingStatistics, TokenUsage,
+    RoutingStatistics,
 };
 use super::error::RoutingError;
 use super::policy::PolicyEvaluator;
@@ -54,22 +54,29 @@ pub struct DefaultRoutingEngine {
     confidence_monitor: Arc<RwLock<Box<dyn ConfidenceMonitorTrait>>>,
     /// Optional model logger for audit trails
     model_logger: Option<Arc<ModelLogger>>,
-    /// Routing statistics
-    statistics: Arc<RwLock<RoutingStatistics>>,
+    /// Routing statistics (lock-free atomic counters)
+    statistics: Arc<RoutingStatistics>,
     /// Configuration
     config: Arc<RwLock<RoutingConfig>>,
     /// LLM client pool for fallback
     llm_clients: Arc<LLMClientPool>,
+    /// SLM executor for local model inference
+    slm_executor: Arc<dyn SlmExecutor>,
 }
 
-/// Pool of LLM clients for different providers
-struct LLMClientPool {
-    clients: HashMap<String, Box<dyn LLMClient>>,
+/// Trait for SLM execution — implement for real model inference
+#[async_trait]
+pub trait SlmExecutor: Send + Sync {
+    async fn execute(
+        &self,
+        request: &ModelRequest,
+        model: &crate::config::Model,
+    ) -> Result<ModelResponse, SlmRunnerError>;
 }
 
 /// Trait for LLM clients
 #[async_trait]
-trait LLMClient: Send + Sync {
+pub trait LLMClient: Send + Sync {
     async fn execute_request(
         &self,
         request: &ModelRequest,
@@ -77,53 +84,23 @@ trait LLMClient: Send + Sync {
     ) -> Result<ModelResponse, RoutingError>;
 }
 
-/// Mock LLM client implementation
-#[derive(Debug)]
-struct MockLLMClient;
-
-#[async_trait]
-impl LLMClient for MockLLMClient {
-    async fn execute_request(
-        &self,
-        request: &ModelRequest,
-        provider: &LLMProvider,
-    ) -> Result<ModelResponse, RoutingError> {
-        // Mock implementation - in real system would call actual LLM APIs
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        Ok(ModelResponse {
-            content: format!("LLM response to: {}", request.prompt),
-            finish_reason: FinishReason::Stop,
-            token_usage: Some(TokenUsage {
-                prompt_tokens: request.prompt.len() as u32 / 4,
-                completion_tokens: 50,
-                total_tokens: (request.prompt.len() as u32 / 4) + 50,
-            }),
-            metadata: {
-                let mut meta = HashMap::new();
-                meta.insert(
-                    "provider".to_string(),
-                    serde_json::Value::String(provider.to_string()),
-                );
-                meta.insert("mock".to_string(), serde_json::Value::Bool(true));
-                meta
-            },
-            confidence_score: Some(0.95),
-        })
-    }
+/// Pool of LLM clients for different providers
+pub struct LLMClientPool {
+    clients: HashMap<String, Box<dyn LLMClient>>,
 }
 
 impl LLMClientPool {
-    fn new() -> Self {
-        let mut clients: HashMap<String, Box<dyn LLMClient>> = HashMap::new();
-        clients.insert("openai".to_string(), Box::new(MockLLMClient));
-        clients.insert("anthropic".to_string(), Box::new(MockLLMClient));
-        clients.insert("custom".to_string(), Box::new(MockLLMClient));
-
-        Self { clients }
+    pub fn new() -> Self {
+        Self {
+            clients: HashMap::new(),
+        }
     }
 
-    async fn execute_request(
+    pub fn register(&mut self, key: &str, client: Box<dyn LLMClient>) {
+        self.clients.insert(key.to_string(), client);
+    }
+
+    pub async fn execute_request(
         &self,
         request: &ModelRequest,
         provider: &LLMProvider,
@@ -139,10 +116,16 @@ impl LLMClientPool {
                 .get(client_key)
                 .ok_or_else(|| RoutingError::LLMFallbackFailed {
                     provider: provider.to_string(),
-                    reason: "No client available for provider".to_string(),
+                    reason: format!("No client registered for provider '{}'", client_key),
                 })?;
 
         client.execute_request(request, provider).await
+    }
+}
+
+impl Default for LLMClientPool {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -152,23 +135,28 @@ impl DefaultRoutingEngine {
         config: RoutingConfig,
         model_catalog: ModelCatalog,
         model_logger: Option<Arc<ModelLogger>>,
+        llm_clients: LLMClientPool,
+        slm_executor: Arc<dyn SlmExecutor>,
     ) -> Result<Self, RoutingError> {
         Self::new_with_confidence_monitor(
             config,
             model_catalog,
             model_logger,
             Box::new(NoOpConfidenceMonitor),
+            llm_clients,
+            slm_executor,
         )
         .await
     }
 
     /// Create a new routing engine with a custom confidence monitor implementation
-    /// This allows enterprise builds to inject their own confidence monitor
     pub async fn new_with_confidence_monitor(
         config: RoutingConfig,
         model_catalog: ModelCatalog,
         model_logger: Option<Arc<ModelLogger>>,
         confidence_monitor: Box<dyn ConfidenceMonitorTrait>,
+        llm_clients: LLMClientPool,
+        slm_executor: Arc<dyn SlmExecutor>,
     ) -> Result<Self, RoutingError> {
         // Create task classifier
         let classifier = TaskClassifier::new(config.classification.clone())?;
@@ -177,17 +165,17 @@ impl DefaultRoutingEngine {
         let policy_evaluator =
             PolicyEvaluator::new(config.policy.clone(), classifier, model_catalog.clone())?;
 
-        // Create LLM client pool
-        let llm_clients = Arc::new(LLMClientPool::new());
+        let llm_clients = Arc::new(llm_clients);
 
         let engine = Self {
             policy_evaluator: Arc::new(RwLock::new(policy_evaluator)),
             model_catalog: Arc::new(model_catalog),
             confidence_monitor: Arc::new(RwLock::new(confidence_monitor)),
             model_logger,
-            statistics: Arc::new(RwLock::new(RoutingStatistics::default())),
+            statistics: Arc::new(RoutingStatistics::default()),
             config: Arc::new(RwLock::new(config)),
             llm_clients,
+            slm_executor,
         };
 
         Ok(engine)
@@ -202,8 +190,6 @@ impl DefaultRoutingEngine {
         monitoring_level: &super::decision::MonitoringLevel,
         fallback_on_failure: bool,
     ) -> Result<ModelResponse, RoutingError> {
-        let _start_time = Instant::now();
-
         // Get the model from catalog
         let model = self.model_catalog.get_model(model_id).ok_or_else(|| {
             RoutingError::NoSuitableModel {
@@ -211,8 +197,8 @@ impl DefaultRoutingEngine {
             }
         })?;
 
-        // Execute the SLM (mock implementation)
-        let slm_result = self.execute_slm_mock(request, model).await;
+        // Execute the SLM via the injected executor
+        let slm_result = self.slm_executor.execute(request, model).await;
 
         match slm_result {
             Ok(response) => {
@@ -226,8 +212,7 @@ impl DefaultRoutingEngine {
                     super::decision::MonitoringLevel::Enhanced {
                         confidence_threshold,
                     } => {
-                        // For enhanced monitoring, use confidence score if available
-                        // Enterprise builds can inject more sophisticated confidence monitors
+                        // Use confidence score if available
                         let confidence_score = response.confidence_score.unwrap_or(0.5);
                         confidence_score < *confidence_threshold
                     }
@@ -238,17 +223,9 @@ impl DefaultRoutingEngine {
                         "SLM response did not meet confidence threshold, falling back to LLM"
                     );
 
-                    // Update statistics for fallback
-                    {
-                        let mut stats = self.statistics.write().await;
-                        stats.fallback_routes += 1;
-                    }
-
-                    self.execute_llm_fallback(request, "Low confidence SLM response")
+                    self.fallback_to_llm(request, "Low confidence SLM response")
                         .await
                 } else {
-                    // Note: In enterprise mode, the ConfidenceMonitor would record evaluation results
-                    // but the trait interface doesn't expose this method to keep OSS code clean
                     Ok(response)
                 }
             }
@@ -256,13 +233,7 @@ impl DefaultRoutingEngine {
                 if fallback_on_failure {
                     tracing::error!("SLM execution failed, falling back to LLM: {}", e);
 
-                    // Update statistics for fallback
-                    {
-                        let mut stats = self.statistics.write().await;
-                        stats.fallback_routes += 1;
-                    }
-
-                    self.execute_llm_fallback(request, &format!("SLM execution failed: {}", e))
+                    self.fallback_to_llm(request, &format!("SLM execution failed: {}", e))
                         .await
                 } else {
                     Err(RoutingError::ModelExecutionFailed {
@@ -274,44 +245,14 @@ impl DefaultRoutingEngine {
         }
     }
 
-    /// Mock SLM execution (in real implementation, would use SlmRunner)
-    async fn execute_slm_mock(
+    /// Execute LLM fallback and record the fallback in statistics
+    async fn fallback_to_llm(
         &self,
         request: &ModelRequest,
-        model: &crate::config::Model,
-    ) -> Result<ModelResponse, SlmRunnerError> {
-        // Simulate SLM execution time
-        tokio::time::sleep(Duration::from_millis(200)).await;
-
-        // Simulate potential failure for certain inputs
-        if request.prompt.contains("error") {
-            return Err(SlmRunnerError::ExecutionFailed {
-                reason: "Simulated execution error".to_string(),
-            });
-        }
-
-        Ok(ModelResponse {
-            content: format!("SLM ({}) response: {}", model.name, request.prompt),
-            finish_reason: FinishReason::Stop,
-            token_usage: Some(TokenUsage {
-                prompt_tokens: request.prompt.len() as u32 / 4,
-                completion_tokens: 30,
-                total_tokens: (request.prompt.len() as u32 / 4) + 30,
-            }),
-            metadata: {
-                let mut meta = HashMap::new();
-                meta.insert(
-                    "model_id".to_string(),
-                    serde_json::Value::String(model.id.clone()),
-                );
-                meta.insert(
-                    "provider".to_string(),
-                    serde_json::Value::String(format!("{:?}", model.provider)),
-                );
-                meta
-            },
-            confidence_score: Some(0.8 + (request.prompt.len() % 20) as f64 / 100.0), // Mock confidence
-        })
+        reason: &str,
+    ) -> Result<ModelResponse, RoutingError> {
+        self.statistics.record_fallback();
+        self.execute_llm_fallback(request, reason).await
     }
 
     /// Execute LLM fallback
@@ -481,15 +422,13 @@ impl RoutingEngine for DefaultRoutingEngine {
 
         let execution_time = start_time.elapsed();
 
-        // Update statistics
-        {
-            let mut stats = self.statistics.write().await;
-            stats.update(&route_decision, execution_time, result.is_ok());
+        // Update statistics (lock-free)
+        self.statistics
+            .record_request(&route_decision, execution_time, result.is_ok());
 
-            if let Ok(ref response) = result {
-                if let Some(confidence) = response.confidence_score {
-                    stats.add_confidence_score(confidence);
-                }
+        if let Ok(ref response) = result {
+            if let Some(confidence) = response.confidence_score {
+                self.statistics.add_confidence_score(confidence);
             }
         }
 
@@ -537,7 +476,7 @@ impl RoutingEngine for DefaultRoutingEngine {
     }
 
     async fn get_routing_stats(&self) -> RoutingStatistics {
-        self.statistics.read().await.clone()
+        (*self.statistics).clone()
     }
 
     async fn update_config(&self, config: RoutingConfig) -> Result<(), RoutingError> {
@@ -555,6 +494,90 @@ impl RoutingEngine for DefaultRoutingEngine {
 }
 
 #[cfg(test)]
+use super::decision::TokenUsage;
+
+#[cfg(test)]
+struct MockSlmExecutor;
+
+#[cfg(test)]
+#[async_trait]
+impl SlmExecutor for MockSlmExecutor {
+    async fn execute(
+        &self,
+        request: &ModelRequest,
+        model: &crate::config::Model,
+    ) -> Result<ModelResponse, SlmRunnerError> {
+        // Reduce delay from 200ms to 10ms for faster tests
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        if request.prompt.contains("error") {
+            return Err(SlmRunnerError::ExecutionFailed {
+                reason: "Simulated execution error".to_string(),
+            });
+        }
+
+        Ok(ModelResponse {
+            content: format!("SLM ({}) response: {}", model.name, request.prompt),
+            finish_reason: FinishReason::Stop,
+            token_usage: Some(TokenUsage {
+                prompt_tokens: request.prompt.len() as u32 / 4,
+                completion_tokens: 30,
+                total_tokens: (request.prompt.len() as u32 / 4) + 30,
+            }),
+            metadata: {
+                let mut meta = HashMap::new();
+                meta.insert(
+                    "model_id".to_string(),
+                    serde_json::Value::String(model.id.clone()),
+                );
+                meta.insert(
+                    "provider".to_string(),
+                    serde_json::Value::String(format!("{:?}", model.provider)),
+                );
+                meta
+            },
+            confidence_score: Some(0.8 + (request.prompt.len() % 20) as f64 / 100.0),
+        })
+    }
+}
+
+#[cfg(test)]
+#[derive(Debug)]
+struct MockLLMClient;
+
+#[cfg(test)]
+#[async_trait]
+impl LLMClient for MockLLMClient {
+    async fn execute_request(
+        &self,
+        request: &ModelRequest,
+        provider: &LLMProvider,
+    ) -> Result<ModelResponse, RoutingError> {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        Ok(ModelResponse {
+            content: format!("LLM response to: {}", request.prompt),
+            finish_reason: FinishReason::Stop,
+            token_usage: Some(TokenUsage {
+                prompt_tokens: request.prompt.len() as u32 / 4,
+                completion_tokens: 50,
+                total_tokens: (request.prompt.len() as u32 / 4) + 50,
+            }),
+            metadata: {
+                let mut meta = HashMap::new();
+                meta.insert(
+                    "provider".to_string(),
+                    serde_json::Value::String(provider.to_string()),
+                );
+                meta.insert("mock".to_string(), serde_json::Value::Bool(true));
+                meta
+            },
+            confidence_score: Some(0.95),
+        })
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::config::{
@@ -563,6 +586,18 @@ mod tests {
     use crate::types::AgentId;
     use std::collections::HashMap;
     use std::path::PathBuf;
+
+    fn create_mock_pool() -> LLMClientPool {
+        let mut pool = LLMClientPool::new();
+        pool.register("openai", Box::new(MockLLMClient));
+        pool.register("anthropic", Box::new(MockLLMClient));
+        pool.register("custom", Box::new(MockLLMClient));
+        pool
+    }
+
+    fn create_mock_slm() -> Arc<dyn SlmExecutor> {
+        Arc::new(MockSlmExecutor)
+    }
 
     async fn create_test_engine() -> DefaultRoutingEngine {
         let global_models = vec![
@@ -635,9 +670,15 @@ mod tests {
             action_extension: None,
         });
 
-        DefaultRoutingEngine::new(config, model_catalog, None)
-            .await
-            .unwrap()
+        DefaultRoutingEngine::new(
+            config,
+            model_catalog,
+            None,
+            create_mock_pool(),
+            create_mock_slm(),
+        )
+        .await
+        .unwrap()
     }
 
     async fn create_test_engine_with_logger() -> DefaultRoutingEngine {
@@ -675,9 +716,15 @@ mod tests {
         let model_catalog = ModelCatalog::new(slm_config).unwrap();
         let config = RoutingConfig::default();
 
-        DefaultRoutingEngine::new(config, model_catalog, Some(Arc::new(logger)))
-            .await
-            .unwrap()
+        DefaultRoutingEngine::new(
+            config,
+            model_catalog,
+            Some(Arc::new(logger)),
+            create_mock_pool(),
+            create_mock_slm(),
+        )
+        .await
+        .unwrap()
     }
 
     fn create_test_request(prompt: &str) -> ModelRequest {
@@ -697,7 +744,7 @@ mod tests {
 
         // Verify engine was created successfully
         let stats = engine.get_routing_stats().await;
-        assert_eq!(stats.total_requests, 0);
+        assert_eq!(stats.total_requests(), 0);
 
         // Verify policies can be validated
         assert!(engine.validate_policies().is_ok());
@@ -711,7 +758,7 @@ mod tests {
         assert!(engine.model_logger.is_some());
 
         let stats = engine.get_routing_stats().await;
-        assert_eq!(stats.total_requests, 0);
+        assert_eq!(stats.total_requests(), 0);
     }
 
     #[tokio::test]
@@ -755,7 +802,7 @@ mod tests {
 
         // Check that statistics were updated
         let stats = engine.get_routing_stats().await;
-        assert!(stats.total_requests > 0);
+        assert!(stats.total_requests() > 0);
     }
 
     #[tokio::test]
@@ -776,7 +823,7 @@ mod tests {
         assert!(response.content.contains("LLM response"));
 
         let stats = engine.get_routing_stats().await;
-        assert!(stats.fallback_routes > 0);
+        assert!(stats.fallback_routes() > 0);
     }
 
     #[tokio::test]
@@ -953,7 +1000,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_llm_client_pool() {
-        let pool = LLMClientPool::new();
+        let pool = create_mock_pool();
 
         let request = create_test_request("Test LLM client");
 
@@ -1001,39 +1048,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_mock_slm_execution() {
-        let engine = create_test_engine().await;
-
-        let request = create_test_request("Test SLM execution");
-        let model = engine.model_catalog.get_model("test-slm").unwrap();
-
-        let response = engine.execute_slm_mock(&request, model).await.unwrap();
-
-        assert!(!response.content.is_empty());
-        assert!(response.content.contains("Test SLM"));
-        assert!(response.content.contains("Test SLM execution"));
-        assert_eq!(response.finish_reason, FinishReason::Stop);
-        assert!(response.confidence_score.is_some());
-        assert!(response.token_usage.is_some());
-    }
-
-    #[tokio::test]
-    async fn test_mock_slm_execution_error() {
-        let engine = create_test_engine().await;
-
-        let request = create_test_request("This should error out");
-        let model = engine.model_catalog.get_model("test-slm").unwrap();
-
-        let result = engine.execute_slm_mock(&request, model).await;
-
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            SlmRunnerError::ExecutionFailed { .. }
-        ));
-    }
-
-    #[tokio::test]
     async fn test_routing_statistics_tracking() {
         let engine = create_test_engine().await;
 
@@ -1059,9 +1073,9 @@ mod tests {
 
         let stats = engine.get_routing_stats().await;
 
-        assert!(stats.total_requests > 0);
-        assert!(stats.fallback_routes > 0); // Second request should trigger fallback
-        assert!(stats.average_response_time > Duration::from_millis(0));
+        assert!(stats.total_requests() > 0);
+        assert!(stats.fallback_routes() > 0); // Second request should trigger fallback
+        assert!(stats.average_response_time() > Duration::ZERO);
     }
 
     #[tokio::test]
@@ -1141,9 +1155,6 @@ mod tests {
 
         assert!(!response.content.is_empty());
         assert!(response.confidence_score.is_some());
-
-        // Note: Confidence monitoring statistics are only available in enterprise mode
-        // The trait interface doesn't expose statistics to keep OSS code clean
     }
 
     #[tokio::test]
@@ -1207,7 +1218,7 @@ mod tests {
 
         // Check that statistics reflect all requests
         let stats = engine.get_routing_stats().await;
-        assert_eq!(stats.total_requests, 10);
+        assert_eq!(stats.total_requests(), 10);
     }
 
     #[tokio::test]
@@ -1282,7 +1293,7 @@ mod tests {
 
         // Verify initial state
         let initial_stats = engine.get_routing_stats().await;
-        assert_eq!(initial_stats.total_requests, 0);
+        assert_eq!(initial_stats.total_requests(), 0);
 
         // Execute some requests
         for i in 0..5 {
@@ -1297,10 +1308,103 @@ mod tests {
 
         // Verify state was updated consistently
         let final_stats = engine.get_routing_stats().await;
-        assert_eq!(final_stats.total_requests, 5);
-        assert!(final_stats.average_response_time > Duration::from_millis(0));
+        assert_eq!(final_stats.total_requests(), 5);
+        assert!(final_stats.average_response_time() > Duration::ZERO);
+    }
 
-        // Note: Confidence monitoring statistics are only available in enterprise mode
-        // The trait interface doesn't expose statistics to keep OSS code clean
+    #[tokio::test]
+    async fn test_routing_statistics_concurrent_updates() {
+        use super::super::decision::MonitoringLevel;
+        use std::sync::Arc;
+
+        let stats = Arc::new(RoutingStatistics::default());
+        let mut handles = vec![];
+
+        for _ in 0..100 {
+            let stats_clone = Arc::clone(&stats);
+            handles.push(tokio::spawn(async move {
+                stats_clone.record_request(
+                    &RouteDecision::UseSLM {
+                        model_id: "test".to_string(),
+                        monitoring: MonitoringLevel::None,
+                        fallback_on_failure: false,
+                        sandbox_tier: None,
+                    },
+                    Duration::from_millis(10),
+                    true,
+                );
+            }));
+        }
+
+        for handle in handles {
+            handle.await.unwrap();
+        }
+
+        assert_eq!(stats.total_requests(), 100);
+        assert_eq!(stats.slm_routes(), 100);
+    }
+
+    #[tokio::test]
+    async fn test_fallback_counted_once_per_request() {
+        let engine = create_test_engine().await;
+
+        // Low-confidence path
+        let context =
+            create_test_context("Test prompt", super::super::error::TaskType::CodeGeneration);
+        let request = create_test_request("Test prompt");
+        let _response = engine
+            .execute_slm_route(
+                &context,
+                &request,
+                "test-slm",
+                &crate::routing::MonitoringLevel::Enhanced {
+                    confidence_threshold: 1.0,
+                },
+                true,
+            )
+            .await
+            .unwrap();
+
+        // Error path
+        let context2 = create_test_context(
+            "error trigger",
+            super::super::error::TaskType::CodeGeneration,
+        );
+        let request2 = create_test_request("error trigger");
+        let _response2 = engine
+            .execute_slm_route(
+                &context2,
+                &request2,
+                "test-slm",
+                &crate::routing::MonitoringLevel::Basic,
+                true,
+            )
+            .await
+            .unwrap();
+
+        let stats = engine.get_routing_stats().await;
+        assert_eq!(stats.fallback_routes(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_llm_client_pool_register_and_execute() {
+        let mut pool = LLMClientPool::new();
+        pool.register("openai", Box::new(MockLLMClient));
+
+        let request = create_test_request("Test");
+        let provider = LLMProvider::OpenAI {
+            model: Some("gpt-4".to_string()),
+        };
+        let response = pool.execute_request(&request, &provider).await.unwrap();
+        assert!(!response.content.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_llm_client_pool_no_client_registered() {
+        let pool = LLMClientPool::new();
+        let request = create_test_request("Test");
+        let provider = LLMProvider::OpenAI { model: None };
+        let result = pool.execute_request(&request, &provider).await;
+        assert!(result.is_err());
     }
 }
