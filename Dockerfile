@@ -89,8 +89,9 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-# Create non-root user for security
-RUN groupadd -r symbi && useradd -r -g symbi -u 1000 symbi
+# Create non-root user with home directory at /var/lib/symbi
+# The runtime defaults to $HOME/.symbi/ for storage; containers have no /home/symbi
+RUN groupadd -r symbi && useradd -r -g symbi -u 1000 -d /var/lib/symbi symbi
 
 # Create directories for agent data and configuration
 RUN mkdir -p /var/lib/symbi /etc/symbi && \
@@ -106,15 +107,19 @@ RUN chown symbi:symbi /usr/local/bin/symbi && \
 # Switch to non-root user
 USER symbi
 
-# Set working directory for operations
+# Set HOME so the runtime finds $HOME/.symbi/ at /var/lib/symbi/.symbi/
+# Containers have no D-Bus keychain — set SYMBIONT_MASTER_KEY env var for encryption
+ENV HOME=/var/lib/symbi
+
+# Set working directory for operations (symbi auto-discovers symbi.toml from CWD)
 WORKDIR /var/lib/symbi
 
-# Expose ports for HTTP API and MCP server
-EXPOSE 8080 3000
+# Expose ports: 8080 (gRPC), 8081 (HTTP API/webhooks)
+EXPOSE 8080 8081
 
-# Health check using the unified binary
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD /usr/local/bin/symbi --version || exit 1
+# Health check: verify HTTP port 8081 is listening (no curl/wget in image)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD grep -q ':1F91 ' /proc/net/tcp 2>/dev/null || grep -q ':1F91 ' /proc/net/tcp6 2>/dev/null || exit 1
 
 # Default entrypoint is the unified symbi binary
 ENTRYPOINT ["/usr/local/bin/symbi"]
