@@ -256,9 +256,12 @@ impl HttpApiServer {
 
         tracing::info!("HTTP API server starting on {}", addr);
 
-        axum::serve(listener, app)
-            .await
-            .map_err(|e| RuntimeError::Internal(format!("Server error: {}", e)))?;
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+        .map_err(|e| RuntimeError::Internal(format!("Server error: {}", e)))?;
 
         Ok(())
     }
