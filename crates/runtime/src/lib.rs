@@ -648,10 +648,8 @@ impl RuntimeApiProvider for AgentRuntime {
     // ── Schedule endpoints ──────────────────────────────────────────
 
     async fn list_schedules(&self) -> Result<Vec<ScheduleSummary>, RuntimeError> {
-        Err(RuntimeError::Internal(
-            "Schedule API requires a running CronScheduler (use `symbi up` with --features cron)"
-                .to_string(),
-        ))
+        // No CronScheduler — return empty list so dashboard renders gracefully
+        Ok(vec![])
     }
 
     async fn create_schedule(
@@ -750,9 +748,8 @@ impl RuntimeApiProvider for AgentRuntime {
     // ── Channel endpoints ──────────────────────────────────────────
 
     async fn list_channels(&self) -> Result<Vec<ChannelSummary>, RuntimeError> {
-        Err(RuntimeError::Internal(
-            "Channel API requires a running ChannelAdapterManager".to_string(),
-        ))
+        // No ChannelAdapterManager — return empty list so dashboard renders gracefully
+        Ok(vec![])
     }
 
     async fn register_channel(
