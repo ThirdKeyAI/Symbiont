@@ -29,7 +29,11 @@ jobs:
           submodules: recursive
       - name: Install protoc
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      # Pin nightly to avoid str::as_str() breakage in shellexpand 3.1.1
+      # (rust-lang/rust#152961). Unpin once revert #152963 lands in nightly.
       - uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly-2026-02-21
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: tools/fuzz
@@ -52,5 +56,5 @@ jobs:
             sse_jsonrpc_parsing \
             schemapin_keystore_roundtrip; do
             echo "--- Fuzzing $target (15s) ---"
-            cargo +nightly fuzz run --fuzz-dir . "$target" -- -max_total_time=15 || exit 1
+            cargo fuzz run --fuzz-dir . "$target" -- -max_total_time=15 || exit 1
           done
