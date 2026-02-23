@@ -5,7 +5,7 @@ All notable changes to the Symbiont project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.4.1] - 2026-02-18
+## [1.5.0] - 2026-02-22
 
 ### Added
 
@@ -16,10 +16,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Backend factory**: `resolve_vector_config()` and `create_vector_backend()` select backend via `SYMBIONT_VECTOR_BACKEND` env var, config file, or default to LanceDB
 - **Consumer updates**: `StandardRAGEngine` and `StandardContextManager` now accept `Arc<dyn VectorDb>` instead of concrete `QdrantClientWrapper`
 
+#### Context Compaction Pipeline
+- **`TokenCounter` trait**: Pluggable token counting with `TiktokenCounter` (model-aware via `tiktoken-rs`) and `HeuristicTokenCounter` fallback
+- **`create_token_counter` factory**: Tiered resolution — tiktoken for known models, heuristic for unknown
+- **Tier 1 Summarize**: LLM-driven condensation of oldest conversation items when context exceeds threshold
+- **Tier 4 Truncate**: Drop oldest conversation items as last-resort when budget is critically exceeded
+- **Enterprise tier stubs**: Tier 2 (episodic compression) and Tier 3 (archive to memory) gated behind `enterprise-compaction` feature
+- **`select_tier` pipeline orchestrator**: Evaluates tiers in order, returns first applicable `CompactionResult`
+- **`check_and_compact` integration**: Wired into `StandardContextManager` for automatic compaction on context operations
+- **`CompactionMetrics`**: Token counts and tier usage exposed in runtime metrics snapshot
+
+#### Composio MCP Integration
+- **Feature-gated `composio` module**: SSE-based connection to Composio MCP server for external tool access (uses existing `reqwest` dependency)
+
+#### Security Hardening
+- **Structure-aware fuzz targets**: 5 new fuzz targets for DSL parsing, SSE/JSON-RPC protocol, SchemaPin verification, Slack signature validation, and TOFU key substitution
+- **API middleware hardening**: Trusted proxy configuration, fail-closed rate limiting, deprecated static token auth
+- **Audit TOCTOU fix**: Eliminated time-of-check/time-of-use race in audit trail writes
+- **Vault secret heuristic**: Improved detection of secret values in Vault backend responses
+
 ### Changed
 - Default vector backend is now LanceDB (previously Qdrant was required)
 - Docker Compose examples no longer include Qdrant by default
 - Development setup no longer requires `docker-compose up -d qdrant`
+- **`RoutingStatistics`**: Replaced `Arc<RwLock<RoutingStatistics>>` with lock-free `AtomicU64` counters — eliminates write-lock contention on every routed request
+- **`SlmExecutor` trait**: Extracted from inline mock — enables dependency injection for SLM execution
+- **`LLMClient` trait + `LLMClientPool`**: Public trait and registry pattern replace hardcoded `MockLLMClient` — empty pool by default, consumers call `register()`
+- **Fallback tracking**: Consolidated duplicate fallback counting into single `fallback_to_llm` helper
+- **Relaxed `base64ct` pin**: Changed from `=1.6.0` to `^1` to allow compatible upgrades
+
+### Removed
+- **`SchemaPinCliWrapper`**: Deleted legacy Go CLI binary wrapper (516 lines) — native Rust `schemapin` crate handles all operations
+- **`ConfidenceMonitor` stub**: Removed dead `ConfidenceConfig`, `ConfidenceStatistics`, and `ConfidenceMonitor` types — trait + `NoOpConfidenceMonitor` retained
+- **`MockLLMClient` from public API**: Moved behind `#[cfg(test)]` — use `LLMClientPool::register()` for production clients
+- **`execute_slm_mock`**: Deleted — replaced by `SlmExecutor` trait injection
+- **Enterprise dead code**: Removed commented-out enterprise module stubs and unused re-exports from OSS build
+
+### Crate Versions
+| Crate | Version |
+|-------|---------|
+| `symbi` | 1.5.0 |
+| `symbi-dsl` | 1.5.0 |
+| `symbi-runtime` | 1.5.0 |
+| `symbi-channel-adapter` | 0.1.1 |
+| `repl-core` | 1.5.0 |
+| `repl-proto` | 1.5.0 |
+| `repl-cli` | 1.5.0 |
+| `repl-lsp` | 1.5.0 |
 
 ## [1.4.0] - 2026-02-16
 
