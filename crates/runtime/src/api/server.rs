@@ -381,7 +381,7 @@ impl HttpApiServer {
             use axum::http::{header, HeaderValue, Method};
 
             let allowed_origins: Vec<HeaderValue> = std::env::var("SYMBIONT_CORS_ORIGINS")
-                .unwrap_or_else(|_| "http://localhost:3000".to_string())
+                .unwrap_or_else(|_| "http://localhost:3001,http://localhost:3000".to_string())
                 .split(',')
                 .filter_map(|origin| origin.trim().parse().ok())
                 .collect();

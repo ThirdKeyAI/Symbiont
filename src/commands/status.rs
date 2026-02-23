@@ -4,12 +4,26 @@ use sysinfo::System;
 pub async fn run() {
     println!("📊 Symbiont Runtime Status\n");
 
-    // Check if runtime is running
-    print!("Runtime: ");
-    if is_runtime_running() {
-        println!("✓ Running on :8080");
+    let api_up = is_port_listening(8080);
+    let http_up = is_port_listening(8081);
+
+    // Check if runtime is running (either port indicates a running instance)
+    print!("Runtime API :8080  ");
+    if api_up {
+        println!("✓ Running");
     } else {
-        println!("✗ Not running (start with: symbi up)");
+        println!("✗ Not listening");
+    }
+
+    print!("HTTP Input  :8081  ");
+    if http_up {
+        println!("✓ Running");
+    } else {
+        println!("✗ Not listening");
+    }
+
+    if !api_up && !http_up {
+        println!("\n✗ Not running (start with: symbi up)");
         return;
     }
 
@@ -27,10 +41,10 @@ pub async fn run() {
     // Routes
     println!("\n🔀 Routes:");
     println!("  • /webhook → webhook_handler (auto-configured)");
-
-    // I/O Handlers
-    println!("\n🔌 I/O Handlers:");
-    println!("  • HTTP Input :8081 (enabled)");
+    if api_up {
+        println!("  • /api/v1/* → management API");
+        println!("  • /swagger-ui → API documentation");
+    }
 
     // Resource usage
     println!("\n💾 Resources:");
@@ -42,9 +56,8 @@ pub async fn run() {
     println!();
 }
 
-fn is_runtime_running() -> bool {
-    // Check if runtime is listening on port 8080
-    std::net::TcpStream::connect("127.0.0.1:8080")
+fn is_port_listening(port: u16) -> bool {
+    std::net::TcpStream::connect(format!("127.0.0.1:{}", port))
         .map(|_| true)
         .unwrap_or(false)
 }

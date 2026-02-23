@@ -31,6 +31,13 @@ async fn main() {
                         .default_value("8081"),
                 )
                 .arg(
+                    Arg::new("http-bind")
+                        .long("http-bind")
+                        .value_name("ADDRESS")
+                        .help("HTTP bind address (default: 127.0.0.1; use 0.0.0.0 for all interfaces)")
+                        .default_value("127.0.0.1"),
+                )
+                .arg(
                     Arg::new("http-token")
                         .long("http.token")
                         .value_name("TOKEN")

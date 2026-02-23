@@ -7,6 +7,7 @@ use symbi_channel_adapter::{
     AgentInvoker, BasicInteractionLogger, ChannelAdapterManager, ChannelConfig, ChatPlatform,
     MattermostConfig, PlatformSettings, SlackConfig, TeamsConfig,
 };
+use symbi_runtime::api::server::{HttpApiConfig, HttpApiServer};
 use symbi_runtime::http_input::llm_client::LlmClient;
 use symbi_runtime::http_input::{start_http_input, HttpInputConfig};
 use symbi_runtime::types::AgentId;
@@ -29,6 +30,9 @@ pub async fn run(matches: &ArgMatches) {
     let http_port = matches
         .get_one::<String>("http-port")
         .expect("http-port argument is required");
+    let http_bind = matches
+        .get_one::<String>("http-bind")
+        .expect("http-bind argument has default value");
     let http_token = matches.get_one::<String>("http-token");
     let cors_origins: Vec<String> = matches
         .get_one::<String>("http-cors-origins")
@@ -97,8 +101,8 @@ pub async fn run(matches: &ArgMatches) {
     // Scan agents directory
     let agents_found = scan_agents_directory();
 
-    println!("✓ Runtime started on :{}", port);
-    println!("✓ HTTP Input enabled on :{}", http_port);
+    println!("✓ Runtime API on {}:{}", http_bind, port);
+    println!("✓ HTTP Input on {}:{}", http_bind, http_port);
     println!("✓ Authentication: ENABLED (Bearer token required)");
 
     if let Some(agent) = agents_found.first() {
@@ -155,7 +159,7 @@ pub async fn run(matches: &ArgMatches) {
     };
 
     let http_config = HttpInputConfig {
-        bind_address: "127.0.0.1".to_string(),
+        bind_address: http_bind.clone(),
         port: http_port_num,
         path: "/webhook".to_string(),
         agent: agent_id,
@@ -433,7 +437,35 @@ pub async fn run(matches: &ArgMatches) {
         channel_manager = Some(manager);
     }
 
+    // Parse the API port and configure the management API server
+    let api_port_num = match port.parse::<u16>() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("✗ Invalid API port number '{}': {}", port, e);
+            return;
+        }
+    };
+
+    let api_config = HttpApiConfig {
+        bind_address: http_bind.clone(),
+        port: api_port_num,
+        enable_cors: true,
+        enable_tracing: true,
+        enable_rate_limiting: true,
+        api_keys_file: None,
+    };
+
+    let mut api_server = HttpApiServer::new(api_config);
+    if let Some(ref rt) = runtime {
+        api_server = api_server.with_runtime_provider(rt.clone());
+    }
+
     tokio::select! {
+        result = api_server.start() => {
+            if let Err(e) = result {
+                eprintln!("✗ API server error: {}", e);
+            }
+        },
         _ = start_http_input(http_config, runtime.clone(), secrets_config) => {},
         _ = tokio::signal::ctrl_c() => {}
     }
