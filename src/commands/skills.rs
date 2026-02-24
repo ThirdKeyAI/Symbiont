@@ -91,6 +91,8 @@ async fn cmd_scan(matches: &ArgMatches) {
     for finding in &result.findings {
         let icon = match finding.severity {
             symbi_runtime::skills::ScanSeverity::Critical => "!!",
+            symbi_runtime::skills::ScanSeverity::High => "!+",
+            symbi_runtime::skills::ScanSeverity::Medium => "!~",
             symbi_runtime::skills::ScanSeverity::Warning => "!",
             symbi_runtime::skills::ScanSeverity::Info => "i",
         };
