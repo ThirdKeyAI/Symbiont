@@ -3,8 +3,9 @@ FROM node:22-slim AS build
 
 WORKDIR /app
 
-COPY package.json ./
-RUN npm install
+COPY package.json package-lock.json* ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm install --prefer-offline
 
 COPY . .
 RUN npm run build
