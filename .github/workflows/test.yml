@@ -13,6 +13,8 @@ jobs:
         with:
           submodules: recursive
       - uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --check
@@ -26,6 +28,8 @@ jobs:
         with:
           submodules: recursive
       - uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       # Pin nightly to avoid str::as_str() breakage in shellexpand 3.1.1
       # (rust-lang/rust#152961). Unpin once revert #152963 lands in nightly.
       - uses: dtolnay/rust-toolchain@nightly
