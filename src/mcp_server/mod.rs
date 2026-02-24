@@ -4,14 +4,16 @@
 //! MCP clients (Claude Code, Cursor, etc.) can invoke agents, list available agents,
 //! parse DSL files, read agent definitions, and verify schemas via SchemaPin.
 
+use std::future::Future;
 use std::sync::Arc;
 
 use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::*,
+    service::RequestContext,
     tool, tool_handler, tool_router,
     transport::stdio,
-    ErrorData as McpError, ServerHandler, ServiceExt,
+    ErrorData as McpError, RoleServer, ServerHandler, ServiceExt,
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -136,6 +138,14 @@ impl SymbiMcpServer {
                  Provide thorough, professional analysis based on the input provided."
                     .to_string(),
             );
+        }
+
+        // Inject auto-generated AGENTS.md context (safe: only parser-derived content)
+        if let Some(context) = load_agents_md_context() {
+            system_parts.push(format!(
+                "\n<project-context>\n{}\n</project-context>",
+                context
+            ));
         }
 
         if let Some(custom) = &params.system_prompt {
@@ -305,6 +315,18 @@ impl SymbiMcpServer {
     }
 
     #[tool(
+        description = "Get the project's AGENTS.md file content. Returns the full AGENTS.md from the working directory, which describes available agents, their capabilities, schedules, channels, and invocation methods."
+    )]
+    async fn get_agents_md(&self) -> Result<CallToolResult, McpError> {
+        match std::fs::read_to_string("AGENTS.md") {
+            Ok(content) => Ok(CallToolResult::success(vec![Content::text(content)])),
+            Err(_) => Ok(CallToolResult::error(vec![Content::text(
+                "No AGENTS.md found in the working directory. Run 'symbi agents-md generate' to create one.",
+            )])),
+        }
+    }
+
+    #[tool(
         description = "Verify an MCP tool schema using SchemaPin (ECDSA P-256 signature verification). Checks schema integrity against a public key published at a well-known URL."
     )]
     async fn verify_schema(
@@ -371,9 +393,66 @@ impl ServerHandler for SymbiMcpServer {
                  manage agent definitions, verify schemas via SchemaPin"
                     .to_string(),
             ),
-            capabilities: ServerCapabilities::builder().enable_tools().build(),
+            capabilities: ServerCapabilities::builder()
+                .enable_tools()
+                .enable_resources()
+                .build(),
             ..Default::default()
         }
+    }
+
+    fn list_resources(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> impl Future<Output = Result<ListResourcesResult, McpError>> + Send + '_ {
+        let resources = if std::path::Path::new("AGENTS.md").exists() {
+            vec![Resource {
+                raw: RawResource {
+                    uri: "file:///AGENTS.md".to_string(),
+                    name: "AGENTS.md".to_string(),
+                    title: None,
+                    description: Some("Project agent instructions and topology".to_string()),
+                    mime_type: Some("text/markdown".to_string()),
+                    size: None,
+                    icons: None,
+                    meta: None,
+                },
+                annotations: None,
+            }]
+        } else {
+            vec![]
+        };
+        std::future::ready(Ok(ListResourcesResult {
+            resources,
+            ..Default::default()
+        }))
+    }
+
+    fn read_resource(
+        &self,
+        request: ReadResourceRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> impl Future<Output = Result<ReadResourceResult, McpError>> + Send + '_ {
+        let result = if request.uri == "file:///AGENTS.md" {
+            match std::fs::read_to_string("AGENTS.md") {
+                Ok(content) => Ok(ReadResourceResult {
+                    contents: vec![ResourceContents::text(content, "file:///AGENTS.md")],
+                }),
+                Err(_) => Err(McpError::new(
+                    ErrorCode::INVALID_PARAMS,
+                    "AGENTS.md not found",
+                    None::<serde_json::Value>,
+                )),
+            }
+        } else {
+            Err(McpError::new(
+                ErrorCode::INVALID_PARAMS,
+                format!("Unknown resource: {}", request.uri),
+                None::<serde_json::Value>,
+            ))
+        };
+        std::future::ready(result)
     }
 }
 
@@ -406,6 +485,26 @@ fn scan_agent_dsl_files() -> Vec<(String, String)> {
     }
 
     sources
+}
+
+/// Load the auto-generated section from AGENTS.md for safe context injection.
+///
+/// Only returns content between `<!-- agents-md:auto-start -->` and
+/// `<!-- agents-md:auto-end -->` markers — this is DSL-parser-derived content,
+/// not arbitrary user markdown, which eliminates prompt injection risk.
+/// Truncates to 2000 chars to avoid blowing context windows.
+fn load_agents_md_context() -> Option<String> {
+    let content = std::fs::read_to_string("AGENTS.md").ok()?;
+    let section = crate::commands::agents_md::extract_auto_section(&content)?;
+    if section.is_empty() {
+        return None;
+    }
+    let truncated = if section.len() > 2000 {
+        format!("{}...", &section[..2000])
+    } else {
+        section.to_string()
+    };
+    Some(truncated)
 }
 
 // ---------------------------------------------------------------------------

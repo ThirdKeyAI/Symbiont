@@ -161,6 +161,8 @@ pub struct HttpApiConfig {
     pub enable_rate_limiting: bool,
     /// Optional path to API keys JSON file for per-agent authentication
     pub api_keys_file: Option<std::path::PathBuf>,
+    /// Serve AGENTS.md at /agents.md and /.well-known/agents.md (auth-gated)
+    pub serve_agents_md: bool,
 }
 
 #[cfg(feature = "http-api")]
@@ -173,6 +175,7 @@ impl Default for HttpApiConfig {
             enable_tracing: true,
             enable_rate_limiting: true,
             api_keys_file: None,
+            serve_agents_md: false,
         }
     }
 }
@@ -368,6 +371,21 @@ impl HttpApiServer {
                 .merge(channel_router)
                 .merge(protected_router)
                 .merge(health_router);
+        }
+
+        // Conditionally serve AGENTS.md at well-known paths (auth-gated, no provider state needed)
+        if self.config.serve_agents_md {
+            use super::middleware::auth_middleware;
+            use axum::middleware;
+
+            let agents_md_router = Router::new()
+                .route("/agents.md", get(super::routes::serve_agents_md))
+                .route(
+                    "/.well-known/agents.md",
+                    get(super::routes::serve_agents_md),
+                )
+                .layer(middleware::from_fn(auth_middleware));
+            router = router.merge(agents_md_router);
         }
 
         // Add API key store as extension if available

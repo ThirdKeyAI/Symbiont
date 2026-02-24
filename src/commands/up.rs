@@ -39,6 +39,7 @@ pub async fn run(matches: &ArgMatches) {
         .map(|s| s.split(',').map(|o| o.trim().to_string()).collect())
         .unwrap_or_default();
     let http_audit = matches.get_flag("http-audit");
+    let serve_agents_md = matches.get_flag("serve-agents-md");
     let preset = matches.get_one::<String>("preset");
     let slack_token = matches.get_one::<String>("slack-token");
     let slack_signing_secret = matches.get_one::<String>("slack-signing-secret");
@@ -464,6 +465,7 @@ pub async fn run(matches: &ArgMatches) {
         enable_tracing: true,
         enable_rate_limiting: true,
         api_keys_file: None,
+        serve_agents_md,
     };
 
     let mut api_server = HttpApiServer::new(api_config);

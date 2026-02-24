@@ -155,6 +155,12 @@ async fn main() {
                         .long("mm.agent")
                         .value_name("AGENT")
                         .help("Default agent name for Mattermost messages"),
+                )
+                .arg(
+                    Arg::new("serve-agents-md")
+                        .long("serve-agents-md")
+                        .action(ArgAction::SetTrue)
+                        .help("Serve AGENTS.md at /agents.md and /.well-known/agents.md (auth-gated)"),
                 ),
         )
         .subcommand(
@@ -209,6 +215,28 @@ async fn main() {
         .subcommand(
             Command::new("mcp")
                 .about("Start MCP server (stdio transport) for AI assistant integration"),
+        )
+        .subcommand(
+            Command::new("agents-md")
+                .about("Generate AGENTS.md from agent DSL definitions")
+                .subcommand(
+                    Command::new("generate")
+                        .about("Scan agents/*.dsl and generate AGENTS.md")
+                        .arg(
+                            Arg::new("dir")
+                                .long("dir")
+                                .value_name("PATH")
+                                .help("Project directory containing agents/ folder")
+                                .default_value("."),
+                        )
+                        .arg(
+                            Arg::new("output")
+                                .long("output")
+                                .value_name("FILE")
+                                .help("Output filename")
+                                .default_value("AGENTS.md"),
+                        ),
+                ),
         )
         .subcommand(
             Command::new("dsl")
@@ -493,6 +521,9 @@ async fn main() {
                 eprintln!("MCP server error: {}", e);
                 std::process::exit(1);
             });
+        }
+        Some(("agents-md", sub_matches)) => {
+            commands::agents_md::run(sub_matches);
         }
         Some(("dsl", sub_matches)) => {
             let source = if let Some(file) = sub_matches.get_one::<String>("file") {

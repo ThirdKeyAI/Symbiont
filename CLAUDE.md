@@ -79,3 +79,73 @@ bash scripts/sync_oss_to_github.sh --force
 ```
 
 The script exits with code 1 during cleanup even on success — this is a known quirk.
+
+## DSL Quick Reference
+
+Agent definitions live in `agents/*.dsl`. Key block types:
+
+```
+metadata { version "1.0", author "team", description "What this agent does" }
+
+with { sandbox docker, timeout 30.seconds }
+
+schedule daily_report { cron: "0 9 * * *", timezone: "UTC", agent: "reporter" }
+
+channel slack_support { platform: "slack", default_agent: "helper", channels: ["#support"] }
+
+webhook github_events { path: "/hooks/github", provider: github, agent: "deployer" }
+
+memory context_store { store markdown, path "data/agents", retention "90d" }
+```
+
+Parse DSL files with `symbi dsl -f agents/<name>.dsl`.
+
+## MCP Server
+
+Start with `symbi mcp` (stdio transport). Available tools:
+
+- `invoke_agent` — Run a named agent with a prompt via LLM
+- `list_agents` — List all agents in the `agents/` directory
+- `parse_dsl` — Parse and validate DSL content (file or inline)
+- `get_agent_dsl` — Get raw `.dsl` source for a specific agent
+- `get_agents_md` — Read the project's AGENTS.md file
+- `verify_schema` — Verify MCP tool schema via SchemaPin (ECDSA P-256)
+
+## HTTP API
+
+The runtime API runs on port 8080 (configurable via `--port`):
+
+- `GET /api/v1/health` — Health check (no auth)
+- `GET /api/v1/agents` — List agents
+- `POST /api/v1/agents` — Create agent
+- `POST /api/v1/agents/:id/execute` — Execute agent
+- `GET /api/v1/schedules` — List cron schedules
+- `POST /api/v1/schedules` — Create schedule
+- `GET /api/v1/channels` — List channel adapters
+- `POST /api/v1/workflows/execute` — Execute workflow
+- `GET /api/v1/metrics` — Runtime metrics
+- `GET /swagger-ui` — Interactive API docs
+
+All endpoints except health require `Authorization: Bearer <token>`.
+
+## Agent Capabilities
+
+Agents defined in the Symbi DSL can:
+
+- Invoke LLMs (OpenRouter, OpenAI, Anthropic) with policy-governed prompts
+- Use skills (verified via SchemaPin cryptographic signatures)
+- Run in sandboxed environments (Docker, gVisor, Firecracker, E2B)
+- Operate on cron schedules with timezone support
+- Connect to chat platforms (Slack, Teams, Mattermost) as channel adapters
+- Receive webhooks (GitHub, Stripe, Slack, custom) with signature verification
+- Maintain persistent memory stores with hybrid search (vector + keyword)
+- Enforce runtime policies (allow, deny, require, audit)
+- Produce cryptographic audit trails for all actions
+
+## Trust Stack
+
+Symbiont is part of the ThirdKey cryptographic trust chain:
+
+1. **SchemaPin** — Tool schema verification. Ensures MCP tool schemas haven't been tampered with by verifying ECDSA P-256 signatures against publisher-hosted public keys.
+2. **AgentPin** — Domain-anchored agent identity. Binds agent identities to DNS domains via `.well-known/agentpin.json`, enabling cross-runtime trust.
+3. **Symbiont** — The agent runtime. Executes policy-aware agents with sandbox isolation, integrating SchemaPin for tool trust and AgentPin for agent identity.

@@ -33,6 +33,67 @@ use super::types::{
 #[cfg(feature = "http-api")]
 use crate::types::AgentId;
 
+// ── AGENTS.md endpoint ─────────────────────────────────────────────────
+
+/// Serve AGENTS.md with sensitive sections stripped.
+///
+/// Reads `AGENTS.md` from the working directory, removes content between
+/// `<!-- agents-md:sensitive-start -->` and `<!-- agents-md:sensitive-end -->`
+/// markers, and returns the filtered markdown.
+#[cfg(feature = "http-api")]
+pub async fn serve_agents_md() -> Result<
+    (
+        StatusCode,
+        [(axum::http::header::HeaderName, &'static str); 1],
+        String,
+    ),
+    StatusCode,
+> {
+    let content = std::fs::read_to_string("AGENTS.md").map_err(|_| StatusCode::NOT_FOUND)?;
+    let filtered = strip_sensitive_sections(&content);
+    Ok((
+        StatusCode::OK,
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/markdown; charset=utf-8",
+        )],
+        filtered,
+    ))
+}
+
+/// Strip sensitive sections from AGENTS.md content (inline helper).
+///
+/// Removes all content between `<!-- agents-md:sensitive-start -->` and
+/// `<!-- agents-md:sensitive-end -->` markers, including the markers themselves.
+#[cfg(feature = "http-api")]
+fn strip_sensitive_sections(content: &str) -> String {
+    const SENSITIVE_START: &str = "<!-- agents-md:sensitive-start -->";
+    const SENSITIVE_END: &str = "<!-- agents-md:sensitive-end -->";
+
+    let mut result = content.to_string();
+    while let (Some(start), Some(end)) = (result.find(SENSITIVE_START), result.find(SENSITIVE_END))
+    {
+        if end <= start {
+            break;
+        }
+        let end_pos = end + SENSITIVE_END.len();
+        let end_pos = if result[end_pos..].starts_with('\n') {
+            end_pos + 1
+        } else {
+            end_pos
+        };
+        let start_pos = if start > 0 && result.as_bytes()[start - 1] == b'\n' {
+            start - 1
+        } else {
+            start
+        };
+        result = format!("{}{}", &result[..start_pos], &result[end_pos..]);
+    }
+    result
+}
+
+// ── Workflow / Agent / Schedule / Channel endpoints ────────────────────
+
 /// Workflow execution endpoint handler
 #[cfg(feature = "http-api")]
 #[utoipa::path(
