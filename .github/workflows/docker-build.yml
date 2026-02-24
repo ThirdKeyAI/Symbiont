@@ -61,6 +61,15 @@ jobs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
+    - name: Determine build profile
+      id: profile
+      run: |
+        if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+          echo "profile=release" >> "$GITHUB_OUTPUT"
+        else
+          echo "profile=ci" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Build and push Docker image
       id: build
       uses: docker/build-push-action@v5
@@ -70,6 +79,7 @@ jobs:
         load: ${{ github.event_name == 'pull_request' }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
+        build-args: BUILD_PROFILE=${{ steps.profile.outputs.profile }}
         cache-from: type=gha,scope=symbi
         cache-to: type=gha,mode=max,scope=symbi
 

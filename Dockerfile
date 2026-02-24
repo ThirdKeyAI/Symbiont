@@ -1,8 +1,8 @@
 # Unified Symbi Container - DSL and Runtime
-# Multi-stage build for optimal performance and security
-FROM rust:1.88-slim-bookworm AS builder
+# Multi-stage build with cargo-chef for deterministic dependency caching
+FROM rust:1.88-slim-bookworm AS chef
 
-# Install build dependencies with parallel processing
+# Install build dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
     pkg-config \
@@ -15,74 +15,58 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-# Set environment variables for faster compilation
+RUN cargo install cargo-chef
+WORKDIR /app
+
+# --- Planner: generate dependency recipe ---
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+# --- Builder: cook deps then build app ---
+FROM chef AS builder
+
+# Build profile: "ci" (fast) or "release" (optimized)
+ARG BUILD_PROFILE=release
+
+# Common env
 ENV CARGO_NET_GIT_FETCH_WITH_CLI=true \
     CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse \
     CARGO_INCREMENTAL=0 \
-    CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 \
-    CARGO_PROFILE_RELEASE_LTO=true \
-    CARGO_PROFILE_RELEASE_OPT_LEVEL=3 \
     RUSTC_WRAPPER="" \
     CARGO_PROFILE_RELEASE_STRIP=true
 
 # Use mold linker for faster linking
 ENV RUSTFLAGS="-C link-arg=-fuse-ld=mold"
 
-WORKDIR /app
+# Profile-specific env written to file (sourced in build RUNs)
+RUN if [ "$BUILD_PROFILE" = "ci" ]; then \
+      echo "--- CI profile: no LTO, codegen-units=16, opt-level=2 ---"; \
+      printf 'export CARGO_PROFILE_RELEASE_LTO=false\nexport CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16\nexport CARGO_PROFILE_RELEASE_OPT_LEVEL=2\n' > /tmp/build-profile.env; \
+    else \
+      echo "--- Release profile: full LTO, codegen-units=1, opt-level=3 ---"; \
+      printf 'export CARGO_PROFILE_RELEASE_LTO=true\nexport CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1\nexport CARGO_PROFILE_RELEASE_OPT_LEVEL=3\n' > /tmp/build-profile.env; \
+    fi
 
-# Create cargo configuration for optimized builds
-RUN mkdir -p .cargo && echo '[net]\ngit-fetch-with-cli = true\n[registries.crates-io]\nprotocol = "sparse"\n[build]\njobs = 4' > .cargo/config.toml
+# Auto-detect parallelism
+RUN mkdir -p .cargo && printf '[net]\ngit-fetch-with-cli = true\n[registries.crates-io]\nprotocol = "sparse"\n[build]\njobs = %d\n' "$(nproc)" > .cargo/config.toml
 
-# Copy workspace configuration files first for better dependency caching
-COPY Cargo.toml Cargo.lock ./
-COPY crates/dsl/Cargo.toml ./crates/dsl/
-COPY crates/runtime/Cargo.toml ./crates/runtime/
-COPY crates/channel-adapter/Cargo.toml ./crates/channel-adapter/
-COPY crates/repl-core/Cargo.toml ./crates/repl-core/
-COPY crates/repl-proto/Cargo.toml ./crates/repl-proto/
-COPY crates/repl-cli/Cargo.toml ./crates/repl-cli/
-COPY crates/repl-lsp/Cargo.toml ./crates/repl-lsp/
-
-# Create dummy source files to cache dependencies
-RUN mkdir -p src crates/dsl/src crates/runtime/src/bin \
-    crates/channel-adapter/src \
-    crates/repl-core/src crates/repl-proto/src \
-    crates/repl-cli/src crates/repl-lsp/src \
-    examples && \
-    echo "fn main() {}" > src/main.rs && \
-    echo "fn main() {}" > examples/native-execution-example.rs && \
-    echo "fn main() {}" > crates/dsl/src/main.rs && \
-    echo "" > crates/dsl/src/lib.rs && \
-    echo "fn main() {}" > crates/runtime/src/bin/symbiont_mcp.rs && \
-    echo "" > crates/runtime/src/lib.rs && \
-    echo "" > crates/channel-adapter/src/lib.rs && \
-    echo "" > crates/repl-core/src/lib.rs && \
-    echo "" > crates/repl-proto/src/lib.rs && \
-    echo "fn main() {}" > crates/repl-cli/src/main.rs && \
-    echo "fn main() {}" > crates/repl-lsp/src/main.rs
-
-# Build dependencies only with optimized settings (cached layer)
+# Cook dependencies (cached when only source changes)
+COPY --from=planner /app/recipe.json recipe.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/app/target \
-    cargo build --release && \
-    rm -rf target/release/deps/symbi* target/release/deps/libsymbi* \
-           target/release/.fingerprint/symbi* \
-           target/release/symbi*
+    . /tmp/build-profile.env && \
+    cargo chef cook --release --recipe-path recipe.json
 
-# Copy actual source code (invalidates cache only when source changes)
-COPY src/ ./src/
-COPY crates/ ./crates/
-
-# Build the unified symbi binary with cached dependencies
+# Copy source and build
+COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/app/target \
+    . /tmp/build-profile.env && \
     cargo build --release && \
     cp target/release/symbi /tmp/symbi
 
-# Runtime stage - minimal security-hardened image
+# --- Runtime stage - minimal security-hardened image ---
 FROM debian:bookworm-slim
 
-# Install minimal runtime dependencies
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     libssl3 \
