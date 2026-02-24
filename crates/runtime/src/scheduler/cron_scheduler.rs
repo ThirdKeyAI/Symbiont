@@ -787,8 +787,7 @@ mod tests {
     #[test]
     fn compute_next_run_with_different_timezones() {
         let utc_next = compute_next_run_static("0 0 12 * * *", "UTC", None);
-        let eastern_next =
-            compute_next_run_static("0 0 12 * * *", "America/New_York", None);
+        let eastern_next = compute_next_run_static("0 0 12 * * *", "America/New_York", None);
         assert!(utc_next.is_some());
         assert!(eastern_next.is_some());
         // Same cron expression in different timezones should produce different UTC times
