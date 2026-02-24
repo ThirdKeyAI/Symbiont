@@ -189,7 +189,11 @@ pub struct ErrorResponse {
 pub struct CreateScheduleRequest {
     /// Human-readable name for the job.
     pub name: String,
-    /// Cron expression (7-field or 5-field).
+    /// Six-field cron expression: `sec min hour day month weekday`.
+    ///
+    /// An optional seventh field (year) is also accepted.
+    /// Example: `"0 */5 * * * *"` = every 5 minutes.
+    #[schema(example = "0 */5 * * * *")]
     pub cron_expression: String,
     /// IANA timezone (e.g. "America/New_York"). Defaults to "UTC".
     #[serde(default = "default_timezone")]
@@ -224,7 +228,8 @@ pub struct CreateScheduleResponse {
 #[cfg(feature = "http-api")]
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UpdateScheduleRequest {
-    /// New cron expression.
+    /// New cron expression (6-field: `sec min hour day month weekday`; optional 7th field: year).
+    #[schema(example = "0 */10 * * * *")]
     pub cron_expression: Option<String>,
     /// New timezone.
     pub timezone: Option<String>,

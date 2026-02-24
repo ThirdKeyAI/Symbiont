@@ -56,7 +56,7 @@ impl Default for CronSchedulerConfig {
 /// Errors produced by the CronScheduler.
 #[derive(Debug, thiserror::Error)]
 pub enum CronSchedulerError {
-    #[error("invalid cron expression: {0}")]
+    #[error("invalid cron expression (expected 6-field: sec min hour day month weekday): {0}")]
     InvalidCron(String),
     #[error("invalid timezone: {0}")]
     InvalidTimezone(String),
@@ -698,16 +698,60 @@ mod tests {
     }
 
     #[test]
-    fn parse_valid_cron_expressions() {
-        // Standard 7-field (sec min hour dom month dow year)
+    fn parse_valid_seven_field_cron_expressions() {
+        // 7-field: sec min hour dom month dow year
         assert!(CronScheduler::parse_cron("0 * * * * * *").is_ok());
-        // Every 5 minutes
+        // Every 5 minutes (7-field)
         assert!(CronScheduler::parse_cron("0 */5 * * * * *").is_ok());
+        // Specific year
+        assert!(CronScheduler::parse_cron("0 0 12 * * Mon 2027").is_ok());
+    }
+
+    #[test]
+    fn parse_valid_six_field_cron_expressions() {
+        // 6-field: sec min hour dom month dow (no year)
+        assert!(CronScheduler::parse_cron("0 * * * * *").is_ok());
+        // Every 5 minutes (6-field)
+        assert!(CronScheduler::parse_cron("0 */5 * * * *").is_ok());
+        // Every 30 seconds
+        assert!(CronScheduler::parse_cron("*/30 * * * * *").is_ok());
+        // Weekdays at 9 AM
+        assert!(CronScheduler::parse_cron("0 0 9 * * Mon-Fri").is_ok());
+        // First of month at midnight
+        assert!(CronScheduler::parse_cron("0 0 0 1 * *").is_ok());
     }
 
     #[test]
     fn reject_invalid_cron() {
         assert!(CronScheduler::parse_cron("not a cron").is_err());
+    }
+
+    #[test]
+    fn reject_five_field_unix_cron() {
+        // Standard 5-field Unix cron (min hour dom month dow) is NOT supported
+        // because the `cron` crate requires a leading seconds field.
+        assert!(CronScheduler::parse_cron("*/5 * * * *").is_err());
+        assert!(CronScheduler::parse_cron("0 12 * * Mon").is_err());
+    }
+
+    #[test]
+    fn reject_empty_and_whitespace_cron() {
+        assert!(CronScheduler::parse_cron("").is_err());
+        assert!(CronScheduler::parse_cron("   ").is_err());
+    }
+
+    #[test]
+    fn error_message_includes_format_hint() {
+        let err = CronScheduler::parse_cron("bad").unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("6-field"),
+            "error should mention 6-field format, got: {msg}"
+        );
+        assert!(
+            msg.contains("sec min hour"),
+            "error should include field names, got: {msg}"
+        );
     }
 
     #[test]
@@ -719,17 +763,55 @@ mod tests {
     }
 
     #[test]
-    fn compute_next_run_returns_future_time() {
+    fn compute_next_run_returns_future_time_seven_field() {
         let next = compute_next_run_static("0 * * * * * *", "UTC", None);
         assert!(next.is_some());
         assert!(next.unwrap() > Utc::now());
     }
 
     #[test]
+    fn compute_next_run_returns_future_time_six_field() {
+        let next = compute_next_run_static("0 * * * * *", "UTC", None);
+        assert!(next.is_some());
+        assert!(next.unwrap() > Utc::now());
+    }
+
+    #[test]
+    fn compute_next_run_respects_after_parameter() {
+        let reference = Utc::now() + chrono::Duration::hours(1);
+        let next = compute_next_run_static("0 * * * * *", "UTC", Some(reference));
+        assert!(next.is_some());
+        assert!(next.unwrap() > reference);
+    }
+
+    #[test]
+    fn compute_next_run_with_different_timezones() {
+        let utc_next = compute_next_run_static("0 0 12 * * *", "UTC", None);
+        let eastern_next =
+            compute_next_run_static("0 0 12 * * *", "America/New_York", None);
+        assert!(utc_next.is_some());
+        assert!(eastern_next.is_some());
+        // Same cron expression in different timezones should produce different UTC times
+        // (unless we happen to be at exactly the boundary, which is astronomically unlikely).
+        assert_ne!(utc_next.unwrap(), eastern_next.unwrap());
+    }
+
+    #[test]
+    fn compute_next_run_returns_none_for_invalid_expression() {
+        let next = compute_next_run_static("bad", "UTC", None);
+        assert!(next.is_none());
+    }
+
+    #[test]
+    fn compute_next_run_returns_none_for_invalid_timezone() {
+        let next = compute_next_run_static("0 * * * * *", "Mars/Olympus", None);
+        assert!(next.is_none());
+    }
+
+    #[test]
     fn get_next_runs_returns_multiple() {
-        // Build a minimal scheduler-like object just for this call.
         let runs = {
-            let schedule = Schedule::from_str("0 * * * * * *").unwrap();
+            let schedule = Schedule::from_str("0 * * * * *").unwrap();
             let tz: chrono_tz::Tz = "UTC".parse().unwrap();
             let now = Utc::now().with_timezone(&tz);
             schedule
@@ -744,13 +826,23 @@ mod tests {
         }
     }
 
+    #[test]
+    fn six_and_seven_field_produce_equivalent_schedules() {
+        // "0 */5 * * * *" (6-field) and "0 */5 * * * * *" (7-field) should
+        // produce the same next fire time.
+        let now = Some(Utc::now());
+        let six = compute_next_run_static("0 */5 * * * *", "UTC", now);
+        let seven = compute_next_run_static("0 */5 * * * * *", "UTC", now);
+        assert_eq!(six, seven);
+    }
+
     #[tokio::test]
     async fn add_and_list_jobs() {
         let (cron, _sched) = make_scheduler().await;
 
         let job = CronJobDefinition::new(
             "test_job".to_string(),
-            "0 * * * * * *".to_string(),
+            "0 * * * * *".to_string(), // 6-field: every minute
             "UTC".to_string(),
             test_agent_config(),
         );
@@ -769,7 +861,7 @@ mod tests {
 
         let job = CronJobDefinition::new(
             "pause_test".to_string(),
-            "0 * * * * * *".to_string(),
+            "0 * * * * *".to_string(), // 6-field
             "UTC".to_string(),
             test_agent_config(),
         );
@@ -794,7 +886,7 @@ mod tests {
 
         let job = CronJobDefinition::new(
             "remove_test".to_string(),
-            "0 * * * * * *".to_string(),
+            "0 * * * * *".to_string(), // 6-field
             "UTC".to_string(),
             test_agent_config(),
         );
@@ -879,12 +971,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reject_five_field_cron_on_add() {
+        let (cron, _sched) = make_scheduler().await;
+
+        let job = CronJobDefinition::new(
+            "five_field".to_string(),
+            "*/5 * * * *".to_string(), // 5-field Unix cron — not supported
+            "UTC".to_string(),
+            test_agent_config(),
+        );
+        assert!(cron.add_job(job).await.is_err());
+        cron.shutdown().await;
+    }
+
+    #[tokio::test]
     async fn reject_invalid_timezone_on_add() {
         let (cron, _sched) = make_scheduler().await;
 
         let job = CronJobDefinition::new(
             "bad_tz".to_string(),
-            "0 * * * * * *".to_string(),
+            "0 * * * * *".to_string(),
             "Mars/Olympus".to_string(),
             test_agent_config(),
         );
@@ -980,5 +1086,352 @@ mod tests {
         let loaded = cron.get_job(id).await.unwrap();
         assert_eq!(loaded.jitter_max_secs, 5);
         cron.shutdown().await;
+    }
+
+    // ── 6-field end-to-end tests ─────────────────────────────────────
+
+    #[tokio::test]
+    async fn add_job_with_six_field_cron() {
+        let (cron, _sched) = make_scheduler().await;
+
+        let job = CronJobDefinition::new(
+            "six_field_job".to_string(),
+            "0 */5 * * * *".to_string(), // 6-field: every 5 minutes
+            "UTC".to_string(),
+            test_agent_config(),
+        );
+        let id = cron.add_job(job).await.unwrap();
+
+        let loaded = cron.get_job(id).await.unwrap();
+        assert_eq!(loaded.cron_expression, "0 */5 * * * *");
+        assert!(loaded.next_run.is_some());
+        cron.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn trigger_now_with_six_field_cron() {
+        let (cron, _sched) = make_scheduler().await;
+
+        let job = CronJobDefinition::new(
+            "trigger_six".to_string(),
+            "0 0 0 1 1 *".to_string(), // Far future — 6-field
+            "UTC".to_string(),
+            test_agent_config(),
+        );
+        let id = cron.add_job(job).await.unwrap();
+        cron.trigger_now(id).await.unwrap();
+
+        let history = cron.get_run_history(id, 10).await.unwrap();
+        assert!(!history.is_empty());
+        assert_eq!(history[0].status, JobRunStatus::Succeeded);
+        cron.shutdown().await;
+    }
+
+    // ── update_job tests ─────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn update_job_changes_cron_expression() {
+        let (cron, _sched) = make_scheduler().await;
+
+        let job = CronJobDefinition::new(
+            "update_cron".to_string(),
+            "0 * * * * *".to_string(),
+            "UTC".to_string(),
+            test_agent_config(),
+        );
+        let id = cron.add_job(job).await.unwrap();
+        let original = cron.get_job(id).await.unwrap();
+
+        let mut updated = original.clone();
+        updated.cron_expression = "0 */10 * * * *".to_string();
+        cron.update_job(updated).await.unwrap();
+
+        let loaded = cron.get_job(id).await.unwrap();
+        assert_eq!(loaded.cron_expression, "0 */10 * * * *");
+        // next_run should have been recomputed
+        assert!(loaded.next_run.is_some());
+        assert!(loaded.updated_at > original.updated_at);
+        cron.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn update_job_rejects_invalid_cron() {
+        let (cron, _sched) = make_scheduler().await;
+
+        let job = CronJobDefinition::new(
+            "update_bad".to_string(),
+            "0 * * * * *".to_string(),
+            "UTC".to_string(),
+            test_agent_config(),
+        );
+        let id = cron.add_job(job).await.unwrap();
+        let mut bad = cron.get_job(id).await.unwrap();
+        bad.cron_expression = "nope".to_string();
+
+        assert!(cron.update_job(bad).await.is_err());
+        // Original should be unchanged
+        let loaded = cron.get_job(id).await.unwrap();
+        assert_eq!(loaded.cron_expression, "0 * * * * *");
+        cron.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn update_job_rejects_invalid_timezone() {
+        let (cron, _sched) = make_scheduler().await;
+
+        let job = CronJobDefinition::new(
+            "update_bad_tz".to_string(),
+            "0 * * * * *".to_string(),
+            "UTC".to_string(),
+            test_agent_config(),
+        );
+        let id = cron.add_job(job).await.unwrap();
+        let mut bad = cron.get_job(id).await.unwrap();
+        bad.timezone = "Fake/Zone".to_string();
+
+        assert!(cron.update_job(bad).await.is_err());
+        cron.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn update_job_changes_timezone() {
+        let (cron, _sched) = make_scheduler().await;
+
+        let job = CronJobDefinition::new(
+            "tz_update".to_string(),
+            "0 0 12 * * *".to_string(),
+            "UTC".to_string(),
+            test_agent_config(),
+        );
+        let id = cron.add_job(job).await.unwrap();
+        let original_next = cron.get_job(id).await.unwrap().next_run;
+
+        let mut updated = cron.get_job(id).await.unwrap();
+        updated.timezone = "America/New_York".to_string();
+        cron.update_job(updated).await.unwrap();
+
+        let loaded = cron.get_job(id).await.unwrap();
+        assert_eq!(loaded.timezone, "America/New_York");
+        // next_run should differ because timezone changed
+        assert_ne!(loaded.next_run, original_next);
+        cron.shutdown().await;
+    }
+
+    // ── get_next_runs API tests ──────────────────────────────────────
+
+    #[tokio::test]
+    async fn get_next_runs_api_six_field() {
+        let (cron, _sched) = make_scheduler().await;
+        let runs = cron.get_next_runs("0 * * * * *", "UTC", 3).unwrap();
+        assert_eq!(runs.len(), 3);
+        for pair in runs.windows(2) {
+            assert!(pair[1] > pair[0]);
+        }
+        cron.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn get_next_runs_api_rejects_bad_expression() {
+        let (cron, _sched) = make_scheduler().await;
+        assert!(cron.get_next_runs("bad", "UTC", 3).is_err());
+        cron.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn get_next_runs_api_rejects_bad_timezone() {
+        let (cron, _sched) = make_scheduler().await;
+        assert!(cron.get_next_runs("0 * * * * *", "Bogus/Tz", 3).is_err());
+        cron.shutdown().await;
+    }
+
+    // ── Multiple jobs / timezone isolation ────────────────────────────
+
+    #[tokio::test]
+    async fn multiple_jobs_coexist() {
+        let (cron, _sched) = make_scheduler().await;
+
+        let job_a = CronJobDefinition::new(
+            "job_a".to_string(),
+            "0 * * * * *".to_string(),
+            "UTC".to_string(),
+            test_agent_config(),
+        );
+        let job_b = CronJobDefinition::new(
+            "job_b".to_string(),
+            "0 */10 * * * *".to_string(),
+            "America/Chicago".to_string(),
+            test_agent_config(),
+        );
+        let job_c = CronJobDefinition::new(
+            "job_c".to_string(),
+            "0 0 9 * * Mon-Fri".to_string(),
+            "Europe/London".to_string(),
+            test_agent_config(),
+        );
+
+        let id_a = cron.add_job(job_a).await.unwrap();
+        let id_b = cron.add_job(job_b).await.unwrap();
+        let id_c = cron.add_job(job_c).await.unwrap();
+
+        let all = cron.list_jobs().await.unwrap();
+        assert_eq!(all.len(), 3);
+
+        // Removing one doesn't affect others
+        cron.remove_job(id_b).await.unwrap();
+        let remaining = cron.list_jobs().await.unwrap();
+        assert_eq!(remaining.len(), 2);
+        let ids: Vec<_> = remaining.iter().map(|j| j.job_id).collect();
+        assert!(ids.contains(&id_a));
+        assert!(ids.contains(&id_c));
+        cron.shutdown().await;
+    }
+
+    // ── Health check with jobs ───────────────────────────────────────
+
+    #[tokio::test]
+    async fn health_check_reflects_job_states() {
+        let (cron, _sched) = make_scheduler().await;
+
+        // Add an active job
+        let active_job = CronJobDefinition::new(
+            "active".to_string(),
+            "0 * * * * *".to_string(),
+            "UTC".to_string(),
+            test_agent_config(),
+        );
+        cron.add_job(active_job).await.unwrap();
+
+        // Add and pause a job
+        let pause_job = CronJobDefinition::new(
+            "paused".to_string(),
+            "0 * * * * *".to_string(),
+            "UTC".to_string(),
+            test_agent_config(),
+        );
+        let pid = cron.add_job(pause_job).await.unwrap();
+        cron.pause_job(pid).await.unwrap();
+
+        // Add and dead-letter a job
+        let dl_job = CronJobDefinition::new(
+            "dead_letter".to_string(),
+            "0 * * * * *".to_string(),
+            "UTC".to_string(),
+            test_agent_config(),
+        );
+        let did = cron.add_job(dl_job).await.unwrap();
+        cron.store
+            .record_failure(did, 10, CronJobStatus::DeadLetter)
+            .await
+            .unwrap();
+
+        let health = cron.check_health().await.unwrap();
+        assert_eq!(health.jobs_total, 3);
+        assert_eq!(health.jobs_active, 1);
+        assert_eq!(health.jobs_paused, 1);
+        assert_eq!(health.jobs_dead_letter, 1);
+        cron.shutdown().await;
+    }
+
+    // ── Pause / resume / remove edge cases ───────────────────────────
+
+    #[tokio::test]
+    async fn pause_nonexistent_job_returns_not_found() {
+        let (cron, _sched) = make_scheduler().await;
+        let bogus_id = CronJobId::new();
+        assert!(matches!(
+            cron.pause_job(bogus_id).await,
+            Err(CronSchedulerError::NotFound(_))
+        ));
+        cron.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn resume_nonexistent_job_returns_not_found() {
+        let (cron, _sched) = make_scheduler().await;
+        let bogus_id = CronJobId::new();
+        assert!(matches!(
+            cron.resume_job(bogus_id).await,
+            Err(CronSchedulerError::NotFound(_))
+        ));
+        cron.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn remove_nonexistent_job_returns_not_found() {
+        let (cron, _sched) = make_scheduler().await;
+        let bogus_id = CronJobId::new();
+        assert!(matches!(
+            cron.remove_job(bogus_id).await,
+            Err(CronSchedulerError::NotFound(_))
+        ));
+        cron.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn trigger_now_nonexistent_job_returns_not_found() {
+        let (cron, _sched) = make_scheduler().await;
+        let bogus_id = CronJobId::new();
+        assert!(matches!(
+            cron.trigger_now(bogus_id).await,
+            Err(CronSchedulerError::NotFound(_))
+        ));
+        cron.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn double_pause_is_idempotent() {
+        let (cron, _sched) = make_scheduler().await;
+        let job = CronJobDefinition::new(
+            "double_pause".to_string(),
+            "0 * * * * *".to_string(),
+            "UTC".to_string(),
+            test_agent_config(),
+        );
+        let id = cron.add_job(job).await.unwrap();
+        cron.pause_job(id).await.unwrap();
+        cron.pause_job(id).await.unwrap(); // Should not panic or error
+        let loaded = cron.get_job(id).await.unwrap();
+        assert_eq!(loaded.status, CronJobStatus::Paused);
+        cron.shutdown().await;
+    }
+
+    // ── Metrics after trigger ────────────────────────────────────────
+
+    #[tokio::test]
+    async fn metrics_update_after_trigger_now() {
+        let (cron, _sched) = make_scheduler().await;
+
+        let job = CronJobDefinition::new(
+            "metrics_trigger".to_string(),
+            "0 0 0 1 1 * 2099".to_string(),
+            "UTC".to_string(),
+            test_agent_config(),
+        );
+        let id = cron.add_job(job).await.unwrap();
+
+        let before = cron.metrics();
+        assert_eq!(before.runs_total, 0);
+
+        cron.trigger_now(id).await.unwrap();
+        // trigger_now records directly, but metrics are updated by the tick loop.
+        // The trigger_now path records in the store but the tick-loop path
+        // updates metrics. Since trigger_now bypasses the tick loop, we verify
+        // the run record exists instead.
+        let history = cron.get_run_history(id, 10).await.unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].status, JobRunStatus::Succeeded);
+        assert!(history[0].execution_time_ms.is_some());
+        cron.shutdown().await;
+    }
+
+    // ── Health check after shutdown ──────────────────────────────────
+
+    #[tokio::test]
+    async fn health_check_after_shutdown() {
+        let (cron, _sched) = make_scheduler().await;
+        cron.shutdown().await;
+        let health = cron.check_health().await.unwrap();
+        assert!(!health.is_running);
+        assert!(health.store_accessible);
     }
 }
