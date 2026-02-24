@@ -92,6 +92,15 @@ pub trait AgentScheduler {
         agent_id: AgentId,
         request: crate::api::types::UpdateAgentRequest,
     ) -> Result<(), SchedulerError>;
+
+    /// Check whether an agent is registered (regardless of run state)
+    fn has_agent(&self, agent_id: AgentId) -> bool;
+
+    /// Retrieve the stored config for a registered agent
+    fn get_agent_config(&self, agent_id: AgentId) -> Option<AgentConfig>;
+
+    /// Remove an agent from the registry entirely
+    async fn delete_agent(&self, agent_id: AgentId) -> Result<(), SchedulerError>;
 }
 
 /// Scheduler configuration
@@ -251,6 +260,10 @@ pub struct DefaultAgentScheduler {
     task_manager: Arc<TaskManager>,
     running_agents: Arc<DashMap<AgentId, ScheduledTask>>,
     suspended_agents: Arc<DashMap<AgentId, AgentSuspensionInfo>>,
+    /// Persistent registry of all agents that have been scheduled. Agents
+    /// remain here after being dequeued so that status/execute/list continue
+    /// to work even after completion.
+    registered_agents: Arc<DashMap<AgentId, AgentConfig>>,
     system_metrics: Arc<RwLock<SystemMetrics>>,
     shutdown_notify: Arc<Notify>,
     is_running: Arc<RwLock<bool>>,
@@ -274,6 +287,7 @@ impl DefaultAgentScheduler {
         let task_manager = Arc::new(TaskManager::new(config.task_timeout));
         let running_agents = Arc::new(DashMap::new());
         let suspended_agents = Arc::new(DashMap::new());
+        let registered_agents = Arc::new(DashMap::new());
         let system_metrics = Arc::new(RwLock::new(SystemMetrics::new()));
         let shutdown_notify = Arc::new(Notify::new());
         let is_running = Arc::new(RwLock::new(true));
@@ -305,6 +319,7 @@ impl DefaultAgentScheduler {
             task_manager,
             running_agents,
             suspended_agents,
+            registered_agents,
             system_metrics,
             shutdown_notify,
             is_running,
@@ -456,8 +471,11 @@ impl AgentScheduler for DefaultAgentScheduler {
             return Err(SchedulerError::ShuttingDown);
         }
 
-        let task = ScheduledTask::new(config);
+        let task = ScheduledTask::new(config.clone());
         let agent_id = task.agent_id;
+
+        // Persist in the registry so the agent survives dequeue
+        self.registered_agents.insert(agent_id, config);
 
         // Add to priority queue
         self.priority_queue.write().push(task);
@@ -503,6 +521,7 @@ impl AgentScheduler for DefaultAgentScheduler {
                     reason: format!("Failed to terminate task: {}", e),
                 })?;
 
+            self.registered_agents.remove(&agent_id);
             tracing::info!("Terminated agent {}", agent_id);
             return Ok(());
         }
@@ -510,6 +529,8 @@ impl AgentScheduler for DefaultAgentScheduler {
         // Remove from queue
         let mut queue = self.priority_queue.write();
         if queue.remove(&agent_id).is_some() {
+            drop(queue);
+            self.registered_agents.remove(&agent_id);
             tracing::info!("Removed agent {} from queue", agent_id);
             return Ok(());
         }
@@ -622,6 +643,17 @@ impl AgentScheduler for DefaultAgentScheduler {
                     cpu_usage: 0.0,
                     active_tasks: 0,
                     scheduled_at: task.scheduled_at,
+                })
+            } else if self.registered_agents.contains_key(&agent_id) {
+                // Agent was registered but already ran and was dequeued
+                Ok(AgentStatus {
+                    agent_id,
+                    state: AgentState::Completed,
+                    last_activity: SystemTime::now(),
+                    memory_usage: 0,
+                    cpu_usage: 0.0,
+                    active_tasks: 0,
+                    scheduled_at: SystemTime::now(),
                 })
             } else {
                 // Agent not found anywhere
@@ -776,21 +808,11 @@ impl AgentScheduler for DefaultAgentScheduler {
     }
 
     async fn list_agents(&self) -> Vec<AgentId> {
-        let mut agent_ids = Vec::new();
-
-        // Collect running agents
-        for entry in self.running_agents.iter() {
-            agent_ids.push(*entry.key());
-        }
-
-        // Collect queued agents
-        let queue = self.priority_queue.read();
-        let queued_tasks = queue.to_vec();
-        for task in queued_tasks {
-            agent_ids.push(task.agent_id);
-        }
-
-        agent_ids
+        // Return all registered agents (running, queued, and completed)
+        self.registered_agents
+            .iter()
+            .map(|entry| *entry.key())
+            .collect()
     }
 
     #[cfg(feature = "http-api")]
@@ -839,6 +861,35 @@ impl AgentScheduler for DefaultAgentScheduler {
         }
 
         Err(SchedulerError::AgentNotFound { agent_id })
+    }
+
+    fn has_agent(&self, agent_id: AgentId) -> bool {
+        self.registered_agents.contains_key(&agent_id)
+    }
+
+    fn get_agent_config(&self, agent_id: AgentId) -> Option<AgentConfig> {
+        self.registered_agents.get(&agent_id).map(|r| r.clone())
+    }
+
+    async fn delete_agent(&self, agent_id: AgentId) -> Result<(), SchedulerError> {
+        // Remove from running agents if present
+        if let Some((_, _)) = self.running_agents.remove(&agent_id) {
+            let _ = self.task_manager.terminate_task(agent_id).await;
+        }
+
+        // Remove from queue if present
+        {
+            let mut queue = self.priority_queue.write();
+            queue.remove(&agent_id);
+        }
+
+        // Remove from registry
+        if self.registered_agents.remove(&agent_id).is_some() {
+            tracing::info!("Deleted agent {} from registry", agent_id);
+            Ok(())
+        } else {
+            Err(SchedulerError::AgentNotFound { agent_id })
+        }
     }
 }
 

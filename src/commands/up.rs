@@ -143,13 +143,20 @@ pub async fn run(matches: &ArgMatches) {
         }
     };
 
-    let agent_id = if let Some(_agent) = agents_found.first() {
-        // For now, just create a new agent ID
-        // TODO: Implement proper agent creation when runtime API is stable
-        AgentId::new()
+    // Load agents from DSL files into the scheduler registry
+    let first_agent_id = if let Some(ref rt) = runtime {
+        let loaded = load_agents_into_registry(rt).await;
+        if loaded.is_empty() {
+            None
+        } else {
+            println!("✓ {} agent(s) loaded from agents/", loaded.len());
+            Some(loaded[0])
+        }
     } else {
-        AgentId::new()
+        None
     };
+
+    let agent_id = first_agent_id.unwrap_or_else(AgentId::new);
 
     let http_port_num = match http_port.parse::<u16>() {
         Ok(p) => p,
@@ -658,6 +665,55 @@ async fn load_dsl_schedules(cron: &symbi_runtime::CronScheduler) -> usize {
         }
     }
     count
+}
+
+/// Scan DSL files in the agents directory, parse each one, create an
+/// `AgentConfig`, and register it with the runtime scheduler so that
+/// `/api/v1/agents` lists them and `/api/v1/agents/:id/execute` works.
+async fn load_agents_into_registry(runtime: &AgentRuntime) -> Vec<AgentId> {
+    let agents_dir = Path::new("agents");
+    if !agents_dir.exists() {
+        return vec![];
+    }
+
+    let mut ids = Vec::new();
+    if let Ok(entries) = fs::read_dir(agents_dir) {
+        for entry in entries.flatten() {
+            if entry.path().extension().is_some_and(|ext| ext == "dsl") {
+                if let Ok(source) = fs::read_to_string(entry.path()) {
+                    let name = entry
+                        .path()
+                        .file_stem()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_default();
+
+                    let agent_config = symbi_runtime::types::AgentConfig {
+                        id: symbi_runtime::types::AgentId::new(),
+                        name: name.clone(),
+                        dsl_source: source,
+                        execution_mode: symbi_runtime::types::ExecutionMode::Ephemeral,
+                        security_tier: symbi_runtime::types::SecurityTier::Tier1,
+                        resource_limits: symbi_runtime::types::ResourceLimits::default(),
+                        capabilities: vec![symbi_runtime::types::Capability::Computation],
+                        policies: vec![],
+                        metadata: std::collections::HashMap::new(),
+                        priority: symbi_runtime::types::Priority::Normal,
+                    };
+
+                    match runtime.scheduler.schedule_agent(agent_config).await {
+                        Ok(id) => {
+                            println!("  → {} [{}]", name, id);
+                            ids.push(id);
+                        }
+                        Err(e) => {
+                            eprintln!("  ⚠ Failed to register agent '{}': {}", name, e);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    ids
 }
 
 fn scan_agents_directory() -> Vec<String> {

@@ -353,24 +353,21 @@ impl HttpApiServer {
                 .layer(middleware::from_fn(auth_middleware))
                 .with_state(provider.clone());
 
-            // Protected routes (workflows + metrics) with authentication
+            // Protected routes (workflows + metrics + scheduler health) with authentication.
+            // Note: /api/v1/health (basic) remains public for load-balancer probes;
+            // /api/v1/health/scheduler exposes job counts and run stats so it requires auth.
             let protected_router = Router::new()
                 .route("/api/v1/workflows/execute", post(execute_workflow))
                 .route("/api/v1/metrics", get(get_metrics))
-                .layer(middleware::from_fn(auth_middleware))
-                .with_state(provider.clone());
-
-            // Health routes — no auth so load-balancer probes work without credentials
-            let health_router = Router::new()
                 .route("/api/v1/health/scheduler", get(get_scheduler_health))
+                .layer(middleware::from_fn(auth_middleware))
                 .with_state(provider.clone());
 
             router = router
                 .merge(agent_router)
                 .merge(schedule_router)
                 .merge(channel_router)
-                .merge(protected_router)
-                .merge(health_router);
+                .merge(protected_router);
         }
 
         // Conditionally serve AGENTS.md at well-known paths (auth-gated, no provider state needed)

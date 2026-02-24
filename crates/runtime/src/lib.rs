@@ -609,7 +609,10 @@ impl RuntimeApiProvider for AgentRuntime {
     }
 
     async fn delete_agent(&self, agent_id: AgentId) -> Result<DeleteAgentResponse, RuntimeError> {
-        // Placeholder implementation - validate input and return success
+        self.scheduler
+            .delete_agent(agent_id)
+            .await
+            .map_err(RuntimeError::Scheduler)?;
 
         Ok(DeleteAgentResponse {
             id: agent_id.to_string(),
@@ -622,8 +625,24 @@ impl RuntimeApiProvider for AgentRuntime {
         agent_id: AgentId,
         request: ExecuteAgentRequest,
     ) -> Result<ExecuteAgentResponse, RuntimeError> {
+        // Ensure the agent exists in the registry
+        if !self.scheduler.has_agent(agent_id) {
+            return Err(RuntimeError::Internal(format!(
+                "Agent {} not found",
+                agent_id
+            )));
+        }
+
+        // Re-schedule from stored config if the agent isn't currently active
         let status = self.get_agent_status(agent_id).await?;
-        if status.state != AgentState::Running {
+        if status.state == AgentState::Completed {
+            if let Some(config) = self.scheduler.get_agent_config(agent_id) {
+                self.scheduler
+                    .schedule_agent(config)
+                    .await
+                    .map_err(RuntimeError::Scheduler)?;
+            }
+        } else if status.state != AgentState::Running {
             self.lifecycle
                 .start_agent(agent_id)
                 .await
@@ -654,7 +673,9 @@ impl RuntimeApiProvider for AgentRuntime {
         &self,
         _agent_id: AgentId,
     ) -> Result<GetAgentHistoryResponse, RuntimeError> {
-        // For now, return empty history as the model logger API is not yet implemented
+        // TODO(T-59): Requires a persistent execution-log storage layer (SQLite
+        // or in-memory ring buffer). The per-schedule history
+        // (/schedules/{id}/history) already works via CronScheduler.
         let history = vec![];
         Ok(GetAgentHistoryResponse { history })
     }
