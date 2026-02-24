@@ -37,9 +37,9 @@ use api::types::{
     CreateScheduleRequest, CreateScheduleResponse, DeleteAgentResponse, DeleteChannelResponse,
     DeleteScheduleResponse, ExecuteAgentRequest, ExecuteAgentResponse, GetAgentHistoryResponse,
     IdentityMappingEntry, NextRunsResponse, RegisterChannelRequest, RegisterChannelResponse,
-    ScheduleActionResponse, ScheduleDetail, ScheduleHistoryResponse, ScheduleSummary,
-    UpdateAgentRequest, UpdateAgentResponse, UpdateChannelRequest, UpdateScheduleRequest,
-    WorkflowExecutionRequest,
+    ScheduleActionResponse, ScheduleDetail, ScheduleHistoryResponse, ScheduleRunEntry,
+    ScheduleSummary, UpdateAgentRequest, UpdateAgentResponse, UpdateChannelRequest,
+    UpdateScheduleRequest, WorkflowExecutionRequest,
 };
 #[cfg(feature = "http-api")]
 use async_trait::async_trait;
@@ -98,6 +98,8 @@ pub struct AgentRuntime {
     pub context_manager: Arc<dyn context::ContextManager + Send + Sync>,
     pub model_logger: Option<Arc<logging::ModelLogger>>,
     pub model_catalog: Option<Arc<models::ModelCatalog>>,
+    #[cfg(feature = "cron")]
+    cron_scheduler: Option<Arc<scheduler::cron_scheduler::CronScheduler>>,
     config: Arc<RwLock<RuntimeConfig>>,
 }
 
@@ -205,8 +207,20 @@ impl AgentRuntime {
             context_manager,
             model_logger,
             model_catalog,
+            #[cfg(feature = "cron")]
+            cron_scheduler: None,
             config,
         })
+    }
+
+    /// Attach a CronScheduler to the runtime so schedule APIs become functional.
+    #[cfg(feature = "cron")]
+    pub fn with_cron_scheduler(
+        mut self,
+        cron: Arc<scheduler::cron_scheduler::CronScheduler>,
+    ) -> Self {
+        self.cron_scheduler = Some(cron);
+        self
     }
 
     /// Get the current runtime configuration
@@ -648,20 +662,124 @@ impl RuntimeApiProvider for AgentRuntime {
     // ── Schedule endpoints ──────────────────────────────────────────
 
     async fn list_schedules(&self) -> Result<Vec<ScheduleSummary>, RuntimeError> {
-        // No CronScheduler — return empty list so dashboard renders gracefully
+        #[cfg(feature = "cron")]
+        if let Some(ref cron) = self.cron_scheduler {
+            let jobs = cron
+                .list_jobs()
+                .await
+                .map_err(|e| RuntimeError::Internal(e.to_string()))?;
+            return Ok(jobs
+                .into_iter()
+                .map(|j| ScheduleSummary {
+                    job_id: j.job_id.to_string(),
+                    name: j.name,
+                    cron_expression: j.cron_expression,
+                    timezone: j.timezone,
+                    status: format!("{:?}", j.status),
+                    enabled: j.enabled,
+                    next_run: j.next_run.map(|t| t.to_rfc3339()),
+                    run_count: j.run_count,
+                })
+                .collect());
+        }
         Ok(vec![])
     }
 
     async fn create_schedule(
         &self,
-        _request: CreateScheduleRequest,
+        request: CreateScheduleRequest,
     ) -> Result<CreateScheduleResponse, RuntimeError> {
+        #[cfg(feature = "cron")]
+        if let Some(ref cron) = self.cron_scheduler {
+            use scheduler::cron_types::{CronJobDefinition, CronJobId};
+            let now = chrono::Utc::now();
+            let tz = if request.timezone.is_empty() {
+                "UTC".to_string()
+            } else {
+                request.timezone
+            };
+            let agent_config = types::AgentConfig {
+                id: types::AgentId::new(),
+                name: request.agent_name,
+                dsl_source: String::new(),
+                execution_mode: Default::default(),
+                security_tier: Default::default(),
+                resource_limits: Default::default(),
+                capabilities: Vec::new(),
+                policies: Vec::new(),
+                metadata: Default::default(),
+                priority: Default::default(),
+            };
+            let job = CronJobDefinition {
+                job_id: CronJobId::new(),
+                name: request.name,
+                cron_expression: request.cron_expression,
+                timezone: tz,
+                agent_config,
+                policy_ids: request.policy_ids,
+                audit_level: Default::default(),
+                status: scheduler::cron_types::CronJobStatus::Active,
+                enabled: true,
+                one_shot: request.one_shot,
+                created_at: now,
+                updated_at: now,
+                last_run: None,
+                next_run: None,
+                run_count: 0,
+                failure_count: 0,
+                max_retries: 3,
+                max_concurrent: 1,
+                delivery_config: None,
+                jitter_max_secs: 0,
+                session_mode: Default::default(),
+                agentpin_jwt: None,
+            };
+            let job_id = cron
+                .add_job(job)
+                .await
+                .map_err(|e| RuntimeError::Internal(e.to_string()))?;
+            // Retrieve the saved job to get the computed next_run.
+            let saved = cron
+                .get_job(job_id)
+                .await
+                .map_err(|e| RuntimeError::Internal(e.to_string()))?;
+            return Ok(CreateScheduleResponse {
+                job_id: job_id.to_string(),
+                next_run: saved.next_run.map(|t| t.to_rfc3339()),
+                status: "created".to_string(),
+            });
+        }
         Err(RuntimeError::Internal(
             "Schedule API requires a running CronScheduler".to_string(),
         ))
     }
 
-    async fn get_schedule(&self, _job_id: &str) -> Result<ScheduleDetail, RuntimeError> {
+    async fn get_schedule(&self, job_id: &str) -> Result<ScheduleDetail, RuntimeError> {
+        #[cfg(feature = "cron")]
+        if let Some(ref cron) = self.cron_scheduler {
+            let id: scheduler::cron_types::CronJobId = job_id
+                .parse()
+                .map_err(|_| RuntimeError::Internal(format!("Invalid job ID: {}", job_id)))?;
+            let j = cron
+                .get_job(id)
+                .await
+                .map_err(|e| RuntimeError::Internal(e.to_string()))?;
+            return Ok(ScheduleDetail {
+                job_id: j.job_id.to_string(),
+                name: j.name,
+                cron_expression: j.cron_expression,
+                timezone: j.timezone,
+                status: format!("{:?}", j.status),
+                enabled: j.enabled,
+                one_shot: j.one_shot,
+                next_run: j.next_run.map(|t| t.to_rfc3339()),
+                last_run: j.last_run.map(|t| t.to_rfc3339()),
+                run_count: j.run_count,
+                failure_count: j.failure_count,
+                created_at: j.created_at.to_rfc3339(),
+                updated_at: j.updated_at.to_rfc3339(),
+            });
+        }
         Err(RuntimeError::Internal(
             "Schedule API requires a running CronScheduler".to_string(),
         ))
@@ -669,36 +787,114 @@ impl RuntimeApiProvider for AgentRuntime {
 
     async fn update_schedule(
         &self,
-        _job_id: &str,
-        _request: UpdateScheduleRequest,
+        job_id: &str,
+        request: UpdateScheduleRequest,
     ) -> Result<ScheduleDetail, RuntimeError> {
+        #[cfg(feature = "cron")]
+        if let Some(ref cron) = self.cron_scheduler {
+            let id: scheduler::cron_types::CronJobId = job_id
+                .parse()
+                .map_err(|_| RuntimeError::Internal(format!("Invalid job ID: {}", job_id)))?;
+            let mut job = cron
+                .get_job(id)
+                .await
+                .map_err(|e| RuntimeError::Internal(e.to_string()))?;
+            if let Some(expr) = request.cron_expression {
+                job.cron_expression = expr;
+            }
+            if let Some(tz) = request.timezone {
+                job.timezone = tz;
+            }
+            if let Some(pids) = request.policy_ids {
+                job.policy_ids = pids;
+            }
+            if let Some(one_shot) = request.one_shot {
+                job.one_shot = one_shot;
+            }
+            cron.update_job(job)
+                .await
+                .map_err(|e| RuntimeError::Internal(e.to_string()))?;
+            return self.get_schedule(job_id).await;
+        }
         Err(RuntimeError::Internal(
             "Schedule API requires a running CronScheduler".to_string(),
         ))
     }
 
-    async fn delete_schedule(&self, _job_id: &str) -> Result<DeleteScheduleResponse, RuntimeError> {
+    async fn delete_schedule(&self, job_id: &str) -> Result<DeleteScheduleResponse, RuntimeError> {
+        #[cfg(feature = "cron")]
+        if let Some(ref cron) = self.cron_scheduler {
+            let id: scheduler::cron_types::CronJobId = job_id
+                .parse()
+                .map_err(|_| RuntimeError::Internal(format!("Invalid job ID: {}", job_id)))?;
+            cron.remove_job(id)
+                .await
+                .map_err(|e| RuntimeError::Internal(e.to_string()))?;
+            return Ok(DeleteScheduleResponse {
+                job_id: job_id.to_string(),
+                deleted: true,
+            });
+        }
         Err(RuntimeError::Internal(
             "Schedule API requires a running CronScheduler".to_string(),
         ))
     }
 
-    async fn pause_schedule(&self, _job_id: &str) -> Result<ScheduleActionResponse, RuntimeError> {
+    async fn pause_schedule(&self, job_id: &str) -> Result<ScheduleActionResponse, RuntimeError> {
+        #[cfg(feature = "cron")]
+        if let Some(ref cron) = self.cron_scheduler {
+            let id: scheduler::cron_types::CronJobId = job_id
+                .parse()
+                .map_err(|_| RuntimeError::Internal(format!("Invalid job ID: {}", job_id)))?;
+            cron.pause_job(id)
+                .await
+                .map_err(|e| RuntimeError::Internal(e.to_string()))?;
+            return Ok(ScheduleActionResponse {
+                job_id: job_id.to_string(),
+                action: "pause".to_string(),
+                status: "paused".to_string(),
+            });
+        }
         Err(RuntimeError::Internal(
             "Schedule API requires a running CronScheduler".to_string(),
         ))
     }
 
-    async fn resume_schedule(&self, _job_id: &str) -> Result<ScheduleActionResponse, RuntimeError> {
+    async fn resume_schedule(&self, job_id: &str) -> Result<ScheduleActionResponse, RuntimeError> {
+        #[cfg(feature = "cron")]
+        if let Some(ref cron) = self.cron_scheduler {
+            let id: scheduler::cron_types::CronJobId = job_id
+                .parse()
+                .map_err(|_| RuntimeError::Internal(format!("Invalid job ID: {}", job_id)))?;
+            cron.resume_job(id)
+                .await
+                .map_err(|e| RuntimeError::Internal(e.to_string()))?;
+            return Ok(ScheduleActionResponse {
+                job_id: job_id.to_string(),
+                action: "resume".to_string(),
+                status: "active".to_string(),
+            });
+        }
         Err(RuntimeError::Internal(
             "Schedule API requires a running CronScheduler".to_string(),
         ))
     }
 
-    async fn trigger_schedule(
-        &self,
-        _job_id: &str,
-    ) -> Result<ScheduleActionResponse, RuntimeError> {
+    async fn trigger_schedule(&self, job_id: &str) -> Result<ScheduleActionResponse, RuntimeError> {
+        #[cfg(feature = "cron")]
+        if let Some(ref cron) = self.cron_scheduler {
+            let id: scheduler::cron_types::CronJobId = job_id
+                .parse()
+                .map_err(|_| RuntimeError::Internal(format!("Invalid job ID: {}", job_id)))?;
+            cron.trigger_now(id)
+                .await
+                .map_err(|e| RuntimeError::Internal(e.to_string()))?;
+            return Ok(ScheduleActionResponse {
+                job_id: job_id.to_string(),
+                action: "trigger".to_string(),
+                status: "triggered".to_string(),
+            });
+        }
         Err(RuntimeError::Internal(
             "Schedule API requires a running CronScheduler".to_string(),
         ))
@@ -706,9 +902,33 @@ impl RuntimeApiProvider for AgentRuntime {
 
     async fn get_schedule_history(
         &self,
-        _job_id: &str,
-        _limit: usize,
+        job_id: &str,
+        limit: usize,
     ) -> Result<ScheduleHistoryResponse, RuntimeError> {
+        #[cfg(feature = "cron")]
+        if let Some(ref cron) = self.cron_scheduler {
+            let id: scheduler::cron_types::CronJobId = job_id
+                .parse()
+                .map_err(|_| RuntimeError::Internal(format!("Invalid job ID: {}", job_id)))?;
+            let runs = cron
+                .get_run_history(id, limit)
+                .await
+                .map_err(|e| RuntimeError::Internal(e.to_string()))?;
+            return Ok(ScheduleHistoryResponse {
+                job_id: job_id.to_string(),
+                history: runs
+                    .into_iter()
+                    .map(|r| ScheduleRunEntry {
+                        run_id: r.run_id.to_string(),
+                        started_at: r.started_at.to_rfc3339(),
+                        completed_at: r.completed_at.map(|t| t.to_rfc3339()),
+                        status: format!("{:?}", r.status),
+                        error: r.error,
+                        execution_time_ms: r.execution_time_ms,
+                    })
+                    .collect(),
+            });
+        }
         Err(RuntimeError::Internal(
             "Schedule API requires a running CronScheduler".to_string(),
         ))
@@ -716,9 +936,26 @@ impl RuntimeApiProvider for AgentRuntime {
 
     async fn get_schedule_next_runs(
         &self,
-        _job_id: &str,
-        _count: usize,
+        job_id: &str,
+        count: usize,
     ) -> Result<NextRunsResponse, RuntimeError> {
+        #[cfg(feature = "cron")]
+        if let Some(ref cron) = self.cron_scheduler {
+            let id: scheduler::cron_types::CronJobId = job_id
+                .parse()
+                .map_err(|_| RuntimeError::Internal(format!("Invalid job ID: {}", job_id)))?;
+            let job = cron
+                .get_job(id)
+                .await
+                .map_err(|e| RuntimeError::Internal(e.to_string()))?;
+            let runs = cron
+                .get_next_runs(&job.cron_expression, &job.timezone, count)
+                .map_err(|e| RuntimeError::Internal(e.to_string()))?;
+            return Ok(NextRunsResponse {
+                job_id: job_id.to_string(),
+                next_runs: runs.into_iter().map(|t| t.to_rfc3339()).collect(),
+            });
+        }
         Err(RuntimeError::Internal(
             "Schedule API requires a running CronScheduler".to_string(),
         ))
@@ -727,7 +964,30 @@ impl RuntimeApiProvider for AgentRuntime {
     async fn get_scheduler_health(
         &self,
     ) -> Result<api::types::SchedulerHealthResponse, RuntimeError> {
-        // Without a CronScheduler instance, return a minimal response.
+        #[cfg(feature = "cron")]
+        if let Some(ref cron) = self.cron_scheduler {
+            let h = cron
+                .check_health()
+                .await
+                .map_err(|e| RuntimeError::Internal(e.to_string()))?;
+            let m = cron.metrics();
+            return Ok(api::types::SchedulerHealthResponse {
+                is_running: h.is_running,
+                store_accessible: h.store_accessible,
+                jobs_total: h.jobs_total,
+                jobs_active: h.jobs_active,
+                jobs_paused: h.jobs_paused,
+                jobs_dead_letter: h.jobs_dead_letter,
+                global_active_runs: h.global_active_runs,
+                max_concurrent: h.max_concurrent,
+                runs_total: m.runs_total,
+                runs_succeeded: m.runs_succeeded,
+                runs_failed: m.runs_failed,
+                average_execution_time_ms: m.average_execution_time_ms,
+                longest_run_ms: m.longest_run_ms,
+            });
+        }
+        // No CronScheduler — return a minimal response.
         Ok(api::types::SchedulerHealthResponse {
             is_running: false,
             store_accessible: false,

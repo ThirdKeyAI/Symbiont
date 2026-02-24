@@ -198,7 +198,7 @@ pub async fn run(matches: &ArgMatches) {
 
     // Start CronScheduler if the cron feature is enabled and schedule files exist.
     #[cfg(feature = "cron")]
-    let _cron_scheduler = {
+    let _cron_scheduler: Option<Arc<symbi_runtime::CronScheduler>> = {
         use symbi_runtime::{CronScheduler, CronSchedulerConfig};
 
         let cron_config = CronSchedulerConfig::default();
@@ -210,7 +210,8 @@ pub async fn run(matches: &ArgMatches) {
 
         match CronScheduler::new(cron_config, cron_agent_sched).await {
             Ok(cron_sched) => {
-                let schedule_count = load_dsl_schedules(&cron_sched).await;
+                let cron_arc = Arc::new(cron_sched);
+                let schedule_count = load_dsl_schedules(&cron_arc).await;
                 if schedule_count > 0 {
                     println!(
                         "✓ {} scheduled job(s) loaded from DSL files",
@@ -218,13 +219,23 @@ pub async fn run(matches: &ArgMatches) {
                     );
                 }
                 println!("✓ CronScheduler started");
-                Some(cron_sched)
+                Some(cron_arc)
             }
             Err(e) => {
                 eprintln!("⚠️  Failed to start CronScheduler: {}", e);
                 None
             }
         }
+    };
+
+    // Attach the CronScheduler to the runtime if both are available.
+    #[cfg(feature = "cron")]
+    let runtime = match (runtime, &_cron_scheduler) {
+        (Some(rt), Some(cron)) => {
+            let inner = Arc::try_unwrap(rt).unwrap_or_else(|arc| (*arc).clone());
+            Some(Arc::new(inner.with_cron_scheduler(cron.clone())))
+        }
+        (rt, _) => rt,
     };
 
     // Start chat adapters if any are configured
