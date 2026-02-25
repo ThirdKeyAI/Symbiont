@@ -72,7 +72,11 @@ fuzz_target!(|input: Input| {
         TokenVariant::Long(s) => clamp(s.clone(), 4096, "a]".repeat(2048).as_str()),
         TokenVariant::Partial => {
             if secret.len() > 1 {
-                secret[..secret.len() / 2].to_string()
+                let mut mid = secret.len() / 2;
+                while mid > 0 && !secret.is_char_boundary(mid) {
+                    mid -= 1;
+                }
+                secret[..mid].to_string()
             } else {
                 String::new()
             }
