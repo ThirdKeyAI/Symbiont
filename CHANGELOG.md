@@ -5,6 +5,37 @@ All notable changes to the Symbiont project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+#### ClawHavoc Scanner Expansion
+- **30 new detection rules** across 7 attack categories: reverse shells (7 rules), credential harvesting (6), network exfiltration (3), process injection (4), privilege escalation (5), symlink/path traversal (2), downloader chains (3)
+- **5-level severity model**: Critical, High, Medium, Warning, Info — scans fail on Critical or High findings (previously only Critical)
+- **`AllowedExecutablesOnly` custom rule type**: Whitelist-based executable filtering for strict sandboxed environments
+
+#### Agent Registry & Lifecycle
+- **Persistent `AgentRegistry`**: Store and retrieve agent metadata with delete and re-execute lifecycle support
+
+#### AGENTS.md Support
+- **Full bidirectional AGENTS.md**: Generate and parse agent manifest files for ecosystem interoperability
+
+#### Performance Verification
+- **Benchmarked performance claims**: Policy evaluation <1ms, ECDSA P-256 <5ms, SchemaPin verification <5ms, 10k agent scheduling <2% CPU overhead
+- **Debug/release threshold split**: Relaxed thresholds for debug builds (unoptimized crypto) while preserving real claims for release
+
+#### Fuzzing Expansion
+- **6 new fuzz targets**: `dsl_evaluator`, `mattermost_signature_verification`, `crypto_roundtrip`, `webhook_verify_generic`, `api_key_store`, `policy_evaluation` — total now 18 targets
+
+#### Infrastructure
+- **Docker build optimization**: cargo-chef caching, split CI/release build profiles, nproc-based parallelism auto-detection
+- **v1.6.0 roadmap**: Agent discovery, remote transport, and DSL A2A primitives planned across 5 phases
+
+### Fixed
+- **cargo-chef cook**: Create stub for `[[example]]` entries not handled by cargo-chef
+- **ECDSA benchmark threshold**: Debug builds no longer fail due to unoptimized crypto exceeding release-only 5ms threshold
+- **SchemaPin verification threshold**: Same debug/release split applied to pinned-key verification benchmark
+
 ## [1.5.0] - 2026-02-22
 
 ### Added

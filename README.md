@@ -81,7 +81,7 @@ cargo run -- mcp --port 8080
 * ⏰ **Cron Scheduling** – Persistent SQLite-backed cron engine with jitter, concurrency guards, dead-letter queues, and heartbeat pattern.
 * 🧠 **Persistent Memory** – Markdown-backed agent memory with facts, procedures, learned patterns, daily logs, and retention-based compaction.
 * 🪝 **Webhook Verification** – HMAC-SHA256 and JWT signature verification with GitHub, Stripe, and Slack presets.
-* 🛡️ **Skill Scanning** – ClawHavoc scanner with 10 rules detecting pipe-to-shell, env exfiltration, identity tampering, eval+fetch, and more.
+* 🛡️ **Skill Scanning** – ClawHavoc scanner with 40 rules across 10 attack categories (reverse shells, credential harvesting, process injection, privilege escalation, network exfiltration, and more). 5-level severity model (Critical/High/Medium/Warning/Info) with executable whitelisting.
 * 📈 **Metrics & Telemetry** – File and OTLP metric exporters with composite fan-out and background collection.
 * 🔒 **HTTP Security Hardening** – Loopback-only binding, CORS allow-lists, JWT EdDSA validation, health endpoint separation.
 * 🔒 **Sandboxing** – Tier-1 Docker isolation for agent execution.
@@ -89,10 +89,13 @@ cargo run -- mcp --port 8080
 * 🔒 **AgentPin Identity** – Domain-anchored cryptographic identity for scheduled agents.
 * 🔒 **Secrets Management** – HashiCorp Vault / OpenBao integration, AES-256-GCM encrypted storage.
 * 🔑 **Per-Agent API Keys** – Argon2-hashed API key authentication with per-IP rate limiting.
+* 🧠 **Context Compaction** – Automatic context window management with tiered compaction: LLM-driven summarization (Tier 1) and truncation (Tier 4). Multi-model token counting (OpenAI, Claude, Gemini, Llama, Mistral, and more).
 * 📊 **RAG Engine** – Vector search (LanceDB embedded) with hybrid semantic + keyword retrieval. Optional Qdrant backend for scaled deployments.
-* 🧩 **MCP Integration** – Native support for Model Context Protocol tools.
+* 🧩 **MCP Integration** – Native support for Model Context Protocol tools, plus Composio SSE integration for external tool access.
 * 📡 **Optional HTTP API** – Feature-gated REST interface for external integration.
 * 📋 **Delivery Routing** – Route scheduled agent output to webhooks, Slack, email, or custom channels.
+* 📝 **AGENTS.md Support** – Bidirectional agent manifest generation and parsing for interoperability.
+* ⚡ **Performance Verified** – Benchmarked claims: policy evaluation <1ms, ECDSA P-256 verification <5ms, 10k agent scheduling with <2% CPU overhead.
 
 ---
 

@@ -9,6 +9,11 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          df -h /
       - uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -24,6 +29,11 @@ jobs:
   fuzz:
     runs-on: ubuntu-latest
     steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          df -h /
       - uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -55,7 +65,13 @@ jobs:
             tool_substitution_detection \
             dsl_structure_aware \
             sse_jsonrpc_parsing \
-            schemapin_keystore_roundtrip; do
+            schemapin_keystore_roundtrip \
+            dsl_evaluator \
+            mattermost_signature_verification \
+            crypto_roundtrip \
+            webhook_verify_generic \
+            api_key_store \
+            policy_evaluation; do
             echo "--- Fuzzing $target (15s) ---"
             cargo fuzz run --fuzz-dir . "$target" -- -max_total_time=15 || exit 1
           done

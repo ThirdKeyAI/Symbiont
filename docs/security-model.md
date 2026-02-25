@@ -592,6 +592,80 @@ impl SecurityAnalyzer {
 
 ---
 
+## ClawHavoc Skill Scanner
+
+The ClawHavoc scanner provides content-level defense for agent skills. Every skill file is scanned line-by-line before loading, and findings at Critical or High severity block the skill from executing.
+
+### Severity Model
+
+| Level | Action | Description |
+|-------|--------|-------------|
+| **Critical** | Fail scan | Active exploitation patterns (reverse shells, code injection) |
+| **High** | Fail scan | Credential theft, privilege escalation, process injection |
+| **Medium** | Warn | Suspicious but potentially legitimate (downloaders, symlinks) |
+| **Warning** | Warn | Low-risk indicators (env file references, chmod) |
+| **Info** | Log | Informational findings |
+
+### Detection Categories (40 Rules)
+
+**Original Defense Rules (10)**
+- `pipe-to-shell`, `wget-pipe-to-shell` — Remote code execution via piped downloads
+- `eval-with-fetch`, `fetch-with-eval` — Code injection via eval + network
+- `base64-decode-exec` — Obfuscated execution via base64 decoding
+- `soul-md-modification`, `memory-md-modification` — Identity tampering
+- `rm-rf-pattern` — Destructive filesystem operations
+- `env-file-reference`, `chmod-777` — Sensitive file access, world-writable permissions
+
+**Reverse Shells (7)** — Critical severity
+- `reverse-shell-bash`, `reverse-shell-nc`, `reverse-shell-ncat`, `reverse-shell-mkfifo`, `reverse-shell-python`, `reverse-shell-perl`, `reverse-shell-ruby`
+
+**Credential Harvesting (6)** — High severity
+- `credential-ssh-keys`, `credential-aws`, `credential-cloud-config`, `credential-browser-cookies`, `credential-keychain`, `credential-etc-shadow`
+
+**Network Exfiltration (3)** — High severity
+- `exfil-dns-tunnel`, `exfil-dev-tcp`, `exfil-nc-outbound`
+
+**Process Injection (4)** — Critical severity
+- `injection-ptrace`, `injection-ld-preload`, `injection-proc-mem`, `injection-gdb-attach`
+
+**Privilege Escalation (5)** — High severity
+- `privesc-sudo`, `privesc-setuid`, `privesc-setcap`, `privesc-chown-root`, `privesc-nsenter`
+
+**Symlink / Path Traversal (2)** — Medium severity
+- `symlink-escape`, `path-traversal-deep`
+
+**Downloader Chains (3)** — Medium severity
+- `downloader-curl-save`, `downloader-wget-save`, `downloader-chmod-exec`
+
+### Executable Whitelisting
+
+The `AllowedExecutablesOnly` rule type restricts which executables an agent skill can invoke:
+
+```rust
+// Only allow these executables — everything else is blocked
+ScanRule::AllowedExecutablesOnly(vec![
+    "python3".into(),
+    "node".into(),
+    "cargo".into(),
+])
+```
+
+### Custom Rules
+
+Domain-specific patterns can be added alongside ClawHavoc defaults:
+
+```rust
+let mut scanner = SkillScanner::new();
+scanner.add_custom_rule(
+    "block-internal-api",
+    r"internal\.corp\.example\.com",
+    ScanSeverity::High,
+    "References to internal API endpoints are not allowed in skills",
+);
+```
+
+---
+
 ## Network Security
 
 ### Secure Communication

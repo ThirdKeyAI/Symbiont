@@ -183,27 +183,33 @@ graph TB
 
 ## Project Status
 
-### v1.4.0 Production
+### v1.5.0 Production
 
-Symbiont v1.4.0 is the latest stable release, delivering a complete AI agent framework with production-grade capabilities:
+Symbiont v1.5.0 is the latest stable release, delivering a complete AI agent framework with production-grade capabilities:
 
+- **LanceDB Embedded Vector Backend**: Zero-config vector search with no external services required. `VectorDb` trait abstraction with pluggable backends — LanceDB default, Qdrant optional via `vector-qdrant` feature flag
+- **Context Compaction Pipeline**: Automatic context window management with tiered compaction — LLM-driven summarization (Tier 1), truncation (Tier 4), and enterprise tiers for episodic compression and archival. Multi-model token counting covering OpenAI, Claude, Gemini, Llama, Mistral, and more
+- **ClawHavoc Scanner Expansion**: 40 detection rules across 10 attack categories — reverse shells, credential harvesting, process injection, privilege escalation, network exfiltration, symlink escapes, downloader chains, and more. 5-level severity model (Critical/High/Medium/Warning/Info) with `AllowedExecutablesOnly` executable whitelisting
+- **Composio MCP Integration**: Feature-gated SSE-based connection to Composio MCP server for external tool access
 - **Persistent Memory**: Markdown-backed agent memory with facts, procedures, and learned patterns — retention-based compaction, daily logs, DSL `memory` block
 - **Webhook Verification**: `SignatureVerifier` trait with HMAC-SHA256 and JWT implementations, built-in presets for GitHub, Stripe, Slack, and Custom providers — DSL `webhook` block
 - **HTTP Security Hardening**: Loopback-only default binding, explicit CORS origin allow-lists, JWT EdDSA validation, health endpoint separation
-- **Skill Scanning**: ClawHavoc scanner with 10 built-in rules detecting pipe-to-shell, env exfiltration, identity tampering, eval+fetch, base64 obfuscation, and destructive operations
 - **Metrics & Telemetry**: File and OTLP exporters with composite fan-out, background collection, `/metrics` API endpoint
 - **Scheduling Engine**: Cron-based task execution with session isolation, delivery routing, dead-letter queues, jitter, and concurrency limits
 - **Channel Adapters**: Slack (community), Microsoft Teams and Mattermost (enterprise) with webhook verification and HMAC signing
-- **HTTP Input Module**: Webhook server for external integrations with Bearer/JWT auth, rate limiting, and CORS
-- **DSL Extensions**: `schedule`, `channel`, `memory`, and `webhook` blocks for declarative agent configuration
+- **AGENTS.md Support**: Full bidirectional agent manifest generation and parsing for ecosystem interoperability
+- **Performance Benchmarks**: Verified claims — policy evaluation <1ms, ECDSA P-256 verification <5ms, 10k agent scheduling with <2% CPU overhead
+- **18 Fuzz Targets**: Comprehensive fuzzing coverage across DSL parsing, crypto, webhook verification, API keys, policy evaluation, and protocol handling
 - **AgentPin Identity**: Cryptographic agent identity verification via ES256 JWTs with domain-anchored well-known endpoints
 - **Secrets Management**: HashiCorp Vault, encrypted file, and OS keychain backends with runtime provider abstraction
 - **JavaScript & Python SDKs**: Full API clients covering scheduling, channels, webhooks, memory, skills, metrics, and more
 
-### 🔮 Planned Features
+### 🔮 v1.6.0 Roadmap — Agent-to-Agent Communication
+- Agent discovery via `AgentRegistry` and `.well-known` endpoints
+- Remote transport enabling cross-process agent communication
+- DSL A2A primitives: `send_task()`, `send_message()`, `subscribe()`, `discover_agent()`
+- AgentPin-verified AgentCards for cryptographic inter-agent trust
 - Multi-modal RAG support (images, audio, structured data)
-- Cross-agent knowledge synthesis and collaboration
-- Federated agent networks with cross-domain trust
 - Additional channel adapters (Discord, Matrix)
 
 ---
