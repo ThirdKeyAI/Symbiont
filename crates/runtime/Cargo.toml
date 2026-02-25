@@ -108,7 +108,7 @@ opentelemetry-otlp = { version = "0.31", default-features = false, features = ["
 [dev-dependencies]
 tokio-test = "0.4"
 tempfile = "3.0"
-criterion = "0.5"
+criterion = { version = "0.5", features = ["async_tokio"] }
 serial_test = "3.0"
 filetime = "0.2"
 
@@ -131,6 +131,10 @@ full = ["vector-lancedb", "vector-qdrant", "embedding-models", "http-api", "http
 minimal = []  # Minimal build for faster CI
 
 
+
+[[bench]]
+name = "performance_claims"
+harness = false
 
 [lib]
 name = "symbi_runtime"
