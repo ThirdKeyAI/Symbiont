@@ -53,6 +53,8 @@ RUN mkdir -p .cargo && printf '[net]\ngit-fetch-with-cli = true\n[registries.cra
 
 # Cook dependencies (cached when only source changes)
 COPY --from=planner /app/recipe.json recipe.json
+# cargo-chef doesn't create stubs for [[example]] entries
+RUN mkdir -p examples && echo "fn main() {}" > examples/native-execution-example.rs
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     . /tmp/build-profile.env && \
     cargo chef cook --release --recipe-path recipe.json
