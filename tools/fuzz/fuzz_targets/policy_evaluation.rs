@@ -74,6 +74,8 @@ enum EdgeCaseVariant {
 }
 
 fn clamp(mut s: String, max: usize, fallback: &str) -> String {
+    // Remove newlines and control chars that would split lines in the parser.
+    s.retain(|c| !c.is_control());
     if s.is_empty() {
         return fallback.to_string();
     }
