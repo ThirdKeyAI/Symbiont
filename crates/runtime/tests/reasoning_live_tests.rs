@@ -160,7 +160,8 @@ fn make_live_runner(
 fn weather_tool_def() -> ToolDefinition {
     ToolDefinition {
         name: "get_weather".into(),
-        description: "Get current weather for a city. Returns temperature, conditions, and humidity.".into(),
+        description:
+            "Get current weather for a city. Returns temperature, conditions, and humidity.".into(),
         parameters: serde_json::json!({
             "type": "object",
             "properties": {
@@ -279,9 +280,7 @@ async fn test_multi_turn_tool_calling() {
     let mut conv = Conversation::with_system(
         "You are a helpful weather assistant. You MUST use the get_weather tool to answer weather questions. After receiving the tool result, summarize the weather in one sentence.",
     );
-    conv.push(ConversationMessage::user(
-        "What's the weather in Paris?",
-    ));
+    conv.push(ConversationMessage::user("What's the weather in Paris?"));
 
     let config = make_loop_config(5, vec![weather_tool_def()]);
 
@@ -436,7 +435,12 @@ async fn test_journal_event_capture() {
     let entries = journal.entries().await;
     eprintln!("Journal entries: {}", entries.len());
     for entry in &entries {
-        eprintln!("  seq={} iter={} event={:?}", entry.sequence, entry.iteration, std::mem::discriminant(&entry.event));
+        eprintln!(
+            "  seq={} iter={} event={:?}",
+            entry.sequence,
+            entry.iteration,
+            std::mem::discriminant(&entry.event)
+        );
     }
 
     // Must have entries
@@ -587,9 +591,7 @@ async fn test_max_iterations_guardrail() {
         "You are a weather assistant. You MUST call the get_weather tool to answer questions. \
          Never respond without calling a tool first.",
     );
-    conv.push(ConversationMessage::user(
-        "What's the weather in Tokyo?",
-    ));
+    conv.push(ConversationMessage::user("What's the weather in Tokyo?"));
 
     // Strict limit of 1 iteration — the LLM will call the tool on iteration 1,
     // then the second produce_output check hits the cap before the LLM can respond.

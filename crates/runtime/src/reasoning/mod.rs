@@ -43,6 +43,8 @@ pub use inference::{
     InferenceOptions, InferenceProvider, InferenceResponse, ResponseFormat, ToolCallRequest,
     ToolDefinition, Usage,
 };
+pub use knowledge_bridge::{KnowledgeBridge, KnowledgeConfig};
+pub use knowledge_executor::KnowledgeAwareExecutor;
 pub use loop_types::{
     LoopConfig, LoopDecision, LoopEvent, LoopResult, LoopState, Observation, ProposedAction,
     RecoveryStrategy,
@@ -50,7 +52,5 @@ pub use loop_types::{
 pub use output_schema::{OutputSchema, SchemaRegistry};
 pub use phases::AgentPhase;
 pub use policy_bridge::ReasoningPolicyGate;
-pub use knowledge_bridge::{KnowledgeBridge, KnowledgeConfig};
-pub use knowledge_executor::KnowledgeAwareExecutor;
 pub use reasoning_loop::ReasoningLoopRunner;
 pub use schema_validation::{SchemaValidationError, ValidationPipeline};

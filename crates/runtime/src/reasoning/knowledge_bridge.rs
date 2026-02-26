@@ -44,10 +44,7 @@ pub struct KnowledgeBridge {
 }
 
 impl KnowledgeBridge {
-    pub fn new(
-        context_manager: Arc<dyn KnowledgeContextManager>,
-        config: KnowledgeConfig,
-    ) -> Self {
+    pub fn new(context_manager: Arc<dyn KnowledgeContextManager>, config: KnowledgeConfig) -> Self {
         Self {
             context_manager,
             config,
@@ -185,11 +182,7 @@ impl KnowledgeBridge {
         matches!(tool_name, "recall_knowledge" | "store_knowledge")
     }
 
-    async fn handle_recall(
-        &self,
-        agent_id: &AgentId,
-        arguments: &str,
-    ) -> Result<String, String> {
+    async fn handle_recall(&self, agent_id: &AgentId, arguments: &str) -> Result<String, String> {
         #[derive(Deserialize)]
         struct RecallArgs {
             query: String,
@@ -223,11 +216,7 @@ impl KnowledgeBridge {
         Ok(lines.join("\n"))
     }
 
-    async fn handle_store(
-        &self,
-        agent_id: &AgentId,
-        arguments: &str,
-    ) -> Result<String, String> {
+    async fn handle_store(&self, agent_id: &AgentId, arguments: &str) -> Result<String, String> {
         #[derive(Deserialize)]
         struct StoreArgs {
             subject: String,

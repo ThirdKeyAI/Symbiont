@@ -50,7 +50,10 @@ impl ActionExecutor for KnowledgeAwareExecutor {
 
         for action in actions {
             if let ProposedAction::ToolCall {
-                name, call_id, arguments, ..
+                name,
+                call_id,
+                arguments,
+                ..
             } = action
             {
                 if KnowledgeBridge::is_knowledge_tool(name) {

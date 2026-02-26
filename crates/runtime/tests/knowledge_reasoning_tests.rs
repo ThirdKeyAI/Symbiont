@@ -143,10 +143,7 @@ impl ContextManager for MockKnowledgeContextManager {
         Ok(0)
     }
 
-    async fn get_context_stats(
-        &self,
-        _agent_id: AgentId,
-    ) -> Result<ContextStats, ContextError> {
+    async fn get_context_stats(&self, _agent_id: AgentId) -> Result<ContextStats, ContextError> {
         Ok(ContextStats {
             total_memory_items: 0,
             total_knowledge_items: 0,
@@ -350,9 +347,13 @@ async fn test_knowledge_injection() {
 /// Test 2: LLM calls `recall_knowledge` and gets results from mock context manager.
 #[tokio::test]
 async fn test_recall_tool_call() {
-    let mock_cm = Arc::new(MockKnowledgeContextManager::new().with_knowledge(vec![
-        make_knowledge_item("The capital of France is Paris", KnowledgeType::Fact),
-    ]));
+    let mock_cm =
+        Arc::new(
+            MockKnowledgeContextManager::new().with_knowledge(vec![make_knowledge_item(
+                "The capital of France is Paris",
+                KnowledgeType::Fact,
+            )]),
+        );
 
     let bridge = Arc::new(KnowledgeBridge::new(
         mock_cm,
@@ -376,9 +377,7 @@ async fn test_recall_tool_call() {
     let runner = make_runner(provider, Some(bridge));
 
     let mut conv = Conversation::with_system("You are a geography expert.");
-    conv.push(ConversationMessage::user(
-        "What is the capital of France?",
-    ));
+    conv.push(ConversationMessage::user("What is the capital of France?"));
 
     let result = runner
         .run(AgentId::new(), conv, LoopConfig::default())
@@ -543,10 +542,7 @@ async fn test_persist_learnings() {
         MemoryTarget::Working(key) => {
             assert_eq!(key, "last_conversation_summary");
         }
-        other => panic!(
-            "Expected Working memory target, got {:?}",
-            other
-        ),
+        other => panic!("Expected Working memory target, got {:?}", other),
     }
     assert!(
         matches!(update.operation, UpdateOperation::Add),

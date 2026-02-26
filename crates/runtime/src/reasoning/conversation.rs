@@ -360,12 +360,15 @@ impl Conversation {
             self.messages[pos] = msg;
         } else {
             // Insert after first system message (position 1), or at 0 if no system msg
-            let insert_pos =
-                if self.messages.first().is_some_and(|m| m.role == MessageRole::System) {
-                    1
-                } else {
-                    0
-                };
+            let insert_pos = if self
+                .messages
+                .first()
+                .is_some_and(|m| m.role == MessageRole::System)
+            {
+                1
+            } else {
+                0
+            };
             self.messages.insert(insert_pos, msg);
         }
     }
