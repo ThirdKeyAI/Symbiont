@@ -344,6 +344,32 @@ impl Conversation {
         self.messages.extend(kept);
     }
 
+    /// Insert a system-level knowledge context message after the initial system message.
+    /// If a previous knowledge context exists (identified by a marker prefix), replace it.
+    pub fn inject_knowledge_context(&mut self, context: impl Into<String>) {
+        let marker = "[KNOWLEDGE_CONTEXT]";
+        let content = format!("{}\n{}", marker, context.into());
+        let msg = ConversationMessage::system(content);
+
+        // Find and replace existing knowledge context, or insert after system message
+        if let Some(pos) = self
+            .messages
+            .iter()
+            .position(|m| m.role == MessageRole::System && m.content.starts_with(marker))
+        {
+            self.messages[pos] = msg;
+        } else {
+            // Insert after first system message (position 1), or at 0 if no system msg
+            let insert_pos =
+                if self.messages.first().is_some_and(|m| m.role == MessageRole::System) {
+                    1
+                } else {
+                    0
+                };
+            self.messages.insert(insert_pos, msg);
+        }
+    }
+
     /// Get metadata about the conversation for logging.
     pub fn metadata(&self) -> HashMap<String, String> {
         let mut meta = HashMap::new();
@@ -553,6 +579,49 @@ mod tests {
         conv.push(ConversationMessage::assistant("second"));
 
         assert_eq!(conv.last_assistant_message().unwrap().content, "second");
+    }
+
+    #[test]
+    fn test_inject_knowledge_context_after_system() {
+        let mut conv = Conversation::with_system("You are helpful.");
+        conv.push(ConversationMessage::user("hello"));
+        conv.inject_knowledge_context("Some knowledge here");
+
+        assert_eq!(conv.len(), 3);
+        // Knowledge context should be at position 1 (after system)
+        assert_eq!(conv.messages()[0].role, MessageRole::System);
+        assert_eq!(conv.messages()[0].content, "You are helpful.");
+        assert!(conv.messages()[1].content.contains("[KNOWLEDGE_CONTEXT]"));
+        assert!(conv.messages()[1].content.contains("Some knowledge here"));
+        assert_eq!(conv.messages()[2].role, MessageRole::User);
+    }
+
+    #[test]
+    fn test_inject_knowledge_context_replaces_existing() {
+        let mut conv = Conversation::with_system("System prompt");
+        conv.inject_knowledge_context("First knowledge");
+        conv.inject_knowledge_context("Updated knowledge");
+
+        // Should still have just system + one knowledge context
+        let knowledge_msgs: Vec<_> = conv
+            .messages()
+            .iter()
+            .filter(|m| m.content.contains("[KNOWLEDGE_CONTEXT]"))
+            .collect();
+        assert_eq!(knowledge_msgs.len(), 1);
+        assert!(knowledge_msgs[0].content.contains("Updated knowledge"));
+    }
+
+    #[test]
+    fn test_inject_knowledge_context_no_system_message() {
+        let mut conv = Conversation::new();
+        conv.push(ConversationMessage::user("hello"));
+        conv.inject_knowledge_context("Knowledge without system");
+
+        assert_eq!(conv.len(), 2);
+        // Knowledge context should be at position 0
+        assert!(conv.messages()[0].content.contains("[KNOWLEDGE_CONTEXT]"));
+        assert_eq!(conv.messages()[1].role, MessageRole::User);
     }
 
     #[test]

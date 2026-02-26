@@ -15,6 +15,8 @@ pub mod schema_validation;
 pub mod circuit_breaker;
 pub mod context_manager;
 pub mod executor;
+pub mod knowledge_bridge;
+pub mod knowledge_executor;
 pub mod loop_types;
 pub mod phases;
 pub mod policy_bridge;
@@ -48,5 +50,7 @@ pub use loop_types::{
 pub use output_schema::{OutputSchema, SchemaRegistry};
 pub use phases::AgentPhase;
 pub use policy_bridge::ReasoningPolicyGate;
+pub use knowledge_bridge::{KnowledgeBridge, KnowledgeConfig};
+pub use knowledge_executor::KnowledgeAwareExecutor;
 pub use reasoning_loop::ReasoningLoopRunner;
 pub use schema_validation::{SchemaValidationError, ValidationPipeline};

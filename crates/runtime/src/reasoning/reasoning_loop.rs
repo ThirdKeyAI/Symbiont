@@ -11,6 +11,8 @@ use crate::reasoning::context_manager::ContextManager;
 use crate::reasoning::conversation::Conversation;
 use crate::reasoning::executor::ActionExecutor;
 use crate::reasoning::inference::InferenceProvider;
+use crate::reasoning::knowledge_bridge::KnowledgeBridge;
+use crate::reasoning::knowledge_executor::KnowledgeAwareExecutor;
 use crate::reasoning::loop_types::*;
 use crate::reasoning::phases::{AgentLoop, LoopContinuation, Reasoning};
 use crate::reasoning::policy_bridge::ReasoningPolicyGate;
@@ -30,6 +32,8 @@ pub struct ReasoningLoopRunner {
     pub circuit_breakers: Arc<CircuitBreakerRegistry>,
     /// Journal writer for durable execution.
     pub journal: Arc<dyn JournalWriter>,
+    /// Optional knowledge bridge for context-aware reasoning.
+    pub knowledge_bridge: Option<Arc<KnowledgeBridge>>,
 }
 
 impl ReasoningLoopRunner {
@@ -45,6 +49,12 @@ impl ReasoningLoopRunner {
         config: LoopConfig,
     ) -> LoopResult {
         let state = LoopState::new(agent_id, conversation);
+
+        // Add knowledge tool definitions if bridge is present
+        let mut config = config;
+        if let Some(ref bridge) = self.knowledge_bridge {
+            config.tool_definitions.extend(bridge.tool_definitions());
+        }
 
         // Emit loop started event
         let start_event = LoopEvent::Started {
@@ -81,9 +91,32 @@ impl ReasoningLoopRunner {
     }
 
     async fn run_inner(&self, state: LoopState, config: LoopConfig) -> LoopResult {
+        let agent_id = state.agent_id;
         let mut current_loop = AgentLoop::<Reasoning>::new(state, config);
 
+        // Build the effective executor: wrap with KnowledgeAwareExecutor if bridge is present
+        let effective_executor: Arc<dyn ActionExecutor> =
+            if let Some(ref bridge) = self.knowledge_bridge {
+                Arc::new(KnowledgeAwareExecutor::new(
+                    self.executor.clone(),
+                    bridge.clone(),
+                    agent_id,
+                ))
+            } else {
+                self.executor.clone()
+            };
+
         loop {
+            // Inject knowledge context before reasoning if bridge is present
+            if let Some(ref bridge) = self.knowledge_bridge {
+                if let Err(e) = bridge
+                    .inject_context(&agent_id, &mut current_loop.state.conversation)
+                    .await
+                {
+                    tracing::warn!("Knowledge context injection failed: {}", e);
+                }
+            }
+
             // Phase 1: Reasoning
             let policy_phase = match current_loop
                 .produce_output(self.provider.as_ref(), self.context_manager.as_ref())
@@ -116,9 +149,9 @@ impl ReasoningLoopRunner {
                 })
                 .await;
 
-            // Phase 3: Tool Dispatching
+            // Phase 3: Tool Dispatching (uses effective_executor which handles knowledge tools)
             let observe_phase = match dispatch_phase
-                .dispatch_tools(self.executor.as_ref(), self.circuit_breakers.as_ref())
+                .dispatch_tools(effective_executor.as_ref(), self.circuit_breakers.as_ref())
                 .await
             {
                 Ok(phase) => phase,
@@ -131,6 +164,16 @@ impl ReasoningLoopRunner {
                     current_loop = *reasoning_loop;
                 }
                 LoopContinuation::Complete(result) => {
+                    // Persist learnings if bridge is present and auto_persist is enabled
+                    if let Some(ref bridge) = self.knowledge_bridge {
+                        if let Err(e) = bridge
+                            .persist_learnings(&agent_id, &result.conversation)
+                            .await
+                        {
+                            tracing::warn!("Failed to persist learnings: {}", e);
+                        }
+                    }
+
                     // Emit termination event
                     let _ = self.emit_termination_event(&result).await;
                     return result;
@@ -228,6 +271,7 @@ mod tests {
             context_manager: Arc::new(DefaultContextManager::default()),
             circuit_breakers: Arc::new(CircuitBreakerRegistry::default()),
             journal: Arc::new(BufferedJournal::new(1000)),
+            knowledge_bridge: None,
         }
     }
 
@@ -459,6 +503,7 @@ mod tests {
             context_manager: Arc::new(DefaultContextManager::default()),
             circuit_breakers: Arc::new(CircuitBreakerRegistry::default()),
             journal: Arc::new(BufferedJournal::new(1000)),
+            knowledge_bridge: None,
         };
 
         let conv = Conversation::with_system("test");

@@ -149,6 +149,7 @@ fn make_live_runner(
         context_manager: Arc::new(DefaultContextManager::default()),
         circuit_breakers,
         journal,
+        knowledge_bridge: None,
     })
 }
 

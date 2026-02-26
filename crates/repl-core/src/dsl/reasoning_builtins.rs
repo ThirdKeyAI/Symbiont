@@ -53,6 +53,7 @@ pub async fn builtin_reason(args: &[DslValue], ctx: &ReasoningBuiltinContext) ->
         context_manager: Arc::new(DefaultContextManager::default()),
         circuit_breakers: Arc::new(CircuitBreakerRegistry::default()),
         journal: Arc::new(BufferedJournal::new(1000)),
+        knowledge_bridge: None,
     };
 
     let mut conv = Conversation::with_system(&system);
