@@ -4,6 +4,7 @@ use repl_proto::{ErrorObject, ErrorResponse, EvaluateParams, EvaluateResult, Req
 use serde::Deserialize;
 use std::io::{self, BufRead};
 use std::sync::Arc;
+use symbi_runtime::reasoning::inference::InferenceProvider;
 use tokio::runtime::Runtime;
 
 #[derive(Deserialize)]
@@ -14,6 +15,19 @@ struct ExecuteParams {
 pub fn run() -> Result<()> {
     let rt = Runtime::new()?;
     let runtime_bridge = Arc::new(RuntimeBridge::new());
+
+    // Auto-detect inference provider from environment variables
+    if let Some(provider) =
+        symbi_runtime::reasoning::providers::cloud::CloudInferenceProvider::from_env()
+    {
+        eprintln!(
+            "Inference provider: {} ({})",
+            provider.provider_name(),
+            provider.default_model()
+        );
+        runtime_bridge.set_inference_provider(Arc::new(provider));
+    }
+
     let engine = ReplEngine::new(runtime_bridge);
     let stdin = io::stdin();
     for line in stdin.lock().lines() {

@@ -14,6 +14,7 @@ pub mod logging;
 pub mod metrics;
 pub mod models;
 pub mod rag;
+pub mod reasoning;
 pub mod resource;
 pub mod routing;
 pub mod sandbox;

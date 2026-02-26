@@ -19,6 +19,8 @@ use uuid::Uuid;
 
 type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 type BuiltinFunction = fn(&[DslValue]) -> Result<DslValue>;
+type AsyncBuiltinFn =
+    Arc<dyn Fn(Vec<DslValue>) -> BoxFuture<'static, Result<DslValue>> + Send + Sync>;
 
 /// Execution context for DSL evaluation
 #[derive(Debug, Clone)]
@@ -192,8 +194,10 @@ pub struct DslEvaluator {
     agents: Arc<RwLock<HashMap<Uuid, AgentInstance>>>,
     /// Global execution context
     global_context: Arc<Mutex<ExecutionContext>>,
-    /// Built-in functions
+    /// Built-in functions (sync)
     builtins: HashMap<String, BuiltinFunction>,
+    /// Async built-in functions (reasoning, patterns)
+    async_builtins: HashMap<String, AsyncBuiltinFn>,
     /// Execution monitor for debugging and tracing
     monitor: Arc<ExecutionMonitor>,
 }
@@ -203,20 +207,180 @@ impl DslEvaluator {
     pub fn new(runtime_bridge: Arc<RuntimeBridge>) -> Self {
         let mut builtins: HashMap<String, BuiltinFunction> = HashMap::new();
 
-        // Register built-in functions
+        // Register built-in functions (sync)
         builtins.insert("print".to_string(), builtin_print as BuiltinFunction);
         builtins.insert("len".to_string(), builtin_len as BuiltinFunction);
         builtins.insert("upper".to_string(), builtin_upper as BuiltinFunction);
         builtins.insert("lower".to_string(), builtin_lower as BuiltinFunction);
         builtins.insert("format".to_string(), builtin_format as BuiltinFunction);
+        builtins.insert(
+            "parse_json".to_string(),
+            crate::dsl::reasoning_builtins::builtin_parse_json as BuiltinFunction,
+        );
+
+        // Register async built-in functions (reasoning + patterns)
+        let async_builtins = Self::register_async_builtins(&runtime_bridge);
 
         Self {
             runtime_bridge,
             agents: Arc::new(RwLock::new(HashMap::new())),
             global_context: Arc::new(Mutex::new(ExecutionContext::default())),
             builtins,
+            async_builtins,
             monitor: Arc::new(ExecutionMonitor::new()),
         }
+    }
+
+    /// Register async builtins that need access to the reasoning infrastructure.
+    fn register_async_builtins(bridge: &Arc<RuntimeBridge>) -> HashMap<String, AsyncBuiltinFn> {
+        use crate::dsl::agent_composition;
+        use crate::dsl::pattern_builtins;
+        use crate::dsl::reasoning_builtins;
+
+        let mut async_builtins: HashMap<String, AsyncBuiltinFn> = HashMap::new();
+        let ctx = bridge.reasoning_context();
+
+        // Reasoning builtins
+        {
+            let ctx = ctx.clone();
+            async_builtins.insert(
+                "reason".to_string(),
+                Arc::new(move |args| {
+                    let ctx = ctx.clone();
+                    Box::pin(async move { reasoning_builtins::builtin_reason(&args, &ctx).await })
+                }),
+            );
+        }
+        {
+            let ctx = ctx.clone();
+            async_builtins.insert(
+                "llm_call".to_string(),
+                Arc::new(move |args| {
+                    let ctx = ctx.clone();
+                    Box::pin(async move { reasoning_builtins::builtin_llm_call(&args, &ctx).await })
+                }),
+            );
+        }
+        {
+            let ctx = ctx.clone();
+            async_builtins.insert(
+                "delegate".to_string(),
+                Arc::new(move |args| {
+                    let ctx = ctx.clone();
+                    Box::pin(async move { reasoning_builtins::builtin_delegate(&args, &ctx).await })
+                }),
+            );
+        }
+        {
+            let ctx = ctx.clone();
+            async_builtins.insert(
+                "tool_call".to_string(),
+                Arc::new(move |args| {
+                    let ctx = ctx.clone();
+                    Box::pin(
+                        async move { reasoning_builtins::builtin_tool_call(&args, &ctx).await },
+                    )
+                }),
+            );
+        }
+
+        // Pattern builtins
+        {
+            let ctx = ctx.clone();
+            async_builtins.insert(
+                "chain".to_string(),
+                Arc::new(move |args| {
+                    let ctx = ctx.clone();
+                    Box::pin(async move { pattern_builtins::builtin_chain(&args, &ctx).await })
+                }),
+            );
+        }
+        {
+            let ctx = ctx.clone();
+            async_builtins.insert(
+                "debate".to_string(),
+                Arc::new(move |args| {
+                    let ctx = ctx.clone();
+                    Box::pin(async move { pattern_builtins::builtin_debate(&args, &ctx).await })
+                }),
+            );
+        }
+        {
+            let ctx = ctx.clone();
+            async_builtins.insert(
+                "map_reduce".to_string(),
+                Arc::new(move |args| {
+                    let ctx = ctx.clone();
+                    Box::pin(async move { pattern_builtins::builtin_map_reduce(&args, &ctx).await })
+                }),
+            );
+        }
+        {
+            let ctx = ctx.clone();
+            async_builtins.insert(
+                "director".to_string(),
+                Arc::new(move |args| {
+                    let ctx = ctx.clone();
+                    Box::pin(async move { pattern_builtins::builtin_director(&args, &ctx).await })
+                }),
+            );
+        }
+
+        // Agent composition builtins
+        {
+            let ctx = ctx.clone();
+            async_builtins.insert(
+                "spawn_agent".to_string(),
+                Arc::new(move |args| {
+                    let ctx = ctx.clone();
+                    Box::pin(
+                        async move { agent_composition::builtin_spawn_agent(&args, &ctx).await },
+                    )
+                }),
+            );
+        }
+        {
+            let ctx = ctx.clone();
+            async_builtins.insert(
+                "ask".to_string(),
+                Arc::new(move |args| {
+                    let ctx = ctx.clone();
+                    Box::pin(async move { agent_composition::builtin_ask(&args, &ctx).await })
+                }),
+            );
+        }
+        {
+            let ctx = ctx.clone();
+            async_builtins.insert(
+                "send_to".to_string(),
+                Arc::new(move |args| {
+                    let ctx = ctx.clone();
+                    Box::pin(async move { agent_composition::builtin_send_to(&args, &ctx).await })
+                }),
+            );
+        }
+        {
+            let ctx = ctx.clone();
+            async_builtins.insert(
+                "parallel".to_string(),
+                Arc::new(move |args| {
+                    let ctx = ctx.clone();
+                    Box::pin(async move { agent_composition::builtin_parallel(&args, &ctx).await })
+                }),
+            );
+        }
+        {
+            let ctx = ctx.clone();
+            async_builtins.insert(
+                "race".to_string(),
+                Arc::new(move |args| {
+                    let ctx = ctx.clone();
+                    Box::pin(async move { agent_composition::builtin_race(&args, &ctx).await })
+                }),
+            );
+        }
+
+        async_builtins
     }
 
     /// Get the execution monitor
@@ -812,9 +976,14 @@ impl DslEvaluator {
             arg_values.push(self.evaluate_expression_impl(arg, context).await?);
         }
 
-        // Check for built-in functions
+        // Check for sync built-in functions
         if let Some(builtin) = self.builtins.get(name) {
             return builtin(&arg_values);
+        }
+
+        // Check for async built-in functions (reasoning, patterns)
+        if let Some(async_builtin) = self.async_builtins.get(name) {
+            return async_builtin(arg_values).await;
         }
 
         // Check for user-defined functions

@@ -4,6 +4,8 @@ use symbi_runtime::integrations::policy_engine::engine::{
     OpaPolicyEngine, PolicyDecision, PolicyEngine,
 };
 use symbi_runtime::lifecycle::{DefaultLifecycleController, LifecycleConfig, LifecycleController};
+use symbi_runtime::reasoning::agent_registry::AgentRegistry;
+use symbi_runtime::reasoning::inference::InferenceProvider;
 use symbi_runtime::types::agent::AgentConfig;
 use symbi_runtime::types::security::Capability;
 use symbi_runtime::types::AgentId;
@@ -13,7 +15,10 @@ pub struct RuntimeBridge {
     lifecycle_controller: Arc<Mutex<Option<Arc<DefaultLifecycleController>>>>,
     context_manager: Arc<Mutex<Option<Arc<StandardContextManager>>>>,
     policy_engine: Arc<Mutex<OpaPolicyEngine>>,
-    // We will store agent instances here for multi-agent simulation later
+    /// Inference provider for reasoning builtins.
+    inference_provider: Arc<Mutex<Option<Arc<dyn InferenceProvider>>>>,
+    /// Agent registry for multi-agent composition.
+    agent_registry: Arc<AgentRegistry>,
 }
 
 impl Default for RuntimeBridge {
@@ -28,11 +33,34 @@ impl RuntimeBridge {
         let lifecycle_controller = Arc::new(Mutex::new(None));
         let context_manager = Arc::new(Mutex::new(None));
         let policy_engine = Arc::new(Mutex::new(OpaPolicyEngine::new()));
+        let inference_provider = Arc::new(Mutex::new(None));
+        let agent_registry = Arc::new(AgentRegistry::new());
 
         Self {
             lifecycle_controller,
             context_manager,
             policy_engine,
+            inference_provider,
+            agent_registry,
+        }
+    }
+
+    /// Set the inference provider for reasoning builtins.
+    pub fn set_inference_provider(&self, provider: Arc<dyn InferenceProvider>) {
+        *self.inference_provider.lock().unwrap() = Some(provider);
+    }
+
+    /// Get the agent registry.
+    pub fn agent_registry(&self) -> Arc<AgentRegistry> {
+        Arc::clone(&self.agent_registry)
+    }
+
+    /// Get the reasoning context for async builtins.
+    pub fn reasoning_context(&self) -> crate::dsl::reasoning_builtins::ReasoningBuiltinContext {
+        let provider = self.inference_provider.lock().unwrap().clone();
+        crate::dsl::reasoning_builtins::ReasoningBuiltinContext {
+            provider,
+            agent_registry: Some(Arc::clone(&self.agent_registry)),
         }
     }
 
