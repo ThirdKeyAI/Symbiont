@@ -198,8 +198,10 @@ fuzz_target!(|input: Input| {
             }
 
             if let Ok(parsed) = &result {
-                // Parsed policy name must match.
-                let expected_name = clamp(policy.name.clone(), 64, "fuzz_policy");
+                // Parsed policy name must match (parser trims whitespace).
+                let expected_name = clamp(policy.name.clone(), 64, "fuzz_policy")
+                    .trim()
+                    .to_string();
                 assert_eq!(
                     parsed.name, expected_name,
                     "policy name must match",
