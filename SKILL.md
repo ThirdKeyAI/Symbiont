@@ -1,8 +1,8 @@
 ---
 name: symbiont
 title: Symbiont
-description: AI-native agent runtime with zero-trust security, policy-as-code, multi-tier sandboxing, webhook verification, markdown memory, skill scanning, metrics, scheduling, and a declarative DSL
-version: 1.4.0
+description: AI-native agent runtime with typestate-enforced ORGA reasoning loop, Cedar policy authorization, knowledge bridge, zero-trust security, multi-tier sandboxing, webhook verification, markdown memory, skill scanning, metrics, scheduling, and a declarative DSL
+version: 1.5.0
 ---
 
 # Symbiont Agent Development Skills Guide
@@ -13,11 +13,15 @@ version: 1.4.0
 
 ## What Makes Symbiont Unique
 
+- **ORGA Reasoning Loop**: Typestate-enforced Observe-Reason-Gate-Act cycle with compile-time phase safety
+- **Cedar Policy Authorization**: Formal policy evaluation via `cedar-policy` crate's `Authorizer::is_authorized()`
+- **Knowledge Bridge**: Context-aware reasoning with vector-backed retrieval and automatic learning persistence
+- **Durable Journal**: All 7 loop event types recorded for crash recovery and replay without re-calling the LLM
 - **Zero-Trust Security**: All inputs untrusted by default, explicit policies required
 - **Policy-as-Code**: Declarative security rules enforced at runtime
 - **Multi-Tier Sandboxing**: Docker → gVisor → Firecracker isolation
 - **Enterprise Compliance**: HIPAA, SOC2, GDPR patterns built-in
-- **Cryptographic Verification**: SchemaPin for MCP tools, Ed25519 signatures
+- **Cryptographic Verification**: SchemaPin for MCP tools, AgentPin for agent identity, Ed25519 signatures
 - **Webhook DX**: Signature verification middleware with GitHub/Stripe/Slack presets
 - **Persistent Memory**: Markdown-backed agent memory with retention and compaction
 
@@ -84,6 +88,116 @@ fn process(data: String) -> String {
     return data.to_uppercase();
 }
 ```
+
+---
+
+## Agentic Reasoning Loop (ORGA Cycle)
+
+The reasoning loop drives autonomous agent behavior through a typestate-enforced cycle:
+
+1. **Observe** — Collect results from previous tool executions
+2. **Reason** — LLM produces proposed actions (tool calls or text responses)
+3. **Gate** — Policy engine evaluates each proposed action
+4. **Act** — Approved actions are dispatched to tool executors
+
+### Minimal Reasoning Loop
+
+```rust
+use std::sync::Arc;
+use symbi_runtime::reasoning::{
+    ReasoningLoopRunner, LoopConfig, Conversation, ConversationMessage,
+    circuit_breaker::CircuitBreakerRegistry,
+    context_manager::DefaultContextManager,
+    executor::DefaultActionExecutor,
+    loop_types::BufferedJournal,
+    policy_bridge::DefaultPolicyGate,
+};
+use symbi_runtime::types::AgentId;
+
+let runner = ReasoningLoopRunner {
+    provider: Arc::new(my_inference_provider),
+    policy_gate: Arc::new(DefaultPolicyGate::permissive()),
+    executor: Arc::new(DefaultActionExecutor::default()),
+    context_manager: Arc::new(DefaultContextManager::default()),
+    circuit_breakers: Arc::new(CircuitBreakerRegistry::default()),
+    journal: Arc::new(BufferedJournal::new(1000)),
+    knowledge_bridge: None, // Optional: add KnowledgeBridge for RAG
+};
+
+let mut conv = Conversation::with_system("You are a helpful agent.");
+conv.push(ConversationMessage::user("What is 6 * 7?"));
+
+let result = runner
+    .run(AgentId::new(), conv, LoopConfig::default())
+    .await;
+```
+
+### Phase Transitions (Compile-Time Safe)
+
+Invalid transitions are caught at compile time:
+
+```
+Reasoning → PolicyCheck → ToolDispatching → Observing → Reasoning (loop)
+                                                      → Complete (exit)
+```
+
+### Journal Events
+
+The journal records all 7 event types for durable execution:
+
+| Event | When | Purpose |
+|-------|------|---------|
+| `Started` | Loop begin | Configuration snapshot |
+| `ReasoningComplete` | After LLM response, before policy | Crash recovery without re-calling LLM |
+| `PolicyEvaluated` | After policy check | Action counts, denied counts |
+| `ToolsDispatched` | After tool execution | Tool count, wall-clock duration |
+| `ObservationsCollected` | After collecting results | Observation count |
+| `Terminated` | Loop end | Reason, iterations, usage, duration |
+| `RecoveryTriggered` | On tool failure recovery | Strategy, error context |
+
+### Cedar Policy Gate (Feature: `cedar`)
+
+Formal authorization using the `cedar-policy` crate:
+
+```rust
+use symbi_runtime::reasoning::cedar_gate::{CedarPolicyGate, CedarPolicy};
+
+let gate = CedarPolicyGate::deny_by_default();
+
+// Cedar policies use entity types: Agent (principal), Action (action), Resource (resource)
+gate.add_policy(CedarPolicy {
+    name: "allow_respond".into(),
+    source: r#"permit(principal, action == Action::"respond", resource);"#.into(),
+    active: true,
+}).await;
+
+gate.add_policy(CedarPolicy {
+    name: "deny_search".into(),
+    source: r#"forbid(principal, action == Action::"tool_call::search", resource);"#.into(),
+    active: true,
+}).await;
+```
+
+Action mapping: `tool_call::<name>`, `respond`, `delegate::<target>`, `terminate`.
+
+Cedar semantics enforced: forbid overrides permit, default deny, skip-on-error.
+
+### Knowledge Bridge (Optional)
+
+Add context-aware reasoning with vector-backed retrieval:
+
+```rust
+use symbi_runtime::reasoning::KnowledgeBridge;
+
+let bridge = Arc::new(KnowledgeBridge::new(knowledge_config));
+
+let runner = ReasoningLoopRunner {
+    // ... other fields ...
+    knowledge_bridge: Some(bridge),
+};
+```
+
+The bridge injects relevant context before each reasoning step and persists learnings after loop completion.
 
 ---
 
@@ -1332,10 +1446,11 @@ Before deploying an agent, verify:
 
 - **Full DSL Guide**: [docs/dsl-guide.md](https://github.com/thirdkeyai/symbiont/blob/main/docs/dsl-guide.md)
 - **DSL Specification**: [docs/dsl-specification.md](https://github.com/thirdkeyai/symbiont/blob/main/docs/dsl-specification.md)
+- **Reasoning Loop Guide**: [docs/reasoning-loop.md](https://github.com/thirdkeyai/symbiont/blob/main/docs/reasoning-loop.md)
 - **Example Agents**: [agents/README.md](https://github.com/thirdkeyai/symbiont/blob/main/agents/README.md) (8 production examples)
 - **Runtime Architecture**: [docs/runtime-architecture.md](https://github.com/thirdkeyai/symbiont/blob/main/docs/runtime-architecture.md)
 - **API Reference**: [docs/api-reference.md](https://github.com/thirdkeyai/symbiont/blob/main/docs/api-reference.md)
-- **Tool Review Workflow**: [docs/tool_review_workflow.md](https://github.com/thirdkeyai/symbiont/blob/main/docs/tool_review_workflow.md)
+- **Security Model**: [docs/security-model.md](https://github.com/thirdkeyai/symbiont/blob/main/docs/security-model.md)
 - **Getting Started**: [docs/getting-started.md](https://github.com/thirdkeyai/symbiont/blob/main/docs/getting-started.md)
 
 ---

@@ -198,8 +198,8 @@ mod tests {
         let agent_id = AgentId::new();
         let tracer = LoopTracer::start(agent_id);
 
-        // Elapsed should be non-zero after creation
+        // Elapsed should return a valid duration after creation
         let elapsed = tracer.elapsed();
-        assert!(elapsed.as_nanos() >= 0);
+        assert!(elapsed.as_nanos() < u128::MAX);
     }
 }
