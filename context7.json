@@ -3,7 +3,7 @@
   "url": "https://context7.com/thirdkeyai/symbiont",
   "public_key": "pk_Ehy7QXQTu2Keb0e5BNeyx",
   "projectTitle": "Symbiont",
-  "description": "AI-native agent runtime with zero-trust security, policy-as-code, multi-tier sandboxing, webhook verification, markdown memory persistence, skill scanning, metrics collection, scheduling, channel adapters, and a declarative DSL. Part of the ThirdKey trust stack.",
+  "description": "AI-native agent runtime with typestate-enforced ORGA reasoning loop, Cedar policy authorization, knowledge bridge, zero-trust security, multi-tier sandboxing, webhook verification, markdown memory persistence, skill scanning, metrics collection, scheduling, channel adapters, and a declarative DSL. Part of the ThirdKey trust stack (SchemaPin → AgentPin → Symbiont).",
   "folders": [
     "SKILL.md",
     "README.md",
@@ -17,6 +17,10 @@
     "docs/http-input.md",
     "docs/native-execution-guide.md",
     "docs/repl-guide.md",
+    "docs/reasoning-loop.md",
+    "docs/index.md",
+    "docs/docker.md",
+    "docs/contributing.md",
     "agents"
   ],
   "excludeFolders": [
@@ -71,6 +75,10 @@
     "Markdown memory persistence: agent context stored as markdown files with daily logs, retention-based compaction, and atomic writes",
     "Skill scanning: 10 built-in ClawHavoc security rules detect pipe-to-shell, env file references, SOUL.md tampering, eval+fetch, base64-decode-exec, rm-rf, chmod-777",
     "Metrics collection: FileMetricsExporter (atomic JSON), CompositeExporter (fan-out), background MetricsCollector — runtime exposes /metrics/snapshot, /metrics/scheduler, /metrics/system endpoints",
-    "SchemaPin integration for MCP tool schema verification; AgentPin integration for agent identity credentials (ES256 only)"
+    "SchemaPin integration for MCP tool schema verification; AgentPin integration for agent identity credentials (ES256 only)",
+    "Reasoning loop uses typestate-enforced ORGA cycle (Observe-Reason-Gate-Act) with compile-time phase transition safety — Reasoning → PolicyCheck → ToolDispatching → Observing",
+    "Cedar policy gate (feature-gated behind 'cedar') uses cedar-policy crate Authorizer::is_authorized() for formal authorization — entity types: Agent (principal), Action (action), Resource (resource)",
+    "Journal system emits all 7 LoopEvent variants (Started, ReasoningComplete, PolicyEvaluated, ToolsDispatched, ObservationsCollected, Terminated, RecoveryTriggered) for durable execution and crash recovery",
+    "Knowledge bridge provides context-aware reasoning: vector-backed retrieval, automatic learning persistence, and knowledge-aware tool execution via KnowledgeAwareExecutor"
   ]
 }
