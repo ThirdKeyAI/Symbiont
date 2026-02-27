@@ -51,38 +51,53 @@ graph TB
         ACB[Agent Communication Bus]
         AEH[Agent Error Handler]
     end
-    
+
+    subgraph "Reasoning Loop"
+        RL[ReasoningLoopRunner]
+        IP[Inference Provider]
+        PG[Policy Gate]
+        AE[Action Executor]
+        KBR[Knowledge Bridge]
+    end
+
     subgraph "Context & Knowledge"
         ACM[Agent Context Manager]
         VDB[Vector Database]
         RAG[RAG Engine]
         KB[Knowledge Base]
     end
-    
+
     subgraph "Security & Policy"
         PE[Policy Engine]
         AT[Audit Trail]
         SO[Sandbox Orchestrator]
         CRYPTO[Crypto Operations]
     end
-    
+
     subgraph "External Integration"
         MCP[MCP Client]
         TV[Tool Verification]
         API[HTTP API]
     end
-    
+
     subgraph "Sandbox Tiers"
         T1[Tier 1: Docker]
         T2[Tier 2: gVisor]
     end
-    
+
     ARS --> ACM
     ARS --> PE
+    ARS --> RL
     ALC --> SO
     ACB --> CRYPTO
     ACM --> VDB
     ACM --> RAG
+    RL --> IP
+    RL --> PG
+    RL --> AE
+    KBR --> ACM
+    KBR --> RL
+    PG --> PE
     SO --> T1
     SO --> T2
     MCP --> TV
@@ -401,6 +416,105 @@ pub struct VectorConfig {
     pub data_path: PathBuf,           // LanceDB storage path
 }
 ```
+
+---
+
+## Agentic Reasoning Loop
+
+The reasoning loop implements an **Observe-Reason-Gate-Act (ORGA)** cycle that drives autonomous agent behavior. It unifies LLM inference, policy enforcement, tool execution, and knowledge management into a single, type-safe loop.
+
+For a complete guide, see the [Reasoning Loop Guide](reasoning-loop.md).
+
+### Architecture Overview
+
+```mermaid
+graph LR
+    subgraph "ORGA Cycle"
+        R[Reasoning<br/>LLM Inference] --> P[Policy Check<br/>Gate Evaluation]
+        P --> D[Tool Dispatching<br/>Action Execution]
+        D --> O[Observing<br/>Result Collection]
+        O --> R
+    end
+
+    subgraph "Knowledge Bridge"
+        KB[Knowledge<br/>Context Manager]
+        KT[recall_knowledge<br/>store_knowledge]
+    end
+
+    subgraph "Infrastructure"
+        CB[Circuit Breakers]
+        J[Durable Journal]
+        M[Metrics & Tracing]
+    end
+
+    KB -->|inject context| R
+    KT -->|tool calls| D
+    CB --> D
+    J --> R
+    J --> P
+    J --> D
+    M --> R
+```
+
+### Typestate-Enforced Phase Transitions
+
+Phase transitions are enforced at compile time using zero-sized type markers. Invalid transitions (e.g., dispatching tools without reasoning first) are structurally impossible:
+
+```
+AgentLoop<Reasoning> → AgentLoop<PolicyCheck> → AgentLoop<ToolDispatching> → AgentLoop<Observing>
+         ↑                                                                          │
+         └──────────────────────── LoopContinuation::Continue ──────────────────────┘
+```
+
+Each phase consumes `self` and produces the next phase, making skipping phases a compile error.
+
+### ReasoningLoopRunner
+
+The main entry point wires together all components:
+
+```rust
+pub struct ReasoningLoopRunner {
+    pub provider: Arc<dyn InferenceProvider>,      // Cloud or SLM inference
+    pub policy_gate: Arc<dyn ReasoningPolicyGate>, // Action evaluation
+    pub executor: Arc<dyn ActionExecutor>,          // Tool dispatch
+    pub context_manager: Arc<dyn ContextManager>,   // Token budget
+    pub circuit_breakers: Arc<CircuitBreakerRegistry>,
+    pub journal: Arc<dyn JournalWriter>,            // Durable event log
+    pub knowledge_bridge: Option<Arc<KnowledgeBridge>>, // Optional knowledge integration
+}
+```
+
+### Knowledge-Reasoning Bridge
+
+When a `KnowledgeBridge` is provided, the reasoning loop gains access to the agent's knowledge store:
+
+- **Before each reasoning step**: Relevant knowledge is retrieved and injected as a system message
+- **During tool dispatch**: `recall_knowledge` and `store_knowledge` tool calls are intercepted by `KnowledgeAwareExecutor`
+- **After loop completion**: Conversation learnings are persisted as episodic memory
+
+The bridge is fully opt-in — without it, the loop behaves identically to before.
+
+### Loop Phases
+
+| Phase | Module | Description |
+|-------|--------|-------------|
+| **Reasoning** | `phases.rs` | LLM inference produces proposed actions (tool calls or text response) |
+| **Policy Check** | `policy_bridge.rs` | Each action evaluated: Allow, Deny, or Modify |
+| **Tool Dispatching** | `executor.rs` | Approved actions executed in parallel with circuit breakers |
+| **Observing** | `phases.rs` | Results collected, loop continues or terminates |
+
+### Supporting Infrastructure
+
+| Component | Module | Description |
+|-----------|--------|-------------|
+| Circuit Breakers | `circuit_breaker.rs` | Failure thresholds, recovery timeouts, half-open probing |
+| Durable Journal | `loop_types.rs` | Sequenced event log for replay and debugging |
+| Human Critic | `human_critic.rs` | Human-in-the-loop approval for sensitive actions |
+| Cedar Gate | `cedar_gate.rs` | Cedar policy engine integration for fine-grained authorization |
+| Saga Pattern | `saga.rs` | Multi-step distributed operations with checkpoint/rollback |
+| Agent Registry | `agent_registry.rs` | Persistent agent metadata with lifecycle management |
+| Tracing | `tracing_spans.rs` | OpenTelemetry distributed tracing for each loop phase |
+| Metrics | `metrics.rs` | Iteration counts, token usage, latency histograms |
 
 ---
 
@@ -773,6 +887,7 @@ cargo test --features security-tests
 
 ## Next Steps
 
+- **[Reasoning Loop Guide](/reasoning-loop)** - Complete guide to the agentic reasoning loop
 - **[Security Model](/security-model)** - Deep dive into security implementation
 - **[Contributing](/contributing)** - Development and contribution guidelines
 - **[API Reference](/api-reference)** - Complete API documentation

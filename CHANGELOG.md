@@ -27,6 +27,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Fuzzing Expansion
 - **6 new fuzz targets**: `dsl_evaluator`, `mattermost_signature_verification`, `crypto_roundtrip`, `webhook_verify_generic`, `api_key_store`, `policy_evaluation` — total now 18 targets
 
+#### Agentic Reasoning Loop (Phases 1–5)
+- **Typestate-enforced ORGA cycle**: Observe-Reason-Gate-Act loop with compile-time phase transition safety (`AgentLoop<Reasoning>` → `PolicyCheck` → `ToolDispatching` → `Observing`). Invalid transitions are caught at compile time via zero-sized type markers
+- **Unified inference providers**: `InferenceProvider` trait with `CloudInferenceProvider` (OpenRouter, OpenAI, Anthropic) and local SLM support. Model auto-detection from `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` environment variables
+- **Policy-gated reasoning**: Every proposed action evaluated by `ReasoningPolicyGate` before execution — deny, allow, or modify. Cedar policy engine integration via `CedarGate`
+- **Action executor with circuit breakers**: Parallel tool dispatch via `FuturesUnordered`, per-tool timeouts, and `CircuitBreakerRegistry` with configurable failure thresholds and recovery windows
+- **Durable execution journal**: `BufferedJournal` with sequenced `JournalEntry` events for loop replay and debugging. Replaces `NoOpJournal`
+- **Human-in-the-loop critic**: `HumanCritic` integration for approval workflows within the reasoning loop
+- **Multi-agent patterns**: `AgentRegistry` for persistent agent metadata, `Saga` pattern for multi-step distributed operations with checkpoints
+- **Structured output validation**: `OutputSchema` + `ValidationPipeline` for schema-validated LLM responses
+- **Context token budget enforcement**: In-loop `ContextManager` with sliding window, observation masking, and anchored summary strategies
+- **DSL reasoning builtins**: `reason`, `llm_call`, `parse_json`, `tool_call`, and `delegate` builtins wired into the REPL
+- **Observability**: OpenTelemetry tracing spans (`tracing_spans`), reasoning loop metrics (`metrics`), and phase scheduling (`scheduler`)
+- **Live integration tests**: Full loop tests with real LLM inference via OpenRouter
+
+#### Knowledge-Reasoning Bridge
+- **`KnowledgeBridge`**: Opt-in bridge between `context::ContextManager` (agent memory/knowledge) and the reasoning loop. Configurable via `KnowledgeConfig` (max items, relevance threshold, auto-persist)
+- **Context injection**: Retrieves relevant knowledge via `query_context()` + `search_knowledge()` and injects as a replaceable system message before each reasoning step
+- **`recall_knowledge` tool**: LLM-callable tool that searches the agent's knowledge base with configurable result limits
+- **`store_knowledge` tool**: LLM-callable tool that stores new facts (subject/predicate/object triples) into the agent's knowledge base
+- **`KnowledgeAwareExecutor`**: Wraps the inner `ActionExecutor`, intercepts knowledge tool calls locally, delegates all others to the real executor
+- **Post-loop persistence**: Automatically stores conversation learnings as episodic memory after loop completion (when `auto_persist` is enabled)
+- **Backward compatible**: `ReasoningLoopRunner` works identically without a knowledge bridge (`knowledge_bridge: None`)
+
 #### Infrastructure
 - **Docker build optimization**: cargo-chef caching, split CI/release build profiles, nproc-based parallelism auto-detection
 - **v1.6.0 roadmap**: Agent discovery, remote transport, and DSL A2A primitives planned across 5 phases
