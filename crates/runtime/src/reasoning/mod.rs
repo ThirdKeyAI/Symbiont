@@ -32,6 +32,7 @@ pub mod critic_audit;
 pub mod saga;
 
 // Phase 5 modules
+#[cfg(feature = "cedar")]
 pub mod cedar_gate;
 pub mod journal;
 pub mod metrics;

@@ -228,6 +228,16 @@ impl AgentLoop<Reasoning> {
 }
 
 impl AgentLoop<PolicyCheck> {
+    /// Return a clone of the proposed actions from the reasoning phase.
+    /// Used by the loop driver to emit `ReasoningComplete` journal events
+    /// before the policy check consumes the data.
+    pub fn proposed_actions(&self) -> Vec<ProposedAction> {
+        match &self.phase_data {
+            Some(PhaseData::Reasoning(output)) => output.proposed_actions.clone(),
+            _ => Vec::new(),
+        }
+    }
+
     /// Evaluate all proposed actions against the policy gate.
     ///
     /// Consumes `self` and produces `AgentLoop<ToolDispatching>`.
@@ -415,6 +425,15 @@ pub enum LoopContinuation {
 }
 
 impl AgentLoop<Observing> {
+    /// Return observation count from the dispatch phase.
+    /// Used by the loop driver to emit `ObservationsCollected` journal events.
+    pub fn observation_count(&self) -> usize {
+        match &self.phase_data {
+            Some(PhaseData::Dispatch(output)) => output.observations.len(),
+            _ => 0,
+        }
+    }
+
     /// Collect observations and decide whether to continue or terminate.
     ///
     /// Consumes `self` and returns either a new Reasoning phase or the final result.

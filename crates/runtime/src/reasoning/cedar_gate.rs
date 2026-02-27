@@ -7,10 +7,16 @@
 //! implements `ReasoningPolicyGate` and maps agent actions to Cedar
 //! authorization requests.
 
+use cedar_policy::{
+    Authorizer, Context, Decision, Entities, EntityId, EntityTypeName, EntityUid, PolicySet,
+    Request,
+};
+
 use crate::reasoning::loop_types::{LoopDecision, LoopState, ProposedAction};
 use crate::reasoning::policy_bridge::ReasoningPolicyGate;
 use crate::types::AgentId;
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -19,7 +25,12 @@ use tokio::sync::RwLock;
 pub struct CedarPolicy {
     /// Unique name for this policy.
     pub name: String,
-    /// Cedar policy source text.
+    /// Cedar policy source text (must be valid Cedar syntax).
+    ///
+    /// Entity types used in policies:
+    /// - Principal: `Agent::"<agent_id>"`
+    /// - Action: `Action::"respond"`, `Action::"tool_call::<name>"`, etc.
+    /// - Resource: `Resource::"default"`
     pub source: String,
     /// Whether this policy is currently active.
     pub active: bool,
@@ -27,8 +38,9 @@ pub struct CedarPolicy {
 
 /// Cedar-based policy gate for reasoning loops.
 ///
-/// Evaluates agent actions against Cedar policies. When no policies
-/// are loaded, defaults to deny-all for safety.
+/// Evaluates agent actions against Cedar policies using the `cedar-policy`
+/// crate's `Authorizer::is_authorized()`. When no policies are loaded,
+/// defaults to deny-all for safety.
 pub struct CedarPolicyGate {
     policies: Arc<RwLock<Vec<CedarPolicy>>>,
     default_decision: LoopDecision,
@@ -87,11 +99,11 @@ impl CedarPolicyGate {
             .count()
     }
 
-    /// Evaluate an action against loaded policies.
+    /// Evaluate an action against loaded Cedar policies using the real Authorizer.
     ///
-    /// Maps agent_id to a Cedar principal, the action to a Cedar action,
-    /// and loop state to Cedar context. The actual Cedar engine evaluation
-    /// requires the `cedar-policy` crate at runtime.
+    /// Maps agent_id → Cedar principal (`Agent::"<id>"`),
+    /// the action → Cedar action (`Action::"<name>"`),
+    /// and uses a default resource (`Resource::"default"`).
     fn evaluate_against_policies(
         &self,
         policies: &[CedarPolicy],
@@ -113,53 +125,78 @@ impl CedarPolicyGate {
             ProposedAction::Terminate { .. } => "terminate".to_string(),
         };
 
-        // Check each active policy for explicit deny rules
-        for policy in &active_policies {
-            if policy_denies(&policy.source, &agent_id.to_string(), &action_name) {
+        // Concatenate all active policy sources into one policy set
+        let combined_source: String = active_policies
+            .iter()
+            .map(|p| p.source.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        // Parse into a Cedar PolicySet
+        let policy_set = match combined_source.parse::<PolicySet>() {
+            Ok(ps) => ps,
+            Err(e) => {
+                tracing::error!("Cedar policy parse error: {}", e);
                 return LoopDecision::Deny {
-                    reason: format!(
-                        "Cedar policy '{}' denied action '{}' for agent {}",
-                        policy.name, action_name, agent_id
-                    ),
+                    reason: format!("Cedar policy parse error: {}", e),
                 };
             }
-        }
+        };
 
-        // Check if any policy explicitly permits
-        for policy in &active_policies {
-            if policy_permits(&policy.source, &agent_id.to_string(), &action_name) {
-                return LoopDecision::Allow;
+        // Build Cedar PARC request
+        let principal = EntityUid::from_type_name_and_id(
+            EntityTypeName::from_str("Agent").expect("valid type name"),
+            EntityId::from_str(&agent_id.to_string()).expect("valid entity id"),
+        );
+        let cedar_action = EntityUid::from_type_name_and_id(
+            EntityTypeName::from_str("Action").expect("valid type name"),
+            EntityId::from_str(&action_name).expect("valid entity id"),
+        );
+        let resource = EntityUid::from_type_name_and_id(
+            EntityTypeName::from_str("Resource").expect("valid type name"),
+            EntityId::from_str("default").expect("valid entity id"),
+        );
+
+        let request = match Request::new(principal, cedar_action, resource, Context::empty(), None)
+        {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::error!("Cedar request construction error: {}", e);
+                return LoopDecision::Deny {
+                    reason: format!("Cedar request error: {}", e),
+                };
+            }
+        };
+
+        // Run the Cedar Authorizer
+        let authorizer = Authorizer::new();
+        let response = authorizer.is_authorized(&request, &policy_set, &Entities::empty());
+
+        match response.decision() {
+            Decision::Allow => LoopDecision::Allow,
+            Decision::Deny => {
+                let errors: Vec<String> = response
+                    .diagnostics()
+                    .errors()
+                    .map(|e| e.to_string())
+                    .collect();
+                let reason = if errors.is_empty() {
+                    format!(
+                        "Cedar denied action '{}' for agent {}",
+                        action_name, agent_id
+                    )
+                } else {
+                    format!(
+                        "Cedar denied action '{}' for agent {}: {}",
+                        action_name,
+                        agent_id,
+                        errors.join("; ")
+                    )
+                };
+                LoopDecision::Deny { reason }
             }
         }
-
-        self.default_decision.clone()
     }
-}
-
-/// Check if a policy source text denies a specific action.
-///
-/// Simple pattern matching on Cedar policy syntax.
-/// A full implementation would use the `cedar-policy` crate's Authorizer.
-fn policy_denies(source: &str, _principal: &str, action: &str) -> bool {
-    // Look for forbid rules that match the action
-    for line in source.lines() {
-        let line = line.trim();
-        if line.starts_with("forbid") && line.contains(action) {
-            return true;
-        }
-    }
-    false
-}
-
-/// Check if a policy source text permits a specific action.
-fn policy_permits(source: &str, _principal: &str, action: &str) -> bool {
-    for line in source.lines() {
-        let line = line.trim();
-        if line.starts_with("permit") && line.contains(action) {
-            return true;
-        }
-    }
-    false
 }
 
 #[async_trait::async_trait]
@@ -224,7 +261,7 @@ mod tests {
 
         gate.add_policy(CedarPolicy {
             name: "allow_respond".into(),
-            source: "permit (principal, action == \"respond\", resource);".into(),
+            source: r#"permit(principal, action == Action::"respond", resource);"#.into(),
             active: true,
         })
         .await;
@@ -244,7 +281,7 @@ mod tests {
 
         gate.add_policy(CedarPolicy {
             name: "deny_search".into(),
-            source: "forbid (principal, action == \"tool_call::search\", resource);".into(),
+            source: r#"forbid(principal, action == Action::"tool_call::search", resource);"#.into(),
             active: true,
         })
         .await;
@@ -266,7 +303,7 @@ mod tests {
 
         gate.add_policy(CedarPolicy {
             name: "allow_all".into(),
-            source: "permit (principal, action == \"respond\", resource);".into(),
+            source: r#"permit(principal, action == Action::"respond", resource);"#.into(),
             active: false, // Inactive
         })
         .await;
@@ -287,7 +324,7 @@ mod tests {
 
         gate.add_policy(CedarPolicy {
             name: "test".into(),
-            source: "permit all;".into(),
+            source: r#"permit(principal, action, resource);"#.into(),
             active: true,
         })
         .await;
@@ -304,19 +341,19 @@ mod tests {
 
         gate.add_policy(CedarPolicy {
             name: "a".into(),
-            source: "permit;".into(),
+            source: r#"permit(principal, action, resource);"#.into(),
             active: true,
         })
         .await;
         gate.add_policy(CedarPolicy {
             name: "b".into(),
-            source: "forbid;".into(),
+            source: r#"forbid(principal, action, resource);"#.into(),
             active: false,
         })
         .await;
         gate.add_policy(CedarPolicy {
             name: "c".into(),
-            source: "permit;".into(),
+            source: r#"permit(principal, action, resource);"#.into(),
             active: true,
         })
         .await;
@@ -328,16 +365,16 @@ mod tests {
     async fn test_forbid_takes_precedence() {
         let gate = CedarPolicyGate::allow_by_default();
 
-        // Both permit and forbid for the same action — forbid wins
+        // Both permit and forbid for the same action — forbid wins (Cedar semantics)
         gate.add_policy(CedarPolicy {
             name: "allow_respond".into(),
-            source: "permit (principal, action == \"respond\", resource);".into(),
+            source: r#"permit(principal, action == Action::"respond", resource);"#.into(),
             active: true,
         })
         .await;
         gate.add_policy(CedarPolicy {
             name: "deny_respond".into(),
-            source: "forbid (principal, action == \"respond\", resource);".into(),
+            source: r#"forbid(principal, action == Action::"respond", resource);"#.into(),
             active: true,
         })
         .await;
@@ -357,7 +394,8 @@ mod tests {
 
         gate.add_policy(CedarPolicy {
             name: "allow_delegate".into(),
-            source: "permit (principal, action == \"delegate::reviewer\", resource);".into(),
+            source: r#"permit(principal, action == Action::"delegate::reviewer", resource);"#
+                .into(),
             active: true,
         })
         .await;
@@ -376,7 +414,7 @@ mod tests {
     fn test_cedar_policy_serialization() {
         let policy = CedarPolicy {
             name: "test".into(),
-            source: "permit (principal, action, resource);".into(),
+            source: r#"permit(principal, action, resource);"#.into(),
             active: true,
         };
 
@@ -384,5 +422,61 @@ mod tests {
         let restored: CedarPolicy = serde_json::from_str(&json).unwrap();
         assert_eq!(restored.name, "test");
         assert!(restored.active);
+    }
+
+    #[tokio::test]
+    async fn test_invalid_policy_source_returns_deny() {
+        let gate = CedarPolicyGate::allow_by_default();
+
+        gate.add_policy(CedarPolicy {
+            name: "broken".into(),
+            source: "this is not valid cedar policy syntax at all!!!".into(),
+            active: true,
+        })
+        .await;
+
+        let agent = AgentId::new();
+        let action = ProposedAction::Respond {
+            content: "hello".into(),
+        };
+
+        let decision = gate.evaluate_action(&agent, &action, &test_state()).await;
+        assert!(
+            matches!(decision, LoopDecision::Deny { reason } if reason.contains("parse error"))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_permit_all_wildcard() {
+        let gate = CedarPolicyGate::deny_by_default();
+
+        // Cedar wildcard permit: allows any principal/action/resource
+        gate.add_policy(CedarPolicy {
+            name: "permit_all".into(),
+            source: r#"permit(principal, action, resource);"#.into(),
+            active: true,
+        })
+        .await;
+
+        let agent = AgentId::new();
+
+        // Should permit any action
+        let respond = ProposedAction::Respond {
+            content: "hi".into(),
+        };
+        assert!(matches!(
+            gate.evaluate_action(&agent, &respond, &test_state()).await,
+            LoopDecision::Allow
+        ));
+
+        let tool = ProposedAction::ToolCall {
+            call_id: "c1".into(),
+            name: "search".into(),
+            arguments: "{}".into(),
+        };
+        assert!(matches!(
+            gate.evaluate_action(&agent, &tool, &test_state()).await,
+            LoopDecision::Allow
+        ));
     }
 }

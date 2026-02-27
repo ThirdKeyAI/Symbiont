@@ -117,6 +117,9 @@ impl ReasoningLoopRunner {
                 }
             }
 
+            // Snapshot usage before reasoning to compute per-step delta
+            let usage_before = current_loop.state.total_usage.clone();
+
             // Phase 1: Reasoning
             let policy_phase = match current_loop
                 .produce_output(self.provider.as_ref(), self.context_manager.as_ref())
@@ -126,20 +129,55 @@ impl ReasoningLoopRunner {
                 Err(termination) => return termination.into_result(),
             };
 
+            // Emit ReasoningComplete: captures the raw LLM output BEFORE policy check
+            // so crash recovery can replay from journal without re-calling the LLM
+            let step_usage = crate::reasoning::inference::Usage {
+                prompt_tokens: policy_phase
+                    .state
+                    .total_usage
+                    .prompt_tokens
+                    .saturating_sub(usage_before.prompt_tokens),
+                completion_tokens: policy_phase
+                    .state
+                    .total_usage
+                    .completion_tokens
+                    .saturating_sub(usage_before.completion_tokens),
+                total_tokens: policy_phase
+                    .state
+                    .total_usage
+                    .total_tokens
+                    .saturating_sub(usage_before.total_tokens),
+            };
+            let proposed_actions = policy_phase.proposed_actions();
+            let _ = self
+                .journal
+                .append(JournalEntry {
+                    sequence: self.journal.next_sequence().await,
+                    timestamp: chrono::Utc::now(),
+                    agent_id,
+                    iteration: policy_phase.state.iteration,
+                    event: LoopEvent::ReasoningComplete {
+                        iteration: policy_phase.state.iteration,
+                        actions: proposed_actions,
+                        usage: step_usage,
+                    },
+                })
+                .await;
+
             // Phase 2: Policy Check
             let dispatch_phase = match policy_phase.check_policy(self.policy_gate.as_ref()).await {
                 Ok(phase) => phase,
                 Err(termination) => return termination.into_result(),
             };
 
-            // Emit policy evaluation journal event
+            // Emit PolicyEvaluated journal event
             let (action_count, denied_count) = dispatch_phase.policy_summary();
             let _ = self
                 .journal
                 .append(JournalEntry {
                     sequence: self.journal.next_sequence().await,
                     timestamp: chrono::Utc::now(),
-                    agent_id: dispatch_phase.state.agent_id,
+                    agent_id,
                     iteration: dispatch_phase.state.iteration,
                     event: LoopEvent::PolicyEvaluated {
                         iteration: dispatch_phase.state.iteration,
@@ -150,6 +188,7 @@ impl ReasoningLoopRunner {
                 .await;
 
             // Phase 3: Tool Dispatching (uses effective_executor which handles knowledge tools)
+            let dispatch_start = std::time::Instant::now();
             let observe_phase = match dispatch_phase
                 .dispatch_tools(effective_executor.as_ref(), self.circuit_breakers.as_ref())
                 .await
@@ -157,8 +196,43 @@ impl ReasoningLoopRunner {
                 Ok(phase) => phase,
                 Err(termination) => return termination.into_result(),
             };
+            let dispatch_duration = dispatch_start.elapsed();
+
+            // Emit ToolsDispatched journal event
+            let observation_count = observe_phase.observation_count();
+            let _ = self
+                .journal
+                .append(JournalEntry {
+                    sequence: self.journal.next_sequence().await,
+                    timestamp: chrono::Utc::now(),
+                    agent_id,
+                    iteration: observe_phase.state.iteration,
+                    event: LoopEvent::ToolsDispatched {
+                        iteration: observe_phase.state.iteration,
+                        tool_count: observation_count,
+                        duration: dispatch_duration,
+                    },
+                })
+                .await;
 
             // Phase 4: Observation
+            // Emit ObservationsCollected before consuming observe_phase
+            let obs_iteration = observe_phase.state.iteration;
+            let obs_count = observe_phase.observation_count();
+            let _ = self
+                .journal
+                .append(JournalEntry {
+                    sequence: self.journal.next_sequence().await,
+                    timestamp: chrono::Utc::now(),
+                    agent_id,
+                    iteration: obs_iteration,
+                    event: LoopEvent::ObservationsCollected {
+                        iteration: obs_iteration,
+                        observation_count: obs_count,
+                    },
+                })
+                .await;
+
             match observe_phase.observe_results() {
                 LoopContinuation::Continue(reasoning_loop) => {
                     current_loop = *reasoning_loop;
@@ -175,14 +249,18 @@ impl ReasoningLoopRunner {
                     }
 
                     // Emit termination event
-                    let _ = self.emit_termination_event(&result).await;
+                    let _ = self.emit_termination_event(agent_id, &result).await;
                     return result;
                 }
             }
         }
     }
 
-    async fn emit_termination_event(&self, result: &LoopResult) -> Result<(), JournalError> {
+    async fn emit_termination_event(
+        &self,
+        agent_id: AgentId,
+        result: &LoopResult,
+    ) -> Result<(), JournalError> {
         let event = LoopEvent::Terminated {
             reason: result.termination_reason.clone(),
             iterations: result.iterations,
@@ -193,7 +271,7 @@ impl ReasoningLoopRunner {
             .append(JournalEntry {
                 sequence: self.journal.next_sequence().await,
                 timestamp: chrono::Utc::now(),
-                agent_id: crate::types::AgentId::new(), // placeholder, use real ID in production
+                agent_id,
                 iteration: result.iterations,
                 event,
             })
