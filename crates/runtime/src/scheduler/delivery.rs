@@ -146,13 +146,16 @@ impl DefaultDeliveryRouter {
             Ok(mut file) => {
                 use tokio::io::AsyncWriteExt;
                 match file.write_all(line.as_bytes()).await {
-                    Ok(_) => DeliveryReceipt {
-                        channel_description: format!("log_file:{}", path),
-                        delivered_at: Utc::now(),
-                        success: true,
-                        status_code: None,
-                        error: None,
-                    },
+                    Ok(_) => {
+                        let _ = file.flush().await;
+                        DeliveryReceipt {
+                            channel_description: format!("log_file:{}", path),
+                            delivered_at: Utc::now(),
+                            success: true,
+                            status_code: None,
+                            error: None,
+                        }
+                    }
                     Err(e) => DeliveryReceipt {
                         channel_description: format!("log_file:{}", path),
                         delivered_at: Utc::now(),
