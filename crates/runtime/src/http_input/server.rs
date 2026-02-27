@@ -485,7 +485,7 @@ async fn invoke_agent(
             .map_err(|e| RuntimeError::Internal(e.to_string()))?
             .into();
         let message = rt.communication.create_internal_message(
-            AgentId::new(), // System sender
+            rt.system_agent_id,
             agent_id,
             payload_data,
             crate::types::MessageType::Direct(agent_id),

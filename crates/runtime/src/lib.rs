@@ -33,14 +33,14 @@ pub mod api;
 use api::traits::RuntimeApiProvider;
 #[cfg(feature = "http-api")]
 use api::types::{
-    AddIdentityMappingRequest, AgentStatusResponse, ChannelActionResponse, ChannelAuditResponse,
-    ChannelDetail, ChannelHealthResponse, ChannelSummary, CreateAgentRequest, CreateAgentResponse,
-    CreateScheduleRequest, CreateScheduleResponse, DeleteAgentResponse, DeleteChannelResponse,
-    DeleteScheduleResponse, ExecuteAgentRequest, ExecuteAgentResponse, GetAgentHistoryResponse,
-    IdentityMappingEntry, NextRunsResponse, RegisterChannelRequest, RegisterChannelResponse,
-    ScheduleActionResponse, ScheduleDetail, ScheduleHistoryResponse, ScheduleRunEntry,
-    ScheduleSummary, UpdateAgentRequest, UpdateAgentResponse, UpdateChannelRequest,
-    UpdateScheduleRequest, WorkflowExecutionRequest,
+    AddIdentityMappingRequest, AgentExecutionRecord, AgentStatusResponse, ChannelActionResponse,
+    ChannelAuditResponse, ChannelDetail, ChannelHealthResponse, ChannelSummary, CreateAgentRequest,
+    CreateAgentResponse, CreateScheduleRequest, CreateScheduleResponse, DeleteAgentResponse,
+    DeleteChannelResponse, DeleteScheduleResponse, ExecuteAgentRequest, ExecuteAgentResponse,
+    GetAgentHistoryResponse, IdentityMappingEntry, NextRunsResponse, RegisterChannelRequest,
+    RegisterChannelResponse, ScheduleActionResponse, ScheduleDetail, ScheduleHistoryResponse,
+    ScheduleRunEntry, ScheduleSummary, UpdateAgentRequest, UpdateAgentResponse,
+    UpdateChannelRequest, UpdateScheduleRequest, WorkflowExecutionRequest,
 };
 #[cfg(feature = "http-api")]
 use async_trait::async_trait;
@@ -88,6 +88,64 @@ pub use types::*;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+/// Bounded in-memory execution log for agent history tracking.
+///
+/// Stores execution records in a thread-safe ring buffer. When the buffer
+/// reaches capacity, oldest entries are evicted. All operations are O(1)
+/// amortized except `get_history` which is O(n) in the number of records
+/// for the requested agent.
+#[cfg(feature = "http-api")]
+pub struct ExecutionLog {
+    entries: parking_lot::RwLock<std::collections::VecDeque<ExecutionEntry>>,
+    capacity: usize,
+}
+
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone)]
+struct ExecutionEntry {
+    agent_id: AgentId,
+    execution_id: String,
+    status: String,
+    timestamp: chrono::DateTime<chrono::Utc>,
+}
+
+#[cfg(feature = "http-api")]
+impl ExecutionLog {
+    fn new(capacity: usize) -> Self {
+        Self {
+            entries: parking_lot::RwLock::new(std::collections::VecDeque::with_capacity(capacity)),
+            capacity,
+        }
+    }
+
+    /// Record an execution event for an agent.
+    fn record(&self, agent_id: AgentId, execution_id: &str, status: &str) {
+        let entry = ExecutionEntry {
+            agent_id,
+            execution_id: execution_id.to_string(),
+            status: status.to_string(),
+            timestamp: chrono::Utc::now(),
+        };
+        let mut entries = self.entries.write();
+        if entries.len() >= self.capacity {
+            entries.pop_front();
+        }
+        entries.push_back(entry);
+    }
+
+    /// Retrieve execution history for a specific agent, most recent first.
+    fn get_history(&self, agent_id: AgentId, limit: usize) -> Vec<ExecutionEntry> {
+        let entries = self.entries.read();
+        entries
+            .iter()
+            .rev()
+            .filter(|e| e.agent_id == agent_id)
+            .take(limit)
+            .cloned()
+            .collect()
+    }
+}
+
 /// Main Agent Runtime System
 #[derive(Clone)]
 pub struct AgentRuntime {
@@ -99,9 +157,16 @@ pub struct AgentRuntime {
     pub context_manager: Arc<dyn context::ContextManager + Send + Sync>,
     pub model_logger: Option<Arc<logging::ModelLogger>>,
     pub model_catalog: Option<Arc<models::ModelCatalog>>,
+    /// Stable identity for system-originated messages (API calls, HTTP input).
+    /// Created once at runtime startup and reused for all internal messages
+    /// so audit trails can consistently attribute system actions.
+    pub system_agent_id: AgentId,
     #[cfg(feature = "cron")]
     cron_scheduler: Option<Arc<scheduler::cron_scheduler::CronScheduler>>,
     config: Arc<RwLock<RuntimeConfig>>,
+    /// In-memory execution log for agent history tracking.
+    #[cfg(feature = "http-api")]
+    execution_log: Arc<ExecutionLog>,
 }
 
 impl AgentRuntime {
@@ -208,9 +273,12 @@ impl AgentRuntime {
             context_manager,
             model_logger,
             model_catalog,
+            system_agent_id: AgentId::new(),
             #[cfg(feature = "cron")]
             cron_scheduler: None,
             config,
+            #[cfg(feature = "http-api")]
+            execution_log: Arc::new(ExecutionLog::new(10_000)),
         })
     }
 
@@ -376,6 +444,13 @@ impl RuntimeApiProvider for AgentRuntime {
             result["parameters"] = request.parameters;
         }
 
+        // Record execution in history log
+        self.execution_log.record(
+            scheduled_agent_id,
+            &scheduled_agent_id.to_string(),
+            "workflow_started",
+        );
+
         tracing::info!(
             "Workflow execution initiated for agent: {}",
             scheduled_agent_id
@@ -504,15 +579,32 @@ impl RuntimeApiProvider for AgentRuntime {
 
     async fn get_metrics(&self) -> Result<serde_json::Value, RuntimeError> {
         let status = self.get_status().await;
+
+        // Count agents in error/failed state by checking each agent's status
+        let agent_ids = self.scheduler.list_agents().await;
+        let mut error_count: usize = 0;
+        for aid in &agent_ids {
+            if let Ok(agent_status) = self.scheduler.get_agent_status(*aid).await {
+                if agent_status.state == AgentState::Failed {
+                    error_count += 1;
+                }
+            }
+        }
+
+        let idle = status
+            .total_agents
+            .saturating_sub(status.running_agents)
+            .saturating_sub(error_count);
+
         Ok(serde_json::json!({
             "agents": {
                 "total": status.total_agents,
                 "running": status.running_agents,
-                "idle": status.total_agents - status.running_agents,
-                "error": 0
+                "idle": idle,
+                "error": error_count
             },
             "system": {
-                "uptime": 0,
+                "uptime_seconds": status.uptime.as_secs(),
                 "memory_usage": status.resource_utilization.memory_used,
                 "cpu_usage": status.resource_utilization.cpu_utilization
             }
@@ -559,6 +651,13 @@ impl RuntimeApiProvider for AgentRuntime {
             .map_err(RuntimeError::Scheduler)?;
 
         tracing::info!("Created and scheduled agent: {}", scheduled_agent_id);
+
+        // Record creation in execution log
+        self.execution_log.record(
+            scheduled_agent_id,
+            &scheduled_agent_id.to_string(),
+            "created",
+        );
 
         Ok(CreateAgentResponse {
             id: scheduled_agent_id.to_string(),
@@ -654,7 +753,7 @@ impl RuntimeApiProvider for AgentRuntime {
             .map_err(|e| RuntimeError::Internal(e.to_string()))?
             .into();
         let message = self.communication.create_internal_message(
-            AgentId::new(), // System sender
+            self.system_agent_id,
             agent_id,
             payload_data,
             types::MessageType::Direct(agent_id),
@@ -664,6 +763,12 @@ impl RuntimeApiProvider for AgentRuntime {
             .send_message(message)
             .await
             .map_err(RuntimeError::Communication)?;
+
+        // Record execution in the history log
+        #[cfg(feature = "http-api")]
+        self.execution_log
+            .record(agent_id, &execution_id, "execution_started");
+
         Ok(ExecuteAgentResponse {
             execution_id,
             status: "execution_started".to_string(),
@@ -672,12 +777,17 @@ impl RuntimeApiProvider for AgentRuntime {
 
     async fn get_agent_history(
         &self,
-        _agent_id: AgentId,
+        agent_id: AgentId,
     ) -> Result<GetAgentHistoryResponse, RuntimeError> {
-        // TODO(T-59): Requires a persistent execution-log storage layer (SQLite
-        // or in-memory ring buffer). The per-schedule history
-        // (/schedules/{id}/history) already works via CronScheduler.
-        let history = vec![];
+        let entries = self.execution_log.get_history(agent_id, 100);
+        let history = entries
+            .into_iter()
+            .map(|e| AgentExecutionRecord {
+                execution_id: e.execution_id,
+                status: e.status,
+                timestamp: e.timestamp.to_rfc3339(),
+            })
+            .collect();
         Ok(GetAgentHistoryResponse { history })
     }
 
