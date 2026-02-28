@@ -1,6 +1,6 @@
 [package]
 name = "repl-proto"
-version = "1.5.0"
+version = "1.6.0"
 edition = "2021"
 authors = ["Jascha Wanger / ThirdKey.ai"]
 description = "JSON-RPC wire protocol types for the Symbi platform"

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-02-27
+
 ### Added
 
 #### ClawHavoc Scanner Expansion
@@ -58,6 +60,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **cargo-chef cook**: Create stub for `[[example]]` entries not handled by cargo-chef
 - **ECDSA benchmark threshold**: Debug builds no longer fail due to unoptimized crypto exceeding release-only 5ms threshold
 - **SchemaPin verification threshold**: Same debug/release split applied to pinned-key verification benchmark
+
+### Crate Versions
+| Crate | Version |
+|-------|---------|
+| `symbi` | 1.6.0 |
+| `symbi-dsl` | 1.6.0 |
+| `symbi-runtime` | 1.6.0 |
+| `symbi-channel-adapter` | 0.1.1 |
+| `repl-core` | 1.6.0 |
+| `repl-proto` | 1.6.0 |
+| `repl-cli` | 1.6.0 |
+| `repl-lsp` | 1.6.0 |
 
 ## [1.5.0] - 2026-02-22
 
