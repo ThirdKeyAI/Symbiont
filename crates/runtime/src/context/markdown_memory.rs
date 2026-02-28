@@ -171,116 +171,123 @@ impl MarkdownMemoryStore {
         memory
     }
 
-    /// Append a summary entry to today's daily log.
-    fn append_daily_log(
-        &self,
-        agent_id: AgentId,
-        context: &AgentContext,
-    ) -> Result<(), ContextError> {
-        let logs_dir = self.logs_dir(agent_id);
-        std::fs::create_dir_all(&logs_dir).map_err(|e| ContextError::StorageError {
-            reason: format!("Failed to create logs directory: {}", e),
-        })?;
-
-        let today = Utc::now().format("%Y-%m-%d").to_string();
-        let log_path = logs_dir.join(format!("{}.md", today));
-
-        use std::io::Write;
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log_path)
-            .map_err(|e| ContextError::StorageError {
-                reason: format!("Failed to open daily log: {}", e),
-            })?;
-
-        let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ");
-        let memory_count = context.memory.long_term.len() + context.memory.short_term.len();
-        let knowledge_count = context.knowledge_base.facts.len()
-            + context.knowledge_base.procedures.len()
-            + context.knowledge_base.learned_patterns.len();
-
-        writeln!(
-            file,
-            "### {}\n- Memory items: {}\n- Knowledge items: {}\n",
-            now, memory_count, knowledge_count
-        )
-        .map_err(|e| ContextError::StorageError {
-            reason: format!("Failed to write daily log: {}", e),
-        })?;
-
-        Ok(())
-    }
-
     /// Remove log files older than the configured retention period.
-    pub fn compact(&self, agent_id: AgentId) -> Result<(), ContextError> {
+    pub async fn compact(&self, agent_id: AgentId) -> Result<(), ContextError> {
         let logs_dir = self.logs_dir(agent_id);
-        if !logs_dir.exists() {
-            return Ok(());
-        }
+        let retention = self.retention;
 
-        let cutoff = SystemTime::now()
-            .checked_sub(self.retention)
-            .unwrap_or(SystemTime::UNIX_EPOCH);
-
-        let entries = std::fs::read_dir(&logs_dir).map_err(|e| ContextError::StorageError {
-            reason: format!("Failed to read logs directory: {}", e),
-        })?;
-
-        for entry in entries {
-            let entry = entry.map_err(|e| ContextError::StorageError {
-                reason: format!("Failed to read log entry: {}", e),
-            })?;
-
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("md") {
-                continue;
+        tokio::task::spawn_blocking(move || {
+            if !logs_dir.exists() {
+                return Ok(());
             }
 
-            let metadata = std::fs::metadata(&path).map_err(|e| ContextError::StorageError {
-                reason: format!("Failed to read log metadata: {}", e),
+            let cutoff = SystemTime::now()
+                .checked_sub(retention)
+                .unwrap_or(SystemTime::UNIX_EPOCH);
+
+            let entries = std::fs::read_dir(&logs_dir).map_err(|e| ContextError::StorageError {
+                reason: format!("Failed to read logs directory: {}", e),
             })?;
 
-            let modified = metadata
-                .modified()
-                .map_err(|e| ContextError::StorageError {
-                    reason: format!("Failed to read modification time: {}", e),
+            for entry in entries {
+                let entry = entry.map_err(|e| ContextError::StorageError {
+                    reason: format!("Failed to read log entry: {}", e),
                 })?;
 
-            if modified < cutoff {
-                std::fs::remove_file(&path).map_err(|e| ContextError::StorageError {
-                    reason: format!("Failed to remove old log file: {}", e),
-                })?;
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) != Some("md") {
+                    continue;
+                }
+
+                let metadata =
+                    std::fs::metadata(&path).map_err(|e| ContextError::StorageError {
+                        reason: format!("Failed to read log metadata: {}", e),
+                    })?;
+
+                let modified = metadata
+                    .modified()
+                    .map_err(|e| ContextError::StorageError {
+                        reason: format!("Failed to read modification time: {}", e),
+                    })?;
+
+                if modified < cutoff {
+                    std::fs::remove_file(&path).map_err(|e| ContextError::StorageError {
+                        reason: format!("Failed to remove old log file: {}", e),
+                    })?;
+                }
             }
-        }
 
-        Ok(())
+            Ok(())
+        })
+        .await
+        .map_err(|e| ContextError::StorageError {
+            reason: format!("Blocking task failed: {}", e),
+        })?
     }
+}
 
-    /// Walk all files under a directory and sum their sizes.
-    fn dir_size(path: &std::path::Path) -> Result<u64, ContextError> {
-        let mut total: u64 = 0;
-        if !path.exists() {
-            return Ok(0);
-        }
-        let entries = std::fs::read_dir(path).map_err(|e| ContextError::StorageError {
-            reason: format!("Failed to read directory: {}", e),
+/// Append a summary entry to today's daily log (sync, for use in spawn_blocking).
+fn append_daily_log_sync(
+    logs_dir: &std::path::Path,
+    context: &AgentContext,
+) -> Result<(), ContextError> {
+    std::fs::create_dir_all(logs_dir).map_err(|e| ContextError::StorageError {
+        reason: format!("Failed to create logs directory: {}", e),
+    })?;
+
+    let today = Utc::now().format("%Y-%m-%d").to_string();
+    let log_path = logs_dir.join(format!("{}.md", today));
+
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .map_err(|e| ContextError::StorageError {
+            reason: format!("Failed to open daily log: {}", e),
         })?;
-        for entry in entries {
-            let entry = entry.map_err(|e| ContextError::StorageError {
-                reason: format!("Failed to read entry: {}", e),
-            })?;
-            let meta = entry.metadata().map_err(|e| ContextError::StorageError {
-                reason: format!("Failed to read metadata: {}", e),
-            })?;
-            if meta.is_dir() {
-                total += Self::dir_size(&entry.path())?;
-            } else {
-                total += meta.len();
-            }
-        }
-        Ok(total)
+
+    let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ");
+    let memory_count = context.memory.long_term.len() + context.memory.short_term.len();
+    let knowledge_count = context.knowledge_base.facts.len()
+        + context.knowledge_base.procedures.len()
+        + context.knowledge_base.learned_patterns.len();
+
+    writeln!(
+        file,
+        "### {}\n- Memory items: {}\n- Knowledge items: {}\n",
+        now, memory_count, knowledge_count
+    )
+    .map_err(|e| ContextError::StorageError {
+        reason: format!("Failed to write daily log: {}", e),
+    })?;
+
+    Ok(())
+}
+
+/// Walk all files under a directory and sum their sizes (sync, for use in spawn_blocking).
+fn dir_size_sync(path: &std::path::Path) -> Result<u64, ContextError> {
+    let mut total: u64 = 0;
+    if !path.exists() {
+        return Ok(0);
     }
+    let entries = std::fs::read_dir(path).map_err(|e| ContextError::StorageError {
+        reason: format!("Failed to read directory: {}", e),
+    })?;
+    for entry in entries {
+        let entry = entry.map_err(|e| ContextError::StorageError {
+            reason: format!("Failed to read entry: {}", e),
+        })?;
+        let meta = entry.metadata().map_err(|e| ContextError::StorageError {
+            reason: format!("Failed to read metadata: {}", e),
+        })?;
+        if meta.is_dir() {
+            total += dir_size_sync(&entry.path())?;
+        } else {
+            total += meta.len();
+        }
+    }
+    Ok(total)
 }
 
 #[async_trait]
@@ -291,45 +298,54 @@ impl ContextPersistence for MarkdownMemoryStore {
         context: &AgentContext,
     ) -> Result<(), ContextError> {
         let agent_dir = self.agent_dir(agent_id);
-        std::fs::create_dir_all(&agent_dir).map_err(|e| ContextError::StorageError {
-            reason: format!("Failed to create agent directory: {}", e),
-        })?;
-
-        // Write memory.md atomically via tempfile
         let markdown = self.memory_to_markdown(agent_id, &context.memory);
         let memory_path = self.memory_path(agent_id);
+        let logs_dir = self.logs_dir(agent_id);
+        let context_clone = context.clone();
 
-        let temp = NamedTempFile::new_in(&agent_dir).map_err(|e| ContextError::StorageError {
-            reason: format!("Failed to create temp file: {}", e),
-        })?;
-
-        std::fs::write(temp.path(), markdown.as_bytes()).map_err(|e| {
-            ContextError::StorageError {
-                reason: format!("Failed to write temp file: {}", e),
-            }
-        })?;
-
-        temp.persist(&memory_path)
-            .map_err(|e| ContextError::StorageError {
-                reason: format!("Failed to persist memory file: {}", e),
+        tokio::task::spawn_blocking(move || {
+            std::fs::create_dir_all(&agent_dir).map_err(|e| ContextError::StorageError {
+                reason: format!("Failed to create agent directory: {}", e),
             })?;
 
-        // Append session summary to today's daily log
-        self.append_daily_log(agent_id, context)?;
+            // Write memory.md atomically via tempfile
+            let temp =
+                NamedTempFile::new_in(&agent_dir).map_err(|e| ContextError::StorageError {
+                    reason: format!("Failed to create temp file: {}", e),
+                })?;
 
-        Ok(())
+            std::fs::write(temp.path(), markdown.as_bytes()).map_err(|e| {
+                ContextError::StorageError {
+                    reason: format!("Failed to write temp file: {}", e),
+                }
+            })?;
+
+            temp.persist(&memory_path)
+                .map_err(|e| ContextError::StorageError {
+                    reason: format!("Failed to persist memory file: {}", e),
+                })?;
+
+            // Append session summary to today's daily log
+            append_daily_log_sync(&logs_dir, &context_clone)
+        })
+        .await
+        .map_err(|e| ContextError::StorageError {
+            reason: format!("Blocking task failed: {}", e),
+        })?
     }
 
     async fn load_context(&self, agent_id: AgentId) -> Result<Option<AgentContext>, ContextError> {
         let memory_path = self.memory_path(agent_id);
-        if !memory_path.exists() {
-            return Ok(None);
-        }
 
-        let markdown =
-            std::fs::read_to_string(&memory_path).map_err(|e| ContextError::StorageError {
-                reason: format!("Failed to read memory file: {}", e),
-            })?;
+        let markdown = match tokio::fs::read_to_string(&memory_path).await {
+            Ok(content) => content,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => {
+                return Err(ContextError::StorageError {
+                    reason: format!("Failed to read memory file: {}", e),
+                })
+            }
+        };
 
         let memory = self.markdown_to_memory(&markdown);
         let now = SystemTime::now();
@@ -351,68 +367,86 @@ impl ContextPersistence for MarkdownMemoryStore {
 
     async fn delete_context(&self, agent_id: AgentId) -> Result<(), ContextError> {
         let agent_dir = self.agent_dir(agent_id);
-        if agent_dir.exists() {
-            std::fs::remove_dir_all(&agent_dir).map_err(|e| ContextError::StorageError {
+        match tokio::fs::remove_dir_all(&agent_dir).await {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(ContextError::StorageError {
                 reason: format!("Failed to delete agent directory: {}", e),
-            })?;
+            }),
         }
-        Ok(())
     }
 
     async fn list_agent_contexts(&self) -> Result<Vec<AgentId>, ContextError> {
-        let mut agent_ids = Vec::new();
+        let root_dir = self.root_dir.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut agent_ids = Vec::new();
 
-        if !self.root_dir.exists() {
-            return Ok(agent_ids);
-        }
+            if !root_dir.exists() {
+                return Ok(agent_ids);
+            }
 
-        let entries =
-            std::fs::read_dir(&self.root_dir).map_err(|e| ContextError::StorageError {
+            let entries = std::fs::read_dir(&root_dir).map_err(|e| ContextError::StorageError {
                 reason: format!("Failed to read root directory: {}", e),
             })?;
 
-        for entry in entries {
-            let entry = entry.map_err(|e| ContextError::StorageError {
-                reason: format!("Failed to read directory entry: {}", e),
-            })?;
-
-            if entry.metadata().map(|m| m.is_dir()).unwrap_or(false) {
-                if let Some(name) = entry.file_name().to_str() {
-                    if let Ok(uuid) = uuid::Uuid::parse_str(name) {
-                        agent_ids.push(AgentId(uuid));
-                    }
-                }
-            }
-        }
-
-        Ok(agent_ids)
-    }
-
-    async fn context_exists(&self, agent_id: AgentId) -> Result<bool, ContextError> {
-        Ok(self.memory_path(agent_id).exists())
-    }
-
-    async fn get_storage_stats(&self) -> Result<StorageStats, ContextError> {
-        let mut total_contexts: usize = 0;
-        let mut total_size_bytes: u64 = 0;
-
-        if self.root_dir.exists() {
-            let entries =
-                std::fs::read_dir(&self.root_dir).map_err(|e| ContextError::StorageError {
-                    reason: format!("Failed to read root directory: {}", e),
-                })?;
-
             for entry in entries {
                 let entry = entry.map_err(|e| ContextError::StorageError {
-                    reason: format!("Failed to read entry: {}", e),
+                    reason: format!("Failed to read directory entry: {}", e),
                 })?;
 
                 if entry.metadata().map(|m| m.is_dir()).unwrap_or(false) {
-                    total_contexts += 1;
-                    total_size_bytes += Self::dir_size(&entry.path())?;
+                    if let Some(name) = entry.file_name().to_str() {
+                        if let Ok(uuid) = uuid::Uuid::parse_str(name) {
+                            agent_ids.push(AgentId(uuid));
+                        }
+                    }
                 }
             }
-        }
+
+            Ok(agent_ids)
+        })
+        .await
+        .map_err(|e| ContextError::StorageError {
+            reason: format!("Blocking task failed: {}", e),
+        })?
+    }
+
+    async fn context_exists(&self, agent_id: AgentId) -> Result<bool, ContextError> {
+        Ok(tokio::fs::try_exists(self.memory_path(agent_id))
+            .await
+            .unwrap_or(false))
+    }
+
+    async fn get_storage_stats(&self) -> Result<StorageStats, ContextError> {
+        let root_dir = self.root_dir.clone();
+        let (total_contexts, total_size_bytes) = tokio::task::spawn_blocking(move || {
+            let mut total_contexts: usize = 0;
+            let mut total_size_bytes: u64 = 0;
+
+            if root_dir.exists() {
+                let entries =
+                    std::fs::read_dir(&root_dir).map_err(|e| ContextError::StorageError {
+                        reason: format!("Failed to read root directory: {}", e),
+                    })?;
+
+                for entry in entries {
+                    let entry = entry.map_err(|e| ContextError::StorageError {
+                        reason: format!("Failed to read entry: {}", e),
+                    })?;
+
+                    if entry.metadata().map(|m| m.is_dir()).unwrap_or(false) {
+                        total_contexts += 1;
+                        total_size_bytes += dir_size_sync(&entry.path())?;
+                    }
+                }
+            }
+
+            Ok::<_, ContextError>((total_contexts, total_size_bytes))
+        })
+        .await
+        .map_err(|e| ContextError::StorageError {
+            reason: format!("Blocking task failed: {}", e),
+        })??;
 
         Ok(StorageStats {
             total_contexts,
@@ -654,7 +688,7 @@ mod tests {
 
         assert!(stale_log.exists());
 
-        store.compact(agent_id).unwrap();
+        store.compact(agent_id).await.unwrap();
 
         // The stale log should be removed; today's log should remain
         assert!(!stale_log.exists());

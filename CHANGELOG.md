@@ -24,7 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 | `repl-cli` | 1.6.1 |
 | `repl-lsp` | 1.6.1 |
 
-## [1.6.0] - 2026-02-27
+## [1.6.0] - 2026-02-27 [YANKED]
+
+> **Yanked from crates.io**: All 7 crates at v1.6.0 have been yanked due to a
+> `qdrant-client` semver breakage that caused `cargo install` to fail. Use v1.6.1 instead.
 
 ### Added
 

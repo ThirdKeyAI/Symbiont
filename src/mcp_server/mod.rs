@@ -196,7 +196,23 @@ impl SymbiMcpServer {
         Parameters(params): Parameters<ParseDslParams>,
     ) -> Result<CallToolResult, McpError> {
         let (source, label) = if let Some(ref file) = params.file {
-            match std::fs::read_to_string(file) {
+            // Validate path: must be relative, no traversal, and end in .dsl
+            let path = std::path::Path::new(file);
+            if path.is_absolute()
+                || path
+                    .components()
+                    .any(|c| c == std::path::Component::ParentDir)
+            {
+                return Ok(CallToolResult::error(vec![Content::text(
+                    "File path must be relative and cannot contain '..' components.",
+                )]));
+            }
+            if path.extension().and_then(|e| e.to_str()) != Some("dsl") {
+                return Ok(CallToolResult::error(vec![Content::text(
+                    "Only .dsl files can be parsed.",
+                )]));
+            }
+            match tokio::fs::read_to_string(file).await {
                 Ok(content) => (content, file.clone()),
                 Err(e) => {
                     return Ok(CallToolResult::error(vec![Content::text(format!(
@@ -303,9 +319,19 @@ impl SymbiMcpServer {
             }
         }
 
+        // Validate agent name: alphanumeric, hyphens, underscores only
+        if !params
+            .agent
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+        {
+            return Ok(CallToolResult::error(vec![Content::text(
+                "Agent name must contain only alphanumeric characters, hyphens, and underscores.",
+            )]));
+        }
         // Fall back to reading from disk (in case agents were added after startup)
         let path = format!("agents/{}.dsl", params.agent);
-        match std::fs::read_to_string(&path) {
+        match tokio::fs::read_to_string(&path).await {
             Ok(content) => Ok(CallToolResult::success(vec![Content::text(content)])),
             Err(_) => Ok(CallToolResult::error(vec![Content::text(format!(
                 "Agent '{}' not found. Use list_agents to see available agents.",
@@ -318,7 +344,7 @@ impl SymbiMcpServer {
         description = "Get the project's AGENTS.md file content. Returns the full AGENTS.md from the working directory, which describes available agents, their capabilities, schedules, channels, and invocation methods."
     )]
     async fn get_agents_md(&self) -> Result<CallToolResult, McpError> {
-        match std::fs::read_to_string("AGENTS.md") {
+        match tokio::fs::read_to_string("AGENTS.md").await {
             Ok(content) => Ok(CallToolResult::success(vec![Content::text(content)])),
             Err(_) => Ok(CallToolResult::error(vec![Content::text(
                 "No AGENTS.md found in the working directory. Run 'symbi agents-md generate' to create one.",
@@ -343,7 +369,7 @@ impl SymbiMcpServer {
                 ))]));
             }
         };
-        if let Err(e) = std::fs::write(tmp.path(), &params.schema) {
+        if let Err(e) = tokio::fs::write(tmp.path(), &params.schema).await {
             return Ok(CallToolResult::error(vec![Content::text(format!(
                 "Failed to write schema to temp file: {}",
                 e
@@ -429,13 +455,13 @@ impl ServerHandler for SymbiMcpServer {
         }))
     }
 
-    fn read_resource(
+    async fn read_resource(
         &self,
         request: ReadResourceRequestParams,
         _context: RequestContext<RoleServer>,
-    ) -> impl Future<Output = Result<ReadResourceResult, McpError>> + Send + '_ {
-        let result = if request.uri == "file:///AGENTS.md" {
-            match std::fs::read_to_string("AGENTS.md") {
+    ) -> Result<ReadResourceResult, McpError> {
+        if request.uri == "file:///AGENTS.md" {
+            match tokio::fs::read_to_string("AGENTS.md").await {
                 Ok(content) => Ok(ReadResourceResult {
                     contents: vec![ResourceContents::text(content, "file:///AGENTS.md")],
                 }),
@@ -451,8 +477,7 @@ impl ServerHandler for SymbiMcpServer {
                 format!("Unknown resource: {}", request.uri),
                 None::<serde_json::Value>,
             ))
-        };
-        std::future::ready(result)
+        }
     }
 }
 

@@ -519,18 +519,13 @@ pub async fn run(matches: &ArgMatches) {
 
 /// Generate a cryptographically secure random token
 fn generate_secure_token() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    // Use system time and process ID for additional entropy
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let pid = std::process::id();
-
-    // Create a secure random token using SHA-256
-    // Format: symbi_<timestamp>_<pid>_<random_suffix>
-    format!("symbi_dev_{:x}_{:x}", timestamp, pid)
+    use std::io::Read;
+    let mut bytes = [0u8; 24];
+    if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
+        let _ = f.read_exact(&mut bytes);
+    }
+    let encoded: String = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+    format!("symbi_dev_{}", encoded)
 }
 
 fn create_quick_config(http_token: Option<&str>) -> Result<String, std::io::Error> {

@@ -49,6 +49,9 @@ impl VaultSecretStore {
 
         // Configure TLS settings
         if config.tls.skip_verify {
+            tracing::warn!(
+                "Vault TLS verification is disabled — connections are vulnerable to MitM attacks"
+            );
             settings_builder.verify(false);
         }
 

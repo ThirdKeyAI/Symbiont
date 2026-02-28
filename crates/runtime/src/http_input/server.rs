@@ -99,7 +99,7 @@ impl HttpInputServer {
 
         // Load JWT public key if configured (fail fast on invalid key)
         let jwt_decoding_key = if let Some(ref key_path) = config.jwt_public_key_path {
-            let key_bytes = std::fs::read(key_path).map_err(|e| {
+            let key_bytes = tokio::fs::read(key_path).await.map_err(|e| {
                 RuntimeError::Configuration(crate::types::ConfigError::Invalid(format!(
                     "Failed to read JWT public key file '{}': {}",
                     key_path, e
@@ -661,8 +661,15 @@ fn format_error_response(
     let status =
         StatusCode::from_u16(config.error_status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
 
+    // Map internal errors to generic messages to avoid leaking details
+    let public_message = match &error {
+        RuntimeError::Security(_) => "Authentication error",
+        RuntimeError::Configuration(_) => "Configuration error",
+        _ => "Internal server error",
+    };
+    tracing::debug!("HTTP error response detail: {}", error);
     let error_body = serde_json::json!({
-        "error": error.to_string(),
+        "error": public_message,
         "timestamp": chrono::Utc::now().to_rfc3339()
     });
 

@@ -277,9 +277,15 @@ impl HttpApiServer {
             .route("/api/v1/health", get(health_check))
             .with_state(self.start_time);
 
-        // Add Swagger UI
-        router = router
-            .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()));
+        // Add Swagger UI only in non-production environments
+        let is_production = std::env::var("SYMBIONT_ENV")
+            .map(|v| v.eq_ignore_ascii_case("production"))
+            .unwrap_or(false);
+        if !is_production {
+            router = router.merge(
+                SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()),
+            );
+        }
 
         // Add stateful routes if we have a runtime provider
         if let Some(provider) = &self.runtime_provider {

@@ -49,7 +49,9 @@ pub async fn serve_agents_md() -> Result<
     ),
     StatusCode,
 > {
-    let content = std::fs::read_to_string("AGENTS.md").map_err(|_| StatusCode::NOT_FOUND)?;
+    let content = tokio::fs::read_to_string("AGENTS.md")
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
     let filtered = strip_sensitive_sections(&content);
     Ok((
         StatusCode::OK,

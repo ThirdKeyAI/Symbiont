@@ -130,7 +130,11 @@ impl ExecutionMonitor {
 
     /// End monitoring an execution
     pub fn end_execution(&self, execution_id: Uuid, result: Result<DslValue>) -> Option<Duration> {
-        let context = self.active_executions.lock().unwrap().remove(&execution_id);
+        let context = self
+            .active_executions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&execution_id);
 
         if let Some(context) = context {
             let duration = context.start_time.elapsed();
@@ -170,7 +174,7 @@ impl ExecutionMonitor {
 
     /// Add a trace entry
     pub fn add_trace(&self, entry: TraceEntry) {
-        let mut traces = self.traces.lock().unwrap();
+        let mut traces = self.traces.lock().unwrap_or_else(|e| e.into_inner());
         traces.push(entry);
 
         // Keep only the most recent traces
@@ -206,7 +210,12 @@ impl ExecutionMonitor {
         args: &[DslValue],
     ) {
         if let Some(exec_id) = execution_id {
-            if let Some(context) = self.active_executions.lock().unwrap().get_mut(&exec_id) {
+            if let Some(context) = self
+                .active_executions
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get_mut(&exec_id)
+            {
                 context.stack.push(function_name.to_string());
             }
         }
@@ -248,7 +257,7 @@ impl ExecutionMonitor {
         });
 
         // Update capability statistics
-        let mut stats = self.stats.lock().unwrap();
+        let mut stats = self.stats.lock().unwrap_or_else(|e| e.into_inner());
         *stats
             .capabilities_checked
             .entry(capability.to_string())
@@ -263,7 +272,12 @@ impl ExecutionMonitor {
         value: &DslValue,
     ) {
         if let Some(exec_id) = execution_id {
-            if let Some(context) = self.active_executions.lock().unwrap().get_mut(&exec_id) {
+            if let Some(context) = self
+                .active_executions
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get_mut(&exec_id)
+            {
                 context
                     .variables
                     .insert(var_name.to_string(), value.clone());
@@ -320,7 +334,7 @@ impl ExecutionMonitor {
 
     /// Get execution traces
     pub fn get_traces(&self, limit: Option<usize>) -> Vec<TraceEntry> {
-        let traces = self.traces.lock().unwrap();
+        let traces = self.traces.lock().unwrap_or_else(|e| e.into_inner());
         let start_idx = if let Some(limit) = limit {
             traces.len().saturating_sub(limit)
         } else {
@@ -331,7 +345,7 @@ impl ExecutionMonitor {
 
     /// Get traces for a specific agent
     pub fn get_agent_traces(&self, agent_id: Uuid, limit: Option<usize>) -> Vec<TraceEntry> {
-        let traces = self.traces.lock().unwrap();
+        let traces = self.traces.lock().unwrap_or_else(|e| e.into_inner());
         let agent_traces: Vec<_> = traces
             .iter()
             .filter(|trace| trace.agent_id == Some(agent_id))
@@ -348,7 +362,7 @@ impl ExecutionMonitor {
 
     /// Get execution statistics
     pub fn get_stats(&self) -> ExecutionStats {
-        self.stats.lock().unwrap().clone()
+        self.stats.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// Get active executions
@@ -363,12 +377,15 @@ impl ExecutionMonitor {
 
     /// Clear all traces
     pub fn clear_traces(&self) {
-        self.traces.lock().unwrap().clear();
+        self.traces
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
     }
 
     /// Update execution statistics
     fn update_stats(&self, duration: Duration, success: bool, behavior_name: &Option<String>) {
-        let mut stats = self.stats.lock().unwrap();
+        let mut stats = self.stats.lock().unwrap_or_else(|e| e.into_inner());
 
         stats.total_executions += 1;
         if success {

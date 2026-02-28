@@ -25,7 +25,7 @@ pub enum PlatformSettings {
 }
 
 /// Configuration for a Slack adapter.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SlackConfig {
     /// Bot token (xoxb-...). Resolved from env or secret store at startup.
     pub bot_token: String,
@@ -47,6 +47,24 @@ pub struct SlackConfig {
     pub default_agent: Option<String>,
 }
 
+impl std::fmt::Debug for SlackConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SlackConfig")
+            .field("bot_token", &"[REDACTED]")
+            .field("app_token", &self.app_token.as_ref().map(|_| "[REDACTED]"))
+            .field(
+                "signing_secret",
+                &self.signing_secret.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("workspace_id", &self.workspace_id)
+            .field("channels", &self.channels)
+            .field("webhook_port", &self.webhook_port)
+            .field("bind_address", &self.bind_address)
+            .field("default_agent", &self.default_agent)
+            .finish()
+    }
+}
+
 fn default_webhook_port() -> u16 {
     3100
 }
@@ -57,7 +75,7 @@ fn default_bind_address() -> String {
 
 /// Configuration for a Microsoft Teams adapter.
 #[cfg(feature = "teams")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct TeamsConfig {
     /// Azure AD tenant ID.
     pub tenant_id: String,
@@ -77,6 +95,22 @@ pub struct TeamsConfig {
     pub bind_address: String,
     /// Default agent to invoke when no agent is specified.
     pub default_agent: Option<String>,
+}
+
+#[cfg(feature = "teams")]
+impl std::fmt::Debug for TeamsConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TeamsConfig")
+            .field("tenant_id", &self.tenant_id)
+            .field("client_id", &self.client_id)
+            .field("client_secret", &"[REDACTED]")
+            .field("bot_id", &self.bot_id)
+            .field("webhook_url", &self.webhook_url)
+            .field("webhook_port", &self.webhook_port)
+            .field("bind_address", &self.bind_address)
+            .field("default_agent", &self.default_agent)
+            .finish()
+    }
 }
 
 #[cfg(feature = "teams")]
@@ -102,7 +136,7 @@ impl Default for TeamsConfig {
 
 /// Configuration for a Mattermost adapter.
 #[cfg(feature = "mattermost")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct MattermostConfig {
     /// Mattermost server URL (e.g. "https://mattermost.example.com").
     pub server_url: String,
@@ -122,6 +156,25 @@ pub struct MattermostConfig {
     pub bind_address: String,
     /// Default agent to invoke when no agent is specified.
     pub default_agent: Option<String>,
+}
+
+#[cfg(feature = "mattermost")]
+impl std::fmt::Debug for MattermostConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MattermostConfig")
+            .field("server_url", &self.server_url)
+            .field("bot_token", &"[REDACTED]")
+            .field(
+                "webhook_secret",
+                &self.webhook_secret.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("team_id", &self.team_id)
+            .field("channels", &self.channels)
+            .field("webhook_port", &self.webhook_port)
+            .field("bind_address", &self.bind_address)
+            .field("default_agent", &self.default_agent)
+            .finish()
+    }
 }
 
 #[cfg(feature = "mattermost")]

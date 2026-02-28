@@ -1333,7 +1333,7 @@ impl Parser {
         for op_token in operators {
             if std::mem::discriminant(&self.peek().token_type) == std::mem::discriminant(op_token) {
                 self.advance();
-                return Some(self.token_to_binary_operator(op_token));
+                return self.token_to_binary_operator(op_token);
             }
         }
         None
@@ -1343,36 +1343,36 @@ impl Parser {
         for op_token in operators {
             if std::mem::discriminant(&self.peek().token_type) == std::mem::discriminant(op_token) {
                 self.advance();
-                return Some(self.token_to_unary_operator(op_token));
+                return self.token_to_unary_operator(op_token);
             }
         }
         None
     }
 
-    fn token_to_binary_operator(&self, token: &TokenType) -> BinaryOperator {
+    fn token_to_binary_operator(&self, token: &TokenType) -> Option<BinaryOperator> {
         match token {
-            TokenType::Plus => BinaryOperator::Add,
-            TokenType::Minus => BinaryOperator::Subtract,
-            TokenType::Multiply => BinaryOperator::Multiply,
-            TokenType::Divide => BinaryOperator::Divide,
-            TokenType::Modulo => BinaryOperator::Modulo,
-            TokenType::Equal => BinaryOperator::Equal,
-            TokenType::NotEqual => BinaryOperator::NotEqual,
-            TokenType::LessThan => BinaryOperator::LessThan,
-            TokenType::LessThanOrEqual => BinaryOperator::LessThanOrEqual,
-            TokenType::GreaterThan => BinaryOperator::GreaterThan,
-            TokenType::GreaterThanOrEqual => BinaryOperator::GreaterThanOrEqual,
-            TokenType::And => BinaryOperator::And,
-            TokenType::Or => BinaryOperator::Or,
-            _ => panic!("Invalid binary operator token: {:?}", token),
+            TokenType::Plus => Some(BinaryOperator::Add),
+            TokenType::Minus => Some(BinaryOperator::Subtract),
+            TokenType::Multiply => Some(BinaryOperator::Multiply),
+            TokenType::Divide => Some(BinaryOperator::Divide),
+            TokenType::Modulo => Some(BinaryOperator::Modulo),
+            TokenType::Equal => Some(BinaryOperator::Equal),
+            TokenType::NotEqual => Some(BinaryOperator::NotEqual),
+            TokenType::LessThan => Some(BinaryOperator::LessThan),
+            TokenType::LessThanOrEqual => Some(BinaryOperator::LessThanOrEqual),
+            TokenType::GreaterThan => Some(BinaryOperator::GreaterThan),
+            TokenType::GreaterThanOrEqual => Some(BinaryOperator::GreaterThanOrEqual),
+            TokenType::And => Some(BinaryOperator::And),
+            TokenType::Or => Some(BinaryOperator::Or),
+            _ => None,
         }
     }
 
-    fn token_to_unary_operator(&self, token: &TokenType) -> UnaryOperator {
+    fn token_to_unary_operator(&self, token: &TokenType) -> Option<UnaryOperator> {
         match token {
-            TokenType::Not => UnaryOperator::Not,
-            TokenType::Minus => UnaryOperator::Negate,
-            _ => panic!("Invalid unary operator token: {:?}", token),
+            TokenType::Not => Some(UnaryOperator::Not),
+            TokenType::Minus => Some(UnaryOperator::Negate),
+            _ => None,
         }
     }
 

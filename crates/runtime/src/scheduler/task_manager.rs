@@ -328,7 +328,7 @@ impl TaskManager {
         let execution_env = Self::create_execution_environment(task)?;
 
         // Build the command to execute the agent
-        let mut command = Self::build_agent_command(task, &execution_env)?;
+        let mut command = Self::build_agent_command(task, &execution_env).await?;
 
         tracing::debug!("Launching agent {} with command: {:?}", agent_id, command);
 
@@ -376,14 +376,14 @@ impl TaskManager {
     }
 
     /// Build the command to execute the agent
-    fn build_agent_command(
+    async fn build_agent_command(
         task: &super::ScheduledTask,
         env: &ExecutionEnvironment,
     ) -> Result<Command, String> {
         let mut command = Command::new("sh");
 
         // Create the working directory if it doesn't exist
-        if let Err(e) = std::fs::create_dir_all(&env.working_directory) {
+        if let Err(e) = tokio::fs::create_dir_all(&env.working_directory).await {
             tracing::warn!(
                 "Failed to create working directory {}: {}",
                 env.working_directory,

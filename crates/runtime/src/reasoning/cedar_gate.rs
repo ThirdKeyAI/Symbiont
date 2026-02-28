@@ -144,18 +144,41 @@ impl CedarPolicyGate {
         };
 
         // Build Cedar PARC request
-        let principal = EntityUid::from_type_name_and_id(
-            EntityTypeName::from_str("Agent").expect("valid type name"),
-            EntityId::from_str(&agent_id.to_string()).expect("valid entity id"),
-        );
-        let cedar_action = EntityUid::from_type_name_and_id(
-            EntityTypeName::from_str("Action").expect("valid type name"),
-            EntityId::from_str(&action_name).expect("valid entity id"),
-        );
-        let resource = EntityUid::from_type_name_and_id(
-            EntityTypeName::from_str("Resource").expect("valid type name"),
-            EntityId::from_str("default").expect("valid entity id"),
-        );
+        let Ok(agent_type) = EntityTypeName::from_str("Agent") else {
+            return LoopDecision::Deny {
+                reason: "Cedar: invalid entity type 'Agent'".into(),
+            };
+        };
+        let Ok(agent_eid) = EntityId::from_str(&agent_id.to_string()) else {
+            return LoopDecision::Deny {
+                reason: format!("Cedar: invalid agent id '{}'", agent_id),
+            };
+        };
+        let principal = EntityUid::from_type_name_and_id(agent_type, agent_eid);
+
+        let Ok(action_type) = EntityTypeName::from_str("Action") else {
+            return LoopDecision::Deny {
+                reason: "Cedar: invalid entity type 'Action'".into(),
+            };
+        };
+        let Ok(action_eid) = EntityId::from_str(&action_name) else {
+            return LoopDecision::Deny {
+                reason: format!("Cedar: invalid action name '{}'", action_name),
+            };
+        };
+        let cedar_action = EntityUid::from_type_name_and_id(action_type, action_eid);
+
+        let Ok(resource_type) = EntityTypeName::from_str("Resource") else {
+            return LoopDecision::Deny {
+                reason: "Cedar: invalid entity type 'Resource'".into(),
+            };
+        };
+        let Ok(resource_eid) = EntityId::from_str("default") else {
+            return LoopDecision::Deny {
+                reason: "Cedar: invalid entity id 'default'".into(),
+            };
+        };
+        let resource = EntityUid::from_type_name_and_id(resource_type, resource_eid);
 
         let request = match Request::new(principal, cedar_action, resource, Context::empty(), None)
         {

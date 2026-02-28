@@ -9,7 +9,6 @@ use crate::secrets::config::{FileConfig, FileFormat};
 use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::fs;
 use std::time::SystemTime;
 use tokio::sync::RwLock;
 
@@ -62,7 +61,8 @@ impl FileSecretStore {
     /// Returns cached data if the file's mtime hasn't changed, avoiding
     /// expensive re-decryption (Argon2 KDF) on every call.
     async fn load_secrets_cached(&self) -> Result<HashMap<String, String>, SecretError> {
-        let mtime = fs::metadata(&self.config.path)
+        let mtime = tokio::fs::metadata(&self.config.path)
+            .await
             .and_then(|m| m.modified())
             .map_err(|e| SecretError::IoError {
                 message: format!("Failed to stat secrets file: {}", e),
@@ -214,7 +214,8 @@ impl FileSecretStore {
                         message: "File path not specified for 'file' key provider".to_string(),
                     })?;
 
-                fs::read_to_string(file_path)
+                tokio::fs::read_to_string(file_path)
+                    .await
                     .map(|content| content.trim().to_string())
                     .map_err(|e| SecretError::IoError {
                         message: format!("Failed to read key file: {}", e),
