@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-02-27
+
+### Fixed
+- **qdrant-client version pin**: Pin `qdrant-client` to `>=1.14.0, <1.16.0` to prevent API breakage from v1.16+ (fields added to `CreateCollection`, `UpsertPoints`, `DeletePoints`, `CreateFieldIndexCollection`)
+
+### Crate Versions
+| Crate | Version |
+|-------|---------|
+| `symbi` | 1.6.1 |
+| `symbi-dsl` | 1.6.1 |
+| `symbi-runtime` | 1.6.1 |
+| `symbi-channel-adapter` | 0.1.1 |
+| `repl-core` | 1.6.1 |
+| `repl-proto` | 1.6.1 |
+| `repl-cli` | 1.6.1 |
+| `repl-lsp` | 1.6.1 |
+
 ## [1.6.0] - 2026-02-27
 
 ### Added
