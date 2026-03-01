@@ -93,7 +93,7 @@ winapi = { version = "0.3", features = ["wincred"], optional = true }
 cedar-policy = { version = "4", optional = true }
 
 # HTTP API dependencies (optional)
-axum = { version = "0.7", optional = true }
+axum = { version = "0.7", features = ["ws"], optional = true }
 tower = { version = "0.4", optional = true }
 tower-http = { version = "0.5", features = ["cors", "trace"], optional = true }
 jsonwebtoken = { version = "10", optional = true }

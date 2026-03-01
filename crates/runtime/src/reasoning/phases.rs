@@ -384,10 +384,11 @@ impl AgentLoop<ToolDispatching> {
 
         // Add tool results to conversation
         for obs in &observations {
+            let tool_call_id = obs.call_id.as_deref().unwrap_or(&obs.source);
             if !obs.is_error {
                 self.state.conversation.push(
                     crate::reasoning::conversation::ConversationMessage::tool_result(
-                        &obs.source,
+                        tool_call_id,
                         &obs.source,
                         &obs.content,
                     ),
@@ -395,7 +396,7 @@ impl AgentLoop<ToolDispatching> {
             } else {
                 self.state.conversation.push(
                     crate::reasoning::conversation::ConversationMessage::tool_result(
-                        &obs.source,
+                        tool_call_id,
                         &obs.source,
                         format!("[Error] {}", obs.content),
                     ),

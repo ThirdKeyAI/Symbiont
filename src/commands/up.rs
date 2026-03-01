@@ -478,6 +478,24 @@ pub async fn run(matches: &ArgMatches) {
     let mut api_server = HttpApiServer::new(api_config);
     if let Some(ref rt) = runtime {
         api_server = api_server.with_runtime_provider(rt.clone());
+
+        // Wire up Coordinator Chat if an LLM provider is available
+        if let Some(cloud_provider) =
+            symbi_runtime::reasoning::providers::cloud::CloudInferenceProvider::from_env()
+        {
+            let coordinator_state =
+                Arc::new(symbi_runtime::api::coordinator::CoordinatorState::new(
+                    Arc::new(cloud_provider),
+                    Arc::new(
+                        symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate::permissive(),
+                    ),
+                    rt.clone(),
+                ));
+            api_server = api_server.with_coordinator(coordinator_state);
+            println!("✓ Coordinator Chat enabled on /ws/chat");
+        } else {
+            println!("ℹ️  No LLM API key found — Coordinator Chat disabled");
+        }
     }
 
     tokio::select! {

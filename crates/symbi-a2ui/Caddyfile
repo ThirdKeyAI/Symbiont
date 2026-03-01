@@ -8,6 +8,11 @@
 		reverse_proxy symbi:8080
 	}
 
+	# Reverse proxy WebSocket connections to the Symbiont runtime
+	handle /ws/* {
+		reverse_proxy symbi:8080
+	}
+
 	# Serve static files from the build output
 	handle {
 		root * /srv/www

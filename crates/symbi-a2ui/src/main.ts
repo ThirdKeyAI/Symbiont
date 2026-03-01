@@ -30,3 +30,8 @@ import './components/panels/compliance/compliance-score.js';
 import './components/panels/compliance/violation-list.js';
 import './components/panels/compliance/policy-summary.js';
 import './components/panels/compliance/channel-compliance.js';
+
+import './components/panels/coordinator-chat/coordinator-chat-panel.js';
+import './components/panels/coordinator-chat/chat-message.js';
+import './components/panels/coordinator-chat/chat-input.js';
+import './components/panels/coordinator-chat/reasoning-trace.js';

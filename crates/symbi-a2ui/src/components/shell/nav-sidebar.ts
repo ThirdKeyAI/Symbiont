@@ -12,6 +12,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'fleet', label: 'Fleet Overview', icon: '⬡' },
   { id: 'audit', label: 'Audit Trail', icon: '◈' },
   { id: 'compliance', label: 'Compliance', icon: '◉' },
+  { id: 'coordinator', label: 'Coordinator', icon: '◇' },
 ];
 
 @customElement('nav-sidebar')

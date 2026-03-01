@@ -187,6 +187,7 @@ pub struct HttpApiServer {
     runtime_provider: Option<Arc<dyn RuntimeApiProvider>>,
     start_time: Instant,
     api_key_store: Option<Arc<super::api_keys::ApiKeyStore>>,
+    coordinator_state: Option<Arc<super::coordinator::CoordinatorState>>,
 }
 
 #[cfg(feature = "http-api")]
@@ -198,12 +199,22 @@ impl HttpApiServer {
             runtime_provider: None,
             start_time: Instant::now(),
             api_key_store: None,
+            coordinator_state: None,
         }
     }
 
     /// Set the runtime provider for the API server
     pub fn with_runtime_provider(mut self, provider: Arc<dyn RuntimeApiProvider>) -> Self {
         self.runtime_provider = Some(provider);
+        self
+    }
+
+    /// Set the coordinator state for the WebSocket chat endpoint.
+    pub fn with_coordinator(
+        mut self,
+        coordinator_state: Arc<super::coordinator::CoordinatorState>,
+    ) -> Self {
+        self.coordinator_state = Some(coordinator_state);
         self
     }
 
@@ -374,6 +385,16 @@ impl HttpApiServer {
                 .merge(schedule_router)
                 .merge(channel_router)
                 .merge(protected_router);
+        }
+
+        // WebSocket coordinator chat endpoint.
+        // Auth is handled inside the handler (token from query params),
+        // so the route is not wrapped with auth_middleware.
+        if let Some(ref coordinator_state) = self.coordinator_state {
+            let ws_router = Router::new()
+                .route("/ws/chat", get(super::ws_handler::ws_chat_handler))
+                .with_state(coordinator_state.clone());
+            router = router.merge(ws_router);
         }
 
         // Conditionally serve AGENTS.md at well-known paths (auth-gated, no provider state needed)

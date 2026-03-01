@@ -23,6 +23,11 @@ pub struct Observation {
     pub content: String,
     /// Whether this observation indicates an error.
     pub is_error: bool,
+    /// The tool call ID that produced this observation.
+    /// When present, used as the `tool_use_id` in conversation messages
+    /// to correlate tool results with the originating tool_use block.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub call_id: Option<String>,
     /// Metadata for logging and auditing.
     #[serde(default)]
     pub metadata: HashMap<String, String>,
@@ -35,6 +40,7 @@ impl Observation {
             source: tool_name.into(),
             content: content.into(),
             is_error: false,
+            call_id: None,
             metadata: HashMap::new(),
         }
     }
@@ -45,6 +51,7 @@ impl Observation {
             source: tool_name.into(),
             content: error.into(),
             is_error: true,
+            call_id: None,
             metadata: HashMap::new(),
         }
     }
@@ -55,8 +62,15 @@ impl Observation {
             source: "policy_gate".into(),
             content: reason.into(),
             is_error: true,
+            call_id: None,
             metadata: HashMap::new(),
         }
+    }
+
+    /// Attach a tool call ID to this observation.
+    pub fn with_call_id(mut self, call_id: impl Into<String>) -> Self {
+        self.call_id = Some(call_id.into());
+        self
     }
 }
 

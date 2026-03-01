@@ -22,6 +22,24 @@ pub mod types;
 pub mod traits;
 
 #[cfg(feature = "http-api")]
+pub mod ws_types;
+
+#[cfg(feature = "http-api")]
+pub mod streaming_journal;
+
+#[cfg(feature = "http-api")]
+pub mod coordinator_executor;
+
+#[cfg(feature = "http-api")]
+pub mod coordinator;
+
+#[cfg(feature = "http-api")]
+pub mod ws_handler;
+
+#[cfg(all(feature = "http-api", feature = "composio"))]
+pub mod composio_executor;
+
+#[cfg(feature = "http-api")]
 pub use server::HttpApiServer;
 
 #[cfg(feature = "http-api")]

@@ -81,15 +81,15 @@ impl ActionExecutor for DefaultActionExecutor {
                 futures.push(async move {
                     if let Err(cb_err) = cb_result {
                         return Observation {
-                            source: call_id,
+                            source: name,
                             content: format!(
-                                "Tool '{}' circuit is open: {}. The tool endpoint has been failing and is temporarily disabled.",
-                                name, cb_err
+                                "Tool circuit is open: {}. The tool endpoint has been failing and is temporarily disabled.",
+                                cb_err
                             ),
                             is_error: true,
+                            call_id: Some(call_id),
                             metadata: {
                                 let mut m = std::collections::HashMap::new();
-                                m.insert("tool_name".into(), name);
                                 m.insert("error_type".into(), "circuit_open".into());
                                 m
                             },
@@ -105,18 +105,22 @@ impl ActionExecutor for DefaultActionExecutor {
                     .await;
 
                     match result {
-                        Ok(Ok(content)) => Observation::tool_result(call_id, content),
-                        Ok(Err(err)) => Observation::tool_error(call_id, err),
+                        Ok(Ok(content)) => {
+                            Observation::tool_result(&name, content).with_call_id(call_id)
+                        }
+                        Ok(Err(err)) => {
+                            Observation::tool_error(&name, err).with_call_id(call_id)
+                        }
                         Err(_) => Observation {
-                            source: call_id,
+                            source: name.clone(),
                             content: format!(
                                 "Tool '{}' timed out after {:?}",
                                 name, timeout
                             ),
                             is_error: true,
+                            call_id: Some(call_id),
                             metadata: {
                                 let mut m = std::collections::HashMap::new();
-                                m.insert("tool_name".into(), name);
                                 m.insert("error_type".into(), "timeout".into());
                                 m
                             },
@@ -210,12 +214,12 @@ impl ActionExecutor for EnforcedActionExecutor {
                 futures.push(async move {
                     if let Err(cb_err) = cb_result {
                         return Observation {
-                            source: call_id,
-                            content: format!("Tool '{}' circuit is open: {}", name, cb_err),
+                            source: name,
+                            content: format!("Tool circuit is open: {}", cb_err),
                             is_error: true,
+                            call_id: Some(call_id),
                             metadata: {
                                 let mut m = std::collections::HashMap::new();
-                                m.insert("tool_name".into(), name);
                                 m.insert("error_type".into(), "circuit_open".into());
                                 m
                             },
@@ -259,16 +263,19 @@ impl ActionExecutor for EnforcedActionExecutor {
                     .await
                     {
                         Ok(Ok(result)) => {
-                            Observation::tool_result(call_id, result.result.to_string())
+                            Observation::tool_result(&name, result.result.to_string())
+                                .with_call_id(call_id)
                         }
-                        Ok(Err(err)) => Observation::tool_error(call_id, err.to_string()),
+                        Ok(Err(err)) => {
+                            Observation::tool_error(&name, err.to_string()).with_call_id(call_id)
+                        }
                         Err(_) => Observation {
-                            source: call_id,
+                            source: name.clone(),
                             content: format!("Tool '{}' timed out", name),
                             is_error: true,
+                            call_id: Some(call_id),
                             metadata: {
                                 let mut m = std::collections::HashMap::new();
-                                m.insert("tool_name".into(), name);
                                 m.insert("error_type".into(), "timeout".into());
                                 m
                             },
@@ -330,7 +337,8 @@ mod tests {
             .await;
         assert_eq!(obs.len(), 1);
         assert!(!obs[0].is_error);
-        assert_eq!(obs[0].source, "c1");
+        assert_eq!(obs[0].source, "search");
+        assert_eq!(obs[0].call_id.as_deref(), Some("c1"));
     }
 
     #[tokio::test]
