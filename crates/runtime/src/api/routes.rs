@@ -24,10 +24,11 @@ use super::types::{
     ChannelDetail, ChannelHealthResponse, ChannelSummary, CreateAgentRequest, CreateAgentResponse,
     CreateScheduleRequest, CreateScheduleResponse, DeleteAgentResponse, DeleteChannelResponse,
     DeleteScheduleResponse, ErrorResponse, ExecuteAgentRequest, ExecuteAgentResponse,
-    GetAgentHistoryResponse, IdentityMappingEntry, NextRunsResponse, RegisterChannelRequest,
-    RegisterChannelResponse, ScheduleActionResponse, ScheduleDetail, ScheduleHistoryResponse,
-    ScheduleSummary, SchedulerHealthResponse, UpdateAgentRequest, UpdateAgentResponse,
-    UpdateChannelRequest, UpdateScheduleRequest, WorkflowExecutionRequest,
+    GetAgentHistoryResponse, HeartbeatRequest, IdentityMappingEntry, NextRunsResponse,
+    PushEventRequest, RegisterChannelRequest, RegisterChannelResponse, ScheduleActionResponse,
+    ScheduleDetail, ScheduleHistoryResponse, ScheduleSummary, SchedulerHealthResponse,
+    UpdateAgentRequest, UpdateAgentResponse, UpdateChannelRequest, UpdateScheduleRequest,
+    WorkflowExecutionRequest,
 };
 
 #[cfg(feature = "http-api")]
@@ -1073,4 +1074,72 @@ pub async fn get_channel_audit(
                 }),
             )
         })
+}
+
+// ── External agent endpoints ───────────────────────────────────────────
+
+/// Heartbeat endpoint for external agents
+#[cfg(feature = "http-api")]
+#[utoipa::path(
+    post,
+    path = "/api/v1/agents/{id}/heartbeat",
+    params(
+        ("id" = AgentId, Path, description = "Agent identifier")
+    ),
+    request_body = HeartbeatRequest,
+    responses(
+        (status = 200, description = "Heartbeat accepted"),
+        (status = 404, description = "Agent not found or not external", body = ErrorResponse)
+    ),
+    tag = "agents"
+)]
+pub async fn agent_heartbeat(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    Path(agent_id): Path<AgentId>,
+    Json(request): Json<HeartbeatRequest>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    match provider.update_agent_heartbeat(agent_id, request).await {
+        Ok(()) => Ok(StatusCode::OK),
+        Err(e) => Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "HEARTBEAT_FAILED".to_string(),
+                details: None,
+            }),
+        )),
+    }
+}
+
+/// Push event endpoint for external agents
+#[cfg(feature = "http-api")]
+#[utoipa::path(
+    post,
+    path = "/api/v1/agents/{id}/events",
+    params(
+        ("id" = AgentId, Path, description = "Agent identifier")
+    ),
+    request_body = PushEventRequest,
+    responses(
+        (status = 200, description = "Event accepted"),
+        (status = 404, description = "Agent not found or not external", body = ErrorResponse)
+    ),
+    tag = "agents"
+)]
+pub async fn agent_push_event(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    Path(agent_id): Path<AgentId>,
+    Json(request): Json<PushEventRequest>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    match provider.push_agent_event(agent_id, request).await {
+        Ok(()) => Ok(StatusCode::OK),
+        Err(e) => Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "PUSH_EVENT_FAILED".to_string(),
+                details: None,
+            }),
+        )),
+    }
 }

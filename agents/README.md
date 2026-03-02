@@ -873,4 +873,4 @@ Use these examples as templates:
 
 ## 📄 License
 
-These example agents are provided under the MIT License. See [LICENSE](../LICENSE) for details.
+These example agents are provided under the Apache License 2.0. See [LICENSE](../LICENSE) for details.

@@ -7,7 +7,8 @@ info:
     name: Symbiont Platform Team
     email: api-support@symbiont.platform
   license:
-    name: MIT
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
 
 servers:
   - url: https://api.symbiont.platform/v1/tool-review

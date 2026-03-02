@@ -728,7 +728,7 @@ cargo run --example full_system
 
 ## License
 
-Licensed under the MIT License. See `LICENSE` file for details.
+Licensed under the Apache License, Version 2.0. See `LICENSE` file for details.
 
 ## Support
 

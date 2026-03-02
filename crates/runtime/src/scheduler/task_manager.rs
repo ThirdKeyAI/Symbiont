@@ -223,6 +223,9 @@ impl TaskManager {
                 Self::execute_cron_scheduled_agent(execution_context).await
             }
             ExecutionMode::EventDriven => Self::execute_event_driven_agent(execution_context).await,
+            ExecutionMode::External { .. } => {
+                Err("External agents are not executed by the runtime".to_string())
+            }
         }
     }
 

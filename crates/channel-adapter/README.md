@@ -1,7 +1,7 @@
 # symbi-channel-adapter
 
 [![crates.io](https://img.shields.io/crates/v/symbi-channel-adapter.svg)](https://crates.io/crates/symbi-channel-adapter)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 
 Chat channel adapters for the [Symbi](https://crates.io/crates/symbi) platform — bidirectional Slack, Teams, and Mattermost integration for AI agents.
 
@@ -60,4 +60,4 @@ This crate is part of the [Symbiont](https://github.com/thirdkeyai/symbiont) wor
 
 ## License
 
-MIT
+Apache-2.0

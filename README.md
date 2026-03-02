@@ -4,7 +4,7 @@
 
 [![Build](https://img.shields.io/github/actions/workflow/status/thirdkeyai/symbiont/docker-build.yml?branch=main)](https://github.com/thirdkeyai/symbiont/actions)
 [![Crates.io](https://img.shields.io/crates/v/symbi)](https://crates.io/crates/symbi)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-online-brightgreen)](https://docs.symbiont.dev)
 
 ---
@@ -189,7 +189,7 @@ agent analyze_data(input: DataSet) -> Result {
 
 ## 📄 License
 
-* **Community Edition**: MIT License
+* **Community Edition**: Apache 2.0 License
 * **Enterprise Edition**: Commercial license required
 
 Contact [ThirdKey](https://thirdkey.ai) for enterprise licensing.

@@ -15,10 +15,10 @@ use super::types::{
     ChannelDetail, ChannelHealthResponse, ChannelSummary, CreateAgentRequest, CreateAgentResponse,
     CreateScheduleRequest, CreateScheduleResponse, DeleteAgentResponse, DeleteChannelResponse,
     DeleteScheduleResponse, ExecuteAgentRequest, ExecuteAgentResponse, GetAgentHistoryResponse,
-    IdentityMappingEntry, NextRunsResponse, RegisterChannelRequest, RegisterChannelResponse,
-    ScheduleActionResponse, ScheduleDetail, ScheduleHistoryResponse, ScheduleSummary,
-    SchedulerHealthResponse, UpdateAgentRequest, UpdateAgentResponse, UpdateChannelRequest,
-    UpdateScheduleRequest, WorkflowExecutionRequest,
+    HeartbeatRequest, IdentityMappingEntry, NextRunsResponse, PushEventRequest,
+    RegisterChannelRequest, RegisterChannelResponse, ScheduleActionResponse, ScheduleDetail,
+    ScheduleHistoryResponse, ScheduleSummary, SchedulerHealthResponse, UpdateAgentRequest,
+    UpdateAgentResponse, UpdateChannelRequest, UpdateScheduleRequest, WorkflowExecutionRequest,
 };
 
 /// Trait providing API access to core runtime functionalities
@@ -185,4 +185,23 @@ pub trait RuntimeApiProvider: Send + Sync {
         id: &str,
         limit: usize,
     ) -> Result<ChannelAuditResponse, RuntimeError>;
+
+    // ── External agent endpoints ─────────────────────────────────────
+
+    /// Update heartbeat for an external agent.
+    async fn update_agent_heartbeat(
+        &self,
+        agent_id: AgentId,
+        heartbeat: HeartbeatRequest,
+    ) -> Result<(), RuntimeError>;
+
+    /// Push an event for an external agent.
+    async fn push_agent_event(
+        &self,
+        agent_id: AgentId,
+        event: PushEventRequest,
+    ) -> Result<(), RuntimeError>;
+
+    /// Check external agents for unreachable status. Default: no-op.
+    async fn check_unreachable_agents(&self) {}
 }

@@ -101,6 +101,22 @@ pub trait AgentScheduler {
 
     /// Remove an agent from the registry entirely
     async fn delete_agent(&self, agent_id: AgentId) -> Result<(), SchedulerError>;
+
+    /// Get a reference to the external agents map (for heartbeat/event handlers).
+    #[cfg(feature = "http-api")]
+    fn external_agents(&self) -> &Arc<DashMap<AgentId, crate::api::types::ExternalAgentState>>;
+
+    /// Get the external agent state for a specific agent.
+    #[cfg(feature = "http-api")]
+    fn get_external_agent_state(
+        &self,
+        agent_id: AgentId,
+    ) -> Option<crate::api::types::ExternalAgentState>;
+
+    /// Check all external agents and mark those that have not sent a heartbeat
+    /// within 3x their expected interval as Unreachable.
+    #[cfg(feature = "http-api")]
+    fn check_unreachable_agents(&self);
 }
 
 /// Scheduler configuration
@@ -264,6 +280,9 @@ pub struct DefaultAgentScheduler {
     /// remain here after being dequeued so that status/execute/list continue
     /// to work even after completion.
     registered_agents: Arc<DashMap<AgentId, AgentConfig>>,
+    /// State for externally-managed agents (heartbeat, events).
+    #[cfg(feature = "http-api")]
+    external_agents: Arc<DashMap<AgentId, crate::api::types::ExternalAgentState>>,
     system_metrics: Arc<RwLock<SystemMetrics>>,
     shutdown_notify: Arc<Notify>,
     is_running: Arc<RwLock<bool>>,
@@ -288,6 +307,8 @@ impl DefaultAgentScheduler {
         let running_agents = Arc::new(DashMap::new());
         let suspended_agents = Arc::new(DashMap::new());
         let registered_agents = Arc::new(DashMap::new());
+        #[cfg(feature = "http-api")]
+        let external_agents = Arc::new(DashMap::new());
         let system_metrics = Arc::new(RwLock::new(SystemMetrics::new()));
         let shutdown_notify = Arc::new(Notify::new());
         let is_running = Arc::new(RwLock::new(true));
@@ -320,6 +341,8 @@ impl DefaultAgentScheduler {
             running_agents,
             suspended_agents,
             registered_agents,
+            #[cfg(feature = "http-api")]
+            external_agents,
             system_metrics,
             shutdown_notify,
             is_running,
@@ -471,6 +494,20 @@ impl AgentScheduler for DefaultAgentScheduler {
             return Err(SchedulerError::ShuttingDown);
         }
 
+        // External agents are registered but never enqueued
+        #[cfg(feature = "http-api")]
+        if matches!(
+            config.execution_mode,
+            crate::types::agent::ExecutionMode::External { .. }
+        ) {
+            let agent_id = config.id;
+            self.registered_agents.insert(agent_id, config);
+            self.external_agents
+                .insert(agent_id, crate::api::types::ExternalAgentState::new());
+            tracing::info!("Registered external agent {} (not queued)", agent_id);
+            return Ok(agent_id);
+        }
+
         let task = ScheduledTask::new(config.clone());
         let agent_id = task.agent_id;
 
@@ -584,6 +621,27 @@ impl AgentScheduler for DefaultAgentScheduler {
     }
 
     async fn get_agent_status(&self, agent_id: AgentId) -> Result<AgentStatus, SchedulerError> {
+        // Check external agents first
+        #[cfg(feature = "http-api")]
+        if let Some(ext) = self.external_agents.get(&agent_id) {
+            let last_activity = ext
+                .last_heartbeat
+                .map(|dt| {
+                    let secs = dt.timestamp() as u64;
+                    std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs)
+                })
+                .unwrap_or(SystemTime::now());
+            return Ok(AgentStatus {
+                agent_id,
+                state: ext.reported_state.clone(),
+                last_activity,
+                memory_usage: 0,
+                cpu_usage: 0.0,
+                active_tasks: 0,
+                scheduled_at: SystemTime::now(),
+            });
+        }
+
         // Check if agent is currently running
         if let Some(entry) = self.running_agents.get(&agent_id) {
             let scheduled_task = entry.value();
@@ -883,12 +941,71 @@ impl AgentScheduler for DefaultAgentScheduler {
             queue.remove(&agent_id);
         }
 
+        // Remove external agent state if present
+        #[cfg(feature = "http-api")]
+        self.external_agents.remove(&agent_id);
+
         // Remove from registry
         if self.registered_agents.remove(&agent_id).is_some() {
             tracing::info!("Deleted agent {} from registry", agent_id);
             Ok(())
         } else {
             Err(SchedulerError::AgentNotFound { agent_id })
+        }
+    }
+
+    #[cfg(feature = "http-api")]
+    fn external_agents(&self) -> &Arc<DashMap<AgentId, crate::api::types::ExternalAgentState>> {
+        &self.external_agents
+    }
+
+    #[cfg(feature = "http-api")]
+    fn get_external_agent_state(
+        &self,
+        agent_id: AgentId,
+    ) -> Option<crate::api::types::ExternalAgentState> {
+        self.external_agents.get(&agent_id).map(|r| r.clone())
+    }
+
+    #[cfg(feature = "http-api")]
+    fn check_unreachable_agents(&self) {
+        let now = chrono::Utc::now();
+
+        for mut entry in self.external_agents.iter_mut() {
+            let agent_id = *entry.key();
+            let ext_state = entry.value_mut();
+
+            // Skip agents already marked unreachable or in terminal states
+            if ext_state.reported_state == crate::types::AgentState::Unreachable {
+                continue;
+            }
+
+            // Get heartbeat interval from config
+            let interval_secs = self
+                .registered_agents
+                .get(&agent_id)
+                .and_then(|config| match &config.execution_mode {
+                    crate::types::agent::ExecutionMode::External {
+                        heartbeat_interval_secs,
+                        ..
+                    } => Some(*heartbeat_interval_secs),
+                    _ => None,
+                })
+                .unwrap_or(60);
+
+            let threshold = chrono::Duration::seconds((interval_secs * 3) as i64);
+
+            if let Some(last_hb) = ext_state.last_heartbeat {
+                if now - last_hb > threshold {
+                    tracing::warn!(
+                        "External agent {} is unreachable (no heartbeat for {}s)",
+                        agent_id,
+                        (now - last_hb).num_seconds()
+                    );
+                    ext_state.reported_state = crate::types::AgentState::Unreachable;
+                }
+            }
+            // If last_heartbeat is None: agent just registered, don't mark unreachable yet.
         }
     }
 }
@@ -1252,5 +1369,64 @@ mod tests {
         let task = ScheduledTask::new(config);
 
         assert!(task.route_decision.is_none());
+    }
+
+    #[cfg(feature = "http-api")]
+    #[tokio::test]
+    async fn test_external_agent_not_queued() {
+        let scheduler = DefaultAgentScheduler::new(SchedulerConfig::default())
+            .await
+            .unwrap();
+
+        let mut config = make_test_config();
+        config.execution_mode = ExecutionMode::External {
+            endpoint: None,
+            agentpin_domain: None,
+            heartbeat_interval_secs: 60,
+        };
+        let agent_id = config.id;
+
+        let result = scheduler.schedule_agent(config).await;
+        assert!(result.is_ok());
+
+        // Agent should be registered
+        assert!(scheduler.has_agent(agent_id));
+
+        // Agent should NOT be in the priority queue
+        assert_eq!(scheduler.priority_queue.read().len(), 0);
+
+        // Status should return the external state
+        let status = scheduler.get_agent_status(agent_id).await.unwrap();
+        assert_eq!(status.agent_id, agent_id);
+    }
+
+    #[cfg(feature = "http-api")]
+    #[tokio::test]
+    async fn test_unreachable_detection() {
+        let scheduler = DefaultAgentScheduler::new(SchedulerConfig::default())
+            .await
+            .unwrap();
+
+        let mut config = make_test_config();
+        config.execution_mode = ExecutionMode::External {
+            endpoint: None,
+            agentpin_domain: None,
+            heartbeat_interval_secs: 1, // 1 second interval -> 3s threshold
+        };
+        let agent_id = config.id;
+
+        scheduler.schedule_agent(config).await.unwrap();
+
+        // Set a heartbeat in the past (> 3 seconds ago)
+        {
+            let mut entry = scheduler.external_agents.get_mut(&agent_id).unwrap();
+            entry.last_heartbeat = Some(chrono::Utc::now() - chrono::Duration::seconds(10));
+            entry.reported_state = crate::types::AgentState::Running;
+        }
+
+        scheduler.check_unreachable_agents();
+
+        let entry = scheduler.external_agents.get(&agent_id).unwrap();
+        assert_eq!(entry.reported_state, crate::types::AgentState::Unreachable);
     }
 }

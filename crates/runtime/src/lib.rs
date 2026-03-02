@@ -40,9 +40,9 @@ use api::types::{
     CreateAgentResponse, CreateScheduleRequest, CreateScheduleResponse, DeleteAgentResponse,
     DeleteChannelResponse, DeleteScheduleResponse, ExecuteAgentRequest, ExecuteAgentResponse,
     GetAgentHistoryResponse, IdentityMappingEntry, NextRunsResponse, RegisterChannelRequest,
-    RegisterChannelResponse, ScheduleActionResponse, ScheduleDetail, ScheduleHistoryResponse,
-    ScheduleRunEntry, ScheduleSummary, UpdateAgentRequest, UpdateAgentResponse,
-    UpdateChannelRequest, UpdateScheduleRequest, WorkflowExecutionRequest,
+    RegisterChannelResponse, ScheduleActionResponse,
+    ScheduleDetail, ScheduleHistoryResponse, ScheduleRunEntry, ScheduleSummary, UpdateAgentRequest,
+    UpdateAgentResponse, UpdateChannelRequest, UpdateScheduleRequest, WorkflowExecutionRequest,
 };
 #[cfg(feature = "http-api")]
 use async_trait::async_trait;
@@ -464,12 +464,35 @@ impl RuntimeApiProvider for AgentRuntime {
         &self,
         agent_id: AgentId,
     ) -> Result<AgentStatusResponse, RuntimeError> {
-        // Call the scheduler to get agent status
+        let external_state = self.scheduler.get_external_agent_state(agent_id);
+        let agent_config = self.scheduler.get_agent_config(agent_id);
+
         match self.scheduler.get_agent_status(agent_id).await {
             Ok(agent_status) => {
                 // Convert SystemTime to DateTime<Utc>
                 let last_activity =
                     chrono::DateTime::<chrono::Utc>::from(agent_status.last_activity);
+
+                let execution_mode_label = agent_config.as_ref().map(|c| match &c.execution_mode {
+                    crate::types::agent::ExecutionMode::External { .. } => "External".to_string(),
+                    crate::types::agent::ExecutionMode::Persistent => "Persistent".to_string(),
+                    crate::types::agent::ExecutionMode::Ephemeral => "Ephemeral".to_string(),
+                    crate::types::agent::ExecutionMode::Scheduled { .. } => "Scheduled".to_string(),
+                    crate::types::agent::ExecutionMode::CronScheduled { .. } => {
+                        "CronScheduled".to_string()
+                    }
+                    crate::types::agent::ExecutionMode::EventDriven => "EventDriven".to_string(),
+                });
+
+                let (metadata, last_result, recent_events) = if let Some(ref ext) = external_state {
+                    (
+                        Some(ext.metadata.clone()),
+                        ext.last_result.clone(),
+                        Some(ext.events.iter().cloned().collect::<Vec<_>>()),
+                    )
+                } else {
+                    (None, None, None)
+                };
 
                 Ok(AgentStatusResponse {
                     agent_id: agent_status.agent_id,
@@ -480,6 +503,10 @@ impl RuntimeApiProvider for AgentRuntime {
                         cpu_percent: agent_status.cpu_usage,
                         active_tasks: agent_status.active_tasks,
                     },
+                    metadata,
+                    last_result,
+                    recent_events,
+                    execution_mode: execution_mode_label,
                 })
             }
             Err(scheduler_error) => {
@@ -624,24 +651,40 @@ impl RuntimeApiProvider for AgentRuntime {
             ));
         }
 
-        if request.dsl.is_empty() {
-            return Err(RuntimeError::Internal(
-                "Agent DSL cannot be empty".to_string(),
-            ));
-        }
+        let execution_mode = request.execution_mode.clone().unwrap_or_default();
+
+        let dsl_source = match &execution_mode {
+            crate::types::agent::ExecutionMode::External { .. } => {
+                request.dsl.clone().unwrap_or_default()
+            }
+            _ => {
+                let dsl = request.dsl.as_deref().unwrap_or("");
+                if dsl.is_empty() {
+                    return Err(RuntimeError::Internal(
+                        "Agent DSL cannot be empty for non-external agents".to_string(),
+                    ));
+                }
+                dsl.to_string()
+            }
+        };
 
         // Create agent configuration
         let agent_id = AgentId::new();
         let agent_config = AgentConfig {
             id: agent_id,
             name: request.name,
-            dsl_source: request.dsl,
-            execution_mode: ExecutionMode::Ephemeral,
+            dsl_source,
+            execution_mode,
             security_tier: SecurityTier::Tier1,
             resource_limits: ResourceLimits::default(),
-            capabilities: vec![Capability::Computation],
+            capabilities: request
+                .capabilities
+                .unwrap_or_default()
+                .into_iter()
+                .map(Capability::Custom)
+                .collect(),
             policies: vec![],
-            metadata: std::collections::HashMap::new(),
+            metadata: request.metadata.unwrap_or_default(),
             priority: Priority::Normal,
         };
 
@@ -1228,5 +1271,53 @@ impl RuntimeApiProvider for AgentRuntime {
         Err(RuntimeError::Internal(
             "Channel audit log requires enterprise edition".to_string(),
         ))
+    }
+
+    // ── External agent endpoints ─────────────────────────────────────
+
+    async fn update_agent_heartbeat(
+        &self,
+        agent_id: AgentId,
+        heartbeat: api::types::HeartbeatRequest,
+    ) -> Result<(), RuntimeError> {
+        let ext_agents = self.scheduler.external_agents();
+        let mut entry = ext_agents.get_mut(&agent_id).ok_or_else(|| {
+            RuntimeError::Internal(format!("Agent {} is not an external agent", agent_id))
+        })?;
+
+        entry.last_heartbeat = Some(chrono::Utc::now());
+        entry.reported_state = heartbeat.state;
+
+        if let Some(metadata) = heartbeat.metadata {
+            entry.metadata.extend(metadata);
+        }
+        if let Some(last_result) = heartbeat.last_result {
+            entry.last_result = Some(last_result);
+        }
+
+        Ok(())
+    }
+
+    async fn push_agent_event(
+        &self,
+        agent_id: AgentId,
+        event: api::types::PushEventRequest,
+    ) -> Result<(), RuntimeError> {
+        let ext_agents = self.scheduler.external_agents();
+        let mut entry = ext_agents.get_mut(&agent_id).ok_or_else(|| {
+            RuntimeError::Internal(format!("Agent {} is not an external agent", agent_id))
+        })?;
+
+        entry.push_event(api::types::AgentEvent {
+            event_type: event.event_type,
+            payload: event.payload,
+            timestamp: chrono::Utc::now(),
+        });
+
+        Ok(())
+    }
+
+    async fn check_unreachable_agents(&self) {
+        self.scheduler.check_unreachable_agents();
     }
 }

@@ -35,6 +35,18 @@ pub struct AgentStatusResponse {
     pub last_activity: chrono::DateTime<chrono::Utc>,
     /// Current resource usage
     pub resource_usage: ResourceUsage,
+    /// Agent metadata (present for external agents).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<std::collections::HashMap<String, String>>,
+    /// Last result summary (present for external agents).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_result: Option<String>,
+    /// Recent events (present for external agents).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recent_events: Option<Vec<AgentEvent>>,
+    /// Execution mode label.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution_mode: Option<String>,
 }
 
 /// Resource usage information
@@ -88,8 +100,15 @@ pub struct SchedulerHealthResponse {
 pub struct CreateAgentRequest {
     /// Name of the agent
     pub name: String,
-    /// DSL definition for the agent
-    pub dsl: String,
+    /// DSL definition for the agent. Required for all modes except External.
+    pub dsl: Option<String>,
+    /// Execution mode. Defaults to Ephemeral if omitted.
+    #[schema(value_type = Object)]
+    pub execution_mode: Option<crate::types::agent::ExecutionMode>,
+    /// Agent capabilities.
+    pub capabilities: Option<Vec<String>>,
+    /// Agent metadata key-value pairs.
+    pub metadata: Option<std::collections::HashMap<String, String>>,
 }
 
 /// Response structure for agent creation
@@ -447,4 +466,112 @@ pub struct ChannelAuditEntry {
 pub struct ChannelAuditResponse {
     pub channel_id: String,
     pub entries: Vec<ChannelAuditEntry>,
+}
+
+// ── External Agent API types ─────────────────────────────────────────
+
+/// Event types reported by external agents.
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub enum AgentEventType {
+    RunStarted,
+    RunCompleted,
+    RunFailed,
+}
+
+/// A timestamped event from an external agent.
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct AgentEvent {
+    pub event_type: AgentEventType,
+    pub payload: serde_json::Value,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+}
+
+/// Per-external-agent state tracked by the scheduler.
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone)]
+pub struct ExternalAgentState {
+    pub last_heartbeat: Option<chrono::DateTime<chrono::Utc>>,
+    pub reported_state: crate::types::AgentState,
+    pub metadata: std::collections::HashMap<String, String>,
+    pub last_result: Option<String>,
+    /// Ring buffer of recent events (max 100).
+    pub events: std::collections::VecDeque<AgentEvent>,
+}
+
+#[cfg(feature = "http-api")]
+impl Default for ExternalAgentState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "http-api")]
+impl ExternalAgentState {
+    pub fn new() -> Self {
+        Self {
+            last_heartbeat: None,
+            reported_state: crate::types::AgentState::Created,
+            metadata: std::collections::HashMap::new(),
+            last_result: None,
+            events: std::collections::VecDeque::new(),
+        }
+    }
+
+    /// Push an event, keeping the ring buffer at most 100 entries.
+    pub fn push_event(&mut self, event: AgentEvent) {
+        if self.events.len() >= 100 {
+            self.events.pop_front();
+        }
+        self.events.push_back(event);
+    }
+}
+
+/// Heartbeat request from an external agent.
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct HeartbeatRequest {
+    /// Current agent state (e.g. Running, Completed, Failed).
+    pub state: crate::types::AgentState,
+    /// Optional metadata update.
+    pub metadata: Option<std::collections::HashMap<String, String>>,
+    /// Optional last result summary.
+    pub last_result: Option<String>,
+}
+
+/// Push event request from an external agent.
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PushEventRequest {
+    pub event_type: AgentEventType,
+    pub payload: serde_json::Value,
+}
+
+#[cfg(test)]
+mod external_agent_tests {
+    use super::*;
+
+    #[test]
+    fn test_external_agent_state_new() {
+        let state = ExternalAgentState::new();
+        assert!(state.last_heartbeat.is_none());
+        assert_eq!(state.reported_state, crate::types::AgentState::Created);
+        assert!(state.events.is_empty());
+    }
+
+    #[test]
+    fn test_push_event_ring_buffer() {
+        let mut state = ExternalAgentState::new();
+        for i in 0..110 {
+            state.push_event(AgentEvent {
+                event_type: AgentEventType::RunStarted,
+                payload: serde_json::json!({ "run": i }),
+                timestamp: chrono::Utc::now(),
+            });
+        }
+        assert_eq!(state.events.len(), 100);
+        // Oldest event should be run 10 (0-9 evicted)
+        assert_eq!(state.events.front().unwrap().payload["run"], 10);
+    }
 }

@@ -41,7 +41,7 @@ impl CoordinatorExecutor {
         vec![
             ToolDefinition {
                 name: "list_agents".into(),
-                description: "List all agents in the fleet with their current status.".into(),
+                description: "List all agents in the fleet with their current status. Includes external agents with their heartbeat state, last result, and recent events.".into(),
                 parameters: serde_json::json!({
                     "type": "object",
                     "properties": {},
@@ -50,7 +50,7 @@ impl CoordinatorExecutor {
             },
             ToolDefinition {
                 name: "agent_status".into(),
-                description: "Get the detailed status of a specific agent by ID.".into(),
+                description: "Get the detailed status of a specific agent by ID. For external agents, includes metadata, last result, recent events, and execution mode.".into(),
                 parameters: serde_json::json!({
                     "type": "object",
                     "properties": {

@@ -115,5 +115,5 @@ CMD ["--help"]
 LABEL org.opencontainers.image.title="Symbi" \
       org.opencontainers.image.description="Unified DSL and Runtime for AI-native programming" \
       org.opencontainers.image.vendor="ThirdKey.ai" \
-      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.source="https://github.com/thirdkeyai/symbiont"

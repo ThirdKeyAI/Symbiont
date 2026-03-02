@@ -25,12 +25,13 @@ use utoipa_swagger_ui::SwaggerUi;
 
 #[cfg(feature = "http-api")]
 use super::types::{
-    AddIdentityMappingRequest, AgentExecutionRecord, AgentStatusResponse, ChannelActionResponse,
-    ChannelAuditEntry, ChannelAuditResponse, ChannelDetail, ChannelHealthResponse, ChannelSummary,
-    CreateAgentRequest, CreateAgentResponse, CreateScheduleRequest, CreateScheduleResponse,
-    DeleteAgentResponse, DeleteChannelResponse, DeleteScheduleResponse, ErrorResponse,
-    ExecuteAgentRequest, ExecuteAgentResponse, GetAgentHistoryResponse, HealthResponse,
-    IdentityMappingEntry, NextRunsResponse, RegisterChannelRequest, RegisterChannelResponse,
+    AddIdentityMappingRequest, AgentEvent, AgentEventType, AgentExecutionRecord,
+    AgentStatusResponse, ChannelActionResponse, ChannelAuditEntry, ChannelAuditResponse,
+    ChannelDetail, ChannelHealthResponse, ChannelSummary, CreateAgentRequest, CreateAgentResponse,
+    CreateScheduleRequest, CreateScheduleResponse, DeleteAgentResponse, DeleteChannelResponse,
+    DeleteScheduleResponse, ErrorResponse, ExecuteAgentRequest, ExecuteAgentResponse,
+    GetAgentHistoryResponse, HealthResponse, HeartbeatRequest, IdentityMappingEntry,
+    NextRunsResponse, PushEventRequest, RegisterChannelRequest, RegisterChannelResponse,
     ResourceUsage, ScheduleActionResponse, ScheduleDetail, ScheduleHistoryResponse,
     ScheduleRunEntry, ScheduleSummary, SchedulerHealthResponse, UpdateAgentRequest,
     UpdateAgentResponse, UpdateChannelRequest, UpdateScheduleRequest, WorkflowExecutionRequest,
@@ -79,6 +80,8 @@ use crate::types::RuntimeError;
         super::routes::add_channel_mapping,
         super::routes::remove_channel_mapping,
         super::routes::get_channel_audit,
+        super::routes::agent_heartbeat,
+        super::routes::agent_push_event,
         health_check
     ),
     components(
@@ -119,7 +122,11 @@ use crate::types::RuntimeError;
             IdentityMappingEntry,
             AddIdentityMappingRequest,
             ChannelAuditEntry,
-            ChannelAuditResponse
+            ChannelAuditResponse,
+            HeartbeatRequest,
+            PushEventRequest,
+            AgentEvent,
+            AgentEventType
         )
     ),
     tags(
@@ -138,8 +145,8 @@ use crate::types::RuntimeError;
             url = "https://github.com/thirdkeyai/symbiont"
         ),
         license(
-            name = "MIT",
-            url = "https://opensource.org/licenses/MIT"
+            name = "Apache-2.0",
+            url = "https://www.apache.org/licenses/LICENSE-2.0"
         )
     )
 )]
@@ -242,6 +249,18 @@ impl HttpApiServer {
 
         let app = self.create_router();
 
+        // Spawn unreachable detection loop for external agents
+        if let Some(ref provider) = self.runtime_provider {
+            let provider_clone = provider.clone();
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+                loop {
+                    interval.tick().await;
+                    provider_clone.check_unreachable_agents().await;
+                }
+            });
+        }
+
         let addr = format!("{}:{}", self.config.bind_address, self.config.port);
         let listener = TcpListener::bind(&addr)
             .await
@@ -302,11 +321,12 @@ impl HttpApiServer {
         if let Some(provider) = &self.runtime_provider {
             use super::middleware::auth_middleware;
             use super::routes::{
-                add_channel_mapping, create_agent, create_schedule, delete_agent, delete_channel,
-                delete_schedule, execute_agent, execute_workflow, get_agent_history,
-                get_agent_status, get_channel, get_channel_audit, get_channel_health, get_metrics,
-                get_schedule, get_schedule_history, get_schedule_next_runs, get_scheduler_health,
-                list_agents, list_channel_mappings, list_channels, list_schedules, pause_schedule,
+                add_channel_mapping, agent_heartbeat, agent_push_event, create_agent,
+                create_schedule, delete_agent, delete_channel, delete_schedule, execute_agent,
+                execute_workflow, get_agent_history, get_agent_status, get_channel,
+                get_channel_audit, get_channel_health, get_metrics, get_schedule,
+                get_schedule_history, get_schedule_next_runs, get_scheduler_health, list_agents,
+                list_channel_mappings, list_channels, list_schedules, pause_schedule,
                 register_channel, remove_channel_mapping, resume_schedule, start_channel,
                 stop_channel, trigger_schedule, update_agent, update_channel, update_schedule,
             };
@@ -319,6 +339,8 @@ impl HttpApiServer {
                 .route("/api/v1/agents/:id", put(update_agent).delete(delete_agent))
                 .route("/api/v1/agents/:id/execute", post(execute_agent))
                 .route("/api/v1/agents/:id/history", get(get_agent_history))
+                .route("/api/v1/agents/:id/heartbeat", post(agent_heartbeat))
+                .route("/api/v1/agents/:id/events", post(agent_push_event))
                 .layer(middleware::from_fn(auth_middleware))
                 .with_state(provider.clone());
 

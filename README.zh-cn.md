@@ -4,7 +4,7 @@
 
 [![Build](https://img.shields.io/github/actions/workflow/status/thirdkeyai/symbiont/docker-build.yml?branch=main)](https://github.com/thirdkeyai/symbiont/actions)
 [![Crates.io](https://img.shields.io/crates/v/symbi)](https://crates.io/crates/symbi)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-online-brightgreen)](https://docs.symbiont.dev)
 
 ---
@@ -156,7 +156,7 @@ agent analyze_data(input: DataSet) -> Result {
 
 ## 📄 许可证
 
-* **社区版**：MIT 许可证
+* **社区版**：Apache 2.0 许可证
 * **企业版**：需要商业许可证
 
 联系 [ThirdKey](https://thirdkey.ai) 获取企业许可。
