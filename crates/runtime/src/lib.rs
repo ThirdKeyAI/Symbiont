@@ -40,9 +40,9 @@ use api::types::{
     CreateAgentResponse, CreateScheduleRequest, CreateScheduleResponse, DeleteAgentResponse,
     DeleteChannelResponse, DeleteScheduleResponse, ExecuteAgentRequest, ExecuteAgentResponse,
     GetAgentHistoryResponse, IdentityMappingEntry, NextRunsResponse, RegisterChannelRequest,
-    RegisterChannelResponse, ScheduleActionResponse,
-    ScheduleDetail, ScheduleHistoryResponse, ScheduleRunEntry, ScheduleSummary, UpdateAgentRequest,
-    UpdateAgentResponse, UpdateChannelRequest, UpdateScheduleRequest, WorkflowExecutionRequest,
+    RegisterChannelResponse, ScheduleActionResponse, ScheduleDetail, ScheduleHistoryResponse,
+    ScheduleRunEntry, ScheduleSummary, UpdateAgentRequest, UpdateAgentResponse,
+    UpdateChannelRequest, UpdateScheduleRequest, WorkflowExecutionRequest,
 };
 #[cfg(feature = "http-api")]
 use async_trait::async_trait;
