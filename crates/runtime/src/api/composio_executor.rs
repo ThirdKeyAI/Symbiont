@@ -3,33 +3,33 @@
 //! An [`ActionExecutor`] that dispatches tool calls to a Composio MCP
 //! endpoint via JSON-RPC over the [`SseTransport`].
 
-#[cfg(all(feature = "http-api", feature = "composio"))]
+#[cfg(feature = "composio")]
 use std::sync::Arc;
 
-#[cfg(all(feature = "http-api", feature = "composio"))]
+#[cfg(feature = "composio")]
 use async_trait::async_trait;
 
-#[cfg(all(feature = "http-api", feature = "composio"))]
+#[cfg(feature = "composio")]
 use crate::integrations::composio::transport::SseTransport;
-#[cfg(all(feature = "http-api", feature = "composio"))]
+#[cfg(feature = "composio")]
 use crate::integrations::composio::ComposioError;
-#[cfg(all(feature = "http-api", feature = "composio"))]
+#[cfg(feature = "composio")]
 use crate::reasoning::circuit_breaker::CircuitBreakerRegistry;
-#[cfg(all(feature = "http-api", feature = "composio"))]
+#[cfg(feature = "composio")]
 use crate::reasoning::executor::ActionExecutor;
-#[cfg(all(feature = "http-api", feature = "composio"))]
+#[cfg(feature = "composio")]
 use crate::reasoning::inference::ToolDefinition;
-#[cfg(all(feature = "http-api", feature = "composio"))]
+#[cfg(feature = "composio")]
 use crate::reasoning::loop_types::{LoopConfig, Observation, ProposedAction};
 
 /// An [`ActionExecutor`] that dispatches tool calls to Composio via JSON-RPC.
-#[cfg(all(feature = "http-api", feature = "composio"))]
+#[cfg(feature = "composio")]
 pub struct ComposioToolExecutor {
     transport: Arc<SseTransport>,
     tool_definitions: Vec<ToolDefinition>,
 }
 
-#[cfg(all(feature = "http-api", feature = "composio"))]
+#[cfg(feature = "composio")]
 impl ComposioToolExecutor {
     /// Discover available tools from the Composio MCP endpoint and return a
     /// new executor ready to dispatch calls.
@@ -111,7 +111,7 @@ impl ComposioToolExecutor {
     }
 }
 
-#[cfg(all(feature = "http-api", feature = "composio"))]
+#[cfg(feature = "composio")]
 #[async_trait]
 impl ActionExecutor for ComposioToolExecutor {
     async fn execute_actions(
@@ -148,10 +148,14 @@ impl ActionExecutor for ComposioToolExecutor {
 
         observations
     }
+
+    fn tool_definitions(&self) -> Vec<ToolDefinition> {
+        self.tool_definitions.clone()
+    }
 }
 
 #[cfg(test)]
-#[cfg(all(feature = "http-api", feature = "composio"))]
+#[cfg(feature = "composio")]
 mod tests {
     use super::*;
 

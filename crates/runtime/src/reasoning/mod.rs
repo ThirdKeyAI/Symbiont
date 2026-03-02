@@ -52,6 +52,6 @@ pub use loop_types::{
 };
 pub use output_schema::{OutputSchema, SchemaRegistry};
 pub use phases::AgentPhase;
-pub use policy_bridge::ReasoningPolicyGate;
+pub use policy_bridge::{ReasoningPolicyGate, ToolFilterPolicyGate};
 pub use reasoning_loop::ReasoningLoopRunner;
 pub use schema_validation::{SchemaValidationError, ValidationPipeline};

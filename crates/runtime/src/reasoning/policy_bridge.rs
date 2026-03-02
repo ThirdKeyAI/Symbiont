@@ -187,6 +187,60 @@ impl ReasoningPolicyGate for OpaPolicyGateBridge {
     }
 }
 
+/// Policy gate that restricts tool access by name whitelist.
+///
+/// Non-tool actions (Respond, Delegate, Terminate) always pass through.
+/// Use `ToolFilterPolicyGate::allow(&["tool_a", "tool_b"])` to restrict
+/// to specific tools, or `ToolFilterPolicyGate::allow_all()` for no restriction.
+pub struct ToolFilterPolicyGate {
+    allowed_tools: std::collections::HashSet<String>,
+    allow_all: bool,
+}
+
+impl ToolFilterPolicyGate {
+    /// Create a gate that only allows the specified tools.
+    pub fn allow(tools: &[&str]) -> Self {
+        Self {
+            allowed_tools: tools.iter().map(|s| s.to_string()).collect(),
+            allow_all: false,
+        }
+    }
+
+    /// Create a gate that allows all tools (no filtering).
+    pub fn allow_all() -> Self {
+        Self {
+            allowed_tools: std::collections::HashSet::new(),
+            allow_all: true,
+        }
+    }
+}
+
+#[async_trait]
+impl ReasoningPolicyGate for ToolFilterPolicyGate {
+    async fn evaluate_action(
+        &self,
+        _agent_id: &AgentId,
+        action: &ProposedAction,
+        _state: &LoopState,
+    ) -> LoopDecision {
+        if self.allow_all {
+            return LoopDecision::Allow;
+        }
+        match action {
+            ProposedAction::ToolCall { name, .. } => {
+                if self.allowed_tools.contains(name.as_str()) {
+                    LoopDecision::Allow
+                } else {
+                    LoopDecision::Deny {
+                        reason: format!("Tool '{}' not in allowed list", name),
+                    }
+                }
+            }
+            _ => LoopDecision::Allow,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,6 +292,82 @@ mod tests {
         let tool_call = ProposedAction::ToolCall {
             call_id: "c1".into(),
             name: "search".into(),
+            arguments: "{}".into(),
+        };
+        let decision = gate.evaluate_action(&agent_id, &tool_call, &state).await;
+        assert!(matches!(decision, LoopDecision::Allow));
+    }
+
+    #[tokio::test]
+    async fn test_tool_filter_allows_whitelisted_tools() {
+        let gate = ToolFilterPolicyGate::allow(&["search", "calculator"]);
+        let agent_id = AgentId::new();
+        let state = LoopState::new(agent_id, Conversation::new());
+
+        let allowed = ProposedAction::ToolCall {
+            call_id: "c1".into(),
+            name: "search".into(),
+            arguments: "{}".into(),
+        };
+        let decision = gate.evaluate_action(&agent_id, &allowed, &state).await;
+        assert!(matches!(decision, LoopDecision::Allow));
+    }
+
+    #[tokio::test]
+    async fn test_tool_filter_denies_non_whitelisted_tools() {
+        let gate = ToolFilterPolicyGate::allow(&["search"]);
+        let agent_id = AgentId::new();
+        let state = LoopState::new(agent_id, Conversation::new());
+
+        let denied = ProposedAction::ToolCall {
+            call_id: "c1".into(),
+            name: "delete_everything".into(),
+            arguments: "{}".into(),
+        };
+        let decision = gate.evaluate_action(&agent_id, &denied, &state).await;
+        assert!(matches!(decision, LoopDecision::Deny { .. }));
+        if let LoopDecision::Deny { reason } = decision {
+            assert!(reason.contains("delete_everything"));
+            assert!(reason.contains("not in allowed list"));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_tool_filter_allows_non_tool_actions() {
+        let gate = ToolFilterPolicyGate::allow(&["search"]);
+        let agent_id = AgentId::new();
+        let state = LoopState::new(agent_id, Conversation::new());
+
+        let respond = ProposedAction::Respond {
+            content: "hello".into(),
+        };
+        let decision = gate.evaluate_action(&agent_id, &respond, &state).await;
+        assert!(matches!(decision, LoopDecision::Allow));
+
+        let delegate = ProposedAction::Delegate {
+            target: "other".into(),
+            message: "hi".into(),
+        };
+        let decision = gate.evaluate_action(&agent_id, &delegate, &state).await;
+        assert!(matches!(decision, LoopDecision::Allow));
+
+        let terminate = ProposedAction::Terminate {
+            reason: "done".into(),
+            output: "result".into(),
+        };
+        let decision = gate.evaluate_action(&agent_id, &terminate, &state).await;
+        assert!(matches!(decision, LoopDecision::Allow));
+    }
+
+    #[tokio::test]
+    async fn test_tool_filter_allow_all() {
+        let gate = ToolFilterPolicyGate::allow_all();
+        let agent_id = AgentId::new();
+        let state = LoopState::new(agent_id, Conversation::new());
+
+        let tool_call = ProposedAction::ToolCall {
+            call_id: "c1".into(),
+            name: "anything".into(),
             arguments: "{}".into(),
         };
         let decision = gate.evaluate_action(&agent_id, &tool_call, &state).await;

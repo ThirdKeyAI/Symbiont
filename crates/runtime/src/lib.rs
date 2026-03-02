@@ -23,6 +23,8 @@ pub mod secrets;
 pub mod skills;
 pub mod types;
 
+pub mod prelude;
+
 #[cfg(feature = "cli-executor")]
 pub mod cli_executor;
 

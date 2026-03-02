@@ -5,6 +5,7 @@
 //! sync before returning observations.
 
 use crate::reasoning::circuit_breaker::CircuitBreakerRegistry;
+use crate::reasoning::inference::ToolDefinition;
 use crate::reasoning::loop_types::{LoopConfig, Observation, ProposedAction};
 use async_trait::async_trait;
 use futures::stream::{FuturesUnordered, StreamExt};
@@ -23,6 +24,15 @@ pub trait ActionExecutor: Send + Sync {
         config: &LoopConfig,
         circuit_breakers: &CircuitBreakerRegistry,
     ) -> Vec<Observation>;
+
+    /// Return tool definitions this executor can handle.
+    ///
+    /// The runner auto-populates `LoopConfig.tool_definitions` from this
+    /// when the config's list is empty. Override in executors that discover
+    /// tools dynamically (e.g., `ComposioToolExecutor`).
+    fn tool_definitions(&self) -> Vec<ToolDefinition> {
+        Vec::new()
+    }
 }
 
 /// Default executor that dispatches tool calls in parallel.
@@ -394,6 +404,12 @@ mod tests {
             .execute_actions(&actions, &config, &circuit_breakers)
             .await;
         assert!(obs.is_empty());
+    }
+
+    #[test]
+    fn test_default_executor_has_empty_tool_definitions() {
+        let executor = DefaultActionExecutor::default();
+        assert!(executor.tool_definitions().is_empty());
     }
 
     #[tokio::test]

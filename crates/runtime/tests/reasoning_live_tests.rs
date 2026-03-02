@@ -9,9 +9,9 @@
 //!
 //! Run:
 //!   OPENROUTER_API_KEY="..." OPENROUTER_MODEL="google/gemini-2.0-flash-001" \
-//!     cargo test -j2 -p symbi-runtime --features http-input --test reasoning_live_tests -- --nocapture
+//!     cargo test -j2 -p symbi-runtime --features cloud-llm --test reasoning_live_tests -- --nocapture
 
-#![cfg(feature = "http-input")]
+#![cfg(feature = "cloud-llm")]
 
 use std::collections::HashMap;
 use std::sync::Arc;

@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use crate::reasoning::circuit_breaker::CircuitBreakerRegistry;
-use crate::reasoning::context_manager::ContextManager;
+use crate::reasoning::context_manager::{ContextManager, DefaultContextManager};
 use crate::reasoning::conversation::Conversation;
 use crate::reasoning::executor::ActionExecutor;
 use crate::reasoning::inference::InferenceProvider;
@@ -15,7 +15,7 @@ use crate::reasoning::knowledge_bridge::KnowledgeBridge;
 use crate::reasoning::knowledge_executor::KnowledgeAwareExecutor;
 use crate::reasoning::loop_types::*;
 use crate::reasoning::phases::{AgentLoop, LoopContinuation, Reasoning};
-use crate::reasoning::policy_bridge::ReasoningPolicyGate;
+use crate::reasoning::policy_bridge::{DefaultPolicyGate, ReasoningPolicyGate};
 use crate::types::AgentId;
 
 /// Configuration bundle for a reasoning loop run.
@@ -36,6 +36,137 @@ pub struct ReasoningLoopRunner {
     pub knowledge_bridge: Option<Arc<KnowledgeBridge>>,
 }
 
+/// Builder for `ReasoningLoopRunner` with typestate enforcement.
+///
+/// Only `provider` and `executor` are required. All other fields have
+/// sensible defaults. Call order doesn't matter.
+///
+/// ```ignore
+/// let runner = ReasoningLoopRunner::builder()
+///     .provider(my_provider)
+///     .executor(my_executor)
+///     .build();
+/// ```
+pub struct ReasoningLoopRunnerBuilder<P, E> {
+    provider: P,
+    executor: E,
+    policy_gate: Option<Arc<dyn ReasoningPolicyGate>>,
+    context_manager: Option<Arc<dyn ContextManager>>,
+    circuit_breakers: Option<Arc<CircuitBreakerRegistry>>,
+    journal: Option<Arc<dyn JournalWriter>>,
+    knowledge_bridge: Option<Arc<KnowledgeBridge>>,
+}
+
+impl ReasoningLoopRunner {
+    /// Create a new builder with sensible defaults.
+    pub fn builder() -> ReasoningLoopRunnerBuilder<(), ()> {
+        ReasoningLoopRunnerBuilder {
+            provider: (),
+            executor: (),
+            policy_gate: None,
+            context_manager: None,
+            circuit_breakers: None,
+            journal: None,
+            knowledge_bridge: None,
+        }
+    }
+}
+
+// Methods available regardless of typestate
+impl<P, E> ReasoningLoopRunnerBuilder<P, E> {
+    /// Set a custom policy gate. Default: `DefaultPolicyGate::permissive()`.
+    pub fn policy_gate(mut self, gate: Arc<dyn ReasoningPolicyGate>) -> Self {
+        self.policy_gate = Some(gate);
+        self
+    }
+
+    /// Set a custom context manager. Default: `DefaultContextManager::default()`.
+    pub fn context_manager(mut self, manager: Arc<dyn ContextManager>) -> Self {
+        self.context_manager = Some(manager);
+        self
+    }
+
+    /// Set a custom circuit breaker registry. Default: `CircuitBreakerRegistry::default()`.
+    pub fn circuit_breakers(mut self, registry: Arc<CircuitBreakerRegistry>) -> Self {
+        self.circuit_breakers = Some(registry);
+        self
+    }
+
+    /// Set a custom journal writer. Default: `BufferedJournal::new(1000)`.
+    pub fn journal(mut self, journal: Arc<dyn JournalWriter>) -> Self {
+        self.journal = Some(journal);
+        self
+    }
+
+    /// Set a knowledge bridge. Default: `None`.
+    pub fn knowledge_bridge(mut self, bridge: Arc<KnowledgeBridge>) -> Self {
+        self.knowledge_bridge = Some(bridge);
+        self
+    }
+}
+
+// Set provider (transitions from () to Arc<dyn InferenceProvider>)
+impl<E> ReasoningLoopRunnerBuilder<(), E> {
+    /// Set the inference provider (required).
+    pub fn provider(
+        self,
+        provider: Arc<dyn InferenceProvider>,
+    ) -> ReasoningLoopRunnerBuilder<Arc<dyn InferenceProvider>, E> {
+        ReasoningLoopRunnerBuilder {
+            provider,
+            executor: self.executor,
+            policy_gate: self.policy_gate,
+            context_manager: self.context_manager,
+            circuit_breakers: self.circuit_breakers,
+            journal: self.journal,
+            knowledge_bridge: self.knowledge_bridge,
+        }
+    }
+}
+
+// Set executor (transitions from () to Arc<dyn ActionExecutor>)
+impl<P> ReasoningLoopRunnerBuilder<P, ()> {
+    /// Set the action executor (required).
+    pub fn executor(
+        self,
+        executor: Arc<dyn ActionExecutor>,
+    ) -> ReasoningLoopRunnerBuilder<P, Arc<dyn ActionExecutor>> {
+        ReasoningLoopRunnerBuilder {
+            provider: self.provider,
+            executor,
+            policy_gate: self.policy_gate,
+            context_manager: self.context_manager,
+            circuit_breakers: self.circuit_breakers,
+            journal: self.journal,
+            knowledge_bridge: self.knowledge_bridge,
+        }
+    }
+}
+
+// build() only available when both provider and executor are set
+impl ReasoningLoopRunnerBuilder<Arc<dyn InferenceProvider>, Arc<dyn ActionExecutor>> {
+    /// Build the `ReasoningLoopRunner` with defaults for any unset fields.
+    pub fn build(self) -> ReasoningLoopRunner {
+        ReasoningLoopRunner {
+            provider: self.provider,
+            executor: self.executor,
+            policy_gate: self
+                .policy_gate
+                .unwrap_or_else(|| Arc::new(DefaultPolicyGate::permissive())),
+            context_manager: self
+                .context_manager
+                .unwrap_or_else(|| Arc::new(DefaultContextManager::default())),
+            circuit_breakers: self
+                .circuit_breakers
+                .unwrap_or_else(|| Arc::new(CircuitBreakerRegistry::default())),
+            journal: self
+                .journal
+                .unwrap_or_else(|| Arc::new(BufferedJournal::new(1000))),
+            knowledge_bridge: self.knowledge_bridge,
+        }
+    }
+}
+
 impl ReasoningLoopRunner {
     /// Run the full reasoning loop.
     ///
@@ -54,6 +185,14 @@ impl ReasoningLoopRunner {
         let mut config = config;
         if let Some(ref bridge) = self.knowledge_bridge {
             config.tool_definitions.extend(bridge.tool_definitions());
+        }
+
+        // Auto-populate tool definitions from executor if config has none
+        if config.tool_definitions.is_empty() {
+            let executor_tools = self.executor.tool_definitions();
+            if !executor_tools.is_empty() {
+                config.tool_definitions = executor_tools;
+            }
         }
 
         // Emit loop started event
@@ -594,5 +733,154 @@ mod tests {
             TerminationReason::Completed
         ));
         assert_eq!(result.output, "I couldn't use the tool.");
+    }
+
+    #[tokio::test]
+    async fn test_runner_auto_populates_tool_definitions_from_executor() {
+        use crate::reasoning::inference::ToolDefinition;
+
+        /// An executor that reports tool definitions.
+        struct ToolfulExecutor;
+
+        #[async_trait::async_trait]
+        impl ActionExecutor for ToolfulExecutor {
+            async fn execute_actions(
+                &self,
+                _actions: &[ProposedAction],
+                _config: &LoopConfig,
+                _circuit_breakers: &CircuitBreakerRegistry,
+            ) -> Vec<Observation> {
+                Vec::new()
+            }
+
+            fn tool_definitions(&self) -> Vec<ToolDefinition> {
+                vec![ToolDefinition {
+                    name: "test_tool".into(),
+                    description: "A test tool".into(),
+                    parameters: serde_json::json!({}),
+                }]
+            }
+        }
+
+        let provider = Arc::new(MockProvider::new(vec![InferenceResponse {
+            content: "Done.".into(),
+            tool_calls: vec![],
+            finish_reason: FinishReason::Stop,
+            usage: Usage {
+                prompt_tokens: 10,
+                completion_tokens: 5,
+                total_tokens: 15,
+            },
+            model: "mock".into(),
+        }]));
+
+        let runner = ReasoningLoopRunner {
+            provider,
+            policy_gate: Arc::new(DefaultPolicyGate::permissive()),
+            executor: Arc::new(ToolfulExecutor),
+            context_manager: Arc::new(DefaultContextManager::default()),
+            circuit_breakers: Arc::new(CircuitBreakerRegistry::default()),
+            journal: Arc::new(BufferedJournal::new(1000)),
+            knowledge_bridge: None,
+        };
+
+        let config = LoopConfig::default();
+        assert!(config.tool_definitions.is_empty());
+
+        let conv = Conversation::with_system("test");
+        let result = runner.run(AgentId::new(), conv, config).await;
+        assert!(matches!(
+            result.termination_reason,
+            TerminationReason::Completed
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_builder_minimal() {
+        let provider: Arc<dyn InferenceProvider> =
+            Arc::new(MockProvider::new(vec![InferenceResponse {
+                content: "Built with builder.".into(),
+                tool_calls: vec![],
+                finish_reason: FinishReason::Stop,
+                usage: Usage {
+                    prompt_tokens: 10,
+                    completion_tokens: 5,
+                    total_tokens: 15,
+                },
+                model: "mock".into(),
+            }]));
+        let executor: Arc<dyn ActionExecutor> = Arc::new(DefaultActionExecutor::default());
+
+        let runner = ReasoningLoopRunner::builder()
+            .provider(provider)
+            .executor(executor)
+            .build();
+
+        let conv = Conversation::with_system("builder test");
+        let result = runner
+            .run(AgentId::new(), conv, LoopConfig::default())
+            .await;
+
+        assert!(matches!(
+            result.termination_reason,
+            TerminationReason::Completed
+        ));
+        assert_eq!(result.output, "Built with builder.");
+    }
+
+    #[tokio::test]
+    async fn test_builder_with_custom_policy_gate() {
+        let provider: Arc<dyn InferenceProvider> = Arc::new(MockProvider::new(vec![
+            InferenceResponse {
+                content: String::new(),
+                tool_calls: vec![ToolCallRequest {
+                    id: "c1".into(),
+                    name: "blocked_tool".into(),
+                    arguments: "{}".into(),
+                }],
+                finish_reason: FinishReason::ToolCalls,
+                usage: Usage::default(),
+                model: "mock".into(),
+            },
+            InferenceResponse {
+                content: "Blocked.".into(),
+                tool_calls: vec![],
+                finish_reason: FinishReason::Stop,
+                usage: Usage::default(),
+                model: "mock".into(),
+            },
+        ]));
+        let executor: Arc<dyn ActionExecutor> = Arc::new(DefaultActionExecutor::default());
+
+        use crate::reasoning::policy_bridge::ToolFilterPolicyGate;
+
+        let runner = ReasoningLoopRunner::builder()
+            .provider(provider)
+            .executor(executor)
+            .policy_gate(Arc::new(ToolFilterPolicyGate::allow(&["allowed_only"])))
+            .build();
+
+        let conv = Conversation::with_system("policy test");
+        let result = runner
+            .run(AgentId::new(), conv, LoopConfig::default())
+            .await;
+
+        assert!(matches!(
+            result.termination_reason,
+            TerminationReason::Completed
+        ));
+    }
+
+    #[test]
+    fn test_builder_order_independent() {
+        let provider: Arc<dyn InferenceProvider> = Arc::new(MockProvider::new(vec![]));
+        let executor: Arc<dyn ActionExecutor> = Arc::new(DefaultActionExecutor::default());
+
+        // executor before provider should also work
+        let _runner = ReasoningLoopRunner::builder()
+            .executor(executor)
+            .provider(provider)
+            .build();
+        // If this compiles and doesn't panic, the test passes
     }
 }

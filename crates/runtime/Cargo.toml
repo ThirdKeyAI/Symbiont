@@ -130,9 +130,11 @@ cli-executor = ["libc"]
 metrics = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp"]
 cedar = ["dep:cedar-policy"]  # Cedar policy engine for formal authorization
 composio = []  # Composio MCP integration — uses reqwest (already required) for SSE
+cloud-llm = ["http-input"]  # Cloud LLM inference (Anthropic, OpenAI) — gates CloudInferenceProvider
+standalone-agent = ["cloud-llm", "composio"]  # One-liner for standalone cloud agents
 enterprise = []  # Enterprise sandbox variants (gVisor, Firecracker)
 enterprise-compaction = []  # Enterprise compaction tiers (Tier 2: semantic, Tier 3: vector)
-full = ["vector-lancedb", "vector-qdrant", "embedding-models", "http-api", "http-input", "keychain", "cron", "metrics", "composio", "cedar"]
+full = ["vector-lancedb", "vector-qdrant", "embedding-models", "http-api", "http-input", "keychain", "cron", "metrics", "composio", "cedar", "cloud-llm"]
 minimal = []  # Minimal build for faster CI
 
 
