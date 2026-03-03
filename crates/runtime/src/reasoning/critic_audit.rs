@@ -1,6 +1,6 @@
 //! Cryptographic audit for director-critic exchanges
 //!
-//! Provides Merkle-chained, Ed25519-signed audit entries for every
+//! Provides hash-chained, Ed25519-signed audit entries for every
 //! director-critic interaction, enabling tamper-evident review trails.
 
 use chrono::{DateTime, Utc};
@@ -75,7 +75,7 @@ pub struct RecordParams<'a> {
     pub iteration: u32,
 }
 
-/// Maintains a Merkle-chained, Ed25519-signed audit trail for director-critic exchanges.
+/// Maintains a hash-chained, Ed25519-signed audit trail for director-critic exchanges.
 pub struct AuditChain {
     entries: Vec<CriticAuditEntry>,
     signing_key: SigningKey,
@@ -165,7 +165,7 @@ impl AuditChain {
 
 /// Verify a chain of audit entries against a verifying key.
 ///
-/// Checks both Merkle chain integrity and Ed25519 signatures on every entry.
+/// Checks both hash chain integrity and Ed25519 signatures on every entry.
 pub fn verify_chain(
     entries: &[CriticAuditEntry],
     verifying_key: &VerifyingKey,
