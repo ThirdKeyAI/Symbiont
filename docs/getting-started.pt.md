@@ -114,7 +114,7 @@ Vamos criar um agente simples de análise de dados para entender os conceitos b�
 
 ### 1. Criar Definição do Agente
 
-Criar um novo arquivo `my_agent.dsl`:
+Crie um novo arquivo `my_agent.dsl`:
 
 ```rust
 metadata {
@@ -125,13 +125,13 @@ metadata {
 
 agent greet_user(name: String) -> String {
     capabilities = ["greeting", "text_processing"]
-    
+
     policy safe_greeting {
         allow: read(name) if name.length <= 100
         deny: store(name) if name.contains_sensitive_data
         audit: all_operations with signature
     }
-    
+
     with memory = "ephemeral", privacy = "low" {
         if (validate_name(name)) {
             greeting = format_greeting(name);
@@ -241,19 +241,104 @@ cd crates/runtime && cargo run --features http-api --example full_system
 
 **Principais Endpoints da API:**
 - `GET /api/v1/health` - Verificação de saúde e status do sistema
-- `GET /api/v1/agents` - Listar todos os agentes ativos
+- `GET /api/v1/agents` - Listar todos os agentes ativos com status de execução em tempo real
+- `GET /api/v1/agents/{id}/status` - Obter métricas detalhadas de execução do agente
 - `POST /api/v1/workflows/execute` - Executar fluxos de trabalho
 
-#### Banco de Dados Vetorial (integrado)
+**Novos Recursos de Gerenciamento de Agentes:**
+- Monitoramento de processos em tempo real e verificações de saúde
+- Capacidades de desligamento gracioso para agentes em execução
+- Métricas de execução abrangentes e rastreamento de uso de recursos
+- Suporte para diferentes modos de execução (efêmero, persistente, agendado, orientado a eventos)
+
+#### Inferência LLM em Nuvem
+
+Conecte a provedores de LLM em nuvem via OpenRouter:
+
+```bash
+# Habilitar inferência em nuvem
+cargo build --features cloud-llm
+
+# Definir chave de API e modelo
+export OPENROUTER_API_KEY="sk-or-..."
+export OPENROUTER_MODEL="google/gemini-2.0-flash-001"  # opcional
+```
+
+#### Modo Agente Autônomo
+
+Linha única para agentes cloud-native com inferência LLM e acesso a ferramentas Composio:
+
+```bash
+cargo build --features standalone-agent
+# Habilita: cloud-llm + composio
+```
+
+#### Primitivas de Raciocínio Avançado
+
+Habilite curadoria de ferramentas, detecção de loops travados, pré-busca de contexto e convenções com escopo:
+
+```bash
+cargo build --features symbi-dev
+```
+
+Veja o [guia symbi-dev](/symbi-dev) para documentação completa.
+
+#### Motor de Políticas Cedar
+
+Autorização formal com a linguagem de políticas Cedar:
+
+```bash
+cargo build --features cedar
+```
+
+#### Banco de Dados Vetorial (Integrado)
 
 O Symbi inclui o LanceDB como banco de dados vetorial embutido sem configuração. A busca semântica e o RAG funcionam imediatamente -- nenhum serviço separado para iniciar:
 
 ```bash
 # Executar agente com capacidades RAG (a busca vetorial funciona automaticamente)
 cd crates/runtime && cargo run --example rag_example
+
+# Testar gerenciamento de contexto com busca avançada
+cd crates/runtime && cargo run --example context_example
 ```
 
 > **Opção enterprise:** Para equipes que precisam de um banco de dados vetorial dedicado, o Qdrant está disponível como backend opcional com feature gate. Defina `SYMBIONT_VECTOR_BACKEND=qdrant` e `QDRANT_URL` para utilizá-lo.
+
+**Recursos de Gerenciamento de Contexto:**
+- **Busca Multi-Modal**: Modos de busca por palavra-chave, temporal, similaridade e híbrido
+- **Cálculo de Importância**: Algoritmo de pontuação sofisticado considerando padrões de acesso, recência e feedback do usuário
+- **Controle de Acesso**: Integração com motor de políticas e controles de acesso com escopo de agente
+- **Arquivamento Automático**: Políticas de retenção com armazenamento comprimido e limpeza
+- **Compartilhamento de Conhecimento**: Compartilhamento seguro de conhecimento entre agentes com pontuações de confiança
+
+#### Referência de Feature Flags
+
+| Feature | Descrição | Padrão |
+|---------|-----------|--------|
+| `keychain` | Integração com chaveiro do SO para segredos | Sim |
+| `vector-lancedb` | Backend vetorial embutido LanceDB | Sim |
+| `vector-qdrant` | Backend vetorial distribuído Qdrant | Não |
+| `embedding-models` | Modelos de embedding locais via Candle | Não |
+| `http-api` | API REST com Swagger UI | Não |
+| `http-input` | Servidor de webhook com autenticação JWT | Não |
+| `cloud-llm` | Inferência LLM em nuvem (OpenRouter) | Não |
+| `composio` | Integração de ferramentas Composio MCP | Não |
+| `standalone-agent` | Combo Cloud LLM + Composio | Não |
+| `cedar` | Motor de políticas Cedar | Não |
+| `symbi-dev` | Primitivas de raciocínio avançado | Não |
+| `cron` | Agendamento cron persistente | Não |
+| `native-sandbox` | Sandboxing nativo de processos | Não |
+| `metrics` | Métricas/rastreamento OpenTelemetry | Não |
+| `full` | Todos os recursos exceto enterprise | Não |
+
+```bash
+# Compilar com features específicas
+cargo build --features "cloud-llm,symbi-dev,cedar"
+
+# Compilar com tudo
+cargo build --features full
+```
 
 ---
 
@@ -279,7 +364,7 @@ export MCP_SERVER_URLS="http://localhost:8080"
 
 ### Configuração de Runtime
 
-Criar um arquivo de configuração `symbi.toml`:
+Crie um arquivo de configuração `symbi.toml`:
 
 ```toml
 [runtime]
@@ -363,11 +448,11 @@ RUST_LOG=debug cd crates/runtime && cargo run --example basic_agent
 
 - **Issues**: [GitHub Issues](https://github.com/thirdkeyai/symbiont/issues)
 - **Discussões**: [GitHub Discussions](https://github.com/thirdkeyai/symbiont/discussions)
-- **Documentação**: [Referência Completa da API](https://docs.symbiont.platform)
+- **Documentação**: [Referência Completa da API](https://docs.symbiont.dev/api-reference)
 
 ### Modo de Debug
 
-Para solução de problemas, habilitar logging detalhado:
+Para solução de problemas, habilite logging detalhado:
 
 ```bash
 # Habilitar logging de debug
@@ -384,8 +469,10 @@ cd crates/runtime && cargo run --example basic_agent 2>&1 | tee debug.log
 Agora que você tem o Symbi rodando, explore estes tópicos avançados:
 
 1. **[Guia DSL](/dsl-guide)** - Aprenda recursos avançados do DSL
-2. **[Arquitetura de Runtime](/runtime-architecture)** - Entenda os internos do sistema
-3. **[Modelo de Segurança](/security-model)** - Implemente políticas de segurança
-4. **[Contribuindo](/contributing)** - Contribua para o projeto
+2. **[Guia do Loop de Raciocínio](/reasoning-loop)** - Entenda o ciclo ORGA
+3. **[Raciocínio Avançado (symbi-dev)](/symbi-dev)** - Curadoria de ferramentas, detecção de loops travados, pré-hidratação
+4. **[Arquitetura de Runtime](/runtime-architecture)** - Entenda os internos do sistema
+5. **[Modelo de Segurança](/security-model)** - Implemente políticas de segurança
+6. **[Contribuindo](/contributing)** - Contribua para o projeto
 
 Pronto para construir algo incrível? Comece com nossos [projetos de exemplo](https://github.com/thirdkeyai/symbiont/tree/main/crates/runtime/examples) ou mergulhe na [especificação completa](/specification).

@@ -1,7 +1,7 @@
 ---
 layout: default
 title: Erste Schritte
-description: "Schnellstart-Anleitung für Symbiont"
+description: "Schnellstart-Anleitung fuer Symbiont"
 nav_exclude: true
 ---
 
@@ -15,7 +15,7 @@ nav_exclude: true
 
 ---
 
-Dieser Leitfaden führt Sie durch die Einrichtung von Symbi und die Erstellung Ihres ersten KI-Agenten.
+Dieser Leitfaden fuehrt Sie durch die Einrichtung von Symbi und die Erstellung Ihres ersten KI-Agenten.
 {: .fs-6 .fw-300 }
 
 ## Inhaltsverzeichnis
@@ -30,15 +30,15 @@ Dieser Leitfaden führt Sie durch die Einrichtung von Symbi und die Erstellung I
 
 Bevor Sie mit Symbi beginnen, stellen Sie sicher, dass Sie Folgendes installiert haben:
 
-### Erforderliche Abhängigkeiten
+### Erforderliche Abhaengigkeiten
 
-- **Docker** (für containerisierte Entwicklung)
+- **Docker** (fuer containerisierte Entwicklung)
 - **Rust 1.88+** (wenn Sie lokal kompilieren)
 - **Git** (zum Klonen des Repositories)
 
-### Optionale Abhängigkeiten
+### Optionale Abhaengigkeiten
 
-- **SchemaPin Go CLI** (für Tool-Verifizierung)
+- **SchemaPin Go CLI** (fuer Tool-Verifizierung)
 
 > **Hinweis:** Vektorsuche ist integriert. Symbi wird mit [LanceDB](https://lancedb.com/) als eingebetteter Vektordatenbank ausgeliefert -- kein externer Dienst erforderlich.
 
@@ -61,27 +61,27 @@ docker build -t symbi:latest .
 # Oder vorgefertigten Container verwenden
 docker pull ghcr.io/thirdkeyai/symbi:latest
 
-# Entwicklungsumgebung ausführen
+# Entwicklungsumgebung ausfuehren
 docker run --rm -it -v $(pwd):/workspace symbi:latest bash
 ```
 
 ### Option 2: Lokale Installation
 
-Für lokale Entwicklung:
+Fuer lokale Entwicklung:
 
 ```bash
 # Repository klonen
 git clone https://github.com/thirdkeyai/symbiont.git
 cd symbiont
 
-# Rust-Abhängigkeiten installieren und kompilieren
+# Rust-Abhaengigkeiten installieren und kompilieren
 cargo build --release
 
-# Tests ausführen, um die Installation zu überprüfen
+# Tests ausfuehren, um die Installation zu ueberpruefen
 cargo test
 ```
 
-### Installation überprüfen
+### Installation ueberpruefen
 
 Testen Sie, ob alles korrekt funktioniert:
 
@@ -92,7 +92,7 @@ cd crates/dsl && cargo run && cargo test
 # Laufzeitsystem testen
 cd ../runtime && cargo test
 
-# Beispiel-Agenten ausführen
+# Beispiel-Agenten ausfuehren
 cargo run --example basic_agent
 cargo run --example full_system
 
@@ -125,13 +125,13 @@ metadata {
 
 agent greet_user(name: String) -> String {
     capabilities = ["greeting", "text_processing"]
-    
+
     policy safe_greeting {
         allow: read(name) if name.length <= 100
         deny: store(name) if name.contains_sensitive_data
         audit: all_operations with signature
     }
-    
+
     with memory = "ephemeral", privacy = "low" {
         if (validate_name(name)) {
             greeting = format_greeting(name);
@@ -144,13 +144,13 @@ agent greet_user(name: String) -> String {
 }
 ```
 
-### 2. Agent ausführen
+### 2. Agent ausfuehren
 
 ```bash
 # Agenten-Definition parsen und validieren
 cargo run -- dsl parse my_agent.dsl
 
-# Agent in der Laufzeitumgebung ausführen
+# Agent in der Laufzeitumgebung ausfuehren
 cd crates/runtime && cargo run --example basic_agent -- --agent ../../my_agent.dsl
 ```
 
@@ -170,7 +170,7 @@ metadata {
 }
 ```
 
-Stellt wesentliche Informationen über Ihren Agenten für Dokumentation und Laufzeitverwaltung bereit.
+Stellt wesentliche Informationen ueber Ihren Agenten fuer Dokumentation und Laufzeitverwaltung bereit.
 
 ### Agenten-Definition
 
@@ -181,7 +181,7 @@ agent agent_name(parameter: Type) -> ReturnType {
 }
 ```
 
-Definiert die Schnittstelle, Fähigkeiten und das Verhalten des Agenten.
+Definiert die Schnittstelle, Faehigkeiten und das Verhalten des Agenten.
 
 ### Richtlinien-Definitionen
 
@@ -195,7 +195,7 @@ policy policy_name {
 
 Deklarative Sicherheitsrichtlinien, die zur Laufzeit durchgesetzt werden.
 
-### Ausführungskontext
+### Ausfuehrungskontext
 
 ```rust
 with memory = "persistent", privacy = "high" {
@@ -203,27 +203,27 @@ with memory = "persistent", privacy = "high" {
 }
 ```
 
-Spezifiziert Laufzeitkonfiguration für Speicherverwaltung und Datenschutzanforderungen.
+Spezifiziert Laufzeitkonfiguration fuer Speicherverwaltung und Datenschutzanforderungen.
 
 ---
 
-## Nächste Schritte
+## Naechste Schritte
 
 ### Beispiele erkunden
 
-Das Repository enthält mehrere Beispiel-Agenten:
+Das Repository enthaelt mehrere Beispiel-Agenten:
 
 ```bash
 # Grundlegender Agent-Beispiel
 cd crates/runtime && cargo run --example basic_agent
 
-# Vollständige Systemdemonstration
+# Vollstaendige Systemdemonstration
 cd crates/runtime && cargo run --example full_system
 
 # Kontext- und Speicher-Beispiel
 cd crates/runtime && cargo run --example context_example
 
-# RAG-verstärkter Agent
+# RAG-verstaerkter Agent
 cd crates/runtime && cargo run --example rag_example
 ```
 
@@ -235,25 +235,110 @@ cd crates/runtime && cargo run --example rag_example
 # HTTP API-Funktion aktivieren
 cd crates/runtime && cargo build --features http-api
 
-# Mit API-Endpunkten ausführen
+# Mit API-Endpunkten ausfuehren
 cd crates/runtime && cargo run --features http-api --example full_system
 ```
 
 **Wichtige API-Endpunkte:**
-- `GET /api/v1/health` - Gesundheitsprüfung und Systemstatus
-- `GET /api/v1/agents` - Alle aktiven Agenten auflisten
-- `POST /api/v1/workflows/execute` - Arbeitsabläufe ausführen
+- `GET /api/v1/health` - Gesundheitspruefung und Systemstatus
+- `GET /api/v1/agents` - Alle aktiven Agenten mit Echtzeit-Ausfuehrungsstatus auflisten
+- `GET /api/v1/agents/{id}/status` - Detaillierte Agent-Ausfuehrungsmetriken abrufen
+- `POST /api/v1/workflows/execute` - Workflows ausfuehren
+
+**Neue Agent-Management-Funktionen:**
+- Echtzeit-Prozessueberwachung und Gesundheitspruefungen
+- Ordnungsgemaesse Shutdown-Faehigkeiten fuer laufende Agenten
+- Umfassende Ausfuehrungsmetriken und Ressourcennutzungsverfolgung
+- Unterstuetzung verschiedener Ausfuehrungsmodi (ephemer, persistent, geplant, ereignisgesteuert)
+
+#### Cloud-LLM-Inferenz
+
+Verbindung zu Cloud-LLM-Anbietern ueber OpenRouter:
+
+```bash
+# Cloud-Inferenz aktivieren
+cargo build --features cloud-llm
+
+# API-Schluessel und Modell festlegen
+export OPENROUTER_API_KEY="sk-or-..."
+export OPENROUTER_MODEL="google/gemini-2.0-flash-001"  # optional
+```
+
+#### Standalone Agent-Modus
+
+Einzeiler fuer Cloud-native Agenten mit LLM-Inferenz und Composio-Tool-Zugriff:
+
+```bash
+cargo build --features standalone-agent
+# Aktiviert: cloud-llm + composio
+```
+
+#### Erweiterte Reasoning-Primitiven
+
+Tool-Kuratierung, Stuck-Loop-Erkennung, Kontext-Pre-Fetch und verzeichnisspezifische Konventionen aktivieren:
+
+```bash
+cargo build --features symbi-dev
+```
+
+Siehe den [symbi-dev-Leitfaden](/symbi-dev) fuer die vollstaendige Dokumentation.
+
+#### Cedar Policy Engine
+
+Formale Autorisierung mit der Cedar-Richtliniensprache:
+
+```bash
+cargo build --features cedar
+```
 
 #### Vektordatenbank (integriert)
 
-Symbi enthält LanceDB als konfigurationsfreie eingebettete Vektordatenbank. Semantische Suche und RAG funktionieren sofort -- kein separater Dienst erforderlich:
+Symbi enthaelt LanceDB als konfigurationsfreie eingebettete Vektordatenbank. Semantische Suche und RAG funktionieren sofort -- kein separater Dienst erforderlich:
 
 ```bash
-# Agent mit RAG-Funktionen ausführen (Vektorsuche funktioniert sofort)
+# Agent mit RAG-Funktionen ausfuehren (Vektorsuche funktioniert sofort)
 cd crates/runtime && cargo run --example rag_example
+
+# Kontextverwaltung mit erweiterter Suche testen
+cd crates/runtime && cargo run --example context_example
 ```
 
-> **Enterprise-Option:** Für Teams, die eine dedizierte Vektordatenbank benötigen, ist Qdrant als optionales Feature-gated Backend verfügbar. Setzen Sie `SYMBIONT_VECTOR_BACKEND=qdrant` und `QDRANT_URL`.
+> **Enterprise-Option:** Fuer Teams, die eine dedizierte Vektordatenbank benoetigen, ist Qdrant als optionales Feature-gated Backend verfuegbar. Setzen Sie `SYMBIONT_VECTOR_BACKEND=qdrant` und `QDRANT_URL`, um es zu verwenden.
+
+**Kontextverwaltungsfunktionen:**
+- **Multi-modale Suche**: Schluesselwort-, zeitliche, Aehnlichkeits- und Hybrid-Suchmodi
+- **Wichtigkeitsberechnung**: Ausgefeilter Bewertungsalgorithmus unter Beruecksichtigung von Zugriffsmustern, Aktualitaet und Benutzerfeedback
+- **Zugriffskontrolle**: Integration der Richtlinien-Engine mit agentenspezifischen Zugriffskontrollen
+- **Automatische Archivierung**: Aufbewahrungsrichtlinien mit komprimiertem Speicher und Bereinigung
+- **Wissensaustausch**: Sicherer agentenuebergreifender Wissensaustausch mit Vertrauensbewertungen
+
+#### Feature Flags Referenz
+
+| Feature | Beschreibung | Standard |
+|---------|-------------|---------|
+| `keychain` | OS-Keychain-Integration fuer Geheimnisse | Ja |
+| `vector-lancedb` | LanceDB eingebettetes Vektor-Backend | Ja |
+| `vector-qdrant` | Qdrant verteiltes Vektor-Backend | Nein |
+| `embedding-models` | Lokale Embedding-Modelle ueber Candle | Nein |
+| `http-api` | REST API mit Swagger UI | Nein |
+| `http-input` | Webhook-Server mit JWT-Authentifizierung | Nein |
+| `cloud-llm` | Cloud-LLM-Inferenz (OpenRouter) | Nein |
+| `composio` | Composio MCP-Tool-Integration | Nein |
+| `standalone-agent` | Cloud LLM + Composio Kombination | Nein |
+| `cedar` | Cedar Policy Engine | Nein |
+| `symbi-dev` | Erweiterte Reasoning-Primitiven | Nein |
+| `cron` | Persistentes Cron-Scheduling | Nein |
+| `native-sandbox` | Native Prozess-Sandbox | Nein |
+| `metrics` | OpenTelemetry Metriken/Tracing | Nein |
+| `full` | Alle Features ausser Enterprise | Nein |
+
+```bash
+# Mit bestimmten Features kompilieren
+cargo build --features "cloud-llm,symbi-dev,cedar"
+
+# Mit allem kompilieren
+cargo build --features full
+```
 
 ---
 
@@ -261,7 +346,7 @@ cd crates/runtime && cargo run --example rag_example
 
 ### Umgebungsvariablen
 
-Richten Sie Ihre Umgebung für optimale Leistung ein:
+Richten Sie Ihre Umgebung fuer optimale Leistung ein:
 
 ```bash
 # Grundkonfiguration
@@ -294,41 +379,41 @@ policy_enforcement = "strict"
 
 [vector_db]
 enabled = true
-backend = "lancedb"              # Standard; unterstützt auch "qdrant"
+backend = "lancedb"              # Standard; unterstuetzt auch "qdrant"
 collection_name = "symbi_knowledge"
 # url = "http://localhost:6333"  # nur erforderlich bei backend = "qdrant"
 ```
 
 ---
 
-## Häufige Probleme
+## Haeufige Probleme
 
 ### Docker-Probleme
 
-**Problem**: Docker-Build schlägt mit Berechtigungsfehlern fehl
+**Problem**: Docker-Build schlaegt mit Berechtigungsfehlern fehl
 ```bash
-# Lösung: Sicherstellen, dass Docker-Daemon läuft und Benutzer Berechtigungen hat
+# Loesung: Sicherstellen, dass Docker-Daemon laeuft und Benutzer Berechtigungen hat
 sudo systemctl start docker
 sudo usermod -aG docker $USER
 ```
 
 **Problem**: Container beendet sich sofort
 ```bash
-# Lösung: Docker-Logs überprüfen
+# Loesung: Docker-Logs ueberpruefen
 docker logs <container_id>
 ```
 
 ### Rust-Build-Probleme
 
-**Problem**: Cargo-Build schlägt mit Abhängigkeitsfehlern fehl
+**Problem**: Cargo-Build schlaegt mit Abhaengigkeitsfehlern fehl
 ```bash
-# Lösung: Rust aktualisieren und Build-Cache löschen
+# Loesung: Rust aktualisieren und Build-Cache loeschen
 rustup update
 cargo clean
 cargo build
 ```
 
-**Problem**: Fehlende Systemabhängigkeiten
+**Problem**: Fehlende Systemabhaengigkeiten
 ```bash
 # Ubuntu/Debian
 sudo apt-get update
@@ -342,7 +427,7 @@ brew install pkg-config openssl
 
 **Problem**: Agent startet nicht
 ```bash
-# Agenten-Definitionssyntax überprüfen
+# Agenten-Definitionssyntax ueberpruefen
 cargo run -- dsl parse your_agent.dsl
 
 # Debug-Protokollierung aktivieren
@@ -355,7 +440,7 @@ RUST_LOG=debug cd crates/runtime && cargo run --example basic_agent
 
 ### Dokumentation
 
-- **[DSL-Leitfaden](/dsl-guide)** - Vollständige DSL-Referenz
+- **[DSL-Leitfaden](/dsl-guide)** - Vollstaendige DSL-Referenz
 - **[Laufzeit-Architektur](/runtime-architecture)** - Details zur Systemarchitektur
 - **[Sicherheitsmodell](/security-model)** - Sicherheits- und Richtliniendokumentation
 
@@ -363,29 +448,31 @@ RUST_LOG=debug cd crates/runtime && cargo run --example basic_agent
 
 - **Issues**: [GitHub Issues](https://github.com/thirdkeyai/symbiont/issues)
 - **Diskussionen**: [GitHub Discussions](https://github.com/thirdkeyai/symbiont/discussions)
-- **Dokumentation**: [Vollständige API-Referenz](https://docs.symbiont.platform)
+- **Dokumentation**: [Vollstaendige API-Referenz](https://docs.symbiont.dev/api-reference)
 
 ### Debug-Modus
 
-Für die Fehlerbehebung detaillierte Protokollierung aktivieren:
+Fuer die Fehlerbehebung detaillierte Protokollierung aktivieren:
 
 ```bash
 # Debug-Protokollierung aktivieren
 export RUST_LOG=symbi=debug
 
-# Mit detaillierter Ausgabe ausführen
+# Mit detaillierter Ausgabe ausfuehren
 cd crates/runtime && cargo run --example basic_agent 2>&1 | tee debug.log
 ```
 
 ---
 
-## Was kommt als nächstes?
+## Was kommt als naechstes?
 
 Jetzt, da Sie Symbi zum Laufen gebracht haben, erkunden Sie diese fortgeschrittenen Themen:
 
 1. **[DSL-Leitfaden](/dsl-guide)** - Erweiterte DSL-Funktionen lernen
-2. **[Laufzeit-Architektur](/runtime-architecture)** - Systeminternas verstehen
-3. **[Sicherheitsmodell](/security-model)** - Sicherheitsrichtlinien implementieren
-4. **[Beitragen](/contributing)** - Zum Projekt beitragen
+2. **[Reasoning-Loop-Leitfaden](/reasoning-loop)** - Den ORGA-Zyklus verstehen
+3. **[Erweitertes Reasoning (symbi-dev)](/symbi-dev)** - Tool-Kuratierung, Stuck-Loop-Erkennung, Pre-Hydration
+4. **[Laufzeit-Architektur](/runtime-architecture)** - Systeminternas verstehen
+5. **[Sicherheitsmodell](/security-model)** - Sicherheitsrichtlinien implementieren
+6. **[Beitragen](/contributing)** - Zum Projekt beitragen
 
-Bereit, etwas Großartiges zu bauen? Beginnen Sie mit unseren [Beispielprojekten](https://github.com/thirdkeyai/symbiont/tree/main/crates/runtime/examples) oder tauchen Sie in die [vollständige Spezifikation](/specification) ein.
+Bereit, etwas Grossartiges zu bauen? Beginnen Sie mit unseren [Beispielprojekten](https://github.com/thirdkeyai/symbiont/tree/main/crates/runtime/examples) oder tauchen Sie in die [vollstaendige Spezifikation](/specification) ein.

@@ -1249,7 +1249,7 @@ The API uses standard HTTP status codes and returns detailed error information:
 
 2. Set the authentication token for agent endpoints:
    ```bash
-   export API_AUTH_TOKEN="your-secret-token"
+   export API_AUTH_TOKEN="<your-token>"
    ```
 
 3. Start the runtime server:
@@ -1264,7 +1264,7 @@ The API uses standard HTTP status codes and returns detailed error information:
 
 5. Test authenticated agent endpoint:
    ```bash
-   curl -H "Authorization: Bearer your-secret-token" \
+   curl -H "Authorization: Bearer $API_AUTH_TOKEN" \
         http://127.0.0.1:8080/api/v1/agents
    ```
 

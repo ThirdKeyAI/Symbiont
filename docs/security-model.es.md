@@ -1,14 +1,14 @@
 ---
 layout: default
 title: Modelo de Seguridad
-description: "Arquitectura e implementación de seguridad de Symbiont"
+description: "Arquitectura e implementacion de seguridad de Symbiont"
 nav_exclude: true
 ---
 
 # Modelo de Seguridad
 {: .no_toc }
 
-Arquitectura de seguridad integral que garantiza protección de confianza cero e impulsada por políticas para agentes de IA.
+Arquitectura de seguridad integral que garantiza proteccion de confianza cero e impulsada por politicas para agentes de IA.
 {: .fs-6 .fw-300 }
 
 ## 🌐 Otros idiomas
@@ -26,50 +26,50 @@ Arquitectura de seguridad integral que garantiza protección de confianza cero e
 
 ---
 
-## Descripción General
+## Descripcion General
 
-Symbiont implementa una arquitectura de seguridad primero diseñada para entornos regulados y de alta seguridad. El modelo de seguridad se basa en principios de confianza cero con cumplimiento integral de políticas, sandboxing de múltiples niveles y auditabilidad criptográfica.
+Symbiont implementa una arquitectura de seguridad primero diseñada para entornos regulados y de alta seguridad. El modelo de seguridad se basa en principios de confianza cero con cumplimiento integral de politicas, sandboxing de multiples niveles y auditabilidad criptografica.
 
 ### Principios de Seguridad
 
 - **Confianza Cero**: Todos los componentes y comunicaciones son verificados
-- **Defensa en Profundidad**: Múltiples capas de seguridad sin un único punto de falla
-- **Impulsado por Políticas**: Políticas de seguridad declarativas aplicadas en tiempo de ejecución
-- **Auditabilidad Completa**: Cada operación registrada con integridad criptográfica
-- **Privilegio Mínimo**: Permisos mínimos requeridos para la operación
+- **Defensa en Profundidad**: Multiples capas de seguridad sin un unico punto de falla
+- **Impulsado por Politicas**: Politicas de seguridad declarativas aplicadas en tiempo de ejecucion
+- **Auditabilidad Completa**: Cada operacion registrada con integridad criptografica
+- **Privilegio Minimo**: Permisos minimos requeridos para la operacion
 
 ---
 
-## Sandboxing de Múltiples Niveles
+## Sandboxing de Multiples Niveles
 
-El tiempo de ejecución implementa dos niveles de aislamiento basados en la evaluación de riesgo:
+El tiempo de ejecucion implementa dos niveles de aislamiento basados en la evaluacion de riesgo:
 
 ```mermaid
 graph TB
     A[Risk Assessment Engine] --> B{Risk Level}
-    
+
     B -->|Low Risk| C[Tier 1: Docker]
     B -->|Medium/High Risk| D[Tier 2: gVisor]
-    
+
     subgraph "Tier 1: Container Isolation"
         C1[Container Runtime]
         C2[Resource Limits]
         C3[Network Isolation]
         C4[Read-only Filesystem]
     end
-    
+
     subgraph "Tier 2: User-space Kernel"
         D1[System Call Interception]
         D2[Memory Protection]
         D3[I/O Virtualization]
         D4[Enhanced Isolation]
     end
-    
+
     C --> C1
     D --> D1
 ```
 
-> **Nota**: Niveles de aislamiento adicionales con virtualización de hardware están disponibles en las ediciones Enterprise.
+> **Nota**: Niveles de aislamiento adicionales con virtualizacion de hardware estan disponibles en las ediciones Enterprise.
 
 ### Nivel 1: Aislamiento Docker
 
@@ -78,7 +78,7 @@ graph TB
 - Procesamiento de datos de baja sensibilidad
 - Operaciones de herramientas internas
 
-**Características de Seguridad:**
+**Caracteristicas de Seguridad:**
 ```yaml
 docker_security:
   memory_limit: "512MB"
@@ -93,26 +93,26 @@ docker_security:
     add: ["SETUID", "SETGID"]
 ```
 
-**Protección contra Amenazas:**
+**Proteccion contra Amenazas:**
 - Aislamiento de procesos del host
-- Prevención de agotamiento de recursos
+- Prevencion de agotamiento de recursos
 - Control de acceso a la red
-- Protección del sistema de archivos
+- Proteccion del sistema de archivos
 
 ### Nivel 2: Aislamiento gVisor
 
 **Casos de Uso:**
-- Cargas de trabajo de producción estándar
+- Cargas de trabajo de produccion estandar
 - Procesamiento de datos sensibles
-- Integración de herramientas externas
+- Integracion de herramientas externas
 
-**Características de Seguridad:**
-- Implementación de kernel en espacio de usuario
-- Filtrado y traducción de llamadas del sistema
-- Límites de protección de memoria
-- Validación de solicitudes de E/S
+**Caracteristicas de Seguridad:**
+- Implementacion de kernel en espacio de usuario
+- Filtrado y traduccion de llamadas del sistema
+- Limites de proteccion de memoria
+- Validacion de solicitudes de E/S
 
-**Configuración:**
+**Configuracion:**
 ```yaml
 gvisor_security:
   runtime: "runsc"
@@ -123,15 +123,15 @@ gvisor_security:
   strace: false
 ```
 
-**Protección Avanzada:**
+**Proteccion Avanzada:**
 - Aislamiento de vulnerabilidades del kernel
-- Interceptación de llamadas del sistema
-- Prevención de corrupción de memoria
-- Mitigación de ataques de canal lateral
+- Interceptacion de llamadas del sistema
+- Prevencion de corrupcion de memoria
+- Mitigacion de ataques de canal lateral
 
-> **Característica Enterprise**: El aislamiento avanzado con virtualización de hardware (Firecracker) está disponible en las ediciones Enterprise para los requisitos de seguridad máxima.
+> **Caracteristica Enterprise**: El aislamiento avanzado con virtualizacion de hardware (Firecracker) esta disponible en las ediciones Enterprise para los requisitos de seguridad maxima.
 
-### Algoritmo de Evaluación de Riesgo
+### Algoritmo de Evaluacion de Riesgo
 
 ```rust
 pub struct RiskAssessment {
@@ -145,22 +145,22 @@ pub struct RiskAssessment {
 pub fn calculate_risk_score(assessment: RiskAssessment) -> f32 {
     let base_score = assessment.data_sensitivity * 0.4
         + (1.0 - assessment.code_trust_level) * 0.3;
-    
+
     let access_penalty = if assessment.network_access { 0.1 } else { 0.0 }
         + if assessment.filesystem_access { 0.1 } else { 0.0 }
         + if assessment.external_apis { 0.1 } else { 0.0 };
-    
+
     (base_score + access_penalty).min(1.0)
 }
 ```
 
 ---
 
-## Motor de Políticas
+## Motor de Politicas
 
-### Arquitectura de Políticas
+### Arquitectura de Politicas
 
-El motor de políticas proporciona controles de seguridad declarativos con aplicación en tiempo de ejecución:
+El motor de politicas proporciona controles de seguridad declarativos con aplicacion en tiempo de ejecucion:
 
 ```mermaid
 graph TB
@@ -168,22 +168,22 @@ graph TB
     B --> C[Policy Store]
     C --> D[Policy Engine]
     D --> E[Enforcement Points]
-    
+
     E --> F[Agent Creation]
     E --> G[Resource Access]
     E --> H[Message Routing]
     E --> I[Tool Invocation]
     E --> J[Data Operations]
-    
+
     K[Audit Logger] --> L[Policy Violations]
     E --> K
 ```
 
-### Tipos de Políticas
+### Tipos de Politicas
 
-#### Políticas de Control de Acceso
+#### Politicas de Control de Acceso
 
-Definen quién puede acceder a qué recursos bajo qué condiciones:
+Definen quien puede acceder a que recursos bajo que condiciones:
 
 ```rust
 policy secure_data_access {
@@ -192,9 +192,9 @@ policy secure_data_access {
         user.need_to_know.contains(data.classification) &&
         session.mfa_verified == true
     )
-    
+
     deny: export(data) if data.contains_pii == true
-    
+
     require: [
         user.background_check.current,
         session.secure_connection,
@@ -203,9 +203,9 @@ policy secure_data_access {
 }
 ```
 
-#### Políticas de Flujo de Datos
+#### Politicas de Flujo de Datos
 
-Controlan cómo se mueven los datos a través del sistema:
+Controlan como se mueven los datos a traves del sistema:
 
 ```rust
 policy data_flow_control {
@@ -213,18 +213,18 @@ policy data_flow_control {
         source.classification <= target.classification &&
         user.transform_permissions.contains(operation.type)
     )
-    
+
     deny: aggregate(datasets) if (
         any(datasets, |d| d.privacy_level > operation.privacy_budget)
     )
-    
+
     require: differential_privacy for statistical_operations
 }
 ```
 
-#### Políticas de Uso de Recursos
+#### Politicas de Uso de Recursos
 
-Gestionan la asignación de recursos computacionales:
+Gestionan la asignacion de recursos computacionales:
 
 ```rust
 policy resource_governance {
@@ -232,23 +232,23 @@ policy resource_governance {
         user.resource_quota.remaining >= resources.total &&
         operation.priority <= user.max_priority
     )
-    
+
     deny: long_running_operations if system.maintenance_mode
-    
+
     require: supervisor_approval for high_memory_operations
 }
 ```
 
-### Motor de Evaluación de Políticas
+### Motor de Evaluacion de Politicas
 
 ```rust
 pub trait PolicyEngine {
     async fn evaluate_policy(
-        &self, 
-        context: PolicyContext, 
+        &self,
+        context: PolicyContext,
         action: Action
     ) -> PolicyDecision;
-    
+
     async fn register_policy(&self, policy: Policy) -> Result<PolicyId>;
     async fn update_policy(&self, policy_id: PolicyId, policy: Policy) -> Result<()>;
 }
@@ -261,29 +261,55 @@ pub enum PolicyDecision {
 }
 ```
 
-### Optimización de Rendimiento
+### Optimizacion de Rendimiento
 
-**Caché de Políticas:**
-- Evaluación de políticas compiladas para rendimiento
-- Caché LRU para decisiones frecuentes
-- Evaluación por lotes para operaciones masivas
-- Tiempos de evaluación de sub-milisegundos
+**Cache de Politicas:**
+- Evaluacion de politicas compiladas para rendimiento
+- Cache LRU para decisiones frecuentes
+- Evaluacion por lotes para operaciones masivas
+- Tiempos de evaluacion de sub-milisegundos
 
 **Actualizaciones Incrementales:**
-- Actualizaciones de políticas en tiempo real sin reinicio
-- Implementación de políticas versionadas
-- Capacidades de rollback para errores de políticas
+- Actualizaciones de politicas en tiempo real sin reinicio
+- Implementacion de politicas versionadas
+- Capacidades de rollback para errores de politicas
+
+### Motor de Politicas Cedar (Feature `cedar`)
+
+Symbiont integra el [lenguaje de politicas Cedar](https://www.cedarpolicy.com/) para autorizacion formal. Cedar permite politicas de control de acceso granulares y auditables que se evaluan en la compuerta de politicas del bucle de razonamiento.
+
+```bash
+cargo build --features cedar
+```
+
+**Capacidades clave:**
+- **Verificacion formal**: Las politicas Cedar pueden ser analizadas estaticamente para verificar su correccion
+- **Autorizacion granular**: Control de acceso basado en entidades con permisos jerarquicos
+- **Integracion con el bucle de razonamiento**: `CedarGate` implementa el trait `ReasoningPolicyGate`, evaluando cada accion propuesta contra las politicas Cedar antes de la ejecucion
+- **Rastro de auditoria**: Todas las decisiones de politicas Cedar se registran con contexto completo
+
+```rust
+use symbi_runtime::reasoning::cedar_gate::CedarGate;
+
+// Load Cedar policies and evaluate actions in the reasoning loop
+let cedar_gate = CedarGate::new(policy_set, entities);
+let runner = ReasoningLoopRunner::builder()
+    .provider(provider)
+    .executor(executor)
+    .policy_gate(Arc::new(cedar_gate))
+    .build();
+```
 
 ---
 
-## Seguridad Criptográfica
+## Seguridad Criptografica
 
 ### Firmas Digitales
 
-Todas las operaciones relevantes para la seguridad están firmadas criptográficamente:
+Todas las operaciones relevantes para la seguridad estan firmadas criptograficamente:
 
 **Algoritmo de Firma:** Ed25519 (RFC 8032)
-- **Tamaño de Clave:** Claves privadas de 256 bits, claves públicas de 256 bits
+- **Tamaño de Clave:** Claves privadas de 256 bits, claves publicas de 256 bits
 - **Tamaño de Firma:** 512 bits (64 bytes)
 - **Rendimiento:** 70,000+ firmas/segundo, 25,000+ verificaciones/segundo
 
@@ -301,7 +327,7 @@ impl AuditEvent {
         self.signature = private_key.sign(&message);
         Ok(())
     }
-    
+
     pub fn verify(&self, public_key: &PublicKey) -> bool {
         let message = self.serialize_for_signing().unwrap();
         public_key.verify(&message, &self.signature)
@@ -309,19 +335,19 @@ impl AuditEvent {
 }
 ```
 
-### Gestión de Claves
+### Gestion de Claves
 
 **Almacenamiento de Claves:**
-- Integración de Módulo de Seguridad de Hardware (HSM)
-- Soporte de enclave seguro para protección de claves
-- Rotación de claves con intervalos configurables
-- Copia de seguridad y recuperación de claves distribuidas
+- Integracion de Modulo de Seguridad de Hardware (HSM)
+- Soporte de enclave seguro para proteccion de claves
+- Rotacion de claves con intervalos configurables
+- Copia de seguridad y recuperacion de claves distribuidas
 
-**Jerarquía de Claves:**
-- Claves de firma raíz para operaciones del sistema
+**Jerarquia de Claves:**
+- Claves de firma raiz para operaciones del sistema
 - Claves por agente para firma de operaciones
-- Claves efímeras para cifrado de sesión
-- Claves externas para verificación de herramientas
+- Claves efimeras para cifrado de sesion
+- Claves externas para verificacion de herramientas
 
 ```rust
 pub struct KeyManager {
@@ -337,22 +363,22 @@ impl KeyManager {
 }
 ```
 
-### Estándares de Cifrado
+### Estandares de Cifrado
 
-**Cifrado Simétrico:** AES-256-GCM
+**Cifrado Simetrico:** AES-256-GCM
 - Claves de 256 bits con cifrado autenticado
-- Nonces únicos para cada operación de cifrado
-- Datos asociados para vinculación de contexto
+- Nonces unicos para cada operacion de cifrado
+- Datos asociados para vinculacion de contexto
 
-**Cifrado Asimétrico:** X25519 + ChaCha20-Poly1305
-- Intercambio de claves de curva elíptica
+**Cifrado Asimetrico:** X25519 + ChaCha20-Poly1305
+- Intercambio de claves de curva eliptica
 - Cifrado de flujo con cifrado autenticado
 - Secreto perfecto hacia adelante
 
 **Cifrado de Mensajes:**
 ```rust
 pub fn encrypt_message(
-    plaintext: &[u8], 
+    plaintext: &[u8],
     recipient_public_key: &PublicKey,
     sender_private_key: &PrivateKey
 ) -> Result<EncryptedMessage> {
@@ -360,7 +386,7 @@ pub fn encrypt_message(
     let nonce = generate_random_nonce();
     let ciphertext = ChaCha20Poly1305::new(&shared_secret)
         .encrypt(&nonce, plaintext)?;
-    
+
     Ok(EncryptedMessage {
         nonce,
         ciphertext,
@@ -371,11 +397,11 @@ pub fn encrypt_message(
 
 ---
 
-## Auditoría y Cumplimiento
+## Auditoria y Cumplimiento
 
-### Rastro de Auditoría Criptográfica
+### Rastro de Auditoria Criptografica
 
-Cada operación relevante para la seguridad genera un evento de auditoría inmutable:
+Cada operacion relevante para la seguridad genera un evento de auditoria inmutable:
 
 ```rust
 pub struct AuditEvent {
@@ -390,17 +416,17 @@ pub struct AuditEvent {
 }
 ```
 
-**Tipos de Eventos de Auditoría:**
-- Eventos del ciclo de vida del agente (creación, terminación)
-- Decisiones de evaluación de políticas
-- Asignación y uso de recursos
-- Envío y enrutamiento de mensajes
+**Tipos de Eventos de Auditoria:**
+- Eventos del ciclo de vida del agente (creacion, terminacion)
+- Decisiones de evaluacion de politicas
+- Asignacion y uso de recursos
+- Envio y enrutamiento de mensajes
 - Invocaciones de herramientas externas
 - Violaciones de seguridad y alertas
 
 ### Encadenamiento de Hash
 
-Los eventos están vinculados en una cadena inmutable:
+Los eventos estan vinculados en una cadena inmutable:
 
 ```rust
 impl AuditChain {
@@ -408,21 +434,21 @@ impl AuditChain {
         event.previous_hash = self.last_hash;
         event.event_hash = self.calculate_event_hash(&event);
         event.sign(&self.signing_key)?;
-        
+
         self.events.push(event.clone());
         self.last_hash = event.event_hash;
-        
+
         self.verify_chain_integrity()?;
         Ok(())
     }
-    
+
     pub fn verify_integrity(&self) -> Result<bool> {
         for (i, event) in self.events.iter().enumerate() {
             // Verify signature
             if !event.verify(&self.public_key) {
                 return Ok(false);
             }
-            
+
             // Verify hash chain
             if i > 0 && event.previous_hash != self.events[i-1].event_hash {
                 return Ok(false);
@@ -433,27 +459,27 @@ impl AuditChain {
 }
 ```
 
-### Características de Cumplimiento
+### Caracteristicas de Cumplimiento
 
 **Soporte Regulatorio:**
 
 **HIPAA (Salud):**
-- Registro de acceso a PHI con identificación de usuario
-- Aplicación de minimización de datos
-- Detección y notificación de brechas
-- Retención de rastro de auditoría por 6 años
+- Registro de acceso a PHI con identificacion de usuario
+- Aplicacion de minimizacion de datos
+- Deteccion y notificacion de brechas
+- Retencion de rastro de auditoria por 6 años
 
 **GDPR (Privacidad):**
 - Registros de procesamiento de datos personales
-- Seguimiento de verificación de consentimiento
-- Aplicación de derechos del sujeto de datos
-- Cumplimiento de política de retención de datos
+- Seguimiento de verificacion de consentimiento
+- Aplicacion de derechos del sujeto de datos
+- Cumplimiento de politica de retencion de datos
 
 **SOX (Financiero):**
-- Documentación de controles internos
-- Seguimiento de gestión de cambios
-- Verificación de controles de acceso
-- Protección de datos financieros
+- Documentacion de controles internos
+- Seguimiento de gestion de cambios
+- Verificacion de controles de acceso
+- Proteccion de datos financieros
 
 **Cumplimiento Personalizado:**
 ```rust
@@ -475,9 +501,9 @@ impl ComplianceFramework {
 
 ## Seguridad de Herramientas con SchemaPin
 
-### Proceso de Verificación de Herramientas
+### Proceso de Verificacion de Herramientas
 
-Las herramientas externas se verifican usando firmas criptográficas:
+Las herramientas externas se verifican usando firmas criptograficas:
 
 ```mermaid
 sequenceDiagram
@@ -486,14 +512,14 @@ sequenceDiagram
     participant AI as AI Reviewer
     participant Runtime as Symbiont Runtime
     participant Agent as Agent
-    
+
     Tool->>SP: Submit Tool Schema
     SP->>AI: Security Analysis
     AI-->>SP: Analysis Results
     SP->>SP: Human Review (if needed)
     SP->>SP: Sign Schema
     SP-->>Tool: Signed Schema
-    
+
     Agent->>Runtime: Request Tool Use
     Runtime->>SP: Verify Tool Schema
     SP-->>Runtime: Verification Result
@@ -502,10 +528,10 @@ sequenceDiagram
 
 ### Confianza en Primer Uso (TOFU)
 
-**Proceso de Fijación de Claves:**
+**Proceso de Fijacion de Claves:**
 1. Primer encuentro con un proveedor de herramientas
-2. Verificar la clave pública del proveedor a través de canales externos
-3. Fijar la clave pública en el almacén de confianza local
+2. Verificar la clave publica del proveedor a traves de canales externos
+3. Fijar la clave publica en el almacen de confianza local
 4. Usar la clave fijada para todas las verificaciones futuras
 
 ```rust
@@ -519,16 +545,16 @@ impl TOFUKeyStore {
         if self.pinned_keys.contains_key(&provider) {
             return Err("Key already pinned for provider");
         }
-        
+
         self.pinned_keys.insert(provider, PinnedKey {
             public_key: key,
             pinned_at: SystemTime::now(),
             trust_level: TrustLevel::Unverified,
         });
-        
+
         Ok(())
     }
-    
+
     pub fn verify_tool(&self, tool: &MCPTool) -> VerificationResult {
         if let Some(pinned_key) = self.pinned_keys.get(&tool.provider_id) {
             if pinned_key.public_key.verify(&tool.schema_hash, &tool.signature) {
@@ -543,15 +569,15 @@ impl TOFUKeyStore {
 }
 ```
 
-### Revisión de Herramientas Impulsada por IA
+### Revision de Herramientas Impulsada por IA
 
-Análisis de seguridad automatizado antes de la aprobación de herramientas:
+Analisis de seguridad automatizado antes de la aprobacion de herramientas:
 
-**Componentes de Análisis:**
-- **Detección de Vulnerabilidades**: Coincidencia de patrones contra firmas de vulnerabilidades conocidas
-- **Detección de Código Malicioso**: Identificación de comportamientos maliciosos basada en ML
-- **Análisis de Uso de Recursos**: Evaluación de requisitos de recursos computacionales
-- **Evaluación de Impacto en Privacidad**: Manejo de datos e implicaciones de privacidad
+**Componentes de Analisis:**
+- **Deteccion de Vulnerabilidades**: Coincidencia de patrones contra firmas de vulnerabilidades conocidas
+- **Deteccion de Codigo Malicioso**: Identificacion de comportamientos maliciosos basada en ML
+- **Analisis de Uso de Recursos**: Evaluacion de requisitos de recursos computacionales
+- **Evaluacion de Impacto en Privacidad**: Manejo de datos e implicaciones de privacidad
 
 ```rust
 pub struct SecurityAnalyzer {
@@ -564,20 +590,20 @@ pub struct SecurityAnalyzer {
 impl SecurityAnalyzer {
     pub async fn analyze_tool(&self, tool: &MCPTool) -> SecurityAnalysis {
         let mut findings = Vec::new();
-        
+
         // Vulnerability pattern matching
         findings.extend(self.vulnerability_patterns.scan(&tool.schema));
-        
+
         // ML-based detection
         let ml_result = self.ml_detector.analyze(&tool.schema).await?;
         findings.extend(ml_result.findings);
-        
+
         // Resource usage analysis
         let resource_risk = self.resource_analyzer.assess(&tool.schema);
-        
+
         // Privacy impact assessment
         let privacy_impact = self.privacy_assessor.evaluate(&tool.schema);
-        
+
         SecurityAnalysis {
             tool_id: tool.id.clone(),
             risk_score: calculate_risk_score(&findings),
@@ -592,21 +618,95 @@ impl SecurityAnalyzer {
 
 ---
 
+## Escaner de Habilidades ClawHavoc
+
+El escaner ClawHavoc proporciona defensa a nivel de contenido para habilidades de agentes. Cada archivo de habilidad se escanea linea por linea antes de cargarse, y los hallazgos de severidad Critica o Alta bloquean la ejecucion de la habilidad.
+
+### Modelo de Severidad
+
+| Nivel | Accion | Descripcion |
+|-------|--------|-------------|
+| **Critico** | Fallar escaneo | Patrones de explotacion activa (shells inversos, inyeccion de codigo) |
+| **Alto** | Fallar escaneo | Robo de credenciales, escalada de privilegios, inyeccion de procesos |
+| **Medio** | Advertir | Sospechoso pero potencialmente legitimo (descargadores, symlinks) |
+| **Advertencia** | Advertir | Indicadores de bajo riesgo (referencias a archivos env, chmod) |
+| **Info** | Registrar | Hallazgos informativos |
+
+### Categorias de Deteccion (40 Reglas)
+
+**Reglas de Defensa Originales (10)**
+- `pipe-to-shell`, `wget-pipe-to-shell` — Ejecucion remota de codigo via descargas canalizadas
+- `eval-with-fetch`, `fetch-with-eval` — Inyeccion de codigo via eval + red
+- `base64-decode-exec` — Ejecucion ofuscada via decodificacion base64
+- `soul-md-modification`, `memory-md-modification` — Manipulacion de identidad
+- `rm-rf-pattern` — Operaciones destructivas del sistema de archivos
+- `env-file-reference`, `chmod-777` — Acceso a archivos sensibles, permisos de escritura mundial
+
+**Shells Inversos (7)** — Severidad critica
+- `reverse-shell-bash`, `reverse-shell-nc`, `reverse-shell-ncat`, `reverse-shell-mkfifo`, `reverse-shell-python`, `reverse-shell-perl`, `reverse-shell-ruby`
+
+**Recoleccion de Credenciales (6)** — Severidad alta
+- `credential-ssh-keys`, `credential-aws`, `credential-cloud-config`, `credential-browser-cookies`, `credential-keychain`, `credential-etc-shadow`
+
+**Exfiltracion de Red (3)** — Severidad alta
+- `exfil-dns-tunnel`, `exfil-dev-tcp`, `exfil-nc-outbound`
+
+**Inyeccion de Procesos (4)** — Severidad critica
+- `injection-ptrace`, `injection-ld-preload`, `injection-proc-mem`, `injection-gdb-attach`
+
+**Escalada de Privilegios (5)** — Severidad alta
+- `privesc-sudo`, `privesc-setuid`, `privesc-setcap`, `privesc-chown-root`, `privesc-nsenter`
+
+**Symlink / Travesia de Ruta (2)** — Severidad media
+- `symlink-escape`, `path-traversal-deep`
+
+**Cadenas de Descarga (3)** — Severidad media
+- `downloader-curl-save`, `downloader-wget-save`, `downloader-chmod-exec`
+
+### Lista Blanca de Ejecutables
+
+El tipo de regla `AllowedExecutablesOnly` restringe que ejecutables puede invocar una habilidad de agente:
+
+```rust
+// Only allow these executables — everything else is blocked
+ScanRule::AllowedExecutablesOnly(vec![
+    "python3".into(),
+    "node".into(),
+    "cargo".into(),
+])
+```
+
+### Reglas Personalizadas
+
+Se pueden agregar patrones especificos del dominio junto con los predeterminados de ClawHavoc:
+
+```rust
+let mut scanner = SkillScanner::new();
+scanner.add_custom_rule(
+    "block-internal-api",
+    r"internal\.corp\.example\.com",
+    ScanSeverity::High,
+    "References to internal API endpoints are not allowed in skills",
+);
+```
+
+---
+
 ## Seguridad de Red
 
-### Comunicación Segura
+### Comunicacion Segura
 
 **Seguridad de Capa de Transporte:**
 - TLS 1.3 para todas las comunicaciones externas
-- TLS mutuo (mTLS) para comunicación servicio a servicio
-- Fijación de certificados para servicios conocidos
+- TLS mutuo (mTLS) para comunicacion servicio a servicio
+- Fijacion de certificados para servicios conocidos
 - Secreto perfecto hacia adelante
 
 **Seguridad a Nivel de Mensaje:**
 - Cifrado de extremo a extremo para mensajes de agentes
-- Códigos de autenticación de mensajes (MAC)
-- Prevención de ataques de repetición con marcas de tiempo
-- Garantías de ordenamiento de mensajes
+- Codigos de autenticacion de mensajes (MAC)
+- Prevencion de ataques de repeticion con marcas de tiempo
+- Garantias de ordenamiento de mensajes
 
 ```rust
 pub struct SecureChannel {
@@ -620,16 +720,16 @@ impl SecureChannel {
     pub fn encrypt_message(&self, plaintext: &[u8]) -> Result<Vec<u8>> {
         let counter = self.send_counter.fetch_add(1, Ordering::SeqCst);
         let nonce = self.generate_nonce(counter);
-        
+
         let ciphertext = ChaCha20Poly1305::new(&self.encryption_key)
             .encrypt(&nonce, plaintext)?;
-        
+
         let mac = Hmac::<Sha256>::new_from_slice(&self.mac_key)?
             .chain_update(&ciphertext)
             .chain_update(&counter.to_le_bytes())
             .finalize()
             .into_bytes();
-        
+
         Ok([ciphertext, mac.to_vec()].concat())
     }
 }
@@ -639,11 +739,11 @@ impl SecureChannel {
 
 **Control de Red del Sandbox:**
 - Sin acceso a red por defecto
-- Lista de permitidos explícita para conexiones externas
-- Monitoreo de tráfico y detección de anomalías
-- Filtrado y validación de DNS
+- Lista de permitidos explicita para conexiones externas
+- Monitoreo de trafico y deteccion de anomalias
+- Filtrado y validacion de DNS
 
-**Políticas de Red:**
+**Politicas de Red:**
 ```yaml
 network_policy:
   default_action: "deny"
@@ -654,7 +754,7 @@ network_policy:
     - ip_range: "10.0.0.0/8"
       ports: [6333]  # Qdrant (only needed if using optional Qdrant backend)
       protocol: "http"
-  
+
   monitoring:
     log_all_connections: true
     detect_anomalies: true
@@ -665,15 +765,15 @@ network_policy:
 
 ## Respuesta a Incidentes
 
-### Detección de Eventos de Seguridad
+### Deteccion de Eventos de Seguridad
 
-**Detección Automatizada:**
-- Monitoreo de violaciones de políticas
-- Detección de comportamiento anómalo
-- Anomalías de uso de recursos
-- Seguimiento de autenticación fallida
+**Deteccion Automatizada:**
+- Monitoreo de violaciones de politicas
+- Deteccion de comportamiento anomalo
+- Anomalias de uso de recursos
+- Seguimiento de autenticacion fallida
 
-**Clasificación de Alertas:**
+**Clasificacion de Alertas:**
 ```rust
 pub enum SecurityEventSeverity {
     Info,       // Normal security events
@@ -700,48 +800,48 @@ pub struct SecurityEvent {
 graph TB
     A[Security Event] --> B[Event Classification]
     B --> C{Severity Level}
-    
+
     C -->|Info/Low| D[Log Event]
     C -->|Medium| E[Alert Security Team]
     C -->|High| F[Automatic Mitigation]
     C -->|Critical| G[Emergency Response]
-    
+
     F --> H[Isolate Affected Components]
     F --> I[Revoke Compromised Credentials]
     F --> J[Preserve Evidence]
-    
+
     G --> H
     G --> K[Notify Leadership]
     G --> L[External Incident Response]
 ```
 
-### Procedimientos de Recuperación
+### Procedimientos de Recuperacion
 
-**Recuperación Automatizada:**
+**Recuperacion Automatizada:**
 - Reinicio de agente con estado limpio
-- Rotación de claves para credenciales comprometidas
-- Actualizaciones de políticas para prevenir recurrencia
-- Verificación de salud del sistema
+- Rotacion de claves para credenciales comprometidas
+- Actualizaciones de politicas para prevenir recurrencia
+- Verificacion de salud del sistema
 
-**Recuperación Manual:**
-- Análisis forense de eventos de seguridad
-- Análisis de causa raíz y remediación
+**Recuperacion Manual:**
+- Analisis forense de eventos de seguridad
+- Analisis de causa raiz y remediacion
 - Actualizaciones de controles de seguridad
-- Documentación de incidentes y lecciones aprendidas
+- Documentacion de incidentes y lecciones aprendidas
 
 ---
 
-## Mejores Prácticas de Seguridad
+## Mejores Practicas de Seguridad
 
 ### Directrices de Desarrollo
 
-1. **Seguro por Defecto**: Todas las características de seguridad habilitadas por defecto
-2. **Principio de Privilegio Mínimo**: Permisos mínimos para todas las operaciones
-3. **Defensa en Profundidad**: Múltiples capas de seguridad con redundancia
+1. **Seguro por Defecto**: Todas las caracteristicas de seguridad habilitadas por defecto
+2. **Principio de Privilegio Minimo**: Permisos minimos para todas las operaciones
+3. **Defensa en Profundidad**: Multiples capas de seguridad con redundancia
 4. **Fallar de Forma Segura**: Las fallas de seguridad deben denegar el acceso, no otorgarlo
 5. **Auditar Todo**: Registro completo de operaciones relevantes para la seguridad
 
-### Seguridad de Implementación
+### Seguridad de Implementacion
 
 **Endurecimiento del Entorno:**
 ```bash
@@ -771,23 +871,23 @@ LABEL security.no-new-privileges=true
 
 ### Seguridad Operacional
 
-**Lista de Verificación de Monitoreo:**
+**Lista de Verificacion de Monitoreo:**
 - [ ] Monitoreo de eventos de seguridad en tiempo real
-- [ ] Seguimiento de violaciones de políticas
-- [ ] Detección de anomalías de uso de recursos
-- [ ] Monitoreo de autenticación fallida
-- [ ] Seguimiento de expiración de certificados
+- [ ] Seguimiento de violaciones de politicas
+- [ ] Deteccion de anomalias de uso de recursos
+- [ ] Monitoreo de autenticacion fallida
+- [ ] Seguimiento de expiracion de certificados
 
 **Procedimientos de Mantenimiento:**
 - Actualizaciones y parches de seguridad regulares
-- Rotación de claves programada
-- Revisión y actualizaciones de políticas
-- Auditoría de seguridad y pruebas de penetración
+- Rotacion de claves programada
+- Revision y actualizaciones de politicas
+- Auditoria de seguridad y pruebas de penetracion
 - Pruebas del plan de respuesta a incidentes
 
 ---
 
-## Configuración de Seguridad
+## Configuracion de Seguridad
 
 ### Variables de Entorno
 
@@ -808,7 +908,7 @@ export SYMBIONT_DEFAULT_SANDBOX_TIER=gvisor
 export SYMBIONT_TOFU_ENABLED=true
 ```
 
-### Archivo de Configuración de Seguridad
+### Archivo de Configuracion de Seguridad
 
 ```toml
 [security]
@@ -852,68 +952,68 @@ automatic_key_pinning = false
 
 ---
 
-## Métricas de Seguridad
+## Metricas de Seguridad
 
 ### Indicadores Clave de Rendimiento
 
 **Operaciones de Seguridad:**
-- Latencia de evaluación de políticas: promedio <1ms
-- Tasa de generación de eventos de auditoría: 10,000+ eventos/segundo
+- Latencia de evaluacion de politicas: promedio <1ms
+- Tasa de generacion de eventos de auditoria: 10,000+ eventos/segundo
 - Tiempo de respuesta a incidentes de seguridad: <5 minutos
-- Rendimiento de operaciones criptográficas: 70,000+ ops/segundo
+- Rendimiento de operaciones criptograficas: 70,000+ ops/segundo
 
-**Métricas de Cumplimiento:**
-- Tasa de cumplimiento de políticas: >99.9%
-- Integridad del rastro de auditoría: 100%
+**Metricas de Cumplimiento:**
+- Tasa de cumplimiento de politicas: >99.9%
+- Integridad del rastro de auditoria: 100%
 - Tasa de falsos positivos de eventos de seguridad: <1%
-- Tiempo de resolución de incidentes: <24 horas
+- Tiempo de resolucion de incidentes: <24 horas
 
-**Evaluación de Riesgo:**
+**Evaluacion de Riesgo:**
 - Tiempo de parcheo de vulnerabilidades: <48 horas
 - Efectividad de controles de seguridad: >95%
-- Precisión de detección de amenazas: >99%
-- Objetivo de tiempo de recuperación: <1 hora
+- Precision de deteccion de amenazas: >99%
+- Objetivo de tiempo de recuperacion: <1 hora
 
 ---
 
 ## Mejoras Futuras
 
-### Criptografía Avanzada
+### Criptografia Avanzada
 
-**Criptografía Post-Cuántica:**
-- Algoritmos post-cuánticos aprobados por NIST
-- Esquemas híbridos clásicos/post-cuánticos
-- Planificación de migración para amenazas cuánticas
+**Criptografia Post-Cuantica:**
+- Algoritmos post-cuanticos aprobados por NIST
+- Esquemas hibridos clasicos/post-cuanticos
+- Planificacion de migracion para amenazas cuanticas
 
-**Cifrado Homomórfico:**
-- Computación que preserva la privacidad en datos cifrados
-- Esquema CKKS para aritmética aproximada
-- Integración con flujos de trabajo de aprendizaje automático
+**Cifrado Homomorfico:**
+- Computacion que preserva la privacidad en datos cifrados
+- Esquema CKKS para aritmetica aproximada
+- Integracion con flujos de trabajo de aprendizaje automatico
 
 **Pruebas de Conocimiento Cero:**
-- zk-SNARKs para verificación de computación
-- Autenticación que preserva la privacidad
-- Generación de pruebas de cumplimiento
+- zk-SNARKs para verificacion de computacion
+- Autenticacion que preserva la privacidad
+- Generacion de pruebas de cumplimiento
 
 ### Seguridad Mejorada por IA
 
-**Análisis de Comportamiento:**
-- Aprendizaje automático para detección de anomalías
-- Análisis de seguridad predictiva
+**Analisis de Comportamiento:**
+- Aprendizaje automatico para deteccion de anomalias
+- Analisis de seguridad predictiva
 - Respuesta adaptativa a amenazas
 
 **Respuesta Automatizada:**
 - Controles de seguridad auto-curativos
-- Generación dinámica de políticas
-- Clasificación inteligente de incidentes
+- Generacion dinamica de politicas
+- Clasificacion inteligente de incidentes
 
 ---
 
-## Próximos Pasos
+## Proximos Pasos
 
 - **[Contribuir](/contributing)** - Directrices de desarrollo de seguridad
-- **[Arquitectura de Tiempo de Ejecución](/runtime-architecture)** - Detalles de implementación técnica
-- **[Referencia de API](/api-reference)** - Documentación de API de seguridad
-- **[Guía de Cumplimiento](/compliance)** - Información de cumplimiento regulatorio
+- **[Arquitectura del Runtime](/runtime-architecture)** - Detalles de implementacion tecnica
+- **[Referencia de API](/api-reference)** - Documentacion de API de seguridad
+- **[Guia de Cumplimiento](/compliance)** - Informacion de cumplimiento regulatorio
 
-El modelo de seguridad de Symbiont proporciona protección de grado empresarial adecuada para industrias reguladas y entornos de alta seguridad. Su enfoque en capas asegura una protección robusta contra amenazas en evolución mientras mantiene la eficiencia operacional.
+El modelo de seguridad de Symbiont proporciona proteccion de grado empresarial adecuada para industrias reguladas y entornos de alta seguridad. Su enfoque en capas asegura una proteccion robusta contra amenazas en evolucion mientras mantiene la eficiencia operacional.

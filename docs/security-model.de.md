@@ -8,15 +8,15 @@ nav_exclude: true
 # Sicherheitsmodell
 {: .no_toc }
 
+Umfassende Sicherheitsarchitektur, die Zero-Trust, richtliniengesteuerten Schutz fuer KI-Agenten gewaehrleistet.
+{: .fs-6 .fw-300 }
+
 ## 🌐 Andere Sprachen
 {: .no_toc}
 
 [English](security-model.md) | [中文简体](security-model.zh-cn.md) | [Español](security-model.es.md) | [Português](security-model.pt.md) | [日本語](security-model.ja.md) | **Deutsch**
 
 ---
-
-Umfassende Sicherheitsarchitektur, die Zero-Trust, richtliniengesteuerten Schutz für KI-Agenten gewährleistet.
-{: .fs-6 .fw-300 }
 
 ## Inhaltsverzeichnis
 {: .no_toc .text-delta }
@@ -26,17 +26,17 @@ Umfassende Sicherheitsarchitektur, die Zero-Trust, richtliniengesteuerten Schutz
 
 ---
 
-## Überblick
+## Ueberblick
 
-Symbiont implementiert eine sicherheitsorientierte Architektur, die für regulierte und hochsichere Umgebungen entwickelt wurde. Das Sicherheitsmodell basiert auf Zero-Trust-Prinzipien mit umfassender Richtliniendurchsetzung, mehrstufiger Sandbox und kryptographischer Auditierbarkeit.
+Symbiont implementiert eine sicherheitsorientierte Architektur, die fuer regulierte und hochsichere Umgebungen entwickelt wurde. Das Sicherheitsmodell basiert auf Zero-Trust-Prinzipien mit umfassender Richtliniendurchsetzung, mehrstufiger Sandbox und kryptographischer Auditierbarkeit.
 
 ### Sicherheitsprinzipien
 
 - **Zero Trust**: Alle Komponenten und Kommunikationen werden verifiziert
 - **Defense in Depth**: Mehrere Sicherheitsschichten ohne Single Point of Failure
 - **Richtliniengesteuert**: Deklarative Sicherheitsrichtlinien zur Laufzeit durchgesetzt
-- **Vollständige Auditierbarkeit**: Jede Operation mit kryptographischer Integrität protokolliert
-- **Least Privilege**: Minimale für den Betrieb erforderliche Berechtigungen
+- **Vollstaendige Auditierbarkeit**: Jede Operation mit kryptographischer Integritaet protokolliert
+- **Least Privilege**: Minimale fuer den Betrieb erforderliche Berechtigungen
 
 ---
 
@@ -47,35 +47,35 @@ Die Laufzeitumgebung implementiert zwei Isolationsstufen basierend auf Risikobew
 ```mermaid
 graph TB
     A[Risk Assessment Engine] --> B{Risk Level}
-    
+
     B -->|Low Risk| C[Tier 1: Docker]
     B -->|Medium/High Risk| D[Tier 2: gVisor]
-    
+
     subgraph "Tier 1: Container Isolation"
         C1[Container Runtime]
         C2[Resource Limits]
         C3[Network Isolation]
         C4[Read-only Filesystem]
     end
-    
+
     subgraph "Tier 2: User-space Kernel"
         D1[System Call Interception]
         D2[Memory Protection]
         D3[I/O Virtualization]
         D4[Enhanced Isolation]
     end
-    
+
     C --> C1
     D --> D1
 ```
 
-> **Hinweis**: Zusätzliche Isolationsstufen mit Hardware-Virtualisierung sind in Enterprise-Editionen verfügbar.
+> **Hinweis**: Zusaetzliche Isolationsstufen mit Hardware-Virtualisierung sind in Enterprise-Editionen verfuegbar.
 
 ### Stufe 1: Docker-Isolation
 
-**Anwendungsfälle:**
-- Vertrauenswürdige Entwicklungsaufgaben
-- Datenverarbeitung mit geringer Sensibilität
+**Anwendungsfaelle:**
+- Vertrauenswuerdige Entwicklungsaufgaben
+- Datenverarbeitung mit geringer Sensibilitaet
 - Interne Tool-Operationen
 
 **Sicherheitsmerkmale:**
@@ -95,20 +95,20 @@ docker_security:
 
 **Bedrohungsschutz:**
 - Prozessisolation vom Host
-- Ressourcenerschöpfungsschutz
+- Ressourcenerschoepfungsschutz
 - Netzwerkzugriffskontrolle
 - Dateisystemschutz
 
 ### Stufe 2: gVisor-Isolation
 
-**Anwendungsfälle:**
+**Anwendungsfaelle:**
 - Standard-Produktionsworkloads
 - Verarbeitung sensibler Daten
 - Integration externer Tools
 
 **Sicherheitsmerkmale:**
 - Benutzerbereich-Kernel-Implementierung
-- Systemaufruf-Filterung und -Übersetzung
+- Systemaufruf-Filterung und -Uebersetzung
 - Speicherschutzgrenzen
 - E/A-Anfrageverifizierung
 
@@ -123,13 +123,13 @@ gvisor_security:
   strace: false
 ```
 
-**Erweiteter Schutz:**
-- Kernel-Sicherheitslücken-Isolation
+**Erweiterter Schutz:**
+- Kernel-Sicherheitsluecken-Isolation
 - Systemaufruf-Abfangung
-- Speicherkorruptions-Prävention
+- Speicherkorruptions-Praevention
 - Seitenkanalangriff-Minderung
 
-> **Enterprise-Feature**: Erweiterte Isolation mit Hardware-Virtualisierung (Firecracker) ist in Enterprise-Editionen für maximale Sicherheitsanforderungen verfügbar.
+> **Enterprise-Feature**: Erweiterte Isolation mit Hardware-Virtualisierung (Firecracker) ist in Enterprise-Editionen fuer maximale Sicherheitsanforderungen verfuegbar.
 
 ### Risikobewertungsalgorithmus
 
@@ -145,11 +145,11 @@ pub struct RiskAssessment {
 pub fn calculate_risk_score(assessment: RiskAssessment) -> f32 {
     let base_score = assessment.data_sensitivity * 0.4
         + (1.0 - assessment.code_trust_level) * 0.3;
-    
+
     let access_penalty = if assessment.network_access { 0.1 } else { 0.0 }
         + if assessment.filesystem_access { 0.1 } else { 0.0 }
         + if assessment.external_apis { 0.1 } else { 0.0 };
-    
+
     (base_score + access_penalty).min(1.0)
 }
 ```
@@ -168,13 +168,13 @@ graph TB
     B --> C[Policy Store]
     C --> D[Policy Engine]
     D --> E[Enforcement Points]
-    
+
     E --> F[Agent Creation]
     E --> G[Resource Access]
     E --> H[Message Routing]
     E --> I[Tool Invocation]
     E --> J[Data Operations]
-    
+
     K[Audit Logger] --> L[Policy Violations]
     E --> K
 ```
@@ -192,9 +192,9 @@ policy secure_data_access {
         user.need_to_know.contains(data.classification) &&
         session.mfa_verified == true
     )
-    
+
     deny: export(data) if data.contains_pii == true
-    
+
     require: [
         user.background_check.current,
         session.secure_connection,
@@ -205,7 +205,7 @@ policy secure_data_access {
 
 #### Datenflussrichtlinien
 
-Kontrollieren, wie Daten durch das System fließen:
+Kontrollieren, wie Daten durch das System fliessen:
 
 ```rust
 policy data_flow_control {
@@ -213,11 +213,11 @@ policy data_flow_control {
         source.classification <= target.classification &&
         user.transform_permissions.contains(operation.type)
     )
-    
+
     deny: aggregate(datasets) if (
         any(datasets, |d| d.privacy_level > operation.privacy_budget)
     )
-    
+
     require: differential_privacy for statistical_operations
 }
 ```
@@ -232,9 +232,9 @@ policy resource_governance {
         user.resource_quota.remaining >= resources.total &&
         operation.priority <= user.max_priority
     )
-    
+
     deny: long_running_operations if system.maintenance_mode
-    
+
     require: supervisor_approval for high_memory_operations
 }
 ```
@@ -244,11 +244,11 @@ policy resource_governance {
 ```rust
 pub trait PolicyEngine {
     async fn evaluate_policy(
-        &self, 
-        context: PolicyContext, 
+        &self,
+        context: PolicyContext,
         action: Action
     ) -> PolicyDecision;
-    
+
     async fn register_policy(&self, policy: Policy) -> Result<PolicyId>;
     async fn update_policy(&self, policy_id: PolicyId, policy: Policy) -> Result<()>;
 }
@@ -264,15 +264,41 @@ pub enum PolicyDecision {
 ### Leistungsoptimierung
 
 **Richtlinien-Caching:**
-- Kompilierte Richtlinienbewertung für Leistung
-- LRU-Cache für häufige Entscheidungen
-- Batch-Bewertung für Massenoperationen
+- Kompilierte Richtlinienbewertung fuer Leistung
+- LRU-Cache fuer haeufige Entscheidungen
+- Batch-Bewertung fuer Massenoperationen
 - Submillisekunden-Bewertungszeiten
 
 **Inkrementelle Updates:**
 - Echtzeit-Richtlinienaktualisierungen ohne Neustart
 - Versionierte Richtlinienbereitstellung
-- Rollback-Fähigkeiten für Richtlinienfehler
+- Rollback-Faehigkeiten fuer Richtlinienfehler
+
+### Cedar Policy Engine (`cedar` Feature)
+
+Symbiont integriert die [Cedar-Richtliniensprache](https://www.cedarpolicy.com/) fuer formale Autorisierung. Cedar ermoeglicht feingranulare, auditierbare Zugriffskontrollrichtlinien, die an der Policy-Gate-Phase der Reasoning-Schleife ausgewertet werden.
+
+```bash
+cargo build --features cedar
+```
+
+**Hauptfaehigkeiten:**
+- **Formale Verifikation**: Cedar-Richtlinien koennen statisch auf Korrektheit analysiert werden
+- **Feingranulare Autorisierung**: Entitaetsbasierte Zugriffskontrolle mit hierarchischen Berechtigungen
+- **Reasoning-Loop-Integration**: `CedarGate` implementiert das `ReasoningPolicyGate` Trait und bewertet jede vorgeschlagene Aktion gegen Cedar-Richtlinien vor der Ausfuehrung
+- **Audit-Spur**: Alle Cedar-Richtlinienentscheidungen werden mit vollstaendigem Kontext protokolliert
+
+```rust
+use symbi_runtime::reasoning::cedar_gate::CedarGate;
+
+// Cedar-Richtlinien laden und Aktionen in der Reasoning-Schleife auswerten
+let cedar_gate = CedarGate::new(policy_set, entities);
+let runner = ReasoningLoopRunner::builder()
+    .provider(provider)
+    .executor(executor)
+    .policy_gate(Arc::new(cedar_gate))
+    .build();
+```
 
 ---
 
@@ -283,8 +309,8 @@ pub enum PolicyDecision {
 Alle sicherheitsrelevanten Operationen sind kryptographisch signiert:
 
 **Signaturalgorithmus:** Ed25519 (RFC 8032)
-- **Schlüsselgröße:** 256-Bit private Schlüssel, 256-Bit öffentliche Schlüssel
-- **Signaturgröße:** 512 Bits (64 Bytes)
+- **Schluesselgroesse:** 256-Bit private Schluessel, 256-Bit oeffentliche Schluessel
+- **Signaturgroesse:** 512 Bits (64 Bytes)
 - **Leistung:** 70.000+ Signaturen/Sekunde, 25.000+ Verifikationen/Sekunde
 
 ```rust
@@ -301,7 +327,7 @@ impl AuditEvent {
         self.signature = private_key.sign(&message);
         Ok(())
     }
-    
+
     pub fn verify(&self, public_key: &PublicKey) -> bool {
         let message = self.serialize_for_signing().unwrap();
         public_key.verify(&message, &self.signature)
@@ -309,19 +335,19 @@ impl AuditEvent {
 }
 ```
 
-### Schlüsselverwaltung
+### Schluesselverwaltung
 
-**Schlüsselspeicherung:**
+**Schluesselspeicherung:**
 - Hardware Security Module (HSM) Integration
-- Secure Enclave Unterstützung für Schlüsselschutz
-- Schlüsselrotation mit konfigurierbaren Intervallen
-- Verteilte Schlüsselsicherung und -wiederherstellung
+- Secure Enclave Unterstuetzung fuer Schluesselschutz
+- Schluesselrotation mit konfigurierbaren Intervallen
+- Verteilte Schluesselsicherung und -wiederherstellung
 
-**Schlüsselhierarchie:**
-- Root-Signierschlüssel für Systemoperationen
-- Pro-Agent-Schlüssel für Operationssignierung
-- Ephemere Schlüssel für Sitzungsverschlüsselung
-- Externe Schlüssel für Tool-Verifikation
+**Schluesselhierarchie:**
+- Root-Signierschluessel fuer Systemoperationen
+- Pro-Agent-Schluessel fuer Operationssignierung
+- Ephemere Schluessel fuer Sitzungsverschluesselung
+- Externe Schluessel fuer Tool-Verifikation
 
 ```rust
 pub struct KeyManager {
@@ -337,22 +363,22 @@ impl KeyManager {
 }
 ```
 
-### Verschlüsselungsstandards
+### Verschluesselungsstandards
 
-**Symmetrische Verschlüsselung:** AES-256-GCM
-- 256-Bit-Schlüssel mit authentifizierter Verschlüsselung
-- Eindeutige Nonces für jede Verschlüsselungsoperation
-- Zugehörige Daten für Kontextbindung
+**Symmetrische Verschluesselung:** AES-256-GCM
+- 256-Bit-Schluessel mit authentifizierter Verschluesselung
+- Eindeutige Nonces fuer jede Verschluesselungsoperation
+- Zugehoerige Daten fuer Kontextbindung
 
-**Asymmetrische Verschlüsselung:** X25519 + ChaCha20-Poly1305
-- Elliptische Kurven-Schlüsselaustausch
-- Stream-Verschlüsselung mit authentifizierter Verschlüsselung
+**Asymmetrische Verschluesselung:** X25519 + ChaCha20-Poly1305
+- Elliptische Kurven-Schluesselaustausch
+- Stream-Verschluesselung mit authentifizierter Verschluesselung
 - Perfect Forward Secrecy
 
-**Nachrichtenverschlüsselung:**
+**Nachrichtenverschluesselung:**
 ```rust
 pub fn encrypt_message(
-    plaintext: &[u8], 
+    plaintext: &[u8],
     recipient_public_key: &PublicKey,
     sender_private_key: &PrivateKey
 ) -> Result<EncryptedMessage> {
@@ -360,7 +386,7 @@ pub fn encrypt_message(
     let nonce = generate_random_nonce();
     let ciphertext = ChaCha20Poly1305::new(&shared_secret)
         .encrypt(&nonce, plaintext)?;
-    
+
     Ok(EncryptedMessage {
         nonce,
         ciphertext,
@@ -375,7 +401,7 @@ pub fn encrypt_message(
 
 ### Kryptographische Audit-Spur
 
-Jede sicherheitsrelevante Operation generiert ein unveränderliches Audit-Event:
+Jede sicherheitsrelevante Operation generiert ein unveraenderliches Audit-Event:
 
 ```rust
 pub struct AuditEvent {
@@ -400,7 +426,7 @@ pub struct AuditEvent {
 
 ### Hash-Verkettung
 
-Events sind in einer unveränderlichen Kette verknüpft:
+Events sind in einer unveraenderlichen Kette verknuepft:
 
 ```rust
 impl AuditChain {
@@ -408,21 +434,21 @@ impl AuditChain {
         event.previous_hash = self.last_hash;
         event.event_hash = self.calculate_event_hash(&event);
         event.sign(&self.signing_key)?;
-        
+
         self.events.push(event.clone());
         self.last_hash = event.event_hash;
-        
+
         self.verify_chain_integrity()?;
         Ok(())
     }
-    
+
     pub fn verify_integrity(&self) -> Result<bool> {
         for (i, event) in self.events.iter().enumerate() {
             // Verify signature
             if !event.verify(&self.public_key) {
                 return Ok(false);
             }
-            
+
             // Verify hash chain
             if i > 0 && event.previous_hash != self.events[i-1].event_hash {
                 return Ok(false);
@@ -435,23 +461,23 @@ impl AuditChain {
 
 ### Compliance-Features
 
-**Regulatorische Unterstützung:**
+**Regulatorische Unterstuetzung:**
 
 **HIPAA (Gesundheitswesen):**
 - PHI-Zugriffsprotokolle mit Benutzeridentifikation
 - Datenminimierungsdurchsetzung
 - Datenschutzverletzungserkennung und -benachrichtigung
-- Audit-Spur-Aufbewahrung für 6 Jahre
+- Audit-Spur-Aufbewahrung fuer 6 Jahre
 
 **GDPR (Datenschutz):**
 - Personendatenverarbeitungsprotokolle
-- Einverständnisverifikationsverfolgung
+- Einverstaendnisverifikationsverfolgung
 - Betroffenenrechtsdurchsetzung
 - Datenaufbewahrungsrichtlinien-Compliance
 
 **SOX (Finanzwesen):**
 - Interne Kontrolldokumentation
-- Änderungsmanagement-Verfolgung
+- Aenderungsmanagement-Verfolgung
 - Zugriffskontrollverifikation
 - Finanzdatenschutz
 
@@ -486,14 +512,14 @@ sequenceDiagram
     participant AI as AI Reviewer
     participant Runtime as Symbiont Runtime
     participant Agent as Agent
-    
+
     Tool->>SP: Submit Tool Schema
     SP->>AI: Security Analysis
     AI-->>SP: Analysis Results
     SP->>SP: Human Review (if needed)
     SP->>SP: Sign Schema
     SP-->>Tool: Signed Schema
-    
+
     Agent->>Runtime: Request Tool Use
     Runtime->>SP: Verify Tool Schema
     SP-->>Runtime: Verification Result
@@ -502,11 +528,11 @@ sequenceDiagram
 
 ### Trust-On-First-Use (TOFU)
 
-**Schlüssel-Pinning-Prozess:**
+**Schluessel-Pinning-Prozess:**
 1. Erste Begegnung mit einem Tool-Anbieter
-2. Öffentlichen Schlüssel des Anbieters über externe Kanäle verifizieren
-3. Öffentlichen Schlüssel im lokalen Trust Store anheften
-4. Angehefteten Schlüssel für alle zukünftigen Verifikationen verwenden
+2. Oeffentlichen Schluessel des Anbieters ueber externe Kanaele verifizieren
+3. Oeffentlichen Schluessel im lokalen Trust Store anheften
+4. Angehefteten Schluessel fuer alle zukuenftigen Verifikationen verwenden
 
 ```rust
 pub struct TOFUKeyStore {
@@ -519,16 +545,16 @@ impl TOFUKeyStore {
         if self.pinned_keys.contains_key(&provider) {
             return Err("Key already pinned for provider");
         }
-        
+
         self.pinned_keys.insert(provider, PinnedKey {
             public_key: key,
             pinned_at: SystemTime::now(),
             trust_level: TrustLevel::Unverified,
         });
-        
+
         Ok(())
     }
-    
+
     pub fn verify_tool(&self, tool: &MCPTool) -> VerificationResult {
         if let Some(pinned_key) = self.pinned_keys.get(&tool.provider_id) {
             if pinned_key.public_key.verify(&tool.schema_hash, &tool.signature) {
@@ -543,15 +569,15 @@ impl TOFUKeyStore {
 }
 ```
 
-### KI-gesteuerte Tool-Überprüfung
+### KI-gesteuerte Tool-Ueberpruefung
 
 Automatisierte Sicherheitsanalyse vor Tool-Genehmigung:
 
 **Analysekomponenten:**
-- **Sicherheitslücken-Erkennung**: Musterabgleich gegen bekannte Sicherheitslücken-Signaturen
-- **Schädlicher Code-Erkennung**: ML-basierte Identifikation von bösartigem Verhalten
+- **Sicherheitsluecken-Erkennung**: Musterabgleich gegen bekannte Sicherheitsluecken-Signaturen
+- **Schaedlicher Code-Erkennung**: ML-basierte Identifikation von boesartigem Verhalten
 - **Ressourcennutzungsanalyse**: Bewertung von Rechenressourcenanforderungen
-- **Datenschutz-Folgenabschätzung**: Datenbehandlung und Datenschutzauswirkungen
+- **Datenschutz-Folgenabschaetzung**: Datenbehandlung und Datenschutzauswirkungen
 
 ```rust
 pub struct SecurityAnalyzer {
@@ -564,20 +590,20 @@ pub struct SecurityAnalyzer {
 impl SecurityAnalyzer {
     pub async fn analyze_tool(&self, tool: &MCPTool) -> SecurityAnalysis {
         let mut findings = Vec::new();
-        
+
         // Vulnerability pattern matching
         findings.extend(self.vulnerability_patterns.scan(&tool.schema));
-        
+
         // ML-based detection
         let ml_result = self.ml_detector.analyze(&tool.schema).await?;
         findings.extend(ml_result.findings);
-        
+
         // Resource usage analysis
         let resource_risk = self.resource_analyzer.assess(&tool.schema);
-        
+
         // Privacy impact assessment
         let privacy_impact = self.privacy_assessor.evaluate(&tool.schema);
-        
+
         SecurityAnalysis {
             tool_id: tool.id.clone(),
             risk_score: calculate_risk_score(&findings),
@@ -592,20 +618,94 @@ impl SecurityAnalyzer {
 
 ---
 
+## ClawHavoc Skill-Scanner
+
+Der ClawHavoc-Scanner bietet inhaltsbezogene Verteidigung fuer Agent-Skills. Jede Skill-Datei wird Zeile fuer Zeile vor dem Laden gescannt, und Befunde mit Critical- oder High-Schweregrad blockieren die Ausfuehrung des Skills.
+
+### Schweregrad-Modell
+
+| Stufe | Aktion | Beschreibung |
+|-------|--------|-------------|
+| **Critical** | Scan fehlschlagen | Aktive Ausnutzungsmuster (Reverse Shells, Code-Injektion) |
+| **High** | Scan fehlschlagen | Zugangsdatendiebstahl, Privilegien-Eskalation, Prozessinjektion |
+| **Medium** | Warnen | Verdaechtig, aber moeglicherweise legitim (Downloader, Symlinks) |
+| **Warning** | Warnen | Indikatoren mit geringem Risiko (Env-Datei-Referenzen, chmod) |
+| **Info** | Protokollieren | Informationsbefunde |
+
+### Erkennungskategorien (40 Regeln)
+
+**Urspruengliche Verteidigungsregeln (10)**
+- `pipe-to-shell`, `wget-pipe-to-shell` -- Entfernte Code-Ausfuehrung ueber weitergeleitete Downloads
+- `eval-with-fetch`, `fetch-with-eval` -- Code-Injektion ueber eval + Netzwerk
+- `base64-decode-exec` -- Verschleierte Ausfuehrung ueber Base64-Dekodierung
+- `soul-md-modification`, `memory-md-modification` -- Identitaetsmanipulation
+- `rm-rf-pattern` -- Destruktive Dateisystemoperationen
+- `env-file-reference`, `chmod-777` -- Sensibler Dateizugriff, weltbeschreibbare Berechtigungen
+
+**Reverse Shells (7)** -- Critical Schweregrad
+- `reverse-shell-bash`, `reverse-shell-nc`, `reverse-shell-ncat`, `reverse-shell-mkfifo`, `reverse-shell-python`, `reverse-shell-perl`, `reverse-shell-ruby`
+
+**Credential Harvesting (6)** -- High Schweregrad
+- `credential-ssh-keys`, `credential-aws`, `credential-cloud-config`, `credential-browser-cookies`, `credential-keychain`, `credential-etc-shadow`
+
+**Netzwerk-Exfiltration (3)** -- High Schweregrad
+- `exfil-dns-tunnel`, `exfil-dev-tcp`, `exfil-nc-outbound`
+
+**Prozessinjektion (4)** -- Critical Schweregrad
+- `injection-ptrace`, `injection-ld-preload`, `injection-proc-mem`, `injection-gdb-attach`
+
+**Privilegien-Eskalation (5)** -- High Schweregrad
+- `privesc-sudo`, `privesc-setuid`, `privesc-setcap`, `privesc-chown-root`, `privesc-nsenter`
+
+**Symlink- / Pfadtraversal (2)** -- Medium Schweregrad
+- `symlink-escape`, `path-traversal-deep`
+
+**Downloader-Ketten (3)** -- Medium Schweregrad
+- `downloader-curl-save`, `downloader-wget-save`, `downloader-chmod-exec`
+
+### Ausfuehrbare-Whitelisting
+
+Der `AllowedExecutablesOnly`-Regeltyp beschraenkt, welche ausfuehrbaren Dateien ein Agent-Skill aufrufen kann:
+
+```rust
+// Nur diese Ausfuehrbaren erlauben -- alles andere wird blockiert
+ScanRule::AllowedExecutablesOnly(vec![
+    "python3".into(),
+    "node".into(),
+    "cargo".into(),
+])
+```
+
+### Benutzerdefinierte Regeln
+
+Domaenenspezifische Muster koennen neben den ClawHavoc-Standards hinzugefuegt werden:
+
+```rust
+let mut scanner = SkillScanner::new();
+scanner.add_custom_rule(
+    "block-internal-api",
+    r"internal\.corp\.example\.com",
+    ScanSeverity::High,
+    "References to internal API endpoints are not allowed in skills",
+);
+```
+
+---
+
 ## Netzwerksicherheit
 
 ### Sichere Kommunikation
 
 **Transport Layer Security:**
-- TLS 1.3 für alle externe Kommunikation
-- Mutual TLS (mTLS) für Service-zu-Service-Kommunikation
-- Zertifikat-Pinning für bekannte Services
+- TLS 1.3 fuer alle externe Kommunikation
+- Mutual TLS (mTLS) fuer Service-zu-Service-Kommunikation
+- Zertifikat-Pinning fuer bekannte Services
 - Perfect Forward Secrecy
 
 **Nachrichten-Level-Sicherheit:**
-- Ende-zu-Ende-Verschlüsselung für Agent-Nachrichten
+- Ende-zu-Ende-Verschluesselung fuer Agent-Nachrichten
 - Message Authentication Codes (MAC)
-- Replay-Angriff-Prävention mit Zeitstempeln
+- Replay-Angriff-Praevention mit Zeitstempeln
 - Nachrichten-Reihenfolgen-Garantien
 
 ```rust
@@ -620,16 +720,16 @@ impl SecureChannel {
     pub fn encrypt_message(&self, plaintext: &[u8]) -> Result<Vec<u8>> {
         let counter = self.send_counter.fetch_add(1, Ordering::SeqCst);
         let nonce = self.generate_nonce(counter);
-        
+
         let ciphertext = ChaCha20Poly1305::new(&self.encryption_key)
             .encrypt(&nonce, plaintext)?;
-        
+
         let mac = Hmac::<Sha256>::new_from_slice(&self.mac_key)?
             .chain_update(&ciphertext)
             .chain_update(&counter.to_le_bytes())
             .finalize()
             .into_bytes();
-        
+
         Ok([ciphertext, mac.to_vec()].concat())
     }
 }
@@ -638,9 +738,9 @@ impl SecureChannel {
 ### Netzwerkisolation
 
 **Sandbox-Netzwerkkontrolle:**
-- Standardmäßig kein Netzwerkzugriff
-- Explizite Whitelist für externe Verbindungen
-- Traffic-Überwachung und Anomalieerkennung
+- Standardmaessig kein Netzwerkzugriff
+- Explizite Allowlist fuer externe Verbindungen
+- Traffic-Ueberwachung und Anomalieerkennung
 - DNS-Filterung und -Validierung
 
 **Netzwerkrichtlinien:**
@@ -654,7 +754,7 @@ network_policy:
     - ip_range: "10.0.0.0/8"
       ports: [6333]  # Qdrant (only needed if using optional Qdrant backend)
       protocol: "http"
-  
+
   monitoring:
     log_all_connections: true
     detect_anomalies: true
@@ -668,7 +768,7 @@ network_policy:
 ### Sicherheitsereignis-Erkennung
 
 **Automatisierte Erkennung:**
-- Richtlinienverletzungsüberwachung
+- Richtlinienverletzungsueberwachung
 - Anomales Verhaltenserkennung
 - Ressourcennutzungsanomalien
 - Fehlgeschlagene Authentifizierungsverfolgung
@@ -700,16 +800,16 @@ pub struct SecurityEvent {
 graph TB
     A[Security Event] --> B[Event Classification]
     B --> C{Severity Level}
-    
+
     C -->|Info/Low| D[Log Event]
     C -->|Medium| E[Alert Security Team]
     C -->|High| F[Automatic Mitigation]
     C -->|Critical| G[Emergency Response]
-    
+
     F --> H[Isolate Affected Components]
     F --> I[Revoke Compromised Credentials]
     F --> J[Preserve Evidence]
-    
+
     G --> H
     G --> K[Notify Leadership]
     G --> L[External Incident Response]
@@ -719,7 +819,7 @@ graph TB
 
 **Automatisierte Wiederherstellung:**
 - Agent-Neustart mit sauberem Zustand
-- Schlüsselrotation für kompromittierte Anmeldedaten
+- Schluesselrotation fuer kompromittierte Anmeldedaten
 - Richtlinienaktualisierungen zur Wiederholungsverhinderung
 - Systemgesundheitsverifikation
 
@@ -735,15 +835,15 @@ graph TB
 
 ### Entwicklungsrichtlinien
 
-1. **Secure by Default**: Alle Sicherheitsfeatures standardmäßig aktiviert
-2. **Principle of Least Privilege**: Minimale Berechtigungen für alle Operationen
+1. **Secure by Default**: Alle Sicherheitsfeatures standardmaessig aktiviert
+2. **Principle of Least Privilege**: Minimale Berechtigungen fuer alle Operationen
 3. **Defense in Depth**: Mehrere Sicherheitsschichten mit Redundanz
-4. **Fail Securely**: Sicherheitsfehler sollten Zugriff verweigern, nicht gewähren
-5. **Audit Everything**: Vollständige Protokollierung sicherheitsrelevanter Operationen
+4. **Fail Securely**: Sicherheitsfehler sollten Zugriff verweigern, nicht gewaehren
+5. **Audit Everything**: Vollstaendige Protokollierung sicherheitsrelevanter Operationen
 
 ### Deployment-Sicherheit
 
-**Umgebungshärtung:**
+**Umgebungshaertung:**
 ```bash
 # Disable unnecessary services
 systemctl disable cups bluetooth
@@ -771,17 +871,17 @@ LABEL security.no-new-privileges=true
 
 ### Operative Sicherheit
 
-**Überwachungs-Checkliste:**
-- [ ] Echtzeit-Sicherheitsereignisüberwachung
+**Ueberwachungs-Checkliste:**
+- [ ] Echtzeit-Sicherheitsereignisueberwachung
 - [ ] Richtlinienverletzungsverfolgung
-- [ ] Ressourcennutzungsanomalieerkennnung
-- [ ] Fehlgeschlagene Authentifizierungsüberwachung
+- [ ] Ressourcennutzungsanomalieerkennung
+- [ ] Fehlgeschlagene Authentifizierungsueberwachung
 - [ ] Zertifikatsablaufverfolgung
 
 **Wartungsverfahren:**
-- Regelmäßige Sicherheitsupdates und Patches
-- Geplante Schlüsselrotation
-- Richtlinienüberprüfung und -aktualisierungen
+- Regelmaessige Sicherheitsupdates und Patches
+- Geplante Schluesselrotation
+- Richtlinienueberpruefung und -aktualisierungen
 - Sicherheitsaudit und Penetrationstests
 - Incident Response Plan Tests
 
@@ -864,42 +964,42 @@ automatic_key_pinning = false
 
 **Compliance-Metriken:**
 - Richtlinien-Compliance-Rate: >99,9%
-- Audit-Spur-Integrität: 100%
+- Audit-Spur-Integritaet: 100%
 - Sicherheitsereignis-False-Positive-Rate: <1%
-- Vorfallauflösungszeit: <24 Stunden
+- Vorfallaufloesungszeit: <24 Stunden
 
 **Risikobewertung:**
-- Sicherheitslücken-Patch-Zeit: <48 Stunden
-- Sicherheitskontrolleffektivität: >95%
+- Sicherheitsluecken-Patch-Zeit: <48 Stunden
+- Sicherheitskontrolleffektivitaet: >95%
 - Bedrohungserkennungsgenauigkeit: >99%
 - Recovery Time Objective: <1 Stunde
 
 ---
 
-## Zukünftige Verbesserungen
+## Zukuenftige Verbesserungen
 
 ### Erweiterte Kryptographie
 
 **Post-Quantum-Kryptographie:**
 - NIST-genehmigte Post-Quantum-Algorithmen
 - Hybride klassische/Post-Quantum-Schemas
-- Migrationspläne für Quantenbedrohungen
+- Migrationsplaene fuer Quantenbedrohungen
 
-**Homomorphe Verschlüsselung:**
-- Datenschutzwahrende Berechnung auf verschlüsselten Daten
-- CKKS-Schema für approximative Arithmetik
+**Homomorphe Verschluesselung:**
+- Datenschutzwahrende Berechnung auf verschluesselten Daten
+- CKKS-Schema fuer approximative Arithmetik
 - Integration mit Machine Learning Workflows
 
 **Zero-Knowledge Proofs:**
-- zk-SNARKs für Berechnungsverifikation
+- zk-SNARKs fuer Berechnungsverifikation
 - Datenschutzwahrende Authentifizierung
 - Compliance-Beweisgenerierung
 
-### KI-verstärkte Sicherheit
+### KI-verstaerkte Sicherheit
 
 **Verhaltensanalyse:**
-- Machine Learning für Anomalieerkennung
-- Prädiktive Sicherheitsanalysen
+- Machine Learning fuer Anomalieerkennung
+- Praediktive Sicherheitsanalysen
 - Adaptive Bedrohungsreaktion
 
 **Automatisierte Antwort:**
@@ -909,11 +1009,11 @@ automatic_key_pinning = false
 
 ---
 
-## Nächste Schritte
+## Naechste Schritte
 
-- **[Beiträge](/contributing)** - Sicherheitsentwicklungsrichtlinien
+- **[Beitraege](/contributing)** - Sicherheitsentwicklungsrichtlinien
 - **[Runtime-Architektur](/runtime-architecture)** - Technische Implementierungsdetails
 - **[API-Referenz](/api-reference)** - Sicherheits-API-Dokumentation
 - **[Compliance-Leitfaden](/compliance)** - Regulatorische Compliance-Informationen
 
-Das Symbiont-Sicherheitsmodell bietet unternehmenstauglichen Schutz für regulierte Industrien und Hochsicherheitsumgebungen. Sein geschichteter Ansatz gewährleistet robusten Schutz vor sich entwickelnden Bedrohungen bei gleichzeitiger Aufrechterhaltung der betrieblichen Effizienz.
+Das Symbiont-Sicherheitsmodell bietet unternehmenstauglichen Schutz fuer regulierte Industrien und Hochsicherheitsumgebungen. Sein geschichteter Ansatz gewaehrleistet robusten Schutz vor sich entwickelnden Bedrohungen bei gleichzeitiger Aufrechterhaltung der betrieblichen Effizienz.

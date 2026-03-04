@@ -15,7 +15,7 @@ nav_exclude: true
 
 ---
 
-本指南将指导您设置 Symbi 并创建您的第一个 AI 代理。
+本指南将指导您设置 Symbi 并创建您的第一个 AI 智能体。
 {: .fs-6 .fw-300 }
 
 ## 目录
@@ -40,7 +40,7 @@ nav_exclude: true
 
 - **SchemaPin Go CLI**（用于工具验证）
 
-> **注意：** 向量搜索已内置。Symbi 自带 [LanceDB](https://lancedb.com/) 作为嵌入式向量数据库，无需外部服务。
+> **注意：** 向量搜索已内置。Symbi 自带 [LanceDB](https://lancedb.com/) 作为嵌入式向量数据库——无需外部服务。
 
 ---
 
@@ -92,7 +92,7 @@ cd crates/dsl && cargo run && cargo test
 # 测试运行时系统
 cd ../runtime && cargo test
 
-# 运行示例代理
+# 运行示例智能体
 cargo run --example basic_agent
 cargo run --example full_system
 
@@ -108,11 +108,11 @@ docker run --rm symbi:latest mcp --help
 
 ---
 
-## 您的第一个代理
+## 您的第一个智能体
 
-让我们创建一个简单的数据分析代理来了解 Symbi 的基础知识。
+让我们创建一个简单的数据分析智能体来了解 Symbi 的基础知识。
 
-### 1. 创建代理定义
+### 1. 创建智能体定义
 
 创建一个新文件 `my_agent.dsl`：
 
@@ -125,13 +125,13 @@ metadata {
 
 agent greet_user(name: String) -> String {
     capabilities = ["greeting", "text_processing"]
-    
+
     policy safe_greeting {
         allow: read(name) if name.length <= 100
         deny: store(name) if name.contains_sensitive_data
         audit: all_operations with signature
     }
-    
+
     with memory = "ephemeral", privacy = "low" {
         if (validate_name(name)) {
             greeting = format_greeting(name);
@@ -144,13 +144,13 @@ agent greet_user(name: String) -> String {
 }
 ```
 
-### 2. 运行代理
+### 2. 运行智能体
 
 ```bash
-# 解析并验证代理定义
+# 解析并验证智能体定义
 cargo run -- dsl parse my_agent.dsl
 
-# 在运行时中运行代理
+# 在运行时中运行智能体
 cd crates/runtime && cargo run --example basic_agent -- --agent ../../my_agent.dsl
 ```
 
@@ -170,18 +170,18 @@ metadata {
 }
 ```
 
-为您的代理提供运行时管理和文档的基本信息。
+为您的智能体提供运行时管理和文档的基本信息。
 
-### 代理定义
+### 智能体定义
 
 ```rust
 agent agent_name(parameter: Type) -> ReturnType {
     capabilities = ["capability1", "capability2"]
-    // 代理实现
+    // 智能体实现
 }
 ```
 
-定义代理的接口、功能和行为。
+定义智能体的接口、能力和行为。
 
 ### 策略定义
 
@@ -199,7 +199,7 @@ policy policy_name {
 
 ```rust
 with memory = "persistent", privacy = "high" {
-    // 代理实现
+    // 智能体实现
 }
 ```
 
@@ -211,19 +211,19 @@ with memory = "persistent", privacy = "high" {
 
 ### 探索示例
 
-仓库包含几个示例代理：
+仓库包含几个示例智能体：
 
 ```bash
-# 基本代理示例
+# 基本智能体示例
 cd crates/runtime && cargo run --example basic_agent
 
 # 完整系统演示
 cd crates/runtime && cargo run --example full_system
 
-# 上下文和内存示例
+# 上下文和记忆示例
 cd crates/runtime && cargo run --example context_example
 
-# RAG 增强代理
+# RAG 增强智能体
 cd crates/runtime && cargo run --example rag_example
 ```
 
@@ -241,19 +241,104 @@ cd crates/runtime && cargo run --features http-api --example full_system
 
 **主要 API 端点：**
 - `GET /api/v1/health` - 健康检查和系统状态
-- `GET /api/v1/agents` - 列出所有活跃代理
+- `GET /api/v1/agents` - 列出所有活跃智能体及其实时执行状态
+- `GET /api/v1/agents/{id}/status` - 获取智能体的详细执行指标
 - `POST /api/v1/workflows/execute` - 执行工作流
+
+**新的智能体管理功能：**
+- 实时进程监控和健康检查
+- 运行中智能体的优雅关闭功能
+- 全面的执行指标和资源使用跟踪
+- 支持多种执行模式（临时、持久、定时、事件驱动）
+
+#### 云端 LLM 推理
+
+通过 OpenRouter 连接到云端 LLM 提供商：
+
+```bash
+# 启用云端推理
+cargo build --features cloud-llm
+
+# 设置 API 密钥和模型
+export OPENROUTER_API_KEY="sk-or-..."
+export OPENROUTER_MODEL="google/gemini-2.0-flash-001"  # 可选
+```
+
+#### 独立智能体模式
+
+一行命令启动云原生智能体，支持 LLM 推理和 Composio 工具访问：
+
+```bash
+cargo build --features standalone-agent
+# 启用：cloud-llm + composio
+```
+
+#### 高级推理原语
+
+启用工具筛选、卡住循环检测、上下文预获取和范围约定：
+
+```bash
+cargo build --features symbi-dev
+```
+
+请参阅 [symbi-dev 指南](/symbi-dev) 获取完整文档。
+
+#### Cedar 策略引擎
+
+使用 Cedar 策略语言进行正式授权：
+
+```bash
+cargo build --features cedar
+```
 
 #### 向量数据库（内置）
 
-Symbi 包含 LanceDB 作为零配置嵌入式向量数据库。语义搜索和 RAG 开箱即用，无需启动额外服务：
+Symbi 包含 LanceDB 作为零配置嵌入式向量数据库。语义搜索和 RAG 开箱即用——无需启动额外服务：
 
 ```bash
-# 运行具有 RAG 功能的代理（向量搜索直接可用）
+# 运行具有 RAG 功能的智能体（向量搜索直接可用）
 cd crates/runtime && cargo run --example rag_example
+
+# 使用高级搜索测试上下文管理
+cd crates/runtime && cargo run --example context_example
 ```
 
-> **企业选项：** 对于需要专用向量数据库的团队，Qdrant 可作为可选的 feature-gated 后端使用。设置 `SYMBIONT_VECTOR_BACKEND=qdrant` 和 `QDRANT_URL` 即可启用。
+> **企业选项：** 对于需要专用向量数据库的团队，Qdrant 可作为可选的特性门控后端使用。设置 `SYMBIONT_VECTOR_BACKEND=qdrant` 和 `QDRANT_URL` 即可启用。
+
+**上下文管理功能：**
+- **多模式搜索**：关键词、时间、相似度和混合搜索模式
+- **重要性计算**：考虑访问模式、时效性和用户反馈的高级评分算法
+- **访问控制**：集成策略引擎的智能体范围访问控制
+- **自动归档**：带有压缩存储和清理的保留策略
+- **知识共享**：带有信任评分的安全跨智能体知识共享
+
+#### 特性标志参考
+
+| 特性 | 描述 | 默认 |
+|------|------|------|
+| `keychain` | 操作系统钥匙串集成，用于密钥管理 | 是 |
+| `vector-lancedb` | LanceDB 嵌入式向量后端 | 是 |
+| `vector-qdrant` | Qdrant 分布式向量后端 | 否 |
+| `embedding-models` | 通过 Candle 的本地嵌入模型 | 否 |
+| `http-api` | REST API，带 Swagger UI | 否 |
+| `http-input` | Webhook 服务器，带 JWT 身份验证 | 否 |
+| `cloud-llm` | 云端 LLM 推理（OpenRouter） | 否 |
+| `composio` | Composio MCP 工具集成 | 否 |
+| `standalone-agent` | 云端 LLM + Composio 组合 | 否 |
+| `cedar` | Cedar 策略引擎 | 否 |
+| `symbi-dev` | 高级推理原语 | 否 |
+| `cron` | 持久化 cron 调度 | 否 |
+| `native-sandbox` | 原生进程沙箱 | 否 |
+| `metrics` | OpenTelemetry 指标/追踪 | 否 |
+| `full` | 所有特性（企业版除外） | 否 |
+
+```bash
+# 使用特定特性构建
+cargo build --features "cloud-llm,symbi-dev,cedar"
+
+# 使用所有特性构建
+cargo build --features full
+```
 
 ---
 
@@ -340,9 +425,9 @@ brew install pkg-config openssl
 
 ### 运行时问题
 
-**问题**：代理启动失败
+**问题**：智能体启动失败
 ```bash
-# 检查代理定义语法
+# 检查智能体定义语法
 cargo run -- dsl parse your_agent.dsl
 
 # 启用调试日志记录
@@ -356,14 +441,14 @@ RUST_LOG=debug cd crates/runtime && cargo run --example basic_agent
 ### 文档
 
 - **[DSL 指南](/dsl-guide)** - 完整的 DSL 参考
-- **[运行时架构](/runtime-architecture)** - 系统架构详细信息
+- **[运行时架构](/runtime-architecture)** - 系统架构详情
 - **[安全模型](/security-model)** - 安全和策略文档
 
 ### 社区支持
 
 - **问题**：[GitHub Issues](https://github.com/thirdkeyai/symbiont/issues)
 - **讨论**：[GitHub Discussions](https://github.com/thirdkeyai/symbiont/discussions)
-- **文档**：[完整 API 参考](https://docs.symbiont.platform)
+- **文档**：[完整 API 参考](https://docs.symbiont.dev/api-reference)
 
 ### 调试模式
 
@@ -384,8 +469,10 @@ cd crates/runtime && cargo run --example basic_agent 2>&1 | tee debug.log
 现在您已经运行了 Symbi，请探索这些高级主题：
 
 1. **[DSL 指南](/dsl-guide)** - 学习高级 DSL 功能
-2. **[运行时架构](/runtime-architecture)** - 了解系统内部结构
-3. **[安全模型](/security-model)** - 实施安全策略
-4. **[贡献](/contributing)** - 为项目做出贡献
+2. **[推理循环指南](/reasoning-loop)** - 了解 ORGA 循环
+3. **[高级推理（symbi-dev）](/symbi-dev)** - 工具筛选、卡住循环检测、预水化
+4. **[运行时架构](/runtime-architecture)** - 了解系统内部结构
+5. **[安全模型](/security-model)** - 实施安全策略
+6. **[贡献](/contributing)** - 为项目做出贡献
 
 准备好构建令人惊叹的东西了吗？从我们的[示例项目](https://github.com/thirdkeyai/symbiont/tree/main/crates/runtime/examples)开始，或深入了解[完整规范](/specification)。

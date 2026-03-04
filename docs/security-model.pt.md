@@ -8,15 +8,15 @@ nav_exclude: true
 # Modelo de Segurança
 {: .no_toc }
 
+Arquitetura de segurança abrangente garantindo proteção de confiança zero e orientada por políticas para agentes de IA.
+{: .fs-6 .fw-300 }
+
 ## 🌐 Outros idiomas
 {: .no_toc}
 
 [English](security-model.md) | [中文简体](security-model.zh-cn.md) | [Español](security-model.es.md) | **Português** | [日本語](security-model.ja.md) | [Deutsch](security-model.de.md)
 
 ---
-
-Arquitetura de segurança abrangente garantindo proteção de confiança zero e orientada por políticas para agentes de IA.
-{: .fs-6 .fw-300 }
 
 ## Índice
 {: .no_toc .text-delta }
@@ -47,24 +47,24 @@ O runtime implementa duas camadas de isolamento baseadas na avaliação de risco
 ```mermaid
 graph TB
     A[Risk Assessment Engine] --> B{Risk Level}
-    
+
     B -->|Low Risk| C[Tier 1: Docker]
     B -->|Medium/High Risk| D[Tier 2: gVisor]
-    
+
     subgraph "Tier 1: Container Isolation"
         C1[Container Runtime]
         C2[Resource Limits]
         C3[Network Isolation]
         C4[Read-only Filesystem]
     end
-    
+
     subgraph "Tier 2: User-space Kernel"
         D1[System Call Interception]
         D2[Memory Protection]
         D3[I/O Virtualization]
         D4[Enhanced Isolation]
     end
-    
+
     C --> C1
     D --> D1
 ```
@@ -145,11 +145,11 @@ pub struct RiskAssessment {
 pub fn calculate_risk_score(assessment: RiskAssessment) -> f32 {
     let base_score = assessment.data_sensitivity * 0.4
         + (1.0 - assessment.code_trust_level) * 0.3;
-    
+
     let access_penalty = if assessment.network_access { 0.1 } else { 0.0 }
         + if assessment.filesystem_access { 0.1 } else { 0.0 }
         + if assessment.external_apis { 0.1 } else { 0.0 };
-    
+
     (base_score + access_penalty).min(1.0)
 }
 ```
@@ -168,13 +168,13 @@ graph TB
     B --> C[Policy Store]
     C --> D[Policy Engine]
     D --> E[Enforcement Points]
-    
+
     E --> F[Agent Creation]
     E --> G[Resource Access]
     E --> H[Message Routing]
     E --> I[Tool Invocation]
     E --> J[Data Operations]
-    
+
     K[Audit Logger] --> L[Policy Violations]
     E --> K
 ```
@@ -192,9 +192,9 @@ policy secure_data_access {
         user.need_to_know.contains(data.classification) &&
         session.mfa_verified == true
     )
-    
+
     deny: export(data) if data.contains_pii == true
-    
+
     require: [
         user.background_check.current,
         session.secure_connection,
@@ -213,11 +213,11 @@ policy data_flow_control {
         source.classification <= target.classification &&
         user.transform_permissions.contains(operation.type)
     )
-    
+
     deny: aggregate(datasets) if (
         any(datasets, |d| d.privacy_level > operation.privacy_budget)
     )
-    
+
     require: differential_privacy for statistical_operations
 }
 ```
@@ -232,9 +232,9 @@ policy resource_governance {
         user.resource_quota.remaining >= resources.total &&
         operation.priority <= user.max_priority
     )
-    
+
     deny: long_running_operations if system.maintenance_mode
-    
+
     require: supervisor_approval for high_memory_operations
 }
 ```
@@ -244,11 +244,11 @@ policy resource_governance {
 ```rust
 pub trait PolicyEngine {
     async fn evaluate_policy(
-        &self, 
-        context: PolicyContext, 
+        &self,
+        context: PolicyContext,
         action: Action
     ) -> PolicyDecision;
-    
+
     async fn register_policy(&self, policy: Policy) -> Result<PolicyId>;
     async fn update_policy(&self, policy_id: PolicyId, policy: Policy) -> Result<()>;
 }
@@ -273,6 +273,32 @@ pub enum PolicyDecision {
 - Atualizações de políticas em tempo real sem reinicialização
 - Implantação de políticas versionadas
 - Capacidades de rollback para erros de políticas
+
+### Motor de Políticas Cedar (Feature `cedar`)
+
+O Symbiont integra a [linguagem de políticas Cedar](https://www.cedarpolicy.com/) para autorização formal. O Cedar permite políticas de controle de acesso granulares e auditáveis que são avaliadas no gate de políticas do loop de raciocínio.
+
+```bash
+cargo build --features cedar
+```
+
+**Capacidades principais:**
+- **Verificação formal**: Políticas Cedar podem ser analisadas estaticamente para correção
+- **Autorização granular**: Controle de acesso baseado em entidades com permissões hierárquicas
+- **Integração com loop de raciocínio**: `CedarGate` implementa a trait `ReasoningPolicyGate`, avaliando cada ação proposta contra políticas Cedar antes da execução
+- **Trilha de auditoria**: Todas as decisões de políticas Cedar são registradas com contexto completo
+
+```rust
+use symbi_runtime::reasoning::cedar_gate::CedarGate;
+
+// Carregar políticas Cedar e avaliar ações no loop de raciocínio
+let cedar_gate = CedarGate::new(policy_set, entities);
+let runner = ReasoningLoopRunner::builder()
+    .provider(provider)
+    .executor(executor)
+    .policy_gate(Arc::new(cedar_gate))
+    .build();
+```
 
 ---
 
@@ -301,7 +327,7 @@ impl AuditEvent {
         self.signature = private_key.sign(&message);
         Ok(())
     }
-    
+
     pub fn verify(&self, public_key: &PublicKey) -> bool {
         let message = self.serialize_for_signing().unwrap();
         public_key.verify(&message, &self.signature)
@@ -352,7 +378,7 @@ impl KeyManager {
 **Criptografia de Mensagens:**
 ```rust
 pub fn encrypt_message(
-    plaintext: &[u8], 
+    plaintext: &[u8],
     recipient_public_key: &PublicKey,
     sender_private_key: &PrivateKey
 ) -> Result<EncryptedMessage> {
@@ -360,7 +386,7 @@ pub fn encrypt_message(
     let nonce = generate_random_nonce();
     let ciphertext = ChaCha20Poly1305::new(&shared_secret)
         .encrypt(&nonce, plaintext)?;
-    
+
     Ok(EncryptedMessage {
         nonce,
         ciphertext,
@@ -408,21 +434,21 @@ impl AuditChain {
         event.previous_hash = self.last_hash;
         event.event_hash = self.calculate_event_hash(&event);
         event.sign(&self.signing_key)?;
-        
+
         self.events.push(event.clone());
         self.last_hash = event.event_hash;
-        
+
         self.verify_chain_integrity()?;
         Ok(())
     }
-    
+
     pub fn verify_integrity(&self) -> Result<bool> {
         for (i, event) in self.events.iter().enumerate() {
             // Verify signature
             if !event.verify(&self.public_key) {
                 return Ok(false);
             }
-            
+
             // Verify hash chain
             if i > 0 && event.previous_hash != self.events[i-1].event_hash {
                 return Ok(false);
@@ -486,14 +512,14 @@ sequenceDiagram
     participant AI as AI Reviewer
     participant Runtime as Symbiont Runtime
     participant Agent as Agent
-    
+
     Tool->>SP: Submit Tool Schema
     SP->>AI: Security Analysis
     AI-->>SP: Analysis Results
     SP->>SP: Human Review (if needed)
     SP->>SP: Sign Schema
     SP-->>Tool: Signed Schema
-    
+
     Agent->>Runtime: Request Tool Use
     Runtime->>SP: Verify Tool Schema
     SP-->>Runtime: Verification Result
@@ -519,16 +545,16 @@ impl TOFUKeyStore {
         if self.pinned_keys.contains_key(&provider) {
             return Err("Key already pinned for provider");
         }
-        
+
         self.pinned_keys.insert(provider, PinnedKey {
             public_key: key,
             pinned_at: SystemTime::now(),
             trust_level: TrustLevel::Unverified,
         });
-        
+
         Ok(())
     }
-    
+
     pub fn verify_tool(&self, tool: &MCPTool) -> VerificationResult {
         if let Some(pinned_key) = self.pinned_keys.get(&tool.provider_id) {
             if pinned_key.public_key.verify(&tool.schema_hash, &tool.signature) {
@@ -564,20 +590,20 @@ pub struct SecurityAnalyzer {
 impl SecurityAnalyzer {
     pub async fn analyze_tool(&self, tool: &MCPTool) -> SecurityAnalysis {
         let mut findings = Vec::new();
-        
+
         // Vulnerability pattern matching
         findings.extend(self.vulnerability_patterns.scan(&tool.schema));
-        
+
         // ML-based detection
         let ml_result = self.ml_detector.analyze(&tool.schema).await?;
         findings.extend(ml_result.findings);
-        
+
         // Resource usage analysis
         let resource_risk = self.resource_analyzer.assess(&tool.schema);
-        
+
         // Privacy impact assessment
         let privacy_impact = self.privacy_assessor.evaluate(&tool.schema);
-        
+
         SecurityAnalysis {
             tool_id: tool.id.clone(),
             risk_score: calculate_risk_score(&findings),
@@ -588,6 +614,80 @@ impl SecurityAnalyzer {
         }
     }
 }
+```
+
+---
+
+## Scanner de Skills ClawHavoc
+
+O scanner ClawHavoc fornece defesa em nível de conteúdo para skills de agentes. Cada arquivo de skill é varrido linha por linha antes do carregamento, e descobertas com severidade Crítica ou Alta bloqueiam a execução da skill.
+
+### Modelo de Severidade
+
+| Nível | Ação | Descrição |
+|-------|------|-----------|
+| **Crítica** | Falhar varredura | Padrões de exploração ativa (reverse shells, injeção de código) |
+| **Alta** | Falhar varredura | Roubo de credenciais, escalação de privilégio, injeção de processo |
+| **Média** | Avisar | Suspeito mas potencialmente legítimo (downloaders, symlinks) |
+| **Aviso** | Avisar | Indicadores de baixo risco (referências a arquivos env, chmod) |
+| **Info** | Registrar | Descobertas informativas |
+
+### Categorias de Detecção (40 Regras)
+
+**Regras de Defesa Originais (10)**
+- `pipe-to-shell`, `wget-pipe-to-shell` — Execução remota de código via downloads canalizados
+- `eval-with-fetch`, `fetch-with-eval` — Injeção de código via eval + rede
+- `base64-decode-exec` — Execução ofuscada via decodificação base64
+- `soul-md-modification`, `memory-md-modification` — Adulteração de identidade
+- `rm-rf-pattern` — Operações destrutivas no sistema de arquivos
+- `env-file-reference`, `chmod-777` — Acesso a arquivos sensíveis, permissões world-writable
+
+**Reverse Shells (7)** — Severidade Crítica
+- `reverse-shell-bash`, `reverse-shell-nc`, `reverse-shell-ncat`, `reverse-shell-mkfifo`, `reverse-shell-python`, `reverse-shell-perl`, `reverse-shell-ruby`
+
+**Coleta de Credenciais (6)** — Severidade Alta
+- `credential-ssh-keys`, `credential-aws`, `credential-cloud-config`, `credential-browser-cookies`, `credential-keychain`, `credential-etc-shadow`
+
+**Exfiltração de Rede (3)** — Severidade Alta
+- `exfil-dns-tunnel`, `exfil-dev-tcp`, `exfil-nc-outbound`
+
+**Injeção de Processo (4)** — Severidade Crítica
+- `injection-ptrace`, `injection-ld-preload`, `injection-proc-mem`, `injection-gdb-attach`
+
+**Escalação de Privilégio (5)** — Severidade Alta
+- `privesc-sudo`, `privesc-setuid`, `privesc-setcap`, `privesc-chown-root`, `privesc-nsenter`
+
+**Symlink / Travessia de Caminho (2)** — Severidade Média
+- `symlink-escape`, `path-traversal-deep`
+
+**Cadeias de Download (3)** — Severidade Média
+- `downloader-curl-save`, `downloader-wget-save`, `downloader-chmod-exec`
+
+### Whitelist de Executáveis
+
+O tipo de regra `AllowedExecutablesOnly` restringe quais executáveis uma skill de agente pode invocar:
+
+```rust
+// Apenas permitir estes executáveis — todo o resto é bloqueado
+ScanRule::AllowedExecutablesOnly(vec![
+    "python3".into(),
+    "node".into(),
+    "cargo".into(),
+])
+```
+
+### Regras Personalizadas
+
+Padrões específicos de domínio podem ser adicionados junto com os padrões ClawHavoc:
+
+```rust
+let mut scanner = SkillScanner::new();
+scanner.add_custom_rule(
+    "block-internal-api",
+    r"internal\.corp\.example\.com",
+    ScanSeverity::High,
+    "References to internal API endpoints are not allowed in skills",
+);
 ```
 
 ---
@@ -620,16 +720,16 @@ impl SecureChannel {
     pub fn encrypt_message(&self, plaintext: &[u8]) -> Result<Vec<u8>> {
         let counter = self.send_counter.fetch_add(1, Ordering::SeqCst);
         let nonce = self.generate_nonce(counter);
-        
+
         let ciphertext = ChaCha20Poly1305::new(&self.encryption_key)
             .encrypt(&nonce, plaintext)?;
-        
+
         let mac = Hmac::<Sha256>::new_from_slice(&self.mac_key)?
             .chain_update(&ciphertext)
             .chain_update(&counter.to_le_bytes())
             .finalize()
             .into_bytes();
-        
+
         Ok([ciphertext, mac.to_vec()].concat())
     }
 }
@@ -654,7 +754,7 @@ network_policy:
     - ip_range: "10.0.0.0/8"
       ports: [6333]  # Qdrant (only needed if using optional Qdrant backend)
       protocol: "http"
-  
+
   monitoring:
     log_all_connections: true
     detect_anomalies: true
@@ -700,16 +800,16 @@ pub struct SecurityEvent {
 graph TB
     A[Security Event] --> B[Event Classification]
     B --> C{Severity Level}
-    
+
     C -->|Info/Low| D[Log Event]
     C -->|Medium| E[Alert Security Team]
     C -->|High| F[Automatic Mitigation]
     C -->|Critical| G[Emergency Response]
-    
+
     F --> H[Isolate Affected Components]
     F --> I[Revoke Compromised Credentials]
     F --> J[Preserve Evidence]
-    
+
     G --> H
     G --> K[Notify Leadership]
     G --> L[External Incident Response]
