@@ -8,6 +8,11 @@ nav_exclude: true
 # 高级推理原语
 {: .no_toc }
 
+## 其他语言
+{: .no_toc}
+
+[English](symbi-dev.md) | **中文简体** | [Español](symbi-dev.es.md) | [Português](symbi-dev.pt.md) | [日本語](symbi-dev.ja.md) | [Deutsch](symbi-dev.de.md)
+
 ---
 
 特性门控的运行时原语，通过工具筛选、卡住循环检测、确定性上下文预获取和目录范围约定检索来增强推理循环。

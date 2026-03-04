@@ -6,6 +6,13 @@ nav_order: 9
 
 # Symbiont REPL Guide
 
+## Other Languages
+{: .no_toc}
+
+**English** | [中文简体](repl-guide.zh-cn.md) | [Español](repl-guide.es.md) | [Português](repl-guide.pt.md) | [日本語](repl-guide.ja.md) | [Deutsch](repl-guide.de.md)
+
+---
+
 The Symbiont REPL (Read-Eval-Print Loop) provides an interactive environment for developing, testing, and debugging Symbiont agents and DSL code.
 
 ## Features

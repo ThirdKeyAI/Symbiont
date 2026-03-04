@@ -8,6 +8,11 @@ description: "Guide to the Symbiont agentic reasoning loop system"
 # Reasoning Loop Guide
 {: .no_toc }
 
+## Other Languages
+{: .no_toc}
+
+**English** | [中文简体](reasoning-loop.zh-cn.md) | [Español](reasoning-loop.es.md) | [Português](reasoning-loop.pt.md) | [日本語](reasoning-loop.ja.md) | [Deutsch](reasoning-loop.de.md)
+
 ---
 
 Complete guide to the Symbiont agentic reasoning loop: a typestate-enforced Observe-Reason-Gate-Act (ORGA) cycle for autonomous agent behavior.
@@ -129,37 +134,19 @@ This means the following mistakes are **compile errors**, not runtime bugs:
 
 ### Phase Flow
 
-```
-                    ┌─────────────────────────────────────────┐
-                    │                                         │
-                    ▼                                         │
-    ┌──────────────────────┐                                  │
-    │  AgentLoop<Reasoning>│                                  │
-    │  produce_output()    │                                  │
-    └──────────┬───────────┘                                  │
-               │                                              │
-               ▼                                              │
-    ┌──────────────────────┐                                  │
-    │ AgentLoop<PolicyCheck>│                                 │
-    │  check_policy()      │                                  │
-    └──────────┬───────────┘                                  │
-               │                                              │
-               ▼                                              │
-    ┌────────────────────────────┐                            │
-    │ AgentLoop<ToolDispatching> │                            │
-    │  dispatch_tools()          │                            │
-    └──────────┬─────────────────┘                            │
-               │                                              │
-               ▼                                              │
-    ┌──────────────────────┐     Continue    ┌───────────┐    │
-    │ AgentLoop<Observing> │───────────────▶│ Reasoning  │────┘
-    │  observe_results()   │                └───────────┘
-    └──────────┬───────────┘
-               │ Complete
-               ▼
-         ┌───────────┐
-         │ LoopResult │
-         └───────────┘
+```mermaid
+graph TD
+    R["AgentLoop&lt;Reasoning&gt;<br/><code>produce_output()</code>"]
+    P["AgentLoop&lt;PolicyCheck&gt;<br/><code>check_policy()</code>"]
+    T["AgentLoop&lt;ToolDispatching&gt;<br/><code>dispatch_tools()</code>"]
+    O["AgentLoop&lt;Observing&gt;<br/><code>observe_results()</code>"]
+    LR["LoopResult"]
+
+    R --> P
+    P --> T
+    T --> O
+    O -->|Continue| R
+    O -->|Complete| LR
 ```
 
 ---

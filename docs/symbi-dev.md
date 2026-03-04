@@ -8,6 +8,11 @@ description: "Advanced reasoning loop primitives: tool curation, stuck-loop dete
 # Advanced Reasoning Primitives
 {: .no_toc }
 
+## Other Languages
+{: .no_toc}
+
+**English** | [中文简体](symbi-dev.zh-cn.md) | [Español](symbi-dev.es.md) | [Português](symbi-dev.pt.md) | [日本語](symbi-dev.ja.md) | [Deutsch](symbi-dev.de.md)
+
 ---
 
 Feature-gated runtime primitives that enhance the reasoning loop with tool curation, stuck-loop detection, deterministic context pre-fetch, and directory-scoped convention retrieval.

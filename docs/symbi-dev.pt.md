@@ -8,6 +8,11 @@ nav_exclude: true
 # Primitivas de Raciocínio Avançado
 {: .no_toc }
 
+## Outros idiomas
+{: .no_toc}
+
+[English](symbi-dev.md) | [中文简体](symbi-dev.zh-cn.md) | [Español](symbi-dev.es.md) | **Português** | [日本語](symbi-dev.ja.md) | [Deutsch](symbi-dev.de.md)
+
 ---
 
 Primitivas de runtime com feature gate que aprimoram o loop de raciocínio com curadoria de ferramentas, detecção de loops travados, pré-busca determinística de contexto e recuperação de convenções com escopo de diretório.

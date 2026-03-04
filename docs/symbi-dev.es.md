@@ -8,15 +8,15 @@ nav_exclude: true
 # Primitivas de Razonamiento Avanzado
 {: .no_toc }
 
+## Otros idiomas
+{: .no_toc}
+
+[English](symbi-dev.md) | [中文简体](symbi-dev.zh-cn.md) | **Español** | [Português](symbi-dev.pt.md) | [日本語](symbi-dev.ja.md) | [Deutsch](symbi-dev.de.md)
+
 ---
 
 Primitivas de runtime con feature gate que mejoran el bucle de razonamiento con curacion de herramientas, deteccion de bucles atascados, pre-carga determinista de contexto y recuperacion de convenciones con alcance de directorio.
 {: .fs-6 .fw-300 }
-
-## 🌐 Otros idiomas
-{: .no_toc}
-
-[English](symbi-dev.md) | **Español**
 
 ---
 

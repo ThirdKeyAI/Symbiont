@@ -1,32 +1,32 @@
 ---
 layout: default
-title: Docker Guide
-nav_order: 10
-description: "Docker container guide for running Symbiont"
+title: Docker 指南
+nav_exclude: true
+description: "运行 Symbiont 的 Docker 容器指南"
 ---
 
-# Docker Container Guide
+# Docker 容器指南
 
-## Other Languages
+## 其他语言
 {: .no_toc}
 
-**English** | [中文简体](docker.zh-cn.md) | [Español](docker.es.md) | [Português](docker.pt.md) | [日本語](docker.ja.md) | [Deutsch](docker.de.md)
+[English](docker.md) | **中文简体** | [Español](docker.es.md) | [Português](docker.pt.md) | [日本語](docker.ja.md) | [Deutsch](docker.de.md)
 
 ---
 
-Symbi provides a unified Docker container with all functionality included, available through GitHub Container Registry.
+Symbi 提供了一个统一的 Docker 容器，包含所有功能，可通过 GitHub Container Registry 获取。
 
-## Available Image
+## 可用镜像
 
-### Unified Symbi Container
-- **Image**: `ghcr.io/thirdkeyai/symbi:latest`
-- **Purpose**: All-in-one container with DSL parsing, agent runtime, and MCP server
-- **Size**: ~80MB (includes vector DB and HTTP API support)
-- **CLI**: Unified `symbi` command with subcommands for different operations
+### 统一 Symbi 容器
+- **镜像**：`ghcr.io/thirdkeyai/symbi:latest`
+- **用途**：包含 DSL 解析、智能体运行时和 MCP 服务器的一体化容器
+- **大小**：约 80MB（包含向量数据库和 HTTP API 支持）
+- **CLI**：统一的 `symbi` 命令，带有不同操作的子命令
 
-## Quick Start
+## 快速开始
 
-### Using Pre-built Image
+### 使用预构建镜像
 
 ```bash
 # Pull latest image
@@ -48,7 +48,7 @@ docker run --rm -p 8080:8080 \
   mcp --http-api --port 8080
 ```
 
-### Development Workflow
+### 开发工作流
 
 ```bash
 # Interactive development
@@ -63,16 +63,16 @@ docker run --rm -it \
   ghcr.io/thirdkeyai/symbi:latest bash
 ```
 
-## Available Tags
+## 可用标签
 
-- `latest` - Latest stable release
-- `main` - Latest development build
-- `v1.0.0` - Specific version releases
-- `sha-<commit>` - Specific commit builds
+- `latest` - 最新稳定版本
+- `main` - 最新开发构建
+- `v1.0.0` - 特定版本发布
+- `sha-<commit>` - 特定提交构建
 
-## Building Locally
+## 本地构建
 
-### Unified Symbi Container
+### 统一 Symbi 容器
 
 ```bash
 # From project root
@@ -88,38 +88,38 @@ docker run --rm -v $(pwd):/workspace symbi:latest dsl parse --help
 docker run --rm symbi:latest mcp --help
 ```
 
-## Multi-Architecture Support
+## 多架构支持
 
-Images are built for:
+镜像构建支持以下架构：
 - `linux/amd64` (x86_64)
 - `linux/arm64` (ARM64/Apple Silicon)
 
-Docker automatically pulls the correct architecture for your platform.
+Docker 会自动为您的平台拉取正确的架构。
 
-## Security Features
+## 安全特性
 
-### Non-Root Execution
-- Containers run as non-root user `symbiont` (UID 1000)
-- Minimal attack surface with security-hardened base images
+### 非 Root 执行
+- 容器以非 root 用户 `symbiont`（UID 1000）运行
+- 使用安全加固的基础镜像，攻击面最小化
 
-### Vulnerability Scanning
-- All images automatically scanned with Trivy
-- Security advisories published to GitHub Security tab
-- SARIF reports for detailed vulnerability analysis
+### 漏洞扫描
+- 所有镜像自动使用 Trivy 扫描
+- 安全公告发布到 GitHub Security 标签页
+- 提供 SARIF 报告用于详细的漏洞分析
 
-## Configuration
+## 配置
 
-### Environment Variables
+### 环境变量
 
-**Symbi Container:**
-- `SYMBI_LOG_LEVEL` - Set logging level (debug, info, warn, error)
-- `SYMBI_HTTP_PORT` - HTTP API port (default: 8080)
-- `SYMBI_MCP_PORT` - MCP server port (default: 3000)
-- `SYMBIONT_VECTOR_BACKEND` - Vector backend: `lancedb` (default) or `qdrant`
-- `QDRANT_URL` - Qdrant vector database URL (only if using optional Qdrant backend)
-- `DSL_OUTPUT_FORMAT` - DSL output format (json, yaml, text)
+**Symbi 容器：**
+- `SYMBI_LOG_LEVEL` - 设置日志级别（debug、info、warn、error）
+- `SYMBI_HTTP_PORT` - HTTP API 端口（默认：8080）
+- `SYMBI_MCP_PORT` - MCP 服务器端口（默认：3000）
+- `SYMBIONT_VECTOR_BACKEND` - 向量后端：`lancedb`（默认）或 `qdrant`
+- `QDRANT_URL` - Qdrant 向量数据库 URL（仅在使用可选的 Qdrant 后端时需要）
+- `DSL_OUTPUT_FORMAT` - DSL 输出格式（json、yaml、text）
 
-### Volume Mounts
+### 卷挂载
 
 ```bash
 # Mount agent definitions
@@ -132,11 +132,11 @@ Docker automatically pulls the correct architecture for your platform.
 -v symbi-data:/var/lib/symbi/data
 ```
 
-## Docker Compose Example
+## Docker Compose 示例
 
-By default, Symbiont uses **LanceDB** as an embedded vector database -- no external services required. If you need a distributed vector backend for scaled deployments, you can optionally add Qdrant.
+默认情况下，Symbiont 使用 **LanceDB** 作为嵌入式向量数据库——不需要外部服务。如果您需要分布式向量后端用于规模化部署，可以选择添加 Qdrant。
 
-### Minimal (LanceDB default -- no Qdrant needed)
+### 最小配置（LanceDB 默认——不需要 Qdrant）
 
 ```yaml
 version: '3.8'
@@ -159,7 +159,7 @@ volumes:
   symbi-data:
 ```
 
-### With Optional Qdrant Backend
+### 带可选 Qdrant 后端
 
 ```yaml
 version: '3.8'
@@ -195,11 +195,11 @@ volumes:
   qdrant-data:
 ```
 
-## Troubleshooting
+## 故障排除
 
-### Common Issues
+### 常见问题
 
-**Permission Denied:**
+**权限被拒绝：**
 ```bash
 # Ensure correct ownership
 sudo chown -R 1000:1000 ./data
@@ -208,13 +208,13 @@ sudo chown -R 1000:1000 ./data
 docker run --user $(id -u):$(id -g) ...
 ```
 
-**Port Conflicts:**
+**端口冲突：**
 ```bash
 # Use different ports
 docker run -p 8081:8080 ghcr.io/thirdkeyai/symbi:latest
 ```
 
-**Build Failures:**
+**构建失败：**
 ```bash
 # Clear Docker cache
 docker builder prune -a
@@ -223,7 +223,7 @@ docker builder prune -a
 docker build --no-cache -f runtime/Dockerfile .
 ```
 
-### Health Checks
+### 健康检查
 
 ```bash
 # Check container health
@@ -232,9 +232,9 @@ docker exec symbi-test /usr/local/bin/symbi --version
 docker rm -f symbi-test
 ```
 
-## Performance Optimization
+## 性能优化
 
-### Resource Limits
+### 资源限制
 
 ```bash
 # Set memory and CPU limits
@@ -242,7 +242,7 @@ docker run --memory=512m --cpus=1.0 \
   ghcr.io/thirdkeyai/symbi:latest mcp
 ```
 
-### Build Optimization
+### 构建优化
 
 ```bash
 # Use BuildKit for faster builds
@@ -253,15 +253,15 @@ docker build --target builder -t symbi-builder .
 docker build --cache-from symbi-builder .
 ```
 
-## CI/CD Integration
+## CI/CD 集成
 
-GitHub Actions automatically builds and publishes containers on:
-- Push to `main` branch
-- New version tags (`v*`)
-- Pull requests (build only)
+GitHub Actions 在以下情况自动构建和发布容器：
+- 推送到 `main` 分支
+- 新版本标签 (`v*`)
+- Pull request（仅构建）
 
-Images include metadata:
-- Git commit SHA
-- Build timestamp  
-- Vulnerability scan results
-- SBOM (Software Bill of Materials)
+镜像包含以下元数据：
+- Git 提交 SHA
+- 构建时间戳
+- 漏洞扫描结果
+- SBOM（软件物料清单）

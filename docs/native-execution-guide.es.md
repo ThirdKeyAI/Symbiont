@@ -1,48 +1,48 @@
 ---
 layout: default
-title: Native Execution Guide
-nav_order: 11
-description: "Running Symbiont agents without Docker or container isolation"
+title: Guia de Ejecucion Nativa
+nav_exclude: true
+description: "Ejecutar agentes de Symbiont sin Docker ni aislamiento de contenedores"
 ---
 
-# Native Execution Mode (No Docker/Isolation)
+# Modo de Ejecucion Nativa (Sin Docker/Aislamiento)
 
-## Other Languages
+## Otros idiomas
 {: .no_toc}
 
-**English** | [中文简体](native-execution-guide.zh-cn.md) | [Español](native-execution-guide.es.md) | [Português](native-execution-guide.pt.md) | [日本語](native-execution-guide.ja.md) | [Deutsch](native-execution-guide.de.md)
+[English](native-execution-guide.md) | [中文简体](native-execution-guide.zh-cn.md) | **Español** | [Português](native-execution-guide.pt.md) | [日本語](native-execution-guide.ja.md) | [Deutsch](native-execution-guide.de.md)
 
 ---
 
-## Overview
+## Descripcion General
 
-Symbiont supports running agents without Docker or container isolation for development environments or trusted deployments where maximum performance and minimal dependencies are desired.
+Symbiont soporta la ejecucion de agentes sin Docker ni aislamiento de contenedores para entornos de desarrollo o despliegues de confianza donde se desea el maximo rendimiento y las minimas dependencias.
 
-## ⚠️ Security Warnings
+## Advertencias de Seguridad
 
-**IMPORTANT**: Native execution mode bypasses all container-based security controls:
+**IMPORTANTE**: El modo de ejecucion nativa omite todos los controles de seguridad basados en contenedores:
 
-- ❌ No process isolation
-- ❌ No filesystem isolation  
-- ❌ No network isolation
-- ❌ No resource limits enforcement
-- ❌ Direct access to host system
+- No hay aislamiento de procesos
+- No hay aislamiento del sistema de archivos
+- No hay aislamiento de red
+- No hay aplicacion de limites de recursos
+- Acceso directo al sistema anfitrion
 
-**USE ONLY FOR**:
-- Local development with trusted code
-- Controlled environments with trusted agents
-- Testing and debugging
-- Environments where Docker is not available
+**USAR SOLO PARA**:
+- Desarrollo local con codigo de confianza
+- Entornos controlados con agentes de confianza
+- Pruebas y depuracion
+- Entornos donde Docker no esta disponible
 
-**DO NOT USE FOR**:
-- Production environments with untrusted code
-- Multi-tenant deployments
-- Public-facing services
-- Processing untrusted user input
+**NO USAR PARA**:
+- Entornos de produccion con codigo no confiable
+- Despliegues multi-tenant
+- Servicios publicos
+- Procesamiento de entrada de usuarios no confiables
 
-## Architecture
+## Arquitectura
 
-### Sandbox Tier Hierarchy
+### Jerarquia de Niveles de Sandbox
 
 ```
 ┌─────────────────────────────────────────┐
@@ -56,24 +56,24 @@ Symbiont supports running agents without Docker or container isolation for devel
 └─────────────────────────────────────────┘
 ```
 
-### Native Execution Flow
+### Flujo de Ejecucion Nativa
 
 ```mermaid
 graph LR
     A[Agent Request] --> B{Security Tier?}
     B -->|None| C[Native Process Runner]
     B -->|Tier1+| D[Sandbox Orchestrator]
-    
+
     C --> E[Direct Process Execution]
     E --> F[Host System]
-    
+
     D --> G[Docker/gVisor/Firecracker]
     G --> H[Isolated Environment]
 ```
 
-## Configuration
+## Configuracion
 
-### Option 1: TOML Configuration
+### Opcion 1: Configuracion TOML
 
 ```toml
 # config.toml
@@ -99,9 +99,9 @@ working_directory = "/tmp/symbiont-native"
 allowed_executables = ["python3", "node", "bash"]
 ```
 
-### Complete Config Example
+### Ejemplo de Configuracion Completa
 
-A full `config.toml` with native execution alongside other system settings:
+Un `config.toml` completo con ejecucion nativa junto a otras configuraciones del sistema:
 
 ```toml
 # config.toml
@@ -150,20 +150,20 @@ max_execution_time_seconds = 300
 allowed_executables = ["python3", "python", "node", "bash", "sh"]
 ```
 
-### NativeExecutionConfig Fields
+### Campos de NativeExecutionConfig
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `enabled` | bool | `false` | Enable native execution mode |
-| `default_executable` | string | `"bash"` | Default interpreter/shell |
-| `working_directory` | path | `/tmp/symbiont-native` | Execution directory |
-| `enforce_resource_limits` | bool | `true` | Apply OS-level limits |
-| `max_memory_mb` | Option<u64> | `Some(2048)` | Memory limit in MB |
-| `max_cpu_seconds` | Option<u64> | `Some(300)` | CPU time limit |
-| `max_execution_time_seconds` | u64 | `300` | Wall-clock timeout |
-| `allowed_executables` | Vec<String> | `[bash, python3, etc.]` | Executable whitelist |
+| Campo | Tipo | Predeterminado | Descripcion |
+|-------|------|----------------|-------------|
+| `enabled` | bool | `false` | Habilitar el modo de ejecucion nativa |
+| `default_executable` | string | `"bash"` | Interprete/shell predeterminado |
+| `working_directory` | path | `/tmp/symbiont-native` | Directorio de ejecucion |
+| `enforce_resource_limits` | bool | `true` | Aplicar limites a nivel de SO |
+| `max_memory_mb` | Option<u64> | `Some(2048)` | Limite de memoria en MB |
+| `max_cpu_seconds` | Option<u64> | `Some(300)` | Limite de tiempo de CPU |
+| `max_execution_time_seconds` | u64 | `300` | Timeout de tiempo real |
+| `allowed_executables` | Vec<String> | `[bash, python3, etc.]` | Lista blanca de ejecutables |
 
-### Option 2: Environment Variables
+### Opcion 2: Variables de Entorno
 
 ```bash
 export SYMBIONT_ALLOW_NATIVE_EXECUTION=true
@@ -173,7 +173,7 @@ export SYMBIONT_NATIVE_MAX_CPU_CORES=4.0
 export SYMBIONT_NATIVE_WORKING_DIR=/tmp/symbiont-native
 ```
 
-### Option 3: Agent-Level Configuration
+### Opcion 3: Configuracion a Nivel de Agente
 
 ```symbi
 agent NativeWorker {
@@ -181,13 +181,13 @@ agent NativeWorker {
     name: "Local Development Agent"
     version: "1.0.0"
   }
-  
+
   security {
     tier: None
     sandbox: Permissive
     capabilities: ["local_filesystem", "network"]
   }
-  
+
   on trigger "local_processing" {
     // Executes directly on host
     execute_native("python3 process.py")
@@ -195,9 +195,9 @@ agent NativeWorker {
 }
 ```
 
-## Usage Examples
+## Ejemplos de Uso
 
-### Example 1: Development Mode
+### Ejemplo 1: Modo de Desarrollo
 
 ```rust
 use symbi_runtime::{Config, SecurityTier, SandboxOrchestrator};
@@ -208,22 +208,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut config = Config::default();
     config.security.allow_native_execution = true;
     config.security.default_sandbox_tier = SecurityTier::None;
-    
+
     let orchestrator = SandboxOrchestrator::new(config)?;
-    
+
     // Execute code natively
     let result = orchestrator.execute_code(
         SecurityTier::None,
         "print('Hello from native execution!')",
         HashMap::new()
     ).await?;
-    
+
     println!("Output: {}", result.stdout);
     Ok(())
 }
 ```
 
-### Example 2: CLI Flag
+### Ejemplo 2: Flag de CLI
 
 ```bash
 # Run with native execution
@@ -239,7 +239,7 @@ symbiont run agent.dsl --native \
   --timeout=300
 ```
 
-### Example 3: Mixed Execution
+### Ejemplo 3: Ejecucion Mixta
 
 ```rust
 // Use native execution for trusted local operations
@@ -249,7 +249,7 @@ let local_result = orchestrator.execute_code(
     env_vars
 ).await?;
 
-// Use Docker for external/untrusted operations  
+// Use Docker for external/untrusted operations
 let isolated_result = orchestrator.execute_code(
     SecurityTier::Tier1,
     untrusted_code,
@@ -257,11 +257,11 @@ let isolated_result = orchestrator.execute_code(
 ).await?;
 ```
 
-## Implementation Details
+## Detalles de Implementacion
 
-### Native Process Runner
+### Ejecutor de Procesos Nativos
 
-The native runner uses `std::process::Command` with optional resource limits:
+El ejecutor nativo usa `std::process::Command` con limites de recursos opcionales:
 
 ```rust
 pub struct NativeRunner {
@@ -269,21 +269,21 @@ pub struct NativeRunner {
 }
 
 impl NativeRunner {
-    pub async fn execute(&self, code: &str, env: HashMap<String, String>) 
+    pub async fn execute(&self, code: &str, env: HashMap<String, String>)
         -> Result<ExecutionResult> {
         // Direct process execution
         let mut command = Command::new(&self.config.executable);
         command.current_dir(&self.config.working_dir);
         command.envs(env);
-        
+
         // Optional: Apply resource limits via rlimit (Unix)
         #[cfg(unix)]
         if self.config.enforce_limits {
             self.apply_resource_limits(&mut command)?;
         }
-        
+
         let output = command.output().await?;
-        
+
         Ok(ExecutionResult {
             stdout: String::from_utf8_lossy(&output.stdout).to_string(),
             stderr: String::from_utf8_lossy(&output.stderr).to_string(),
@@ -294,26 +294,26 @@ impl NativeRunner {
 }
 ```
 
-### Resource Limits (Unix)
+### Limites de Recursos (Unix)
 
-On Unix systems, native execution can still enforce some limits:
+En sistemas Unix, la ejecucion nativa puede aplicar algunos limites:
 
-- **Memory**: Using `setrlimit(RLIMIT_AS)`
-- **CPU Time**: Using `setrlimit(RLIMIT_CPU)`
-- **Process Count**: Using `setrlimit(RLIMIT_NPROC)`
-- **File Size**: Using `setrlimit(RLIMIT_FSIZE)`
+- **Memoria**: Usando `setrlimit(RLIMIT_AS)`
+- **Tiempo de CPU**: Usando `setrlimit(RLIMIT_CPU)`
+- **Conteo de Procesos**: Usando `setrlimit(RLIMIT_NPROC)`
+- **Tamano de Archivo**: Usando `setrlimit(RLIMIT_FSIZE)`
 
-### Platform Support
+### Soporte de Plataformas
 
-| Platform | Native Execution | Resource Limits |
-|----------|-----------------|-----------------|
-| Linux    | ✅ Full         | ✅ rlimit       |
-| macOS    | ✅ Full         | ⚠️ Partial      |
-| Windows  | ✅ Full         | ❌ Limited      |
+| Plataforma | Ejecucion Nativa | Limites de Recursos |
+|------------|-----------------|---------------------|
+| Linux      | Completa        | rlimit              |
+| macOS      | Completa        | Parcial             |
+| Windows    | Completa        | Limitado            |
 
-## Migration from Docker
+## Migracion desde Docker
 
-### Step 1: Update Configuration
+### Paso 1: Actualizar la Configuracion
 
 ```diff
 # config.toml
@@ -323,7 +323,7 @@ On Unix systems, native execution can still enforce some limits:
 + allow_native_execution = true
 ```
 
-### Step 2: Remove Docker Dependencies
+### Paso 2: Eliminar Dependencias de Docker
 
 ```bash
 # No longer required
@@ -335,9 +335,9 @@ cargo build --release
 ./target/release/symbiont run agent.dsl
 ```
 
-### Hybrid Approach
+### Enfoque Hibrido
 
-Use both execution modes strategically — native for trusted local operations, Docker for untrusted code:
+Use ambos modos de ejecucion estrategicamente — nativo para operaciones locales de confianza, Docker para codigo no confiable:
 
 ```rust
 // Trusted local operations
@@ -355,9 +355,9 @@ let isolated_result = orchestrator.execute_code(
 ).await?;
 ```
 
-### Step 3: Handle Environment Variables
+### Paso 3: Gestionar Variables de Entorno
 
-Docker automatically isolated environment variables. With native execution, set them explicitly:
+Docker aislaba automaticamente las variables de entorno. Con ejecucion nativa, configurelas explicitamente:
 
 ```bash
 export AGENT_API_KEY="xxx"
@@ -365,18 +365,18 @@ export AGENT_DB_URL="postgresql://..."
 symbiont run agent.dsl --native
 ```
 
-## Performance Comparison
+## Comparacion de Rendimiento
 
-| Mode | Startup | Throughput | Memory | Isolation |
-|------|---------|------------|--------|-----------|
-| Native | ~10ms | 100% | Minimal | None |
-| Docker | ~500ms | ~95% | +128MB | Good |
-| gVisor | ~800ms | ~70% | +256MB | Better |
-| Firecracker | ~125ms | ~90% | +64MB | Best |
+| Modo | Inicio | Rendimiento | Memoria | Aislamiento |
+|------|--------|-------------|---------|-------------|
+| Nativo | ~10ms | 100% | Minima | Ninguno |
+| Docker | ~500ms | ~95% | +128MB | Bueno |
+| gVisor | ~800ms | ~70% | +256MB | Mejor |
+| Firecracker | ~125ms | ~90% | +64MB | El mejor |
 
-## Troubleshooting
+## Solucion de Problemas
 
-### Issue: Permission Denied
+### Problema: Permiso Denegado
 
 ```bash
 # Solution: Ensure working directory is writable
@@ -384,7 +384,7 @@ mkdir -p /tmp/symbiont-native
 chmod 755 /tmp/symbiont-native
 ```
 
-### Issue: Command Not Found
+### Problema: Comando No Encontrado
 
 ```bash
 # Solution: Ensure executable is in PATH or use absolute path
@@ -393,42 +393,42 @@ export PATH=$PATH:/usr/local/bin
 allowed_executables = ["/usr/bin/python3", "/usr/bin/node"]
 ```
 
-### Issue: Resource Limits Not Applied
+### Problema: Limites de Recursos No Aplicados
 
-Native execution on Windows has limited resource limit support. Consider:
-- Using Job Objects (Windows-specific)
-- Monitoring and terminating runaway processes
-- Upgrading to container-based execution
+La ejecucion nativa en Windows tiene soporte limitado de limites de recursos. Considere:
+- Usar Job Objects (especifico de Windows)
+- Monitorear y terminar procesos descontrolados
+- Actualizar a ejecucion basada en contenedores
 
-## Best Practices
+## Mejores Practicas
 
-1. **Development Only**: Use native execution primarily for development
-2. **Gradual Migration**: Start with containers, drop to native when stable
-3. **Monitoring**: Even without isolation, monitor resource usage
-4. **Allowlists**: Restrict allowed executables and paths
-5. **Logging**: Enable comprehensive audit logging
-6. **Testing**: Test with containers before deploying native
+1. **Solo para Desarrollo**: Usar ejecucion nativa principalmente para desarrollo
+2. **Migracion Gradual**: Comenzar con contenedores, cambiar a nativo cuando sea estable
+3. **Monitoreo**: Incluso sin aislamiento, monitorear el uso de recursos
+4. **Listas de Permitidos**: Restringir ejecutables y rutas permitidas
+5. **Registro**: Habilitar registro de auditoria completo
+6. **Pruebas**: Probar con contenedores antes de desplegar en nativo
 
-## Security Checklist
+## Lista de Verificacion de Seguridad
 
-Before enabling native execution in any environment:
+Antes de habilitar la ejecucion nativa en cualquier entorno:
 
-- [ ] All agent code is from trusted sources
-- [ ] Environment is isolated from production
-- [ ] No external user input is processed
-- [ ] Monitoring and logging are enabled
-- [ ] Resource limits are configured
-- [ ] Executable allowlist is restrictive
-- [ ] Filesystem access is limited
-- [ ] Team understands security implications
+- [ ] Todo el codigo de agentes proviene de fuentes de confianza
+- [ ] El entorno esta aislado de produccion
+- [ ] No se procesa entrada de usuarios externos
+- [ ] El monitoreo y registro estan habilitados
+- [ ] Los limites de recursos estan configurados
+- [ ] La lista de ejecutables permitidos es restrictiva
+- [ ] El acceso al sistema de archivos esta limitado
+- [ ] El equipo comprende las implicaciones de seguridad
 
-## Related Documentation
+## Documentacion Relacionada
 
-- [Security Model](security-model.md) - Full security architecture
-- [Sandbox Architecture](runtime-architecture.md#sandbox-architecture) - Container tiers
-- [Configuration Guide](getting-started.md#configuration) - Setup options
-- [DSL Security Directives](dsl-guide.md#security) - Agent-level security
+- [Modelo de Seguridad](security-model.md) - Arquitectura de seguridad completa
+- [Arquitectura de Sandbox](runtime-architecture.md#sandbox-architecture) - Niveles de contenedores
+- [Guia de Configuracion](getting-started.md#configuration) - Opciones de configuracion
+- [Directivas de Seguridad DSL](dsl-guide.md#security) - Seguridad a nivel de agente
 
 ---
 
-**Remember**: Native execution trades security for convenience. Always understand the risks and apply appropriate controls for your deployment environment.
+**Recuerde**: La ejecucion nativa intercambia seguridad por conveniencia. Siempre comprenda los riesgos y aplique los controles apropiados para su entorno de despliegue.

@@ -8,10 +8,10 @@ nav_exclude: true
 # Erweiterte Reasoning-Primitiven
 {: .no_toc }
 
-## 🌐 Andere Sprachen
+## Andere Sprachen
 {: .no_toc}
 
-[English](symbi-dev.md) | **Deutsch**
+[English](symbi-dev.md) | [中文简体](symbi-dev.zh-cn.md) | [Español](symbi-dev.es.md) | [Português](symbi-dev.pt.md) | [日本語](symbi-dev.ja.md) | **Deutsch**
 
 ---
 

@@ -8,17 +8,15 @@ nav_exclude: true
 # 高度な推論プリミティブ
 {: .no_toc }
 
+## 他の言語
+{: .no_toc}
+
+[English](symbi-dev.md) | [中文简体](symbi-dev.zh-cn.md) | [Español](symbi-dev.es.md) | [Português](symbi-dev.pt.md) | **日本語** | [Deutsch](symbi-dev.de.md)
+
 ---
 
 ツールキュレーション、スタックループ検出、決定的コンテキストプリフェッチ、ディレクトリスコープのコンベンション取得により推論ループを強化するフィーチャーゲートランタイムプリミティブ。
 {: .fs-6 .fw-300 }
-
-## 🌐 他の言語
-{: .no_toc}
-
-[English](symbi-dev.md) | **日本語**
-
----
 
 ## 目次
 {: .no_toc .text-delta }
