@@ -101,32 +101,33 @@ schedule {
 
 ### Sintaxis Cron
 
-Sintaxis cron estándar con cinco campos:
+Sintaxis cron extendida con seis campos (segundos primero, campo opcional séptimo para año):
 
 ```
-┌───────────── minuto (0-59)
-│ ┌─────────── hora (0-23)
-│ │ ┌───────── día del mes (1-31)
-│ │ │ ┌─────── mes (1-12)
-│ │ │ │ ┌───── día de la semana (0-6, Domingo = 0)
-│ │ │ │ │
-* * * * *
+┌─────────────── segundo (0-59)
+│ ┌───────────── minuto (0-59)
+│ │ ┌─────────── hora (0-23)
+│ │ │ ┌───────── día del mes (1-31)
+│ │ │ │ ┌─────── mes (1-12)
+│ │ │ │ │ ┌───── día de la semana (0-6, Domingo = 0)
+│ │ │ │ │ │
+* * * * * *
 ```
 
 **Ejemplos:**
 
 ```symbiont
 # Todos los días a las 9 AM
-cron: "0 9 * * *"
+cron: "0 0 9 * * *"
 
 # Cada lunes a las 6 PM
-cron: "0 18 * * 1"
+cron: "0 0 18 * * 1"
 
 # Cada 15 minutos
-cron: "*/15 * * * *"
+cron: "0 */15 * * * *"
 
 # Primer día de cada mes a medianoche
-cron: "0 0 1 * *"
+cron: "0 0 0 1 * *"
 ```
 
 ### Trabajos de Una Sola Ejecución (Sintaxis At)

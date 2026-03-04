@@ -101,32 +101,33 @@ schedule {
 
 ### Cron Syntax
 
-Standard cron syntax with five fields:
+Extended cron syntax with six fields (seconds first, optional seventh field for year):
 
 ```
-┌───────────── minute (0-59)
-│ ┌─────────── hour (0-23)
-│ │ ┌───────── day of month (1-31)
-│ │ │ ┌─────── month (1-12)
-│ │ │ │ ┌───── day of week (0-6, Sunday = 0)
-│ │ │ │ │
-* * * * *
+┌─────────────── second (0-59)
+│ ┌───────────── minute (0-59)
+│ │ ┌─────────── hour (0-23)
+│ │ │ ┌───────── day of month (1-31)
+│ │ │ │ ┌─────── month (1-12)
+│ │ │ │ │ ┌───── day of week (0-6, Sunday = 0)
+│ │ │ │ │ │
+* * * * * *
 ```
 
 **Examples:**
 
 ```symbiont
 # Every day at 9 AM
-cron: "0 9 * * *"
+cron: "0 0 9 * * *"
 
 # Every Monday at 6 PM
-cron: "0 18 * * 1"
+cron: "0 0 18 * * 1"
 
 # Every 15 minutes
-cron: "*/15 * * * *"
+cron: "0 */15 * * * *"
 
 # First day of every month at midnight
-cron: "0 0 1 * *"
+cron: "0 0 0 1 * *"
 ```
 
 ### One-Shot Jobs (At Syntax)

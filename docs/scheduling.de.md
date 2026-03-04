@@ -101,32 +101,33 @@ schedule {
 
 ### Cron-Syntax
 
-Standard-Cron-Syntax mit fünf Feldern:
+Erweiterte Cron-Syntax mit sechs Feldern (Sekunden zuerst, optionales siebtes Feld für Jahr):
 
 ```
-┌───────────── Minute (0-59)
-│ ┌─────────── Stunde (0-23)
-│ │ ┌───────── Tag des Monats (1-31)
-│ │ │ ┌─────── Monat (1-12)
-│ │ │ │ ┌───── Wochentag (0-6, Sonntag = 0)
-│ │ │ │ │
-* * * * *
+┌─────────────── Sekunde (0-59)
+│ ┌───────────── Minute (0-59)
+│ │ ┌─────────── Stunde (0-23)
+│ │ │ ┌───────── Tag des Monats (1-31)
+│ │ │ │ ┌─────── Monat (1-12)
+│ │ │ │ │ ┌───── Wochentag (0-6, Sonntag = 0)
+│ │ │ │ │ │
+* * * * * *
 ```
 
 **Beispiele:**
 
 ```symbiont
 # Jeden Tag um 9 Uhr
-cron: "0 9 * * *"
+cron: "0 0 9 * * *"
 
 # Jeden Montag um 18 Uhr
-cron: "0 18 * * 1"
+cron: "0 0 18 * * 1"
 
 # Alle 15 Minuten
-cron: "*/15 * * * *"
+cron: "0 */15 * * * *"
 
 # Am ersten Tag jedes Monats um Mitternacht
-cron: "0 0 1 * *"
+cron: "0 0 0 1 * *"
 ```
 
 ### Einmalige Aufträge (At-Syntax)
