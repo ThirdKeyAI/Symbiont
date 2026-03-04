@@ -251,6 +251,46 @@ cd crates/runtime && cargo run --features http-api --example full_system
 - Comprehensive execution metrics and resource usage tracking
 - Support for different execution modes (ephemeral, persistent, scheduled, event-driven)
 
+#### Cloud LLM Inference
+
+Connect to cloud LLM providers via OpenRouter:
+
+```bash
+# Enable cloud inference
+cargo build --features cloud-llm
+
+# Set API key and model
+export OPENROUTER_API_KEY="sk-or-..."
+export OPENROUTER_MODEL="google/gemini-2.0-flash-001"  # optional
+```
+
+#### Standalone Agent Mode
+
+One-liner for cloud-native agents with LLM inference and Composio tool access:
+
+```bash
+cargo build --features standalone-agent
+# Enables: cloud-llm + composio
+```
+
+#### Advanced Reasoning Primitives
+
+Enable tool curation, stuck-loop detection, context pre-fetch, and scoped conventions:
+
+```bash
+cargo build --features symbi-dev
+```
+
+See the [symbi-dev guide](/symbi-dev) for full documentation.
+
+#### Cedar Policy Engine
+
+Formal authorization with the Cedar policy language:
+
+```bash
+cargo build --features cedar
+```
+
 #### Vector Database (Built-in)
 
 Symbi includes LanceDB as a zero-config embedded vector database. Semantic search and RAG work out of the box -- no separate service to start:
@@ -271,6 +311,34 @@ cd crates/runtime && cargo run --example context_example
 - **Access Control**: Policy engine integration with agent-scoped access controls
 - **Automatic Archiving**: Retention policies with compressed storage and cleanup
 - **Knowledge Sharing**: Secure cross-agent knowledge sharing with trust scores
+
+#### Feature Flags Reference
+
+| Feature | Description | Default |
+|---------|-------------|---------|
+| `keychain` | OS keychain integration for secrets | Yes |
+| `vector-lancedb` | LanceDB embedded vector backend | Yes |
+| `vector-qdrant` | Qdrant distributed vector backend | No |
+| `embedding-models` | Local embedding models via Candle | No |
+| `http-api` | REST API with Swagger UI | No |
+| `http-input` | Webhook server with JWT auth | No |
+| `cloud-llm` | Cloud LLM inference (OpenRouter) | No |
+| `composio` | Composio MCP tool integration | No |
+| `standalone-agent` | Cloud LLM + Composio combo | No |
+| `cedar` | Cedar policy engine | No |
+| `symbi-dev` | Advanced reasoning primitives | No |
+| `cron` | Persistent cron scheduling | No |
+| `native-sandbox` | Native process sandboxing | No |
+| `metrics` | OpenTelemetry metrics/tracing | No |
+| `full` | All features except enterprise | No |
+
+```bash
+# Build with specific features
+cargo build --features "cloud-llm,symbi-dev,cedar"
+
+# Build with everything
+cargo build --features full
+```
 
 ---
 
@@ -380,7 +448,7 @@ RUST_LOG=debug cd crates/runtime && cargo run --example basic_agent
 
 - **Issues**: [GitHub Issues](https://github.com/thirdkeyai/symbiont/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/thirdkeyai/symbiont/discussions)
-- **Documentation**: [Complete API Reference](https://docs.symbiont.platform)
+- **Documentation**: [Complete API Reference](https://docs.symbiont.dev/api-reference)
 
 ### Debug Mode
 
@@ -401,8 +469,10 @@ cd crates/runtime && cargo run --example basic_agent 2>&1 | tee debug.log
 Now that you have Symbi running, explore these advanced topics:
 
 1. **[DSL Guide](/dsl-guide)** - Learn advanced DSL features
-2. **[Runtime Architecture](/runtime-architecture)** - Understand the system internals
-3. **[Security Model](/security-model)** - Implement security policies
-4. **[Contributing](/contributing)** - Contribute to the project
+2. **[Reasoning Loop Guide](/reasoning-loop)** - Understand the ORGA cycle
+3. **[Advanced Reasoning (symbi-dev)](/symbi-dev)** - Tool curation, stuck-loop detection, pre-hydration
+4. **[Runtime Architecture](/runtime-architecture)** - Understand the system internals
+5. **[Security Model](/security-model)** - Implement security policies
+6. **[Contributing](/contributing)** - Contribute to the project
 
 Ready to build something amazing? Start with our [example projects](https://github.com/thirdkeyai/symbiont/tree/main/crates/runtime/examples) or dive into the [complete specification](/specification).

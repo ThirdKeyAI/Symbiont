@@ -274,6 +274,32 @@ pub enum PolicyDecision {
 - Versioned policy deployment
 - Rollback capabilities for policy errors
 
+### Cedar Policy Engine (`cedar` Feature)
+
+Symbiont integrates the [Cedar policy language](https://www.cedarpolicy.com/) for formal authorization. Cedar enables fine-grained, auditable access control policies that are evaluated at the reasoning loop's policy gate.
+
+```bash
+cargo build --features cedar
+```
+
+**Key capabilities:**
+- **Formal verification**: Cedar policies can be statically analyzed for correctness
+- **Fine-grained authorization**: Entity-based access control with hierarchical permissions
+- **Reasoning loop integration**: `CedarGate` implements the `ReasoningPolicyGate` trait, evaluating each proposed action against Cedar policies before execution
+- **Audit trail**: All Cedar policy decisions are logged with full context
+
+```rust
+use symbi_runtime::reasoning::cedar_gate::CedarGate;
+
+// Load Cedar policies and evaluate actions in the reasoning loop
+let cedar_gate = CedarGate::new(policy_set, entities);
+let runner = ReasoningLoopRunner::builder()
+    .provider(provider)
+    .executor(executor)
+    .policy_gate(Arc::new(cedar_gate))
+    .build();
+```
+
 ---
 
 ## Cryptographic Security

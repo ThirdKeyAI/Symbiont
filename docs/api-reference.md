@@ -263,6 +263,22 @@ Retrieve the execution history for a specific agent.
 }
 ```
 
+##### Agent Heartbeat
+```http
+POST /api/v1/agents/{id}/heartbeat
+Authorization: Bearer <your-token>
+```
+
+Send a heartbeat from a running agent to update its health status.
+
+##### Push Event to Agent
+```http
+POST /api/v1/agents/{id}/events
+Authorization: Bearer <your-token>
+```
+
+Push an external event to a running agent for event-driven execution.
+
 #### System Metrics
 ```http
 GET /api/v1/metrics
@@ -366,27 +382,27 @@ collector.stop();
 
 ### Skill Scanning (ClawHavoc)
 
-The `SkillScanner` inspects agent skill content for malicious patterns before loading. It ships with 10 built-in ClawHavoc defense rules:
+The `SkillScanner` inspects agent skill content for malicious patterns before loading. It ships with **40 built-in ClawHavoc defense rules** across 10 attack categories:
 
-| Rule | Severity | What It Detects |
-|------|----------|----------------|
-| `pipe-to-shell` | Critical | `curl ... \| sh` — piping downloads to shell |
-| `wget-pipe-to-shell` | Critical | `wget ... \| sh` — same via wget |
-| `env-file-reference` | Warning | References to `.env` files (secret leakage) |
-| `soul-md-modification` | Critical | Attempts to write/modify `SOUL.md` (identity tampering) |
-| `memory-md-modification` | Critical | Attempts to write/modify `MEMORY.md` (memory tampering) |
-| `eval-with-fetch` | Critical | `eval()` combined with network fetch (code injection) |
-| `fetch-with-eval` | Critical | Network fetch combined with `eval()` (code injection) |
-| `base64-decode-exec` | Critical | Base64 decode piped to shell (obfuscation) |
-| `rm-rf-pattern` | Critical | `rm -rf /` — recursive deletion from root |
-| `chmod-777` | Warning | World-writable permissions |
+| Category | Count | Severity | Examples |
+|----------|-------|----------|----------|
+| Original defense rules | 10 | Critical/Warning | `pipe-to-shell`, `eval-with-fetch`, `rm-rf-pattern` |
+| Reverse shells | 7 | Critical | bash, nc, ncat, mkfifo, python, perl, ruby |
+| Credential harvesting | 6 | High | SSH keys, AWS creds, cloud config, browser cookies, keychain |
+| Network exfiltration | 3 | High | DNS tunnel, `/dev/tcp`, netcat outbound |
+| Process injection | 4 | Critical | ptrace, LD_PRELOAD, `/proc/mem`, gdb attach |
+| Privilege escalation | 5 | High | sudo, setuid, setcap, chown root, nsenter |
+| Symlink / path traversal | 2 | Medium | symlink escape, deep path traversal |
+| Downloader chains | 3 | Medium | curl save, wget save, chmod exec |
+
+See the [Security Model](/security-model#clawhavoc-skill-scanner) for the full rule list and severity model.
 
 #### Usage
 
 ```rust
 use symbi_runtime::skills::SkillScanner;
 
-let scanner = SkillScanner::new(); // includes all 10 default rules
+let scanner = SkillScanner::new(); // includes all 40 default rules
 let result = scanner.scan_skill("/path/to/skill/");
 
 if !result.passed {
@@ -414,6 +430,91 @@ The Runtime HTTP API server can be configured with the following options:
 - **CORS support**: Configurable for development
 - **Request tracing**: Enabled via Tower middleware
 - **Feature gate**: Available behind `http-api` Cargo feature
+
+---
+
+### Feature Configuration Reference
+
+#### Cloud LLM Inference (`cloud-llm`)
+
+Connect to cloud LLM providers via OpenRouter for agent reasoning:
+
+```bash
+cargo build --features cloud-llm
+```
+
+**Environment Variables:**
+- `OPENROUTER_API_KEY` — Your OpenRouter API key (required)
+- `OPENROUTER_MODEL` — Model to use (default: `google/gemini-2.0-flash-001`)
+
+The cloud LLM provider integrates with the reasoning loop's `execute_actions()` pipeline. It supports streaming responses, automatic retries with exponential backoff, and token usage tracking.
+
+#### Standalone Agent Mode (`standalone-agent`)
+
+Combines cloud LLM inference with Composio tool access for cloud-native agents:
+
+```bash
+cargo build --features standalone-agent
+# Enables: cloud-llm + composio
+```
+
+**Environment Variables:**
+- `OPENROUTER_API_KEY` — OpenRouter API key
+- `COMPOSIO_API_KEY` — Composio API key
+- `COMPOSIO_MCP_URL` — Composio MCP server URL
+
+#### Cedar Policy Engine (`cedar`)
+
+Formal authorization using the [Cedar policy language](https://www.cedarpolicy.com/):
+
+```bash
+cargo build --features cedar
+```
+
+Cedar policies integrate with the reasoning loop's Gate phase, providing fine-grained authorization decisions. See the [Security Model](/security-model#cedar-policy-engine) for policy examples.
+
+#### Vector Database Configuration
+
+Symbiont ships with **LanceDB** as the default embedded vector backend — no external service required. For scaled deployments, Qdrant is available as an optional backend.
+
+**LanceDB (default):**
+```toml
+[vector_db]
+enabled = true
+backend = "lancedb"
+collection_name = "symbi_knowledge"
+```
+
+No additional configuration needed. Data stored locally alongside the runtime.
+
+**Qdrant (optional):**
+```bash
+cargo build --features vector-qdrant
+```
+
+```toml
+[vector_db]
+enabled = true
+backend = "qdrant"
+collection_name = "symbi_knowledge"
+url = "http://localhost:6333"
+```
+
+**Environment Variables:**
+- `SYMBIONT_VECTOR_BACKEND` — `lancedb` (default) or `qdrant`
+- `QDRANT_URL` — Qdrant server URL (only when using Qdrant)
+
+#### Advanced Reasoning Primitives (`symbi-dev`)
+
+Enable tool curation, stuck-loop detection, context pre-fetch, and scoped conventions:
+
+```bash
+cargo build --features symbi-dev
+```
+
+See the [symbi-dev guide](/symbi-dev) for full configuration reference.
+
+---
 
 ### Data Structures
 
@@ -512,7 +613,270 @@ The API implements a `RuntimeApiProvider` trait with the following enhanced meth
 - `execute_agent()` - Trigger execution with monitoring and health checks
 - `get_agent_history()` - Retrieve detailed execution history with performance metrics
 
-### New Scheduler Features
+#### Scheduling API
+
+All scheduling endpoints require authentication. Requires the `cron` feature.
+
+##### List Schedules
+```http
+GET /api/v1/schedules
+Authorization: Bearer <your-token>
+```
+
+**Response (200 OK):**
+```json
+[
+  {
+    "job_id": "uuid",
+    "name": "daily-report",
+    "cron_expression": "0 0 9 * * *",
+    "timezone": "America/New_York",
+    "status": "active",
+    "enabled": true,
+    "next_run": "2026-03-04T09:00:00Z",
+    "run_count": 42
+  }
+]
+```
+
+##### Create Schedule
+```http
+POST /api/v1/schedules
+Authorization: Bearer <your-token>
+```
+
+**Request Body:**
+```json
+{
+  "name": "daily-report",
+  "cron_expression": "0 0 9 * * *",
+  "timezone": "America/New_York",
+  "agent_name": "report-agent",
+  "policy_ids": ["policy-1"],
+  "one_shot": false
+}
+```
+
+The `cron_expression` uses six fields: `sec min hour day month weekday` (optional seventh field for year).
+
+**Response (200 OK):**
+```json
+{
+  "job_id": "uuid",
+  "next_run": "2026-03-04T09:00:00Z",
+  "status": "created"
+}
+```
+
+##### Update Schedule
+```http
+PUT /api/v1/schedules/{id}
+Authorization: Bearer <your-token>
+```
+
+**Request Body (all fields optional):**
+```json
+{
+  "cron_expression": "0 */10 * * * *",
+  "timezone": "UTC",
+  "policy_ids": ["policy-2"],
+  "one_shot": true
+}
+```
+
+##### Pause / Resume / Trigger Schedule
+```http
+POST /api/v1/schedules/{id}/pause
+POST /api/v1/schedules/{id}/resume
+POST /api/v1/schedules/{id}/trigger
+Authorization: Bearer <your-token>
+```
+
+**Response (200 OK):**
+```json
+{
+  "job_id": "uuid",
+  "action": "paused",
+  "status": "ok"
+}
+```
+
+##### Delete Schedule
+```http
+DELETE /api/v1/schedules/{id}
+Authorization: Bearer <your-token>
+```
+
+**Response (200 OK):**
+```json
+{
+  "job_id": "uuid",
+  "deleted": true
+}
+```
+
+##### Get Schedule History
+```http
+GET /api/v1/schedules/{id}/history
+Authorization: Bearer <your-token>
+```
+
+**Response (200 OK):**
+```json
+{
+  "job_id": "uuid",
+  "history": [
+    {
+      "run_id": "uuid",
+      "started_at": "2026-03-03T09:00:00Z",
+      "completed_at": "2026-03-03T09:01:23Z",
+      "status": "completed",
+      "error": null,
+      "execution_time_ms": 83000
+    }
+  ]
+}
+```
+
+##### Get Next Runs
+```http
+GET /api/v1/schedules/{id}/next?count=5
+Authorization: Bearer <your-token>
+```
+
+**Response (200 OK):**
+```json
+{
+  "job_id": "uuid",
+  "next_runs": [
+    "2026-03-04T09:00:00Z",
+    "2026-03-05T09:00:00Z"
+  ]
+}
+```
+
+##### Scheduler Health
+```http
+GET /api/v1/health/scheduler
+```
+
+Returns scheduler-specific health and statistics.
+
+---
+
+#### Channel Adapter API
+
+All channel endpoints require authentication. Connects agents to Slack, Microsoft Teams, and Mattermost.
+
+##### List Channels
+```http
+GET /api/v1/channels
+Authorization: Bearer <your-token>
+```
+
+**Response (200 OK):**
+```json
+[
+  {
+    "id": "uuid",
+    "name": "slack-general",
+    "platform": "slack",
+    "status": "running"
+  }
+]
+```
+
+##### Register Channel
+```http
+POST /api/v1/channels
+Authorization: Bearer <your-token>
+```
+
+**Request Body:**
+```json
+{
+  "name": "slack-general",
+  "platform": "slack",
+  "config": {
+    "webhook_url": "https://hooks.slack.com/...",
+    "channel": "#general"
+  }
+}
+```
+
+Supported platforms: `slack`, `teams`, `mattermost`.
+
+**Response (200 OK):**
+```json
+{
+  "id": "uuid",
+  "name": "slack-general",
+  "platform": "slack",
+  "status": "registered"
+}
+```
+
+##### Get / Update / Delete Channel
+```http
+GET    /api/v1/channels/{id}
+PUT    /api/v1/channels/{id}
+DELETE /api/v1/channels/{id}
+Authorization: Bearer <your-token>
+```
+
+##### Start / Stop Channel
+```http
+POST /api/v1/channels/{id}/start
+POST /api/v1/channels/{id}/stop
+Authorization: Bearer <your-token>
+```
+
+**Response (200 OK):**
+```json
+{
+  "id": "uuid",
+  "action": "started",
+  "status": "ok"
+}
+```
+
+##### Channel Health
+```http
+GET /api/v1/channels/{id}/health
+Authorization: Bearer <your-token>
+```
+
+**Response (200 OK):**
+```json
+{
+  "id": "uuid",
+  "connected": true,
+  "platform": "slack",
+  "workspace_name": "my-team",
+  "channels_active": 3,
+  "last_message_at": "2026-03-03T15:42:00Z",
+  "uptime_secs": 86400
+}
+```
+
+##### Identity Mappings
+```http
+GET  /api/v1/channels/{id}/mappings
+POST /api/v1/channels/{id}/mappings
+Authorization: Bearer <your-token>
+```
+
+Maps platform users to Symbiont identities for agent interactions.
+
+##### Channel Audit Log
+```http
+GET /api/v1/channels/{id}/audit
+Authorization: Bearer <your-token>
+```
+
+---
+
+### Scheduler Features
 
 **Real Task Execution:**
 - Process spawning with secure execution environments

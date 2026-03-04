@@ -40,6 +40,9 @@ Symbiont is an AI-native agent framework for building autonomous, policy-aware a
 - **🧠 Context & Knowledge**: RAG-enhanced knowledge systems with vector search (LanceDB embedded default, Qdrant optional) and optional local embeddings
 - **🔗 MCP Integration**: Model Context Protocol client with SchemaPin cryptographic tool verification
 - **⚡ Multi-Language SDKs**: JavaScript and Python SDKs for full API access including scheduling, channels, and enterprise features
+- **🔄 Agentic Reasoning Loop**: Typestate-enforced Observe-Reason-Gate-Act (ORGA) cycle with policy gates, circuit breakers, durable journal, and knowledge bridge
+- **🧪 Advanced Reasoning** (`symbi-dev`): Tool profile filtering, stuck-loop detection, deterministic context pre-fetch, and directory-scoped conventions
+- **📜 Cedar Policy Engine**: Formal authorization language integration for fine-grained access control
 - **🏗️ High Performance**: Rust-native runtime optimized for production workloads with async execution throughout
 
 ---
@@ -183,32 +186,31 @@ graph TB
 
 ## Project Status
 
-### v1.5.0 Production
+### v1.6.1 Stable
 
-Symbiont v1.5.0 is the latest stable release, delivering a complete AI agent framework with production-grade capabilities:
+Symbiont v1.6.1 is the latest stable release, delivering a complete AI agent framework with production-grade capabilities:
 
-- **LanceDB Embedded Vector Backend**: Zero-config vector search with no external services required. `VectorDb` trait abstraction with pluggable backends — LanceDB default, Qdrant optional via `vector-qdrant` feature flag
-- **Context Compaction Pipeline**: Automatic context window management with tiered compaction — LLM-driven summarization (Tier 1), truncation (Tier 4), and enterprise tiers for episodic compression and archival. Multi-model token counting covering OpenAI, Claude, Gemini, Llama, Mistral, and more
-- **ClawHavoc Scanner Expansion**: 40 detection rules across 10 attack categories — reverse shells, credential harvesting, process injection, privilege escalation, network exfiltration, symlink escapes, downloader chains, and more. 5-level severity model (Critical/High/Medium/Warning/Info) with `AllowedExecutablesOnly` executable whitelisting
+- **Agentic Reasoning Loop**: Typestate-enforced ORGA cycle with multi-turn conversation, cloud and SLM inference, circuit breakers, durable journal, and knowledge bridge
+- **Advanced Reasoning Primitives** (`symbi-dev`): Tool profile filtering, per-step stuck-loop detection, deterministic context pre-fetch, and directory-scoped conventions
+- **Cedar Policy Engine**: Formal authorization via Cedar policy language integration (`cedar` feature)
+- **Cloud LLM Inference**: OpenRouter-compatible cloud inference provider (`cloud-llm` feature)
+- **Standalone Agent Mode**: One-liner for cloud-native agents with LLM + Composio tools (`standalone-agent` feature)
+- **LanceDB Embedded Vector Backend**: Zero-config vector search — LanceDB default, Qdrant optional via `vector-qdrant` feature flag
+- **Context Compaction Pipeline**: Tiered compaction with LLM summarization and multi-model token counting (OpenAI, Claude, Gemini, Llama, Mistral, and more)
+- **ClawHavoc Scanner**: 40 detection rules across 10 attack categories with 5-level severity model and executable whitelisting
 - **Composio MCP Integration**: Feature-gated SSE-based connection to Composio MCP server for external tool access
-- **Persistent Memory**: Markdown-backed agent memory with facts, procedures, and learned patterns — retention-based compaction, daily logs, DSL `memory` block
-- **Webhook Verification**: `SignatureVerifier` trait with HMAC-SHA256 and JWT implementations, built-in presets for GitHub, Stripe, Slack, and Custom providers — DSL `webhook` block
-- **HTTP Security Hardening**: Loopback-only default binding, explicit CORS origin allow-lists, JWT EdDSA validation, health endpoint separation
-- **Metrics & Telemetry**: File and OTLP exporters with composite fan-out, background collection, `/metrics` API endpoint
-- **Scheduling Engine**: Cron-based task execution with session isolation, delivery routing, dead-letter queues, jitter, and concurrency limits
-- **Channel Adapters**: Slack (community), Microsoft Teams and Mattermost (enterprise) with webhook verification and HMAC signing
-- **AGENTS.md Support**: Full bidirectional agent manifest generation and parsing for ecosystem interoperability
-- **Performance Benchmarks**: Verified claims — policy evaluation <1ms, ECDSA P-256 verification <5ms, 10k agent scheduling with <2% CPU overhead
-- **18 Fuzz Targets**: Comprehensive fuzzing coverage across DSL parsing, crypto, webhook verification, API keys, policy evaluation, and protocol handling
-- **AgentPin Identity**: Cryptographic agent identity verification via ES256 JWTs with domain-anchored well-known endpoints
-- **Secrets Management**: HashiCorp Vault, encrypted file, and OS keychain backends with runtime provider abstraction
-- **JavaScript & Python SDKs**: Full API clients covering scheduling, channels, webhooks, memory, skills, metrics, and more
+- **Persistent Memory**: Markdown-backed agent memory with facts, procedures, learned patterns, and retention-based compaction
+- **Webhook Verification**: HMAC-SHA256 and JWT verification with GitHub, Stripe, Slack, and custom presets
+- **HTTP Security Hardening**: Loopback-only binding, CORS allow-lists, JWT EdDSA validation, health endpoint separation
+- **Metrics & Telemetry**: File and OTLP exporters with composite fan-out, OpenTelemetry distributed tracing
+- **Scheduling Engine**: Cron-based execution with session isolation, delivery routing, dead-letter queues, and jitter
+- **Channel Adapters**: Slack (community), Microsoft Teams and Mattermost (enterprise) with HMAC signing
+- **AgentPin Identity**: Cryptographic agent identity via ES256 JWTs anchored to well-known endpoints
+- **Secrets Management**: HashiCorp Vault, encrypted file, and OS keychain backends
+- **JavaScript & Python SDKs**: Full API clients covering scheduling, channels, webhooks, memory, skills, and metrics
 
-### 🔮 v1.6.0 Roadmap — Agent-to-Agent Communication
-- Agent discovery via `AgentRegistry` and `.well-known` endpoints
-- Remote transport enabling cross-process agent communication
-- DSL A2A primitives: `send_task()`, `send_message()`, `subscribe()`, `discover_agent()`
-- AgentPin-verified AgentCards for cryptographic inter-agent trust
+### 🔮 v1.7.0 Roadmap
+- External agent integration and A2A protocol support
 - Multi-modal RAG support (images, audio, structured data)
 - Additional channel adapters (Discord, Matrix)
 
@@ -218,6 +220,8 @@ Symbiont v1.5.0 is the latest stable release, delivering a complete AI agent fra
 
 - **Documentation**: Comprehensive guides and API references
   - [API Reference](api-reference.md)
+  - [Reasoning Loop Guide](reasoning-loop.md)
+  - [Advanced Reasoning (symbi-dev)](symbi-dev.md)
   - [Scheduling Guide](scheduling.md)
   - [HTTP Input Module](http-input.md)
   - [DSL Guide](dsl-guide.md)

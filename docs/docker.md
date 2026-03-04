@@ -204,7 +204,7 @@ docker run --user $(id -u):$(id -g) ...
 **Port Conflicts:**
 ```bash
 # Use different ports
-docker run -p 8081:8080 ghcr.io/thirdkeyai/symbiont-runtime:latest
+docker run -p 8081:8080 ghcr.io/thirdkeyai/symbi:latest
 ```
 
 **Build Failures:**
