@@ -1,7 +1,7 @@
 ---
 layout: default
 title: HTTP-Eingabe-Modul
-description: "HTTP-Eingabe-Modul für Webhook-Integration mit Symbiont-Agenten"
+description: "HTTP-Eingabe-Modul fuer Webhook-Integration mit Symbiont-Agenten"
 nav_exclude: true
 ---
 
@@ -14,18 +14,18 @@ nav_exclude: true
 
 ---
 
-Das HTTP-Eingabe-Modul stellt einen Webhook-Server bereit, der es externen Systemen ermöglicht, Symbiont-Agenten über HTTP-Anfragen aufzurufen. Dieses Modul ermöglicht die Integration mit externen Diensten, Webhooks und APIs, indem es Agenten über HTTP-Endpunkte verfügbar macht.
+Das HTTP-Eingabe-Modul stellt einen Webhook-Server bereit, der es externen Systemen ermoeglicht, Symbiont-Agenten ueber HTTP-Anfragen aufzurufen. Dieses Modul ermoeglicht die Integration mit externen Diensten, Webhooks und APIs, indem es Agenten ueber HTTP-Endpunkte verfuegbar macht.
 
-## Überblick
+## Ueberblick
 
 Das HTTP-Eingabe-Modul besteht aus:
 
 - **HTTP-Server**: Ein Axum-basierter Webserver, der auf eingehende HTTP-Anfragen lauscht
-- **Authentifizierung**: Unterstützung für Bearer-Token- und JWT-basierte Authentifizierung
+- **Authentifizierung**: Unterstuetzung fuer Bearer-Token- und JWT-basierte Authentifizierung
 - **Anfrage-Routing**: Flexible Routing-Regeln zur Weiterleitung von Anfragen an spezifische Agenten
 - **Antwort-Kontrolle**: Konfigurierbare Antwortformatierung und Statuscodes
-- **Sicherheitsfeatures**: CORS-Unterstützung, Anfragegrößenlimits und Audit-Logging
-- **Parallelitätsverwaltung**: Eingebaute Anfrage-Ratenbegrenzung und Parallelitätskontrolle
+- **Sicherheitsfeatures**: CORS-Unterstuetzung, Anfragengroessenlimits und Audit-Logging
+- **Parallelitaetsverwaltung**: Eingebaute Anfrage-Ratenbegrenzung und Parallelitaetskontrolle
 
 Das Modul wird bedingt mit dem `http-input` Feature-Flag kompiliert und integriert sich nahtlos in die Symbiont-Agenten-Laufzeitumgebung.
 
@@ -56,15 +56,15 @@ let config = HttpInputConfig {
 | `bind_address` | `String` | `"127.0.0.1"` | IP-Adresse zum Binden des HTTP-Servers |
 | `port` | `u16` | `8081` | Portnummer zum Lauschen |
 | `path` | `String` | `"/webhook"` | HTTP-Pfad-Endpunkt |
-| `agent` | `AgentId` | Neue ID | Standard-Agent für Anfragen aufzurufen |
-| `auth_header` | `Option<String>` | `None` | Bearer-Token für Authentifizierung |
+| `agent` | `AgentId` | Neue ID | Standard-Agent fuer Anfragen aufzurufen |
+| `auth_header` | `Option<String>` | `None` | Bearer-Token fuer Authentifizierung |
 | `jwt_public_key_path` | `Option<String>` | `None` | Pfad zur JWT-Public-Key-Datei |
-| `max_body_bytes` | `usize` | `65536` | Maximale Anfrage-Body-Größe (64 KB) |
+| `max_body_bytes` | `usize` | `65536` | Maximale Anfrage-Body-Groesse (64 KB) |
 | `concurrency` | `usize` | `10` | Maximale gleichzeitige Anfragen |
 | `routing_rules` | `Option<Vec<AgentRoutingRule>>` | `None` | Anfrage-Routing-Regeln |
 | `response_control` | `Option<ResponseControlConfig>` | `None` | Antwortformatierungskonfiguration |
 | `forward_headers` | `Vec<String>` | `[]` | Header zur Weiterleitung an Agenten |
-| `cors_origins` | `Vec<String>` | `[]` | Erlaubte CORS-Ursprünge (leer = CORS deaktiviert) |
+| `cors_origins` | `Vec<String>` | `[]` | Erlaubte CORS-Urspruenge (leer = CORS deaktiviert) |
 | `audit_enabled` | `bool` | `true` | Anfrage-Audit-Logging aktivieren |
 
 ### Agenten-Routing-Regeln
@@ -109,7 +109,7 @@ let response_control = ResponseControlConfig {
 
 ### Authentifizierung
 
-Das HTTP-Eingabe-Modul unterstützt mehrere Authentifizierungsmethoden:
+Das HTTP-Eingabe-Modul unterstuetzt mehrere Authentifizierungsmethoden:
 
 #### Bearer-Token-Authentifizierung
 
@@ -124,7 +124,7 @@ let config = HttpInputConfig {
 
 #### Secret-Store-Integration
 
-Secret-Referenzen für erweiterte Sicherheit verwenden:
+Secret-Referenzen fuer erweiterte Sicherheit verwenden:
 
 ```rust
 let config = HttpInputConfig {
@@ -133,24 +133,39 @@ let config = HttpInputConfig {
 };
 ```
 
-#### JWT-Authentifizierung
+#### JWT-Authentifizierung (EdDSA)
 
-JWT-basierte Authentifizierung konfigurieren:
+JWT-basierte Authentifizierung mit Ed25519-Public-Keys konfigurieren:
 
 ```rust
 let config = HttpInputConfig {
-    jwt_public_key_path: Some("/path/to/jwt/public.key".to_string()),
+    jwt_public_key_path: Some("/path/to/jwt/ed25519-public.pem".to_string()),
     ..Default::default()
 };
 ```
 
+Der JWT-Verifizierer laedt einen Ed25519-Public-Key aus der angegebenen PEM-Datei und validiert eingehende `Authorization: Bearer <jwt>`-Token. Nur der **EdDSA**-Algorithmus wird akzeptiert -- HS256, RS256 und andere Algorithmen werden abgelehnt.
+
+#### Health-Endpunkt
+
+Das HTTP-Eingabe-Modul stellt keinen eigenen `/health`-Endpunkt bereit. Gesundheitspruefungen sind ueber die Haupt-HTTP-API unter `/api/v1/health` verfuegbar, wenn `symbi up` ausgefuehrt wird, das die vollstaendige Laufzeitumgebung einschliesslich des API-Servers startet:
+
+```bash
+# Gesundheitspruefung ueber den Haupt-API-Server (Standard-Port 8080)
+curl http://127.0.0.1:8080/api/v1/health
+# => {"status": "ok"}
+```
+
+Wenn Sie Gesundheitstests speziell fuer den HTTP-Eingabe-Server benoetigen, leiten Sie Ihren Load Balancer stattdessen an den Haupt-API-Gesundheitsendpunkt weiter.
+
 ### Sicherheitskontrollen
 
-- **Anfragegrößenlimits**: Konfigurierbare maximale Body-Größe verhindert Ressourcenerschöpfung
-- **Parallelitätslimits**: Eingebauter Semaphor kontrolliert gleichzeitige Anfragebearbeitung
-- **CORS-Unterstützung**: Optionale CORS-Header für browserbasierte Anwendungen
+- **Nur-Loopback-Standard**: `bind_address` ist standardmaessig `127.0.0.1` -- der Server akzeptiert nur lokale Verbindungen, sofern nicht explizit anders konfiguriert
+- **CORS standardmaessig deaktiviert**: `cors_origins` ist standardmaessig eine leere Liste, was bedeutet, dass CORS deaktiviert ist; fuegen Sie spezifische Urspruenge hinzu, um Cross-Origin-Zugriff zu ermoeglichen
+- **Anfragengroessenlimits**: Konfigurierbare maximale Body-Groesse verhindert Ressourcenerschoepfung
+- **Parallelitaetslimits**: Eingebauter Semaphor kontrolliert gleichzeitige Anfragebearbeitung
 - **Audit-Logging**: Strukturiertes Logging aller eingehenden Anfragen bei Aktivierung
-- **Secret-Auflösung**: Integration mit Vault und dateibasierten Secret-Stores
+- **Secret-Aufloesung**: Integration mit Vault und dateibasierten Secret-Stores
 
 ## Verwendungsbeispiel
 
@@ -215,7 +230,7 @@ agent webhook_handler(body: JSON) -> Maybe<Alert> {
 
 ### Beispiel-HTTP-Anfrage
 
-Webhook-Anfrage senden, um den Agenten auszulösen:
+Webhook-Anfrage senden, um den Agenten auszuloesen:
 
 ```bash
 curl -X POST http://localhost:8081/webhook \
@@ -232,7 +247,7 @@ curl -X POST http://localhost:8081/webhook \
 
 ### Erwartete Antwort
 
-Der Server gibt eine JSON-Antwort mit der Ausgabe des Agenten zurück:
+Der Server gibt eine JSON-Antwort mit der Ausgabe des Agenten zurueck:
 
 ```json
 {
@@ -246,7 +261,7 @@ Der Server gibt eine JSON-Antwort mit der Ausgabe des Agenten zurück:
 
 ### Webhook-Endpunkte
 
-Verschiedene Agenten für verschiedene Webhook-Quellen konfigurieren:
+Verschiedene Agenten fuer verschiedene Webhook-Quellen konfigurieren:
 
 ```rust
 let routing_rules = vec![
@@ -279,25 +294,25 @@ let config = HttpInputConfig {
 };
 ```
 
-### Health-Check-Endpunkt
+### Health-Check-Integration
 
-Der Server stellt automatisch Health-Check-Funktionen für Load Balancer und Überwachungssysteme bereit.
+Das HTTP-Eingabe-Modul bietet keinen dedizierten Health-Endpunkt. Verwenden Sie den Haupt-API-Gesundheitsendpunkt (`/api/v1/health`) fuer die Integration von Load Balancern und Ueberwachungssystemen. Siehe den Abschnitt [Health-Endpunkt](#health-endpunkt) oben fuer Details.
 
 ## Fehlerbehandlung
 
 Das HTTP-Eingabe-Modul bietet umfassende Fehlerbehandlung:
 
-- **Authentifizierungsfehler**: Gibt `401 Unauthorized` für ungültige Token zurück
-- **Ratenbegrenzung**: Gibt `429 Too Many Requests` zurück, wenn Parallelitätslimits überschritten werden
-- **Payload-Fehler**: Gibt `400 Bad Request` für fehlerhaftes JSON zurück
-- **Agenten-Fehler**: Gibt konfigurierbaren Fehlerstatus mit Fehlerdetails zurück
-- **Server-Fehler**: Gibt `500 Internal Server Error` für Laufzeitfehler zurück
+- **Authentifizierungsfehler**: Gibt `401 Unauthorized` fuer ungueltige Token zurueck
+- **Ratenbegrenzung**: Gibt `429 Too Many Requests` zurueck, wenn Parallelitaetslimits ueberschritten werden
+- **Payload-Fehler**: Gibt `400 Bad Request` fuer fehlerhaftes JSON zurueck
+- **Agenten-Fehler**: Gibt konfigurierbaren Fehlerstatus mit Fehlerdetails zurueck
+- **Server-Fehler**: Gibt `500 Internal Server Error` fuer Laufzeitfehler zurueck
 
-## Überwachung und Observability
+## Ueberwachung und Observability
 
 ### Audit-Logging
 
-Wenn `audit_enabled` true ist, protokolliert das Modul strukturierte Informationen über alle Anfragen:
+Wenn `audit_enabled` true ist, protokolliert das Modul strukturierte Informationen ueber alle Anfragen:
 
 ```log
 INFO HTTP Input: Received request with 5 headers
@@ -312,20 +327,20 @@ Das Modul integriert sich in das Metriken-System der Symbiont-Laufzeitumgebung u
 - Antwortzeit-Verteilungen
 - Fehlerrate nach Typ
 - Aktive Verbindungszahlen
-- Parallelitätsauslastung
+- Parallelitaetsauslastung
 
 ## Best Practices
 
 1. **Sicherheit**: In Produktionsumgebungen immer Authentifizierung verwenden
-2. **Ratenbegrenzung**: Angemessene Parallelitätslimits basierend auf Ihrer Infrastruktur konfigurieren
-3. **Überwachung**: Audit-Logging aktivieren und in Ihren Monitoring-Stack integrieren
-4. **Fehlerbehandlung**: Angemessene Fehlerantworten für Ihren Anwendungsfall konfigurieren
-5. **Agenten-Design**: Agenten für webhook-spezifische Eingabeformate entwerfen
-6. **Ressourcenlimits**: Vernünftige Body-Größenlimits setzen, um Ressourcenerschöpfung zu verhindern
+2. **Ratenbegrenzung**: Angemessene Parallelitaetslimits basierend auf Ihrer Infrastruktur konfigurieren
+3. **Ueberwachung**: Audit-Logging aktivieren und in Ihren Monitoring-Stack integrieren
+4. **Fehlerbehandlung**: Angemessene Fehlerantworten fuer Ihren Anwendungsfall konfigurieren
+5. **Agenten-Design**: Agenten fuer webhook-spezifische Eingabeformate entwerfen
+6. **Ressourcenlimits**: Vernuenftige Body-Groessenlimits setzen, um Ressourcenerschoepfung zu verhindern
 
 ## Siehe auch
 
-- [Erste Schritte](getting-started.de.md)
-- [DSL-Leitfaden](dsl-guide.de.md)
-- [API-Referenz](api-reference.de.md)
+- [Erste Schritte](getting-started.md)
+- [DSL-Leitfaden](dsl-guide.md)
+- [API-Referenz](api-reference.md)
 - [Agenten-Laufzeitumgebung-Dokumentation](../crates/runtime/README.md)

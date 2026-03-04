@@ -192,15 +192,15 @@ pub struct LoopConfig {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_definitions: Vec<ToolDefinition>,
     /// Tool profile for filtering tools visible to the LLM.
-    #[cfg(feature = "symbi-dev")]
+    #[cfg(feature = "orga-adaptive")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_profile: Option<crate::reasoning::tool_profile::ToolProfile>,
     /// Per-step iteration limits for stuck loop detection.
-    #[cfg(feature = "symbi-dev")]
+    #[cfg(feature = "orga-adaptive")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub step_iteration: Option<crate::reasoning::progress_tracker::StepIterationConfig>,
     /// Pre-hydration configuration for deterministic context pre-fetch.
-    #[cfg(feature = "symbi-dev")]
+    #[cfg(feature = "orga-adaptive")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pre_hydration: Option<crate::reasoning::pre_hydrate::PreHydrationConfig>,
 }
@@ -219,11 +219,11 @@ impl Default for LoopConfig {
             max_concurrent_tools: 5,
             context_token_budget: 32_000,
             tool_definitions: Vec::new(),
-            #[cfg(feature = "symbi-dev")]
+            #[cfg(feature = "orga-adaptive")]
             tool_profile: None,
-            #[cfg(feature = "symbi-dev")]
+            #[cfg(feature = "orga-adaptive")]
             step_iteration: None,
-            #[cfg(feature = "symbi-dev")]
+            #[cfg(feature = "orga-adaptive")]
             pre_hydration: None,
         }
     }
@@ -335,14 +335,14 @@ pub enum LoopEvent {
         error: String,
     },
     /// A step hit its reattempt limit (emitted by coordinators).
-    #[cfg(feature = "symbi-dev")]
+    #[cfg(feature = "orga-adaptive")]
     StepLimitReached {
         step_id: String,
         attempts: u32,
         reason: String,
     },
     /// Pre-hydration phase completed.
-    #[cfg(feature = "symbi-dev")]
+    #[cfg(feature = "orga-adaptive")]
     PreHydrationComplete {
         references_found: usize,
         references_resolved: usize,

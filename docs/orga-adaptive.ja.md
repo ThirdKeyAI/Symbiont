@@ -1,6 +1,6 @@
 ---
 layout: default
-title: 高度な推論プリミティブ (symbi-dev)
+title: 高度な推論プリミティブ (orga-adaptive)
 description: "高度な推論ループプリミティブ：ツールキュレーション、スタックループ検出、コンテキストプリフェッチ、スコープ付きコンベンション"
 nav_exclude: true
 ---
@@ -11,7 +11,7 @@ nav_exclude: true
 ## 他の言語
 {: .no_toc}
 
-[English](symbi-dev.md) | [中文简体](symbi-dev.zh-cn.md) | [Español](symbi-dev.es.md) | [Português](symbi-dev.pt.md) | **日本語** | [Deutsch](symbi-dev.de.md)
+[English](orga-adaptive.md) | [中文简体](orga-adaptive.zh-cn.md) | [Español](orga-adaptive.es.md) | [Português](orga-adaptive.pt.md) | **日本語** | [Deutsch](orga-adaptive.de.md)
 
 ---
 
@@ -28,7 +28,7 @@ nav_exclude: true
 
 ## 概要
 
-`symbi-dev` フィーチャーゲートは推論ループに4つの高度な機能を追加します：
+`orga-adaptive` フィーチャーゲートは推論ループに4つの高度な機能を追加します：
 
 | プリミティブ | 解決する問題 | モジュール |
 |-------------|-------------|----------|
@@ -42,14 +42,14 @@ nav_exclude: true
 ```toml
 # Cargo.toml に記述
 [dependencies]
-symbi-runtime = { version = "1.6", features = ["symbi-dev"] }
+symbi-runtime = { version = "1.6", features = ["orga-adaptive"] }
 ```
 
 またはソースからビルド：
 
 ```bash
-cargo build --features symbi-dev
-cargo test --features symbi-dev
+cargo build --features orga-adaptive
+cargo test --features orga-adaptive
 ```
 
 すべてのプリミティブは追加的で後方互換性があります -- 既存のコードはフィーチャーゲートなしでも同一にコンパイルおよび実行されます。
@@ -265,7 +265,7 @@ let config = LoopConfig {
 
 ## LoopConfigフィールド
 
-`symbi-dev` featureが有効な場合、`LoopConfig` に3つのオプションフィールドが追加されます：
+`orga-adaptive` featureが有効な場合、`LoopConfig` に3つのオプションフィールドが追加されます：
 
 ```rust
 pub struct LoopConfig {
@@ -316,8 +316,8 @@ cargo clippy --workspace -j2
 cargo test --workspace -j2
 
 # featureあり
-cargo clippy --workspace -j2 --features symbi-dev
-cargo test --workspace -j2 --features symbi-dev
+cargo clippy --workspace -j2 --features orga-adaptive
+cargo test --workspace -j2 --features orga-adaptive
 ```
 
 すべてのテストはインラインの `#[cfg(test)]` モジュールです -- 外部テストフィクスチャは不要です。

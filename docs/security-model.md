@@ -133,6 +133,8 @@ gvisor_security:
 
 ### Risk Assessment Algorithm
 
+> **Planned feature** — This API is part of the security roadmap and not yet available in the current release.
+
 ```rust
 pub struct RiskAssessment {
     data_sensitivity: f32,      // 0.0 = public, 1.0 = top secret
@@ -145,11 +147,11 @@ pub struct RiskAssessment {
 pub fn calculate_risk_score(assessment: RiskAssessment) -> f32 {
     let base_score = assessment.data_sensitivity * 0.4
         + (1.0 - assessment.code_trust_level) * 0.3;
-    
+
     let access_penalty = if assessment.network_access { 0.1 } else { 0.0 }
         + if assessment.filesystem_access { 0.1 } else { 0.0 }
         + if assessment.external_apis { 0.1 } else { 0.0 };
-    
+
     (base_score + access_penalty).min(1.0)
 }
 ```
@@ -285,14 +287,14 @@ cargo build --features cedar
 **Key capabilities:**
 - **Formal verification**: Cedar policies can be statically analyzed for correctness
 - **Fine-grained authorization**: Entity-based access control with hierarchical permissions
-- **Reasoning loop integration**: `CedarGate` implements the `ReasoningPolicyGate` trait, evaluating each proposed action against Cedar policies before execution
+- **Reasoning loop integration**: `CedarPolicyGate` implements the `ReasoningPolicyGate` trait, evaluating each proposed action against Cedar policies before execution
 - **Audit trail**: All Cedar policy decisions are logged with full context
 
 ```rust
-use symbi_runtime::reasoning::cedar_gate::CedarGate;
+use symbi_runtime::reasoning::cedar_gate::CedarPolicyGate;
 
-// Load Cedar policies and evaluate actions in the reasoning loop
-let cedar_gate = CedarGate::new(policy_set, entities);
+// Create a Cedar policy gate with deny-by-default stance
+let cedar_gate = CedarPolicyGate::deny_by_default();
 let runner = ReasoningLoopRunner::builder()
     .provider(provider)
     .executor(executor)
@@ -314,11 +316,10 @@ All security-relevant operations are cryptographically signed:
 - **Performance:** 70,000+ signatures/second, 25,000+ verifications/second
 
 ```rust
-pub struct CryptographicSignature {
-    pub algorithm: SignatureAlgorithm::Ed25519,
-    pub public_key: PublicKey,
-    pub signature: [u8; 64],
-    pub timestamp: SystemTime,
+pub struct MessageSignature {
+    pub signature: Vec<u8>,
+    pub algorithm: SignatureAlgorithm,
+    pub public_key: Vec<u8>,
 }
 
 impl AuditEvent {
@@ -327,7 +328,7 @@ impl AuditEvent {
         self.signature = private_key.sign(&message);
         Ok(())
     }
-    
+
     pub fn verify(&self, public_key: &PublicKey) -> bool {
         let message = self.serialize_for_signing().unwrap();
         public_key.verify(&message, &self.signature)
@@ -348,6 +349,8 @@ impl AuditEvent {
 - Per-agent keys for operation signing
 - Ephemeral keys for session encryption
 - External keys for tool verification
+
+> **Planned feature** — The `KeyManager` API shown below is part of the security roadmap and not yet available in the current release. The current implementation provides key utilities via `KeyUtils` in `crypto.rs`.
 
 ```rust
 pub struct KeyManager {
@@ -482,6 +485,9 @@ impl AuditChain {
 - Financial data protection
 
 **Custom Compliance:**
+
+> **Planned feature** — The `ComplianceFramework` API shown below is part of the security roadmap and not yet available in the current release.
+
 ```rust
 pub struct ComplianceFramework {
     pub name: String,
@@ -534,6 +540,8 @@ sequenceDiagram
 3. Pin the public key in local trust store
 4. Use pinned key for all future verifications
 
+> **Planned feature** — The `TOFUKeyStore` API shown below is part of the security roadmap and not yet available in the current release.
+
 ```rust
 pub struct TOFUKeyStore {
     pinned_keys: HashMap<ProviderId, PinnedKey>,
@@ -545,16 +553,16 @@ impl TOFUKeyStore {
         if self.pinned_keys.contains_key(&provider) {
             return Err("Key already pinned for provider");
         }
-        
+
         self.pinned_keys.insert(provider, PinnedKey {
             public_key: key,
             pinned_at: SystemTime::now(),
             trust_level: TrustLevel::Unverified,
         });
-        
+
         Ok(())
     }
-    
+
     pub fn verify_tool(&self, tool: &MCPTool) -> VerificationResult {
         if let Some(pinned_key) = self.pinned_keys.get(&tool.provider_id) {
             if pinned_key.public_key.verify(&tool.schema_hash, &tool.signature) {
@@ -579,6 +587,8 @@ Automated security analysis before tool approval:
 - **Resource Usage Analysis**: Assessment of computational resource requirements
 - **Privacy Impact Assessment**: Data handling and privacy implications
 
+> **Planned feature** — The `SecurityAnalyzer` API shown below is part of the security roadmap and not yet available in the current release.
+
 ```rust
 pub struct SecurityAnalyzer {
     vulnerability_patterns: VulnerabilityDatabase,
@@ -590,20 +600,20 @@ pub struct SecurityAnalyzer {
 impl SecurityAnalyzer {
     pub async fn analyze_tool(&self, tool: &MCPTool) -> SecurityAnalysis {
         let mut findings = Vec::new();
-        
+
         // Vulnerability pattern matching
         findings.extend(self.vulnerability_patterns.scan(&tool.schema));
-        
+
         // ML-based detection
         let ml_result = self.ml_detector.analyze(&tool.schema).await?;
         findings.extend(ml_result.findings);
-        
+
         // Resource usage analysis
         let resource_risk = self.resource_analyzer.assess(&tool.schema);
-        
+
         // Privacy impact assessment
         let privacy_impact = self.privacy_assessor.evaluate(&tool.schema);
-        
+
         SecurityAnalysis {
             tool_id: tool.id.clone(),
             risk_score: calculate_risk_score(&findings),
@@ -775,18 +785,17 @@ network_policy:
 
 **Alert Classification:**
 ```rust
-pub enum SecurityEventSeverity {
+pub enum ViolationSeverity {
     Info,       // Normal security events
-    Low,        // Minor policy violations
-    Medium,     // Suspicious behavior
-    High,       // Confirmed security issues
+    Warning,    // Minor policy violations
+    Error,      // Confirmed security issues
     Critical,   // Active security breaches
 }
 
 pub struct SecurityEvent {
     pub id: Uuid,
     pub timestamp: SystemTime,
-    pub severity: SecurityEventSeverity,
+    pub severity: ViolationSeverity,
     pub category: SecurityEventCategory,
     pub description: String,
     pub affected_components: Vec<ComponentId>,

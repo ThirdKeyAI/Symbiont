@@ -278,10 +278,10 @@ cargo build --features standalone-agent
 Enable tool curation, stuck-loop detection, context pre-fetch, and scoped conventions:
 
 ```bash
-cargo build --features symbi-dev
+cargo build --features orga-adaptive
 ```
 
-See the [symbi-dev guide](/symbi-dev) for full documentation.
+See the [orga-adaptive guide](/orga-adaptive) for full documentation.
 
 #### Cedar Policy Engine
 
@@ -326,7 +326,7 @@ cd crates/runtime && cargo run --example context_example
 | `composio` | Composio MCP tool integration | No |
 | `standalone-agent` | Cloud LLM + Composio combo | No |
 | `cedar` | Cedar policy engine | No |
-| `symbi-dev` | Advanced reasoning primitives | No |
+| `orga-adaptive` | Advanced reasoning primitives | No |
 | `cron` | Persistent cron scheduling | No |
 | `native-sandbox` | Native process sandboxing | No |
 | `metrics` | OpenTelemetry metrics/tracing | No |
@@ -334,7 +334,7 @@ cd crates/runtime && cargo run --example context_example
 
 ```bash
 # Build with specific features
-cargo build --features "cloud-llm,symbi-dev,cedar"
+cargo build --features "cloud-llm,orga-adaptive,cedar"
 
 # Build with everything
 cargo build --features full
@@ -470,7 +470,7 @@ Now that you have Symbi running, explore these advanced topics:
 
 1. **[DSL Guide](/dsl-guide)** - Learn advanced DSL features
 2. **[Reasoning Loop Guide](/reasoning-loop)** - Understand the ORGA cycle
-3. **[Advanced Reasoning (symbi-dev)](/symbi-dev)** - Tool curation, stuck-loop detection, pre-hydration
+3. **[Advanced Reasoning (orga-adaptive)](/orga-adaptive)** - Tool curation, stuck-loop detection, pre-hydration
 4. **[Runtime Architecture](/runtime-architecture)** - Understand the system internals
 5. **[Security Model](/security-model)** - Implement security policies
 6. **[Contributing](/contributing)** - Contribute to the project

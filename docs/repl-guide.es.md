@@ -33,12 +33,11 @@ El REPL (Read-Eval-Print Loop) de Symbiont proporciona un entorno interactivo pa
 # Interactive REPL mode
 symbi repl
 
-# JSON-RPC server mode (for IDE integration)
-symbi repl --json-rpc
-
-# With custom configuration
-symbi repl --config custom-config.toml
+# JSON-RPC server mode over stdio (for IDE integration)
+symbi repl --stdio
 ```
+
+> **Nota:** El flag `--config` aun no esta soportado. La configuracion se lee desde la ubicacion predeterminada `symbiont.toml`. El soporte para configuracion personalizada esta planificado para una futura version.
 
 ### Uso Basico
 
@@ -89,6 +88,31 @@ print(message)
 | `:monitor traces [limit]` | Mostrar trazas de ejecucion |
 | `:monitor report` | Mostrar informe detallado de ejecucion |
 | `:monitor clear` | Limpiar datos de monitoreo |
+
+### Comandos de Memoria
+
+| Comando | Descripcion |
+|---------|-------------|
+| `:memory inspect <agent-id>` | Inspeccionar el estado de memoria de un agente |
+| `:memory compact <agent-id>` | Compactar almacenamiento de memoria de un agente |
+| `:memory purge <agent-id>` | Purgar toda la memoria de un agente |
+
+### Comandos de Webhook
+
+| Comando | Descripcion |
+|---------|-------------|
+| `:webhook list` | Listar webhooks configurados |
+| `:webhook add` | Agregar un nuevo webhook |
+| `:webhook remove` | Eliminar un webhook |
+| `:webhook test` | Probar un webhook |
+| `:webhook logs` | Mostrar registros de webhook |
+
+### Comandos de Grabacion
+
+| Comando | Descripcion |
+|---------|-------------|
+| `:record on <file>` | Iniciar grabacion de la sesion a un archivo |
+| `:record off` | Detener grabacion de la sesion |
 
 ### Comandos de Sesion
 
@@ -143,6 +167,8 @@ behavior AnalyzeData {
     }
 
     # Perform analysis
+    # NOTE: analyze() is a planned built-in function (not yet implemented).
+    # This example illustrates the intended behavior definition pattern.
     let results = analyze(data, options)
     emit analysis_completed { results: results }
 
@@ -160,6 +186,8 @@ behavior AnalyzeData {
 | `upper(string)` | Convertir cadena a mayusculas | `upper("hello")` -> `"HELLO"` |
 | `lower(string)` | Convertir cadena a minusculas | `lower("HELLO")` -> `"hello"` |
 | `format(template, ...)` | Formatear cadena con argumentos | `format("Hello, {}!", name)` |
+
+> **Funciones integradas planificadas:** Las funciones avanzadas de E/S como `read_file()`, `read_csv()`, `write_results()`, `analyze()` y `transform_data()` aun no estan implementadas. Estan planificadas para una futura version.
 
 ### Tipos de Datos
 
@@ -245,6 +273,8 @@ behavior ReadFile {
   steps {
     # This will check if agent has "filesystem" capability
     require capability("filesystem")
+    # NOTE: read_file() is a planned built-in function (not yet implemented).
+    # This example illustrates how capability checking works.
     let content = read_file(path)
     return content
   }
@@ -311,18 +341,23 @@ Agent Debug Information:
 
 ### Language Server Protocol
 
-El REPL proporciona soporte LSP para integracion con IDEs:
+El REPL proporciona soporte LSP para integracion con IDEs a traves del crate `repl-lsp`. El servidor LSP se inicia por separado del REPL:
 
 ```bash
-# Start LSP server
-symbi repl --lsp --port 9257
+# The LSP server is provided by the repl-lsp crate and launched
+# by your editor's LSP client configuration (not via symbi repl flags).
 ```
+
+> **Nota:** El flag `--lsp` no esta soportado en `symbi repl`. El LSP esta implementado en el crate `repl-lsp` y debe configurarse a traves de la configuracion LSP de su editor.
 
 ### Caracteristicas Soportadas
 
 - Resaltado de sintaxis
-- Autocompletado de codigo
 - Diagnosticos de errores
+- Sincronizacion de texto
+
+**Caracteristicas planificadas** (aun no implementadas):
+- Autocompletado de codigo
 - Informacion al pasar el cursor
 - Ir a la definicion
 - Busqueda de simbolos
@@ -437,6 +472,9 @@ behavior ProcessCsv {
   steps {
     require capability("data_read")
 
+    # NOTE: read_csv(), transform_data(), and write_results() are planned
+    # built-in functions (not yet implemented). This example illustrates
+    # the intended pattern for data processing behaviors.
     let data = read_csv(file_path)
     let processed = transform_data(data)
 

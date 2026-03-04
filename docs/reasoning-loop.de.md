@@ -28,7 +28,7 @@ Vollstaendiger Leitfaden zur agentischen Reasoning-Schleife von Symbiont: ein ty
 
 ## Ueberblick
 
-Die Reasoning-Schleife ist die zentrale Ausfuehrungsmaschine fuer autonome Agenten in Symbiont. Sie treibt eine mehrrundig Konversation zwischen einem LLM, einem Policy-Gate und externen Tools durch einen strukturierten Zyklus:
+Die Reasoning-Schleife ist die zentrale Ausfuehrungsmaschine fuer autonome Agenten in Symbiont. Sie treibt eine mehrrundige Konversation zwischen einem LLM, einem Policy-Gate und externen Tools durch einen strukturierten Zyklus:
 
 1. **Observe** -- Ergebnisse vorheriger Tool-Ausfuehrungen sammeln
 2. **Reason** -- LLM erzeugt vorgeschlagene Aktionen (Tool-Aufrufe oder Textantworten)
@@ -61,7 +61,7 @@ use symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate;
 use symbi_runtime::reasoning::reasoning_loop::ReasoningLoopRunner;
 use symbi_runtime::types::AgentId;
 
-// Runner mit Standardkomponenten einrichten
+// Set up the runner with default components
 let runner = ReasoningLoopRunner {
     provider: Arc::new(my_inference_provider),
     policy_gate: Arc::new(DefaultPolicyGate::permissive()),
@@ -72,11 +72,11 @@ let runner = ReasoningLoopRunner {
     knowledge_bridge: None,
 };
 
-// Konversation aufbauen
+// Build a conversation
 let mut conv = Conversation::with_system("You are a helpful assistant.");
 conv.push(ConversationMessage::user("What is 6 * 7?"));
 
-// Schleife ausfuehren
+// Run the loop
 let result = runner.run(AgentId::new(), conv, LoopConfig::default()).await;
 
 println!("Output: {}", result.output);
@@ -119,10 +119,10 @@ let result = runner.run(agent_id, conv, config).await;
 Die Schleife nutzt Rusts Typsystem, um gueltige Phasenwechsel zur Kompilierzeit zu erzwingen. Jede Phase ist ein Zero-Sized-Type-Marker:
 
 ```rust
-pub struct Reasoning;      // LLM erzeugt vorgeschlagene Aktionen
-pub struct PolicyCheck;    // Jede Aktion wird vom Gate bewertet
-pub struct ToolDispatching; // Genehmigte Aktionen werden ausgefuehrt
-pub struct Observing;      // Ergebnisse werden fuer die naechste Iteration gesammelt
+pub struct Reasoning;      // LLM produces proposed actions
+pub struct PolicyCheck;    // Each action evaluated by the gate
+pub struct ToolDispatching; // Approved actions executed
+pub struct Observing;      // Results collected for next iteration
 ```
 
 Die `AgentLoop<Phase>`-Struktur traegt den Schleifenstatus und kann nur Methoden aufrufen, die fuer ihre aktuelle Phase geeignet sind. Zum Beispiel stellt `AgentLoop<Reasoning>` nur `produce_output()` bereit, das self konsumiert und `AgentLoop<PolicyCheck>` zurueckgibt.
@@ -285,7 +285,7 @@ let bridge = Arc::new(KnowledgeBridge::new(
 ));
 
 let runner = ReasoningLoopRunner {
-    // ... andere Felder ...
+    // ... other fields ...
     knowledge_bridge: Some(bridge),
 };
 ```
@@ -332,7 +332,7 @@ let mut conv = Conversation::with_system("You are a helpful assistant.");
 conv.push(ConversationMessage::user("Hello"));
 conv.push(ConversationMessage::assistant("Hi there!"));
 
-// Fuer API-Aufrufe serialisieren
+// Serialize for API calls
 let openai_msgs = conv.to_openai_messages();
 let (system, anthropic_msgs) = conv.to_anthropic_messages();
 ```
@@ -381,13 +381,13 @@ Das Standard-`BufferedJournal` speichert Eintraege im Speicher. Produktionsumgeb
 
 ```rust
 pub struct LoopConfig {
-    pub max_iterations: u32,        // Standard: 25
-    pub max_total_tokens: u32,      // Standard: 100.000
-    pub timeout: Duration,          // Standard: 5 Minuten
+    pub max_iterations: u32,        // Default: 25
+    pub max_total_tokens: u32,      // Default: 100,000
+    pub timeout: Duration,          // Default: 5 minutes
     pub default_recovery: RecoveryStrategy,
-    pub tool_timeout: Duration,     // Standard: 30 Sekunden
-    pub max_concurrent_tools: usize, // Standard: 10
-    pub context_token_budget: usize, // Standard: 8.000
+    pub tool_timeout: Duration,     // Default: 30 seconds
+    pub max_concurrent_tools: usize, // Default: 5
+    pub context_token_budget: usize, // Default: 32,000
     pub tool_definitions: Vec<ToolDefinition>,
 }
 ```
@@ -442,13 +442,13 @@ Die Reasoning-Schleife wurde in fuenf Phasen aufgebaut, die jeweils Faehigkeiten
 | **4** | Multi-Agent | `agent_registry`, `critic_audit`, `saga` |
 | **5** | Beobachtbarkeit | `cedar_gate`, `journal`, `metrics`, `scheduler`, `tracing_spans` |
 | **Bridge** | Wissen | `knowledge_bridge`, `knowledge_executor` |
-| **symbi-dev** | Erweitert | `tool_profile`, `progress_tracker`, `pre_hydrate`, erweitertes `knowledge_bridge` |
+| **orga-adaptive** | Erweitert | `tool_profile`, `progress_tracker`, `pre_hydrate`, erweitertes `knowledge_bridge` |
 
 ---
 
-## Erweiterte Primitiven (symbi-dev)
+## Erweiterte Primitiven (orga-adaptive)
 
-Das `symbi-dev` Feature Gate fuegt vier erweiterte Faehigkeiten hinzu. Siehe den [vollstaendigen Leitfaden](symbi-dev.md) fuer Details.
+Das `orga-adaptive` Feature Gate fuegt vier erweiterte Faehigkeiten hinzu. Siehe den [vollstaendigen Leitfaden](orga-adaptive.md) fuer Details.
 
 | Primitive | Zweck |
 |-----------|---------|

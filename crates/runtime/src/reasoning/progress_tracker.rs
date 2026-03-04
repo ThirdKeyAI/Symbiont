@@ -2,7 +2,7 @@
 //!
 //! Higher-order concern for coordinators. Tracks per-step reattempt counts
 //! and detects stuck loops via normalized Levenshtein similarity of
-//! consecutive error outputs. Part of the symbi-dev feature gate.
+//! consecutive error outputs. Part of the orga-adaptive feature gate.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

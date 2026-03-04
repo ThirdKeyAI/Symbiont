@@ -33,12 +33,11 @@ The Symbiont REPL (Read-Eval-Print Loop) provides an interactive environment for
 # Interactive REPL mode
 symbi repl
 
-# JSON-RPC server mode (for IDE integration)
-symbi repl --json-rpc
-
-# With custom configuration
-symbi repl --config custom-config.toml
+# JSON-RPC server mode over stdio (for IDE integration)
+symbi repl --stdio
 ```
+
+> **Note:** The `--config` flag is not yet supported. Configuration is read from the default `symbiont.toml` location. Custom config support is planned for a future release.
 
 ### Basic Usage
 
@@ -90,6 +89,31 @@ print(message)
 | `:monitor report` | Show detailed execution report |
 | `:monitor clear` | Clear monitoring data |
 
+### Memory Commands
+
+| Command | Description |
+|---------|-------------|
+| `:memory inspect <agent-id>` | Inspect memory state for an agent |
+| `:memory compact <agent-id>` | Compact memory storage for an agent |
+| `:memory purge <agent-id>` | Purge all memory for an agent |
+
+### Webhook Commands
+
+| Command | Description |
+|---------|-------------|
+| `:webhook list` | List configured webhooks |
+| `:webhook add` | Add a new webhook |
+| `:webhook remove` | Remove a webhook |
+| `:webhook test` | Test a webhook |
+| `:webhook logs` | Show webhook logs |
+
+### Recording Commands
+
+| Command | Description |
+|---------|-------------|
+| `:record on <file>` | Start recording the session to a file |
+| `:record off` | Stop recording the session |
+
 ### Session Commands
 
 | Command | Description |
@@ -137,15 +161,17 @@ behavior AnalyzeData {
   steps {
     # Check data privacy requirements
     require capability("data_read")
-    
+
     if (data.contains_pii) {
       return error("Cannot process data with PII")
     }
-    
+
     # Perform analysis
+    # NOTE: analyze() is a planned built-in function (not yet implemented).
+    # This example illustrates the intended behavior definition pattern.
     let results = analyze(data, options)
     emit analysis_completed { results: results }
-    
+
     return results
   }
 }
@@ -160,6 +186,8 @@ behavior AnalyzeData {
 | `upper(string)` | Convert string to uppercase | `upper("hello")` → `"HELLO"` |
 | `lower(string)` | Convert string to lowercase | `lower("HELLO")` → `"hello"` |
 | `format(template, ...)` | Format string with arguments | `format("Hello, {}!", name)` |
+
+> **Planned built-in functions:** Advanced I/O functions such as `read_file()`, `read_csv()`, `write_results()`, `analyze()`, and `transform_data()` are not yet implemented. These are planned for a future release.
 
 ### Data Types
 
@@ -245,6 +273,8 @@ behavior ReadFile {
   steps {
     # This will check if agent has "filesystem" capability
     require capability("filesystem")
+    # NOTE: read_file() is a planned built-in function (not yet implemented).
+    # This example illustrates how capability checking works.
     let content = read_file(path)
     return content
   }
@@ -311,18 +341,23 @@ Agent Debug Information:
 
 ### Language Server Protocol
 
-The REPL provides LSP support for IDE integration:
+The REPL provides LSP support for IDE integration via the `repl-lsp` crate. The LSP server is started separately from the REPL itself:
 
 ```bash
-# Start LSP server
-symbi repl --lsp --port 9257
+# The LSP server is provided by the repl-lsp crate and launched
+# by your editor's LSP client configuration (not via symbi repl flags).
 ```
+
+> **Note:** The `--lsp` flag is not supported on `symbi repl`. LSP is implemented in the `repl-lsp` crate and should be configured through your editor's LSP settings.
 
 ### Supported Features
 
 - Syntax highlighting
-- Code completion  
 - Error diagnostics
+- Text synchronization
+
+**Planned features** (not yet implemented):
+- Code completion
 - Hover information
 - Go to definition
 - Symbol search
@@ -433,16 +468,19 @@ agent DataProcessor {
 behavior ProcessCsv {
   input { file_path: string }
   output { summary: ProcessingSummary }
-  
+
   steps {
     require capability("data_read")
-    
+
+    # NOTE: read_csv(), transform_data(), and write_results() are planned
+    # built-in functions (not yet implemented). This example illustrates
+    # the intended pattern for data processing behaviors.
     let data = read_csv(file_path)
     let processed = transform_data(data)
-    
-    require capability("data_write") 
+
+    require capability("data_write")
     write_results(processed)
-    
+
     return {
       "rows_processed": len(data),
       "status": "completed"

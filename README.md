@@ -82,7 +82,7 @@ cargo run -- mcp --port 8080
 * ✅ **Agent Runtime** – Task scheduling, resource management, and lifecycle control.
 * 🔄 **Agentic Reasoning Loop** – Typestate-enforced Observe-Reason-Gate-Act (ORGA) cycle with multi-turn conversation management, unified inference across cloud and local SLM providers, circuit breakers, and durable journal. Five implementation phases: core loop, policy integration, human-in-the-loop, multi-agent patterns, and observability.
 * 🧠 **Knowledge-Reasoning Bridge** – Opt-in integration between the knowledge/context system and the reasoning loop. Injects relevant context before each reasoning step, exposes `recall_knowledge`/`store_knowledge` as LLM-callable tools, and persists learnings after loop completion.
-* 🧪 **Advanced Reasoning Primitives** (`symbi-dev`) – Feature-gated tool profile filtering (glob-based include/exclude, max cap, verified-only), per-step iteration tracking with stuck-loop detection (Levenshtein similarity), deterministic context pre-fetch (URL/file/issue/PR extraction with parallel resolution and token budgets), and directory-scoped convention retrieval.
+* 🧪 **Advanced Reasoning Primitives** (`orga-adaptive`) – Feature-gated tool profile filtering (glob-based include/exclude, max cap, verified-only), per-step iteration tracking with stuck-loop detection (Levenshtein similarity), deterministic context pre-fetch (URL/file/issue/PR extraction with parallel resolution and token budgets), and directory-scoped convention retrieval.
 * ⏰ **Cron Scheduling** – Persistent SQLite-backed cron engine with jitter, concurrency guards, dead-letter queues, and heartbeat pattern.
 * 🧠 **Persistent Memory** – Markdown-backed agent memory with facts, procedures, learned patterns, daily logs, and retention-based compaction.
 * 🪝 **Webhook Verification** – HMAC-SHA256 and JWT signature verification with GitHub, Stripe, and Slack presets.
@@ -166,7 +166,7 @@ agent analyze_data(input: DataSet) -> Result {
 * [DSL Guide](https://docs.symbiont.dev/dsl-guide)
 * [Runtime Architecture](https://docs.symbiont.dev/runtime-architecture)
 * [Reasoning Loop Guide](https://docs.symbiont.dev/reasoning-loop)
-* [Advanced Reasoning Primitives (symbi-dev)](https://docs.symbiont.dev/symbi-dev)
+* [Advanced Reasoning Primitives (orga-adaptive)](https://docs.symbiont.dev/orga-adaptive)
 * [Security Model](https://docs.symbiont.dev/security-model)
 * [API Reference](https://docs.symbiont.dev/api-reference)
 

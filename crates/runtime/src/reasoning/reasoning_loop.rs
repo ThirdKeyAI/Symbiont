@@ -195,8 +195,8 @@ impl ReasoningLoopRunner {
             }
         }
 
-        // Apply tool profile filtering (symbi-dev: tool curation)
-        #[cfg(feature = "symbi-dev")]
+        // Apply tool profile filtering (orga-adaptive: tool curation)
+        #[cfg(feature = "orga-adaptive")]
         if let Some(ref profile) = config.tool_profile {
             config.tool_definitions = profile.filter_tools(&config.tool_definitions);
         }
@@ -251,8 +251,8 @@ impl ReasoningLoopRunner {
                 self.executor.clone()
             };
 
-        // Pre-hydration: extract and resolve references from task input (symbi-dev: cold-start context)
-        #[cfg(feature = "symbi-dev")]
+        // Pre-hydration: extract and resolve references from task input (orga-adaptive: cold-start context)
+        #[cfg(feature = "orga-adaptive")]
         if let Some(ref pre_hydration_config) = current_loop.config.pre_hydration {
             use crate::reasoning::conversation::ConversationMessage;
             use crate::reasoning::pre_hydrate::PreHydrationEngine;

@@ -188,10 +188,10 @@ impl KnowledgeBridge {
             query: String,
             #[serde(default = "default_limit")]
             limit: usize,
-            #[cfg(feature = "symbi-dev")]
+            #[cfg(feature = "orga-adaptive")]
             #[serde(default)]
             directory: Option<String>,
-            #[cfg(feature = "symbi-dev")]
+            #[cfg(feature = "orga-adaptive")]
             #[serde(default)]
             scope: Option<String>,
         }
@@ -202,8 +202,8 @@ impl KnowledgeBridge {
         let args: RecallArgs =
             serde_json::from_str(arguments).map_err(|e| format!("Invalid arguments: {}", e))?;
 
-        // With symbi-dev feature: route to scoped conventions if directory + scope=conventions
-        #[cfg(feature = "symbi-dev")]
+        // With orga-adaptive feature: route to scoped conventions if directory + scope=conventions
+        #[cfg(feature = "orga-adaptive")]
         {
             if let (Some(ref dir), Some(ref scope)) = (&args.directory, &args.scope) {
                 if scope == "conventions" {
@@ -236,7 +236,7 @@ impl KnowledgeBridge {
 
     /// Retrieve conventions scoped to a directory, walking up to parent directories
     /// and falling back to language-level conventions.
-    #[cfg(feature = "symbi-dev")]
+    #[cfg(feature = "orga-adaptive")]
     async fn retrieve_scoped_conventions(
         &self,
         agent_id: &AgentId,
@@ -339,7 +339,7 @@ impl KnowledgeBridge {
     }
 }
 
-#[cfg(not(feature = "symbi-dev"))]
+#[cfg(not(feature = "orga-adaptive"))]
 fn recall_tool_def() -> ToolDefinition {
     ToolDefinition {
         name: "recall_knowledge".to_string(),
@@ -362,7 +362,7 @@ fn recall_tool_def() -> ToolDefinition {
     }
 }
 
-#[cfg(feature = "symbi-dev")]
+#[cfg(feature = "orga-adaptive")]
 fn recall_tool_def() -> ToolDefinition {
     ToolDefinition {
         name: "recall_knowledge".to_string(),
@@ -539,7 +539,7 @@ mod tests {
         assert!(!KnowledgeBridge::is_knowledge_tool(""));
     }
 
-    #[cfg(feature = "symbi-dev")]
+    #[cfg(feature = "orga-adaptive")]
     #[test]
     fn test_recall_tool_def_has_directory_and_scope() {
         let def = recall_tool_def();
@@ -553,7 +553,7 @@ mod tests {
             .contains(&serde_json::json!("query")));
     }
 
-    #[cfg(feature = "symbi-dev")]
+    #[cfg(feature = "orga-adaptive")]
     #[test]
     fn test_recall_tool_backward_compatible() {
         let def = recall_tool_def();

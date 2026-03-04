@@ -515,9 +515,9 @@ The bridge is fully opt-in — without it, the loop behaves identically to befor
 | Agent Registry | `agent_registry.rs` | Persistent agent metadata with lifecycle management |
 | Tracing | `tracing_spans.rs` | OpenTelemetry distributed tracing for each loop phase |
 | Metrics | `metrics.rs` | Iteration counts, token usage, latency histograms |
-| Tool Profile | `tool_profile.rs` | Glob-based tool filtering before LLM sees them (`symbi-dev`) |
-| Progress Tracker | `progress_tracker.rs` | Per-step reattempt limits with stuck-loop detection (`symbi-dev`) |
-| Pre-Hydration | `pre_hydrate.rs` | Deterministic context pre-fetch from task references (`symbi-dev`) |
+| Tool Profile | `tool_profile.rs` | Glob-based tool filtering before LLM sees them (`orga-adaptive`) |
+| Progress Tracker | `progress_tracker.rs` | Per-step reattempt limits with stuck-loop detection (`orga-adaptive`) |
+| Pre-Hydration | `pre_hydrate.rs` | Deterministic context pre-fetch from task references (`orga-adaptive`) |
 
 ---
 

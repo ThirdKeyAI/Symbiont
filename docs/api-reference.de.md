@@ -504,15 +504,15 @@ url = "http://localhost:6333"
 - `SYMBIONT_VECTOR_BACKEND` -- `lancedb` (Standard) oder `qdrant`
 - `QDRANT_URL` -- Qdrant-Server-URL (nur bei Verwendung von Qdrant)
 
-#### Erweiterte Reasoning-Primitiven (`symbi-dev`)
+#### Erweiterte Reasoning-Primitiven (`orga-adaptive`)
 
 Tool-Kuratierung, Stuck-Loop-Erkennung, Kontext-Pre-Fetch und verzeichnisspezifische Konventionen aktivieren:
 
 ```bash
-cargo build --features symbi-dev
+cargo build --features orga-adaptive
 ```
 
-Siehe den [symbi-dev-Leitfaden](/symbi-dev) fuer die vollstaendige Konfigurationsreferenz.
+Siehe den [orga-adaptive-Leitfaden](/orga-adaptive) fuer die vollstaendige Konfigurationsreferenz.
 
 ---
 

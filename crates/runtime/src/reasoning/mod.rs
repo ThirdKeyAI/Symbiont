@@ -56,17 +56,17 @@ pub use policy_bridge::{ReasoningPolicyGate, ToolFilterPolicyGate};
 pub use reasoning_loop::ReasoningLoopRunner;
 pub use schema_validation::{SchemaValidationError, ValidationPipeline};
 
-// Advanced reasoning loop primitives (symbi-dev)
-#[cfg(feature = "symbi-dev")]
+// Advanced reasoning loop primitives (orga-adaptive)
+#[cfg(feature = "orga-adaptive")]
 pub mod pre_hydrate;
-#[cfg(feature = "symbi-dev")]
+#[cfg(feature = "orga-adaptive")]
 pub mod progress_tracker;
-#[cfg(feature = "symbi-dev")]
+#[cfg(feature = "orga-adaptive")]
 pub mod tool_profile;
 
-#[cfg(feature = "symbi-dev")]
+#[cfg(feature = "orga-adaptive")]
 pub use pre_hydrate::{HydratedContext, PreHydrationConfig, PreHydrationEngine};
-#[cfg(feature = "symbi-dev")]
+#[cfg(feature = "orga-adaptive")]
 pub use progress_tracker::{LimitAction, ProgressTracker, StepDecision, StepIterationConfig};
-#[cfg(feature = "symbi-dev")]
+#[cfg(feature = "orga-adaptive")]
 pub use tool_profile::ToolProfile;

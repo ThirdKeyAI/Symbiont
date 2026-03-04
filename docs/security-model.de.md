@@ -11,7 +11,7 @@ nav_exclude: true
 Umfassende Sicherheitsarchitektur, die Zero-Trust, richtliniengesteuerten Schutz fuer KI-Agenten gewaehrleistet.
 {: .fs-6 .fw-300 }
 
-## 🌐 Andere Sprachen
+## Andere Sprachen
 {: .no_toc}
 
 [English](security-model.md) | [中文简体](security-model.zh-cn.md) | [Español](security-model.es.md) | [Português](security-model.pt.md) | [日本語](security-model.ja.md) | **Deutsch**
@@ -132,6 +132,8 @@ gvisor_security:
 > **Enterprise-Feature**: Erweiterte Isolation mit Hardware-Virtualisierung (Firecracker) ist in Enterprise-Editionen fuer maximale Sicherheitsanforderungen verfuegbar.
 
 ### Risikobewertungsalgorithmus
+
+> **Geplantes Feature** -- Diese API ist Teil der Sicherheits-Roadmap und noch nicht im aktuellen Release verfuegbar.
 
 ```rust
 pub struct RiskAssessment {
@@ -285,14 +287,14 @@ cargo build --features cedar
 **Hauptfaehigkeiten:**
 - **Formale Verifikation**: Cedar-Richtlinien koennen statisch auf Korrektheit analysiert werden
 - **Feingranulare Autorisierung**: Entitaetsbasierte Zugriffskontrolle mit hierarchischen Berechtigungen
-- **Reasoning-Loop-Integration**: `CedarGate` implementiert das `ReasoningPolicyGate` Trait und bewertet jede vorgeschlagene Aktion gegen Cedar-Richtlinien vor der Ausfuehrung
+- **Reasoning-Loop-Integration**: `CedarPolicyGate` implementiert das `ReasoningPolicyGate` Trait und bewertet jede vorgeschlagene Aktion gegen Cedar-Richtlinien vor der Ausfuehrung
 - **Audit-Spur**: Alle Cedar-Richtlinienentscheidungen werden mit vollstaendigem Kontext protokolliert
 
 ```rust
-use symbi_runtime::reasoning::cedar_gate::CedarGate;
+use symbi_runtime::reasoning::cedar_gate::CedarPolicyGate;
 
-// Cedar-Richtlinien laden und Aktionen in der Reasoning-Schleife auswerten
-let cedar_gate = CedarGate::new(policy_set, entities);
+// Cedar-Policy-Gate mit Deny-by-Default-Haltung erstellen
+let cedar_gate = CedarPolicyGate::deny_by_default();
 let runner = ReasoningLoopRunner::builder()
     .provider(provider)
     .executor(executor)
@@ -314,11 +316,10 @@ Alle sicherheitsrelevanten Operationen sind kryptographisch signiert:
 - **Leistung:** 70.000+ Signaturen/Sekunde, 25.000+ Verifikationen/Sekunde
 
 ```rust
-pub struct CryptographicSignature {
-    pub algorithm: SignatureAlgorithm::Ed25519,
-    pub public_key: PublicKey,
-    pub signature: [u8; 64],
-    pub timestamp: SystemTime,
+pub struct MessageSignature {
+    pub signature: Vec<u8>,
+    pub algorithm: SignatureAlgorithm,
+    pub public_key: Vec<u8>,
 }
 
 impl AuditEvent {
@@ -348,6 +349,8 @@ impl AuditEvent {
 - Pro-Agent-Schluessel fuer Operationssignierung
 - Ephemere Schluessel fuer Sitzungsverschluesselung
 - Externe Schluessel fuer Tool-Verifikation
+
+> **Geplantes Feature** -- Die unten gezeigte `KeyManager`-API ist Teil der Sicherheits-Roadmap und noch nicht im aktuellen Release verfuegbar. Die aktuelle Implementierung stellt Schluesseldienstprogramme ueber `KeyUtils` in `crypto.rs` bereit.
 
 ```rust
 pub struct KeyManager {
@@ -482,6 +485,9 @@ impl AuditChain {
 - Finanzdatenschutz
 
 **Benutzerdefinierte Compliance:**
+
+> **Geplantes Feature** -- Die unten gezeigte `ComplianceFramework`-API ist Teil der Sicherheits-Roadmap und noch nicht im aktuellen Release verfuegbar.
+
 ```rust
 pub struct ComplianceFramework {
     pub name: String,
@@ -534,6 +540,8 @@ sequenceDiagram
 3. Oeffentlichen Schluessel im lokalen Trust Store anheften
 4. Angehefteten Schluessel fuer alle zukuenftigen Verifikationen verwenden
 
+> **Geplantes Feature** -- Die unten gezeigte `TOFUKeyStore`-API ist Teil der Sicherheits-Roadmap und noch nicht im aktuellen Release verfuegbar.
+
 ```rust
 pub struct TOFUKeyStore {
     pinned_keys: HashMap<ProviderId, PinnedKey>,
@@ -578,6 +586,8 @@ Automatisierte Sicherheitsanalyse vor Tool-Genehmigung:
 - **Schaedlicher Code-Erkennung**: ML-basierte Identifikation von boesartigem Verhalten
 - **Ressourcennutzungsanalyse**: Bewertung von Rechenressourcenanforderungen
 - **Datenschutz-Folgenabschaetzung**: Datenbehandlung und Datenschutzauswirkungen
+
+> **Geplantes Feature** -- Die unten gezeigte `SecurityAnalyzer`-API ist Teil der Sicherheits-Roadmap und noch nicht im aktuellen Release verfuegbar.
 
 ```rust
 pub struct SecurityAnalyzer {
@@ -775,18 +785,17 @@ network_policy:
 
 **Alert-Klassifikation:**
 ```rust
-pub enum SecurityEventSeverity {
-    Info,       // Normal security events
-    Low,        // Minor policy violations
-    Medium,     // Suspicious behavior
-    High,       // Confirmed security issues
-    Critical,   // Active security breaches
+pub enum ViolationSeverity {
+    Info,       // Normale Sicherheitsereignisse
+    Warning,    // Geringfuegige Richtlinienverletzungen
+    Error,      // Bestaetigte Sicherheitsprobleme
+    Critical,   // Aktive Sicherheitsverletzungen
 }
 
 pub struct SecurityEvent {
     pub id: Uuid,
     pub timestamp: SystemTime,
-    pub severity: SecurityEventSeverity,
+    pub severity: ViolationSeverity,
     pub category: SecurityEventCategory,
     pub description: String,
     pub affected_components: Vec<ComponentId>,

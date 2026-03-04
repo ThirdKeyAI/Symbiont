@@ -44,22 +44,26 @@ The Symbi DSL is a domain-specific language designed for creating autonomous, po
 
 ### Basic Structure
 
-Every Symbi program consists of optional metadata, imports, and agent definitions:
+Every Symbi program consists of optional metadata and agent definitions:
 
 ```rust
 metadata {
-    version = "1.0.0"
-    author = "developer"
-    description = "Example agent"
+    version: "1.0.0"
+    author: "developer"
+    description: "Example agent"
 }
-
-import data_processing as dp;
-import security_utils;
 
 agent process_data(input: DataSet) -> Result {
     // Agent implementation
 }
 ```
+
+> **Planned feature** — Import syntax is planned for a future release.
+>
+> ```rust
+> import data_processing as dp;
+> import security_utils;
+> ```
 
 ### Comments
 
@@ -80,13 +84,13 @@ Metadata provides essential information about your agent:
 
 ```rust
 metadata {
-    version = "1.2.0"
-    author = "ThirdKey Security Team"
-    description = "Healthcare data analysis agent with HIPAA compliance"
-    license = "Proprietary"
-    tags = ["healthcare", "hipaa", "analysis"]
-    min_runtime_version = "1.0.0"
-    dependencies = ["medical_nlp", "privacy_tools"]
+    version: "1.2.0"
+    author: "ThirdKey Security Team"
+    description: "Healthcare data analysis agent with HIPAA compliance"
+    license: "Proprietary"
+    tags: ["healthcare", "hipaa", "analysis"]
+    min_runtime_version: "1.0.0"
+    dependencies: ["medical_nlp", "privacy_tools"]
 }
 ```
 
@@ -110,7 +114,7 @@ metadata {
 
 ```rust
 agent agent_name(param1: Type1, param2: Type2) -> ReturnType {
-    capabilities = ["capability1", "capability2"]
+    capabilities: [capability1, capability2]
     
     policy policy_name {
         // Policy rules
@@ -130,8 +134,8 @@ Support for various parameter types:
 agent complex_agent(
     // Basic types
     name: String,
-    age: Integer,
-    active: Boolean,
+    age: int,
+    active: bool,
     
     // Optional parameters
     email: Optional<String>,
@@ -154,11 +158,11 @@ Declare what your agent can do:
 
 ```rust
 agent data_processor(input: DataSet) -> Analysis {
-    capabilities = [
-        "data_analysis",        // Core data processing
-        "statistical_modeling", // Advanced analytics
-        "report_generation",    // Output formatting
-        "audit_logging"         // Compliance tracking
+    capabilities: [
+        data_analysis,          // Core data processing
+        statistical_modeling,   // Advanced analytics
+        report_generation,      // Output formatting
+        audit_logging           // Compliance tracking
     ]
     
     // Implementation
@@ -179,10 +183,6 @@ policy policy_name {
     deny: action_list if condition
     require: requirement_list
     audit: audit_specification
-    conditions: {
-        field: value,
-        another_field: condition
-    }
 }
 ```
 
@@ -205,13 +205,6 @@ policy medical_data_access {
 
 ```rust
 policy data_classification {
-    conditions: {
-        classification: "confidential",
-        retention_period: 7.years,
-        geographic_restriction: "EU",
-        encryption_required: true
-    }
-    
     allow: process(data) if data.anonymized == true
     deny: store(data) if data.classification == "restricted"
     audit: all_operations with digital_signature
@@ -230,7 +223,7 @@ policy dynamic_access_control {
     
     deny: write(resource) if (
         resource.locked == true ||
-        user.last_training < 30.days_ago ||
+        user.last_training < 30d ||
         system.maintenance_mode == true
     )
     
@@ -247,17 +240,16 @@ policy dynamic_access_control {
 ```rust
 // Basic types
 let name: String = "Alice";
-let count: Integer = 42;
-let rate: Float = 3.14;
-let active: Boolean = true;
-let data: Bytes = b"binary_data";
+let count: int = 42;
+let rate: float = 3.14;
+let active: bool = true;
 ```
 
 ### Collection Types
 
 ```rust
 // Arrays
-let numbers: Array<Integer> = [1, 2, 3, 4, 5];
+let numbers: Array<int> = [1, 2, 3, 4, 5];
 let names: Array<String> = ["Alice", "Bob", "Charlie"];
 
 // Maps
@@ -276,10 +268,10 @@ let unique_ids: Set<String> = {"id1", "id2", "id3"};
 ```rust
 // Encrypted types
 let secret: EncryptedString = encrypt("sensitive_data", key);
-let secure_number: EncryptedInteger = encrypt(42, key);
+let secure_number: Encrypted<int> = encrypt(42, key);
 
 // Private data with differential privacy
-let private_data: PrivateData<Float> = PrivateData::new(value, epsilon=1.0);
+let private_data: PrivateData<float> = PrivateData::new(value, epsilon=1.0);
 
 // Verifiable results with zero-knowledge proofs
 let verified_result: VerifiableResult<Analysis> = VerifiableResult {
@@ -292,26 +284,30 @@ let verified_result: VerifiableResult<Analysis> = VerifiableResult {
 ### Custom Types
 
 ```rust
-// Struct definitions
-struct PersonalInfo {
-    name: String,
-    email: EncryptedString,
-    phone: Optional<String>,
-    birth_date: Date
-}
-
-// Enum definitions
-enum SecurityLevel {
-    Public,
-    Internal,
-    Confidential,
-    Restricted
-}
-
 // Type aliases
 type UserId = String;
 type EncryptedPersonalInfo = EncryptedData<PersonalInfo>;
 ```
+
+> **Planned feature** — `struct` and `enum` definitions are planned for a future release. Currently, only `type` aliases are supported.
+>
+> ```rust
+> // Struct definitions (planned)
+> struct PersonalInfo {
+>     name: String,
+>     email: EncryptedString,
+>     phone: Optional<String>,
+>     birth_date: Date
+> }
+>
+> // Enum definitions (planned)
+> enum SecurityLevel {
+>     Public,
+>     Internal,
+>     Confidential,
+>     Restricted
+> }
+> ```
 
 ---
 
@@ -535,26 +531,30 @@ agent fault_tolerant_agent(input: Input) -> Result {
 
 ### Conditional Compilation
 
+> **Planned feature** — Conditional compilation is planned for a future release.
+
 ```rust
 agent development_agent(data: DataSet) -> Result {
-    capabilities = ["development", "testing"]
-    
+    capabilities: [development, testing]
+
     #if debug {
         debug_log("Processing data: " + data.summary);
     }
-    
+
     #if feature.enhanced_security {
         policy strict_security {
             require: multi_factor_authentication
             audit: all_operations with timestamps
         }
     }
-    
+
     // Implementation
 }
 ```
 
 ### Macros and Code Generation
+
+> **Planned feature** — Macro definitions are planned for a future release.
 
 ```rust
 // Define reusable policy template
@@ -569,7 +569,7 @@ macro secure_data_policy($classification: String) {
 agent classified_processor(data: ClassifiedData) -> Report {
     // Use the macro
     secure_data_policy!("secret");
-    
+
     // Implementation
 }
 ```
@@ -578,7 +578,7 @@ agent classified_processor(data: ClassifiedData) -> Report {
 
 ```rust
 agent api_integrator(request: APIRequest) -> APIResponse {
-    capabilities = ["api_access", "data_transformation"]
+    capabilities: [api_access, data_transformation]
     
     policy api_access {
         allow: call(external_api) if api.rate_limit_ok
@@ -622,7 +622,7 @@ agent api_integrator(request: APIRequest) -> APIResponse {
 2. **Use descriptive capability names**
 3. **Document complex policy logic** with comments
 4. **Separate concerns** into different agents
-5. **Reuse common patterns** with macros
+5. **Reuse common patterns** with shared policy definitions
 
 ---
 
@@ -632,18 +632,18 @@ agent api_integrator(request: APIRequest) -> APIResponse {
 
 ```rust
 metadata {
-    version = "2.1.0"
-    author = "Medical AI Team"
-    description = "HIPAA-compliant patient data analyzer"
-    tags = ["healthcare", "hipaa", "privacy"]
+    version: "2.1.0"
+    author: "Medical AI Team"
+    description: "HIPAA-compliant patient data analyzer"
+    tags: ["healthcare", "hipaa", "privacy"]
 }
 
 agent medical_analyzer(patient_data: EncryptedPatientRecord) -> MedicalInsights {
-    capabilities = [
-        "medical_analysis",
-        "privacy_preservation", 
-        "audit_logging",
-        "report_generation"
+    capabilities: [
+        medical_analysis,
+        privacy_preservation,
+        audit_logging,
+        report_generation
     ]
     
     policy hipaa_compliance {
@@ -654,14 +654,9 @@ agent medical_analyzer(patient_data: EncryptedPatientRecord) -> MedicalInsights 
             session.secure_connection,
             audit_trail = true
         ]
-        conditions: {
-            data_classification: "medical",
-            retention_period: 7.years,
-            access_logging: "detailed"
-        }
     }
-    
-    with 
+
+    with
         memory = "encrypted",
         privacy = "differential",
         security = "high",
@@ -691,7 +686,7 @@ agent medical_analyzer(patient_data: EncryptedPatientRecord) -> MedicalInsights 
 
 ```rust
 agent fraud_detector(transaction: Transaction) -> FraudAssessment {
-    capabilities = ["fraud_detection", "risk_analysis", "real_time_processing"]
+    capabilities: [fraud_detection, risk_analysis, real_time_processing]
     
     policy financial_compliance {
         allow: analyze(transaction) if user.role == "fraud_analyst"

@@ -1,11 +1,11 @@
 ---
 layout: default
-title: Módulo de Entrada HTTP
-description: "Módulo de entrada HTTP para integración de webhook con agentes Symbiont"
+title: Modulo de Entrada HTTP
+description: "Modulo de entrada HTTP para integracion de webhook con agentes Symbiont"
 nav_exclude: true
 ---
 
-# Módulo de Entrada HTTP
+# Modulo de Entrada HTTP
 
 ## 🌐 Otros idiomas
 {: .no_toc}
@@ -14,26 +14,26 @@ nav_exclude: true
 
 ---
 
-El módulo de Entrada HTTP proporciona un servidor webhook que permite a sistemas externos invocar agentes Symbiont a través de peticiones HTTP. Este módulo habilita la integración con servicios externos, webhooks y APIs exponiendo agentes a través de endpoints HTTP.
+El modulo de Entrada HTTP proporciona un servidor webhook que permite a sistemas externos invocar agentes Symbiont a traves de peticiones HTTP. Este modulo habilita la integracion con servicios externos, webhooks y APIs exponiendo agentes a traves de endpoints HTTP.
 
-## Descripción General
+## Descripcion General
 
-El módulo de Entrada HTTP consiste en:
+El modulo de Entrada HTTP consiste en:
 
 - **Servidor HTTP**: Un servidor web basado en Axum que escucha peticiones HTTP entrantes
-- **Autenticación**: Soporte para autenticación basada en Bearer token y JWT
-- **Enrutamiento de Peticiones**: Reglas de enrutamiento flexibles para dirigir peticiones a agentes específicos
-- **Control de Respuestas**: Formato de respuesta configurable y códigos de estado
-- **Características de Seguridad**: Soporte CORS, límites de tamaño de petición y registro de auditoría
-- **Gestión de Concurrencia**: Limitación de tasa de peticiones integrada y control de concurrencia
+- **Autenticacion**: Soporte para autenticacion basada en Bearer token y JWT
+- **Enrutamiento de Peticiones**: Reglas de enrutamiento flexibles para dirigir peticiones a agentes especificos
+- **Control de Respuestas**: Formato de respuesta configurable y codigos de estado
+- **Caracteristicas de Seguridad**: Soporte CORS, limites de tamano de peticion y registro de auditoria
+- **Gestion de Concurrencia**: Limitacion de tasa de peticiones integrada y control de concurrencia
 
-El módulo se compila condicionalmente con el flag de característica `http-input` y se integra sin problemas con el runtime de agentes Symbiont.
+El modulo se compila condicionalmente con el flag de caracteristica `http-input` y se integra sin problemas con el runtime de agentes Symbiont.
 
-## Configuración
+## Configuracion
 
-El módulo de Entrada HTTP se configura usando la estructura [`HttpInputConfig`](../crates/runtime/src/http_input/config.rs):
+El modulo de Entrada HTTP se configura usando la estructura [`HttpInputConfig`](../crates/runtime/src/http_input/config.rs):
 
-### Configuración Básica
+### Configuracion Basica
 
 ```rust
 use symbiont_runtime::http_input::HttpInputConfig;
@@ -49,27 +49,27 @@ let config = HttpInputConfig {
 };
 ```
 
-### Campos de Configuración
+### Campos de Configuracion
 
-| Campo | Tipo | Por Defecto | Descripción |
+| Campo | Tipo | Por Defecto | Descripcion |
 |-------|------|---------|-------------|
-| `bind_address` | `String` | `"127.0.0.1"` | Dirección IP para vincular el servidor HTTP |
-| `port` | `u16` | `8081` | Número de puerto en el que escuchar |
+| `bind_address` | `String` | `"127.0.0.1"` | Direccion IP para vincular el servidor HTTP |
+| `port` | `u16` | `8081` | Numero de puerto en el que escuchar |
 | `path` | `String` | `"/webhook"` | Endpoint de ruta HTTP |
 | `agent` | `AgentId` | Nuevo ID | Agente por defecto a invocar para peticiones |
-| `auth_header` | `Option<String>` | `None` | Bearer token para autenticación |
-| `jwt_public_key_path` | `Option<String>` | `None` | Ruta al archivo de clave pública JWT |
-| `max_body_bytes` | `usize` | `65536` | Tamaño máximo del cuerpo de petición (64 KB) |
-| `concurrency` | `usize` | `10` | Máximo número de peticiones concurrentes |
+| `auth_header` | `Option<String>` | `None` | Bearer token para autenticacion |
+| `jwt_public_key_path` | `Option<String>` | `None` | Ruta al archivo de clave publica JWT |
+| `max_body_bytes` | `usize` | `65536` | Tamano maximo del cuerpo de peticion (64 KB) |
+| `concurrency` | `usize` | `10` | Maximo numero de peticiones concurrentes |
 | `routing_rules` | `Option<Vec<AgentRoutingRule>>` | `None` | Reglas de enrutamiento de peticiones |
-| `response_control` | `Option<ResponseControlConfig>` | `None` | Configuración de formato de respuesta |
+| `response_control` | `Option<ResponseControlConfig>` | `None` | Configuracion de formato de respuesta |
 | `forward_headers` | `Vec<String>` | `[]` | Cabeceras a reenviar a los agentes |
-| `cors_origins` | `Vec<String>` | `[]` | Orígenes CORS permitidos (vacío = CORS deshabilitado) |
-| `audit_enabled` | `bool` | `true` | Habilitar registro de auditoría de peticiones |
+| `cors_origins` | `Vec<String>` | `[]` | Origenes CORS permitidos (vacio = CORS deshabilitado) |
+| `audit_enabled` | `bool` | `true` | Habilitar registro de auditoria de peticiones |
 
 ### Reglas de Enrutamiento de Agentes
 
-Enrutar peticiones a diferentes agentes basándose en características de la petición:
+Enrutar peticiones a diferentes agentes basandose en caracteristicas de la peticion:
 
 ```rust
 use symbiont_runtime::http_input::{AgentRoutingRule, RouteMatch};
@@ -105,15 +105,15 @@ let response_control = ResponseControlConfig {
 };
 ```
 
-## Características de Seguridad
+## Caracteristicas de Seguridad
 
-### Autenticación
+### Autenticacion
 
-El módulo de Entrada HTTP soporta múltiples métodos de autenticación:
+El modulo de Entrada HTTP soporta multiples metodos de autenticacion:
 
-#### Autenticación con Bearer Token
+#### Autenticacion con Bearer Token
 
-Configurar un bearer token estático:
+Configurar un bearer token estatico:
 
 ```rust
 let config = HttpInputConfig {
@@ -122,7 +122,7 @@ let config = HttpInputConfig {
 };
 ```
 
-#### Integración con Almacén de Secretos
+#### Integracion con Almacen de Secretos
 
 Usar referencias de secretos para seguridad mejorada:
 
@@ -133,24 +133,39 @@ let config = HttpInputConfig {
 };
 ```
 
-#### Autenticación JWT
+#### Autenticacion JWT (EdDSA)
 
-Configurar autenticación basada en JWT:
+Configurar autenticacion basada en JWT con claves publicas Ed25519:
 
 ```rust
 let config = HttpInputConfig {
-    jwt_public_key_path: Some("/path/to/jwt/public.key".to_string()),
+    jwt_public_key_path: Some("/path/to/jwt/ed25519-public.pem".to_string()),
     ..Default::default()
 };
 ```
 
+El verificador JWT carga una clave publica Ed25519 del archivo PEM especificado y valida los tokens entrantes `Authorization: Bearer <jwt>`. Solo se acepta el algoritmo **EdDSA** — HS256, RS256 y otros algoritmos son rechazados.
+
+#### Endpoint de Salud
+
+El modulo de Entrada HTTP no expone su propio endpoint `/health`. Las verificaciones de salud estan disponibles a traves de la API HTTP principal en `/api/v1/health` cuando se ejecuta `symbi up`, que inicia el runtime completo incluyendo el servidor de API:
+
+```bash
+# Health check via the main API server (default port 8080)
+curl http://127.0.0.1:8080/api/v1/health
+# => {"status": "ok"}
+```
+
+Si necesita sondas de salud para el servidor de Entrada HTTP especificamente, dirija su balanceador de carga al endpoint de salud de la API principal.
+
 ### Controles de Seguridad
 
-- **Límites de Tamaño de Petición**: El tamaño máximo configurable del cuerpo previene el agotamiento de recursos
-- **Límites de Concurrencia**: Semáforo integrado controla el procesamiento de peticiones concurrentes
-- **Soporte CORS**: Cabeceras CORS opcionales para aplicaciones basadas en navegador
-- **Registro de Auditoría**: Registro estructurado de todas las peticiones entrantes cuando está habilitado
-- **Resolución de Secretos**: Integración con Vault y almacenes de secretos basados en archivos
+- **Solo Loopback por Defecto**: `bind_address` por defecto es `127.0.0.1` — el servidor solo acepta conexiones locales a menos que se configure explicitamente de otra manera
+- **CORS Deshabilitado por Defecto**: `cors_origins` por defecto es una lista vacia, lo que significa que CORS esta deshabilitado; agregue origenes especificos para habilitar el acceso entre origenes
+- **Limites de Tamano de Peticion**: El tamano maximo configurable del cuerpo previene el agotamiento de recursos
+- **Limites de Concurrencia**: Semaforo integrado controla el procesamiento de peticiones concurrentes
+- **Registro de Auditoria**: Registro estructurado de todas las peticiones entrantes cuando esta habilitado
+- **Resolucion de Secretos**: Integracion con Vault y almacenes de secretos basados en archivos
 
 ## Ejemplo de Uso
 
@@ -180,7 +195,7 @@ let secrets_config = SecretsConfig::default();
 start_http_input(config, Some(runtime), Some(secrets_config)).await?;
 ```
 
-### Ejemplo de Definición de Agente
+### Ejemplo de Definicion de Agente
 
 Crear un agente manejador de webhook en [`webhook_handler.dsl`](../agents/webhook_handler.dsl):
 
@@ -213,9 +228,9 @@ agent webhook_handler(body: JSON) -> Maybe<Alert> {
 }
 ```
 
-### Ejemplo de Petición HTTP
+### Ejemplo de Peticion HTTP
 
-Enviar una petición webhook para activar el agente:
+Enviar una peticion webhook para activar el agente:
 
 ```bash
 curl -X POST http://localhost:8081/webhook \
@@ -242,7 +257,7 @@ El servidor devuelve una respuesta JSON con la salida del agente:
 }
 ```
 
-## Patrones de Integración
+## Patrones de Integracion
 
 ### Endpoints de Webhook
 
@@ -261,9 +276,9 @@ let routing_rules = vec![
 ];
 ```
 
-### Integración con API Gateway
+### Integracion con API Gateway
 
-Usar como servicio backend detrás de un API gateway:
+Usar como servicio backend detras de un API gateway:
 
 ```rust
 let config = HttpInputConfig {
@@ -279,53 +294,53 @@ let config = HttpInputConfig {
 };
 ```
 
-### Endpoint de Verificación de Salud
+### Integracion de Verificacion de Salud
 
-El servidor proporciona automáticamente capacidades de verificación de salud para balanceadores de carga y sistemas de monitoreo.
+El modulo de Entrada HTTP no incluye un endpoint de salud dedicado. Use el endpoint de salud de la API principal (`/api/v1/health`) para la integracion con balanceadores de carga y monitoreo. Consulte la seccion [Endpoint de Salud](#endpoint-de-salud) para mas detalles.
 
 ## Manejo de Errores
 
-El módulo de Entrada HTTP proporciona manejo de errores integral:
+El modulo de Entrada HTTP proporciona manejo de errores integral:
 
-- **Errores de Autenticación**: Devuelve `401 Unauthorized` para tokens inválidos
-- **Limitación de Tasa**: Devuelve `429 Too Many Requests` cuando se exceden los límites de concurrencia
-- **Errores de Carga Útil**: Devuelve `400 Bad Request` para JSON mal formado
+- **Errores de Autenticacion**: Devuelve `401 Unauthorized` para tokens invalidos
+- **Limitacion de Tasa**: Devuelve `429 Too Many Requests` cuando se exceden los limites de concurrencia
+- **Errores de Carga Util**: Devuelve `400 Bad Request` para JSON mal formado
 - **Errores de Agente**: Devuelve estado de error configurable con detalles del error
-- **Errores del Servidor**: Devuelve `500 Internal Server Error` para fallos en tiempo de ejecución
+- **Errores del Servidor**: Devuelve `500 Internal Server Error` para fallos en tiempo de ejecucion
 
 ## Monitoreo y Observabilidad
 
-### Registro de Auditoría
+### Registro de Auditoria
 
-Cuando `audit_enabled` es true, el módulo registra información estructurada sobre todas las peticiones:
+Cuando `audit_enabled` es true, el modulo registra informacion estructurada sobre todas las peticiones:
 
 ```log
 INFO HTTP Input: Received request with 5 headers
 INFO Would invoke agent webhook_handler with input data
 ```
 
-### Integración de Métricas
+### Integracion de Metricas
 
-El módulo se integra con el sistema de métricas del runtime Symbiont para proporcionar:
+El modulo se integra con el sistema de metricas del runtime Symbiont para proporcionar:
 
 - Conteo y tasa de peticiones
 - Distribuciones de tiempo de respuesta
 - Tasas de error por tipo
 - Conteos de conexiones activas
-- Utilización de concurrencia
+- Utilizacion de concurrencia
 
-## Mejores Prácticas
+## Mejores Practicas
 
-1. **Seguridad**: Siempre usar autenticación en entornos de producción
-2. **Limitación de Tasa**: Configurar límites de concurrencia apropiados basados en su infraestructura
-3. **Monitoreo**: Habilitar registro de auditoría e integrar con su stack de monitoreo
+1. **Seguridad**: Siempre usar autenticacion en entornos de produccion
+2. **Limitacion de Tasa**: Configurar limites de concurrencia apropiados basados en su infraestructura
+3. **Monitoreo**: Habilitar registro de auditoria e integrar con su stack de monitoreo
 4. **Manejo de Errores**: Configurar respuestas de error apropiadas para su caso de uso
-5. **Diseño de Agentes**: Diseñar agentes para manejar formatos de entrada específicos de webhook
-6. **Límites de Recursos**: Establecer límites razonables de tamaño de cuerpo para prevenir agotamiento de recursos
+5. **Diseno de Agentes**: Disenar agentes para manejar formatos de entrada especificos de webhook
+6. **Limites de Recursos**: Establecer limites razonables de tamano de cuerpo para prevenir agotamiento de recursos
 
-## Ver También
+## Ver Tambien
 
-- [Guía de Inicio](getting-started.es.md)
-- [Guía DSL](dsl-guide.es.md)
-- [Referencia de API](api-reference.es.md)
-- [Documentación del Runtime de Agentes](../crates/runtime/README.md)
+- [Guia de Inicio](getting-started.md)
+- [Guia DSL](dsl-guide.md)
+- [Referencia de API](api-reference.md)
+- [Documentacion del Runtime de Agentes](../crates/runtime/README.md)

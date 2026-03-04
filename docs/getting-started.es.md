@@ -278,10 +278,10 @@ cargo build --features standalone-agent
 Habilita curacion de herramientas, deteccion de bucles atascados, pre-carga de contexto y convenciones con alcance:
 
 ```bash
-cargo build --features symbi-dev
+cargo build --features orga-adaptive
 ```
 
-Consulta la [guia de symbi-dev](/symbi-dev) para la documentacion completa.
+Consulta la [guia de orga-adaptive](/orga-adaptive) para la documentacion completa.
 
 #### Motor de Politicas Cedar
 
@@ -326,7 +326,7 @@ cd crates/runtime && cargo run --example context_example
 | `composio` | Integracion de herramientas Composio MCP | No |
 | `standalone-agent` | Combo Cloud LLM + Composio | No |
 | `cedar` | Motor de politicas Cedar | No |
-| `symbi-dev` | Primitivas de razonamiento avanzado | No |
+| `orga-adaptive` | Primitivas de razonamiento avanzado | No |
 | `cron` | Programacion cron persistente | No |
 | `native-sandbox` | Sandboxing nativo de procesos | No |
 | `metrics` | Metricas/trazado OpenTelemetry | No |
@@ -334,7 +334,7 @@ cd crates/runtime && cargo run --example context_example
 
 ```bash
 # Build with specific features
-cargo build --features "cloud-llm,symbi-dev,cedar"
+cargo build --features "cloud-llm,orga-adaptive,cedar"
 
 # Build with everything
 cargo build --features full
@@ -470,7 +470,7 @@ Ahora que tienes Symbi ejecutandose, explora estos temas avanzados:
 
 1. **[Guia DSL](/dsl-guide)** - Aprende funciones avanzadas del DSL
 2. **[Guia del Bucle de Razonamiento](/reasoning-loop)** - Entiende el ciclo ORGA
-3. **[Razonamiento Avanzado (symbi-dev)](/symbi-dev)** - Curacion de herramientas, deteccion de bucles atascados, pre-hidratacion
+3. **[Razonamiento Avanzado (orga-adaptive)](/orga-adaptive)** - Curacion de herramientas, deteccion de bucles atascados, pre-hidratacion
 4. **[Arquitectura del Runtime](/runtime-architecture)** - Entiende los internos del sistema
 5. **[Modelo de Seguridad](/security-model)** - Implementa politicas de seguridad
 6. **[Contribuir](/contributing)** - Contribuye al proyecto

@@ -35,17 +35,17 @@ docker pull ghcr.io/thirdkeyai/symbi:latest
 # Eine DSL-Datei parsen
 docker run --rm -v $(pwd):/workspace \
   ghcr.io/thirdkeyai/symbi:latest \
-  dsl parse /workspace/agent.dsl
+  dsl --file /workspace/agent.dsl
 
-# MCP-Server starten
-docker run --rm -p 8080:8080 \
+# MCP-Server starten (stdio-basiert, kein Port erforderlich)
+docker run --rm -i \
   ghcr.io/thirdkeyai/symbi:latest \
-  mcp --port 8080
+  mcp
 
 # Mit HTTP-API starten
 docker run --rm -p 8080:8080 \
   ghcr.io/thirdkeyai/symbi:latest \
-  mcp --http-api --port 8080
+  up --http-bind 0.0.0.0:8080
 ```
 
 ### Entwicklungs-Workflow
@@ -82,10 +82,10 @@ docker build -t symbi:latest .
 docker run --rm symbi:latest --version
 
 # DSL-Parsing testen
-docker run --rm -v $(pwd):/workspace symbi:latest dsl parse --help
+docker run --rm -v $(pwd):/workspace symbi:latest dsl --help
 
 # MCP-Server testen
-docker run --rm symbi:latest mcp --help
+docker run --rm symbi:latest mcp
 ```
 
 ## Multi-Architektur-Unterstuetzung
@@ -99,7 +99,7 @@ Docker laedt automatisch die korrekte Architektur fuer Ihre Plattform herunter.
 ## Sicherheitsfunktionen
 
 ### Ausfuehrung als Nicht-Root
-- Container laufen als Nicht-Root-Benutzer `symbiont` (UID 1000)
+- Container laufen als Nicht-Root-Benutzer `symbi` (UID 1000)
 - Minimale Angriffsflaeche mit sicherheitsgehaerteten Basis-Images
 
 ### Schwachstellenscanning
@@ -112,12 +112,9 @@ Docker laedt automatisch die korrekte Architektur fuer Ihre Plattform herunter.
 ### Umgebungsvariablen
 
 **Symbi-Container:**
-- `SYMBI_LOG_LEVEL` - Logging-Level festlegen (debug, info, warn, error)
-- `SYMBI_HTTP_PORT` - HTTP-API-Port (Standard: 8080)
-- `SYMBI_MCP_PORT` - MCP-Server-Port (Standard: 3000)
+- `RUST_LOG` - Logging-Level festlegen (debug, info, warn, error)
 - `SYMBIONT_VECTOR_BACKEND` - Vektor-Backend: `lancedb` (Standard) oder `qdrant`
 - `QDRANT_URL` - Qdrant-Vektordatenbank-URL (nur bei Verwendung des optionalen Qdrant-Backends)
-- `DSL_OUTPUT_FORMAT` - DSL-Ausgabeformat (json, yaml, text)
 
 ### Volume-Mounts
 
@@ -152,8 +149,8 @@ services:
       - ./config:/etc/symbi
       - symbi-data:/var/lib/symbi/data
     environment:
-      - SYMBI_LOG_LEVEL=info
-    command: ["mcp", "--http-api", "--port", "8080"]
+      - RUST_LOG=info
+    command: ["up", "--http-bind", "0.0.0.0:8080"]
 
 volumes:
   symbi-data:
@@ -175,12 +172,12 @@ services:
       - ./config:/etc/symbi
       - symbi-data:/var/lib/symbi/data
     environment:
-      - SYMBI_LOG_LEVEL=info
+      - RUST_LOG=info
       - SYMBIONT_VECTOR_BACKEND=qdrant
       - QDRANT_URL=http://qdrant:6334
     depends_on:
       - qdrant
-    command: ["mcp", "--http-api", "--port", "8080"]
+    command: ["up", "--http-bind", "0.0.0.0:8080"]
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -227,7 +224,7 @@ docker build --no-cache -f runtime/Dockerfile .
 
 ```bash
 # Container-Gesundheit pruefen
-docker run --name symbi-test -d ghcr.io/thirdkeyai/symbi:latest mcp --port 8080
+docker run --name symbi-test -d ghcr.io/thirdkeyai/symbi:latest up --http-bind 0.0.0.0:8080
 docker exec symbi-test /usr/local/bin/symbi --version
 docker rm -f symbi-test
 ```

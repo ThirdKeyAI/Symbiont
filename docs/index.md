@@ -41,7 +41,7 @@ Symbiont is an AI-native agent framework for building autonomous, policy-aware a
 - **🔗 MCP Integration**: Model Context Protocol client with SchemaPin cryptographic tool verification
 - **⚡ Multi-Language SDKs**: JavaScript and Python SDKs for full API access including scheduling, channels, and enterprise features
 - **🔄 Agentic Reasoning Loop**: Typestate-enforced Observe-Reason-Gate-Act (ORGA) cycle with policy gates, circuit breakers, durable journal, and knowledge bridge
-- **🧪 Advanced Reasoning** (`symbi-dev`): Tool profile filtering, stuck-loop detection, deterministic context pre-fetch, and directory-scoped conventions
+- **🧪 Advanced Reasoning** (`orga-adaptive`): Tool profile filtering, stuck-loop detection, deterministic context pre-fetch, and directory-scoped conventions
 - **📜 Cedar Policy Engine**: Formal authorization language integration for fine-grained access control
 - **🏗️ High Performance**: Rust-native runtime optimized for production workloads with async execution throughout
 
@@ -191,7 +191,7 @@ graph TB
 Symbiont v1.6.1 is the latest stable release, delivering a complete AI agent framework with production-grade capabilities:
 
 - **Agentic Reasoning Loop**: Typestate-enforced ORGA cycle with multi-turn conversation, cloud and SLM inference, circuit breakers, durable journal, and knowledge bridge
-- **Advanced Reasoning Primitives** (`symbi-dev`): Tool profile filtering, per-step stuck-loop detection, deterministic context pre-fetch, and directory-scoped conventions
+- **Advanced Reasoning Primitives** (`orga-adaptive`): Tool profile filtering, per-step stuck-loop detection, deterministic context pre-fetch, and directory-scoped conventions
 - **Cedar Policy Engine**: Formal authorization via Cedar policy language integration (`cedar` feature)
 - **Cloud LLM Inference**: OpenRouter-compatible cloud inference provider (`cloud-llm` feature)
 - **Standalone Agent Mode**: One-liner for cloud-native agents with LLM + Composio tools (`standalone-agent` feature)
@@ -221,7 +221,7 @@ Symbiont v1.6.1 is the latest stable release, delivering a complete AI agent fra
 - **Documentation**: Comprehensive guides and API references
   - [API Reference](api-reference.md)
   - [Reasoning Loop Guide](reasoning-loop.md)
-  - [Advanced Reasoning (symbi-dev)](symbi-dev.md)
+  - [Advanced Reasoning (orga-adaptive)](orga-adaptive.md)
   - [Scheduling Guide](scheduling.md)
   - [HTTP Input Module](http-input.md)
   - [DSL Guide](dsl-guide.md)

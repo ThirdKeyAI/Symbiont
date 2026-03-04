@@ -386,8 +386,8 @@ pub struct LoopConfig {
     pub timeout: Duration,          // Default: 5 minutes
     pub default_recovery: RecoveryStrategy,
     pub tool_timeout: Duration,     // Default: 30 seconds
-    pub max_concurrent_tools: usize, // Default: 10
-    pub context_token_budget: usize, // Default: 8,000
+    pub max_concurrent_tools: usize, // Default: 5
+    pub context_token_budget: usize, // Default: 32,000
     pub tool_definitions: Vec<ToolDefinition>,
 }
 ```
@@ -442,13 +442,13 @@ El bucle de razonamiento se construyo en cinco fases, cada una agregando capacid
 | **4** | Multi-agente | `agent_registry`, `critic_audit`, `saga` |
 | **5** | Observabilidad | `cedar_gate`, `journal`, `metrics`, `scheduler`, `tracing_spans` |
 | **Puente** | Conocimiento | `knowledge_bridge`, `knowledge_executor` |
-| **symbi-dev** | Avanzado | `tool_profile`, `progress_tracker`, `pre_hydrate`, `knowledge_bridge` extendido |
+| **orga-adaptive** | Avanzado | `tool_profile`, `progress_tracker`, `pre_hydrate`, `knowledge_bridge` extendido |
 
 ---
 
-## Primitivas Avanzadas (symbi-dev)
+## Primitivas Avanzadas (orga-adaptive)
 
-El feature gate `symbi-dev` agrega cuatro capacidades avanzadas. Consulte la [guia completa](symbi-dev.md) para mas detalles.
+El feature gate `orga-adaptive` agrega cuatro capacidades avanzadas. Consulte la [guia completa](orga-adaptive.md) para mas detalles.
 
 | Primitiva | Proposito |
 |-----------|-----------|

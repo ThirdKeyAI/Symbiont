@@ -14,7 +14,7 @@ nav_exclude: true
 
 ---
 
-Symbiont REPL（Read-Eval-Print Loop）は、Symbiontエージェントとdslコードの開発、テスト、デバッグのためのインタラクティブ環境を提供します。
+Symbiont REPL（Read-Eval-Print Loop）は、SymbiontエージェントとDSLコードの開発、テスト、デバッグのためのインタラクティブ環境を提供します。
 
 ## 機能
 
@@ -34,12 +34,11 @@ Symbiont REPL（Read-Eval-Print Loop）は、Symbiontエージェントとdslコ
 # インタラクティブREPLモード
 symbi repl
 
-# JSON-RPCサーバーモード（IDE統合用）
-symbi repl --json-rpc
-
-# カスタム設定付き
-symbi repl --config custom-config.toml
+# JSON-RPCサーバーモード（stdio経由、IDE統合用）
+symbi repl --stdio
 ```
+
+> **注意：** `--config` フラグはまだサポートされていません。設定はデフォルトの `symbiont.toml` の場所から読み取られます。カスタム設定サポートは将来のリリースで予定されています。
 
 ### 基本的な使い方
 
@@ -90,6 +89,31 @@ print(message)
 | `:monitor traces [limit]` | 実行トレースを表示 |
 | `:monitor report` | 詳細な実行レポートを表示 |
 | `:monitor clear` | モニタリングデータをクリア |
+
+### メモリコマンド
+
+| コマンド | 説明 |
+|---------|------|
+| `:memory inspect <agent-id>` | エージェントのメモリ状態を検査 |
+| `:memory compact <agent-id>` | エージェントのメモリストレージを圧縮 |
+| `:memory purge <agent-id>` | エージェントのすべてのメモリをパージ |
+
+### Webhookコマンド
+
+| コマンド | 説明 |
+|---------|------|
+| `:webhook list` | 設定されたwebhookを一覧表示 |
+| `:webhook add` | 新しいwebhookを追加 |
+| `:webhook remove` | webhookを削除 |
+| `:webhook test` | webhookをテスト |
+| `:webhook logs` | webhookログを表示 |
+
+### レコーディングコマンド
+
+| コマンド | 説明 |
+|---------|------|
+| `:record on <file>` | セッションのファイルへのレコーディングを開始 |
+| `:record off` | セッションのレコーディングを停止 |
 
 ### セッションコマンド
 
@@ -144,6 +168,8 @@ behavior AnalyzeData {
     }
 
     # 分析を実行
+    # 注意：analyze()は計画中の組み込み関数です（まだ実装されていません）。
+    # この例は意図されたビヘイビア定義パターンを示しています。
     let results = analyze(data, options)
     emit analysis_completed { results: results }
 
@@ -161,6 +187,8 @@ behavior AnalyzeData {
 | `upper(string)` | 文字列を大文字に変換 | `upper("hello")` -> `"HELLO"` |
 | `lower(string)` | 文字列を小文字に変換 | `lower("HELLO")` -> `"hello"` |
 | `format(template, ...)` | 引数で文字列をフォーマット | `format("Hello, {}!", name)` |
+
+> **計画中の組み込み関数：** `read_file()`、`read_csv()`、`write_results()`、`analyze()`、`transform_data()` などの高度なI/O関数はまだ実装されていません。これらは将来のリリースで予定されています。
 
 ### データ型
 
@@ -246,6 +274,8 @@ behavior ReadFile {
   steps {
     # エージェントが "filesystem" ケイパビリティを持っているかチェック
     require capability("filesystem")
+    # 注意：read_file()は計画中の組み込み関数です（まだ実装されていません）。
+    # この例はケイパビリティチェックの動作を示しています。
     let content = read_file(path)
     return content
   }
@@ -312,18 +342,23 @@ Agent Debug Information:
 
 ### Language Server Protocol
 
-REPLはIDE統合のためにLSPサポートを提供します：
+REPLは `repl-lsp` クレートを通じてIDE統合のためのLSPサポートを提供します。LSPサーバーはREPL自体とは別に起動されます：
 
 ```bash
-# LSPサーバーを起動
-symbi repl --lsp --port 9257
+# LSPサーバーはrepl-lspクレートによって提供され、
+# エディタのLSPクライアント設定によって起動されます（symbi replフラグ経由ではありません）。
 ```
+
+> **注意：** `--lsp` フラグは `symbi repl` ではサポートされていません。LSPは `repl-lsp` クレートで実装されており、エディタのLSP設定を通じて構成する必要があります。
 
 ### サポートされる機能
 
 - シンタックスハイライト
-- コード補完
 - エラー診断
+- テキスト同期
+
+**計画中の機能**（まだ実装されていません）：
+- コード補完
 - ホバー情報
 - 定義へ移動
 - シンボル検索
@@ -438,6 +473,9 @@ behavior ProcessCsv {
   steps {
     require capability("data_read")
 
+    # 注意：read_csv()、transform_data()、write_results()は計画中の
+    # 組み込み関数です（まだ実装されていません）。この例はデータ処理
+    # ビヘイビアの意図されたパターンを示しています。
     let data = read_csv(file_path)
     let processed = transform_data(data)
 

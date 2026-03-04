@@ -1,21 +1,21 @@
 ---
 layout: default
 title: DSL-Leitfaden
-description: "Vollständiger Leitfaden zur Symbiont Domain-Specific Language"
+description: "Vollstaendiger Leitfaden zur Symbiont Domain-Specific Language"
 nav_exclude: true
 ---
 
 # DSL-Leitfaden
 {: .no_toc }
 
-## 🌐 Andere Sprachen
+## Andere Sprachen
 {: .no_toc}
 
 [English](dsl-guide.md) | [中文简体](dsl-guide.zh-cn.md) | [Español](dsl-guide.es.md) | [Português](dsl-guide.pt.md) | [日本語](dsl-guide.ja.md) | **Deutsch**
 
 ---
 
-Meistern Sie die Symbi DSL für den Aufbau richtlinienbewusster, sicherer KI-Agenten.
+Meistern Sie die Symbi DSL fuer den Aufbau richtlinienbewusster, sicherer KI-Agenten.
 {: .fs-6 .fw-300 }
 
 ## Inhaltsverzeichnis
@@ -26,15 +26,15 @@ Meistern Sie die Symbi DSL für den Aufbau richtlinienbewusster, sicherer KI-Age
 
 ---
 
-## Überblick
+## Ueberblick
 
-Die Symbi DSL ist eine domänenspezifische Sprache, die für die Erstellung autonomer, richtlinienbewusster Agenten entwickelt wurde. Sie kombiniert traditionelle Programmierstrukturen mit erweiterten Sicherheitsfeatures, kryptographischen Operationen und deklarativen Richtliniendefinitionen.
+Die Symbi DSL ist eine domaenenspezifische Sprache, die fuer die Erstellung autonomer, richtlinienbewusster Agenten entwickelt wurde. Sie kombiniert traditionelle Programmierstrukturen mit erweiterten Sicherheitsfeatures, kryptographischen Operationen und deklarativen Richtliniendefinitionen.
 
 ### Hauptmerkmale
 
 - **Sicherheitsorientiertes Design**: Eingebaute Richtliniendurchsetzung und Audit-Funktionen
-- **Deklarative Richtlinien**: Sicherheitsanforderungen als Code ausdrücken
-- **Kryptographische Operationen**: Native Unterstützung für Verschlüsselung, Signierung und Beweise
+- **Deklarative Richtlinien**: Sicherheitsanforderungen als Code ausdruecken
+- **Kryptographische Operationen**: Native Unterstuetzung fuer Verschluesselung, Signierung und Beweise
 - **Inter-Agent-Kommunikation**: Eingebaute Messaging- und Kollaborationsmuster
 - **Typsicherheit**: Starke Typisierung mit sicherheitsbewussten Typannotationen
 
@@ -44,22 +44,26 @@ Die Symbi DSL ist eine domänenspezifische Sprache, die für die Erstellung auto
 
 ### Grundstruktur
 
-Jedes Symbi-Programm besteht aus optionalen Metadaten, Importen und Agentendefinitionen:
+Jedes Symbi-Programm besteht aus optionalen Metadaten und Agentendefinitionen:
 
 ```rust
 metadata {
-    version = "1.0.0"
-    author = "developer"
-    description = "Example agent"
+    version: "1.0.0"
+    author: "developer"
+    description: "Example agent"
 }
-
-import data_processing as dp;
-import security_utils;
 
 agent process_data(input: DataSet) -> Result {
     // Agent implementation
 }
 ```
+
+> **Geplantes Feature** -- Import-Syntax ist fuer ein zukuenftiges Release geplant.
+>
+> ```rust
+> import data_processing as dp;
+> import security_utils;
+> ```
 
 ### Kommentare
 
@@ -74,19 +78,19 @@ agent process_data(input: DataSet) -> Result {
 
 ---
 
-## Metadatenblöcke
+## Metadatenbloecke
 
-Metadaten stellen wesentliche Informationen über Ihren Agenten bereit:
+Metadaten stellen wesentliche Informationen ueber Ihren Agenten bereit:
 
 ```rust
 metadata {
-    version = "1.2.0"
-    author = "ThirdKey Security Team"
-    description = "Healthcare data analysis agent with HIPAA compliance"
-    license = "Proprietary"
-    tags = ["healthcare", "hipaa", "analysis"]
-    min_runtime_version = "1.0.0"
-    dependencies = ["medical_nlp", "privacy_tools"]
+    version: "1.2.0"
+    author: "ThirdKey Security Team"
+    description: "Healthcare data analysis agent with HIPAA compliance"
+    license: "Proprietary"
+    tags: ["healthcare", "hipaa", "analysis"]
+    min_runtime_version: "1.0.0"
+    dependencies: ["medical_nlp", "privacy_tools"]
 }
 ```
 
@@ -96,11 +100,11 @@ metadata {
 |-------|------|----------|-------------|
 | `version` | String | Ja | Semantische Version des Agenten |
 | `author` | String | Ja | Agent-Autor oder Organisation |
-| `description` | String | Ja | Kurze Beschreibung der Agent-Funktionalität |
+| `description` | String | Ja | Kurze Beschreibung der Agent-Funktionalitaet |
 | `license` | String | Nein | Lizenzidentifikator |
 | `tags` | Array[String] | Nein | Klassifizierungs-Tags |
 | `min_runtime_version` | String | Nein | Minimal erforderliche Runtime-Version |
-| `dependencies` | Array[String] | Nein | Externe Abhängigkeiten |
+| `dependencies` | Array[String] | Nein | Externe Abhaengigkeiten |
 
 ---
 
@@ -110,12 +114,12 @@ metadata {
 
 ```rust
 agent agent_name(param1: Type1, param2: Type2) -> ReturnType {
-    capabilities = ["capability1", "capability2"]
-    
+    capabilities: [capability1, capability2]
+
     policy policy_name {
         // Policy rules
     }
-    
+
     with configuration_options {
         // Agent implementation
     }
@@ -124,22 +128,22 @@ agent agent_name(param1: Type1, param2: Type2) -> ReturnType {
 
 ### Agentenparameter
 
-Unterstützung für verschiedene Parametertypen:
+Unterstuetzung fuer verschiedene Parametertypen:
 
 ```rust
 agent complex_agent(
     // Basic types
     name: String,
-    age: Integer,
-    active: Boolean,
-    
+    age: int,
+    active: bool,
+
     // Optional parameters
     email: Optional<String>,
-    
+
     // Complex types
     data: Array<Record>,
     config: Map<String, Value>,
-    
+
     // Security-aware types
     sensitive_data: EncryptedData<PersonalInfo>,
     credentials: SecureString
@@ -148,19 +152,19 @@ agent complex_agent(
 }
 ```
 
-### Fähigkeitsdeklaration
+### Faehigkeitsdeklaration
 
 Deklarieren Sie, was Ihr Agent kann:
 
 ```rust
 agent data_processor(input: DataSet) -> Analysis {
-    capabilities = [
-        "data_analysis",        // Core data processing
-        "statistical_modeling", // Advanced analytics
-        "report_generation",    // Output formatting
-        "audit_logging"         // Compliance tracking
+    capabilities: [
+        data_analysis,          // Core data processing
+        statistical_modeling,   // Advanced analytics
+        report_generation,      // Output formatting
+        audit_logging           // Compliance tracking
     ]
-    
+
     // Implementation
 }
 ```
@@ -179,10 +183,6 @@ policy policy_name {
     deny: action_list if condition
     require: requirement_list
     audit: audit_specification
-    conditions: {
-        field: value,
-        another_field: condition
-    }
 }
 ```
 
@@ -191,7 +191,7 @@ policy policy_name {
 ```rust
 policy medical_data_access {
     allow: ["read", "analyze"] if user.role == "doctor"
-    allow: ["read"] if user.role == "nurse" 
+    allow: ["read"] if user.role == "nurse"
     deny: ["export", "print"] if data.contains_pii == true
     require: [
         user.clearance >= "medical_professional",
@@ -205,13 +205,6 @@ policy medical_data_access {
 
 ```rust
 policy data_classification {
-    conditions: {
-        classification: "confidential",
-        retention_period: 7.years,
-        geographic_restriction: "EU",
-        encryption_required: true
-    }
-    
     allow: process(data) if data.anonymized == true
     deny: store(data) if data.classification == "restricted"
     audit: all_operations with digital_signature
@@ -227,13 +220,13 @@ policy dynamic_access_control {
         user.role == "administrator" ||
         (user.role == "auditor" && current_time.business_hours)
     )
-    
+
     deny: write(resource) if (
         resource.locked == true ||
-        user.last_training < 30.days_ago ||
+        user.last_training < 30d ||
         system.maintenance_mode == true
     )
-    
+
     require: approval("supervisor") for operations on sensitive_data
 }
 ```
@@ -247,17 +240,16 @@ policy dynamic_access_control {
 ```rust
 // Basic types
 let name: String = "Alice";
-let count: Integer = 42;
-let rate: Float = 3.14;
-let active: Boolean = true;
-let data: Bytes = b"binary_data";
+let count: int = 42;
+let rate: float = 3.14;
+let active: bool = true;
 ```
 
 ### Sammlungstypen
 
 ```rust
 // Arrays
-let numbers: Array<Integer> = [1, 2, 3, 4, 5];
+let numbers: Array<int> = [1, 2, 3, 4, 5];
 let names: Array<String> = ["Alice", "Bob", "Charlie"];
 
 // Maps
@@ -276,10 +268,10 @@ let unique_ids: Set<String> = {"id1", "id2", "id3"};
 ```rust
 // Encrypted types
 let secret: EncryptedString = encrypt("sensitive_data", key);
-let secure_number: EncryptedInteger = encrypt(42, key);
+let secure_number: Encrypted<int> = encrypt(42, key);
 
 // Private data with differential privacy
-let private_data: PrivateData<Float> = PrivateData::new(value, epsilon=1.0);
+let private_data: PrivateData<float> = PrivateData::new(value, epsilon=1.0);
 
 // Verifiable results with zero-knowledge proofs
 let verified_result: VerifiableResult<Analysis> = VerifiableResult {
@@ -292,32 +284,36 @@ let verified_result: VerifiableResult<Analysis> = VerifiableResult {
 ### Benutzerdefinierte Typen
 
 ```rust
-// Struct definitions
-struct PersonalInfo {
-    name: String,
-    email: EncryptedString,
-    phone: Optional<String>,
-    birth_date: Date
-}
-
-// Enum definitions
-enum SecurityLevel {
-    Public,
-    Internal,
-    Confidential,
-    Restricted
-}
-
 // Type aliases
 type UserId = String;
 type EncryptedPersonalInfo = EncryptedData<PersonalInfo>;
 ```
 
+> **Geplantes Feature** -- `struct`- und `enum`-Definitionen sind fuer ein zukuenftiges Release geplant. Derzeit werden nur `type`-Aliase unterstuetzt.
+>
+> ```rust
+> // Struct definitions (geplant)
+> struct PersonalInfo {
+>     name: String,
+>     email: EncryptedString,
+>     phone: Optional<String>,
+>     birth_date: Date
+> }
+>
+> // Enum definitions (geplant)
+> enum SecurityLevel {
+>     Public,
+>     Internal,
+>     Confidential,
+>     Restricted
+> }
+> ```
+
 ---
 
-## Ausführungskontext
+## Ausfuehrungskontext
 
-Konfigurieren Sie die Ausführung Ihres Agenten mit der `with`-Klausel:
+Konfigurieren Sie die Ausfuehrung Ihres Agenten mit der `with`-Klausel:
 
 ### Speicherverwaltung
 
@@ -354,7 +350,7 @@ agent privacy_preserving_agent(sensitive_data: PersonalInfo) -> Statistics {
 
 ```rust
 agent high_security_agent(classified_data: ClassifiedInfo) -> Report {
-    with 
+    with
         security = "maximum",
         sandbox = "firecracker",
         encryption = "homomorphic",
@@ -428,7 +424,7 @@ agent coordinator(task: Task) -> Result {
     with communication = "secure" {
         // Send task to specialized agent
         let result = agent security_analyzer.analyze(task);
-        
+
         if (result.safe) {
             let processed = agent data_processor.process(task);
             return processed;
@@ -450,7 +446,7 @@ agent event_publisher(event: Event) -> Confirmation {
             data: event.data,
             timestamp: now()
         });
-        
+
         return Confirmation { sent: true };
     }
 }
@@ -459,7 +455,7 @@ agent event_subscriber() -> Void {
     with communication = "subscribe" {
         // Subscribe to specific events
         let events = subscribe(EventNotification);
-        
+
         for event in events {
             process_event(event);
         }
@@ -471,13 +467,13 @@ agent event_subscriber() -> Void {
 
 ```rust
 agent secure_collaborator(request: SecureRequest) -> SecureResponse {
-    with 
+    with
         communication = "encrypted",
         authentication = "mutual_tls"
     {
         // Establish secure channel
         let channel = establish_secure_channel(request.source);
-        
+
         // Send encrypted response
         let response = process_request(request);
         return encrypt_response(response, channel.key);
@@ -489,7 +485,7 @@ agent secure_collaborator(request: SecureRequest) -> SecureResponse {
 
 ## Fehlerbehandlung
 
-### Try-Catch-Blöcke
+### Try-Catch-Bloecke
 
 ```rust
 agent robust_processor(data: DataSet) -> Result {
@@ -513,7 +509,7 @@ agent robust_processor(data: DataSet) -> Result {
 agent fault_tolerant_agent(input: Input) -> Result {
     let max_retries = 3;
     let retry_count = 0;
-    
+
     while (retry_count < max_retries) {
         try {
             return process_with_fallback(input);
@@ -524,7 +520,7 @@ agent fault_tolerant_agent(input: Input) -> Result {
             return Error(e.message);
         }
     }
-    
+
     return Error("Max retries exceeded");
 }
 ```
@@ -535,26 +531,30 @@ agent fault_tolerant_agent(input: Input) -> Result {
 
 ### Bedingte Kompilierung
 
+> **Geplantes Feature** -- Bedingte Kompilierung ist fuer ein zukuenftiges Release geplant.
+
 ```rust
 agent development_agent(data: DataSet) -> Result {
-    capabilities = ["development", "testing"]
-    
+    capabilities: [development, testing]
+
     #if debug {
         debug_log("Processing data: " + data.summary);
     }
-    
+
     #if feature.enhanced_security {
         policy strict_security {
             require: multi_factor_authentication
             audit: all_operations with timestamps
         }
     }
-    
+
     // Implementation
 }
 ```
 
 ### Makros und Codegenerierung
+
+> **Geplantes Feature** -- Makrodefinitionen sind fuer ein zukuenftiges Release geplant.
 
 ```rust
 // Define reusable policy template
@@ -569,7 +569,7 @@ macro secure_data_policy($classification: String) {
 agent classified_processor(data: ClassifiedData) -> Report {
     // Use the macro
     secure_data_policy!("secret");
-    
+
     // Implementation
 }
 ```
@@ -578,15 +578,15 @@ agent classified_processor(data: ClassifiedData) -> Report {
 
 ```rust
 agent api_integrator(request: APIRequest) -> APIResponse {
-    capabilities = ["api_access", "data_transformation"]
-    
+    capabilities: [api_access, data_transformation]
+
     policy api_access {
         allow: call(external_api) if api.rate_limit_ok
         require: valid_api_key
         audit: all_api_calls with response_codes
     }
-    
-    with 
+
+    with
         timeout = 30.seconds,
         retry_policy = "exponential_backoff"
     {
@@ -602,27 +602,27 @@ agent api_integrator(request: APIRequest) -> APIResponse {
 
 ### Sicherheitsleitlinien
 
-1. **Definieren Sie immer Richtlinien** für Datenzugriff und Operationen
-2. **Verwenden Sie verschlüsselte Typen** für sensible Daten
-3. **Implementieren Sie Audit-Protokollierung** für Compliance
+1. **Definieren Sie immer Richtlinien** fuer Datenzugriff und Operationen
+2. **Verwenden Sie verschluesselte Typen** fuer sensible Daten
+3. **Implementieren Sie Audit-Protokollierung** fuer Compliance
 4. **Validieren Sie alle Eingaben** vor der Verarbeitung
 5. **Verwenden Sie das Prinzip der minimalen Berechtigung** in Richtliniendefinitionen
 
 ### Leistungsoptimierung
 
-1. **Verwenden Sie flüchtigen Speicher** für kurzlebige Agenten
-2. **Bündeln Sie Operationen** wenn möglich
-3. **Implementieren Sie ordnungsgemäße Fehlerbehandlung** mit Wiederholungen
-4. **Überwachen Sie die Ressourcennutzung** im Ausführungskontext
-5. **Verwenden Sie geeignete Datentypen** für Ihren Anwendungsfall
+1. **Verwenden Sie fluechtigen Speicher** fuer kurzlebige Agenten
+2. **Buendeln Sie Operationen** wenn moeglich
+3. **Implementieren Sie ordnungsgemaesse Fehlerbehandlung** mit Wiederholungen
+4. **Ueberwachen Sie die Ressourcennutzung** im Ausfuehrungskontext
+5. **Verwenden Sie geeignete Datentypen** fuer Ihren Anwendungsfall
 
 ### Code-Organisation
 
 1. **Gruppieren Sie verwandte Richtlinien** im selben Block
-2. **Verwenden Sie beschreibende Fähigkeitsnamen**
+2. **Verwenden Sie beschreibende Faehigkeitsnamen**
 3. **Dokumentieren Sie komplexe Richtlinienlogik** mit Kommentaren
 4. **Trennen Sie Anliegen** in verschiedene Agenten
-5. **Verwenden Sie gemeinsame Muster wieder** mit Makros
+5. **Verwenden Sie gemeinsame Muster wieder** mit gemeinsamen Richtliniendefinitionen
 
 ---
 
@@ -632,20 +632,20 @@ agent api_integrator(request: APIRequest) -> APIResponse {
 
 ```rust
 metadata {
-    version = "2.1.0"
-    author = "Medical AI Team"
-    description = "HIPAA-compliant patient data analyzer"
-    tags = ["healthcare", "hipaa", "privacy"]
+    version: "2.1.0"
+    author: "Medical AI Team"
+    description: "HIPAA-compliant patient data analyzer"
+    tags: ["healthcare", "hipaa", "privacy"]
 }
 
 agent medical_analyzer(patient_data: EncryptedPatientRecord) -> MedicalInsights {
-    capabilities = [
-        "medical_analysis",
-        "privacy_preservation", 
-        "audit_logging",
-        "report_generation"
+    capabilities: [
+        medical_analysis,
+        privacy_preservation,
+        audit_logging,
+        report_generation
     ]
-    
+
     policy hipaa_compliance {
         allow: analyze(data) if user.medical_license.valid
         deny: export(data) if data.contains_identifiers
@@ -654,14 +654,9 @@ agent medical_analyzer(patient_data: EncryptedPatientRecord) -> MedicalInsights 
             session.secure_connection,
             audit_trail = true
         ]
-        conditions: {
-            data_classification: "medical",
-            retention_period: 7.years,
-            access_logging: "detailed"
-        }
     }
-    
-    with 
+
+    with
         memory = "encrypted",
         privacy = "differential",
         security = "high",
@@ -671,13 +666,13 @@ agent medical_analyzer(patient_data: EncryptedPatientRecord) -> MedicalInsights 
             let decrypted = decrypt(patient_data, medical_key);
             let anonymized = anonymize_data(decrypted);
             let insights = analyze_medical_data(anonymized);
-            
+
             audit_log("analysis_completed", {
                 "patient_id_hash": hash(decrypted.id),
                 "insights_generated": insights.count,
                 "timestamp": now()
             });
-            
+
             return insights;
         } catch (DecryptionError e) {
             security_event("decryption_failed", e.details);
@@ -691,8 +686,8 @@ agent medical_analyzer(patient_data: EncryptedPatientRecord) -> MedicalInsights 
 
 ```rust
 agent fraud_detector(transaction: Transaction) -> FraudAssessment {
-    capabilities = ["fraud_detection", "risk_analysis", "real_time_processing"]
-    
+    capabilities: [fraud_detection, risk_analysis, real_time_processing]
+
     policy financial_compliance {
         allow: analyze(transaction) if user.role == "fraud_analyst"
         deny: store(transaction.details) if transaction.amount > 10000
@@ -703,15 +698,15 @@ agent fraud_detector(transaction: Transaction) -> FraudAssessment {
         ]
         audit: all_decisions with reasoning
     }
-    
-    with 
+
+    with
         memory = "ephemeral",
         timeout = 500.milliseconds,
         priority = "high"
     {
         let risk_score = calculate_risk(transaction);
         let historical_pattern = analyze_pattern(transaction.account_id);
-        
+
         if (risk_score > 0.8 || historical_pattern.suspicious) {
             alert_fraud_team(transaction, risk_score);
             return FraudAssessment {
@@ -720,7 +715,7 @@ agent fraud_detector(transaction: Transaction) -> FraudAssessment {
                 confidence: risk_score
             };
         }
-        
+
         return FraudAssessment {
             risk_level: "low",
             recommended_action: "approve",
@@ -732,12 +727,12 @@ agent fraud_detector(transaction: Transaction) -> FraudAssessment {
 
 ---
 
-## Nächste Schritte
+## Naechste Schritte
 
-- **[DSL-Spezifikation](dsl-specification.md)** - Vollständige Sprachspezifikationsreferenz
-- **[Runtime-Architektur](/runtime-architecture.de)** - Verstehen Sie, wie Agenten ausgeführt werden
-- **[Sicherheitsmodell](/security-model.de)** - Lernen Sie über die Sicherheitsimplementierung
-- **[API-Referenz](/api-reference.de)** - Vollständige Funktions- und Typenreferenz
-- **[Beispiele](https://github.com/thirdkeyai/symbiont/tree/main/examples)** - Weitere vollständige Beispiele
+- **[DSL-Spezifikation](dsl-specification.md)** - Vollstaendige Sprachspezifikationsreferenz
+- **[Runtime-Architektur](/runtime-architecture)** - Verstehen Sie, wie Agenten ausgefuehrt werden
+- **[Sicherheitsmodell](/security-model)** - Lernen Sie ueber die Sicherheitsimplementierung
+- **[API-Referenz](/api-reference)** - Vollstaendige Funktions- und Typenreferenz
+- **[Beispiele](https://github.com/thirdkeyai/symbiont/tree/main/examples)** - Weitere vollstaendige Beispiele
 
-Bereit, Ihren ersten Agenten zu erstellen? Schauen Sie sich unseren [Startleitfaden](/getting-started.de) an oder erkunden Sie die [Runtime-Beispiele](https://github.com/thirdkeyai/symbiont/tree/main/crates/runtime/examples).
+Bereit, Ihren ersten Agenten zu erstellen? Schauen Sie sich unseren [Startleitfaden](/getting-started) an oder erkunden Sie die [Runtime-Beispiele](https://github.com/thirdkeyai/symbiont/tree/main/crates/runtime/examples).

@@ -40,7 +40,7 @@ Symbiont ist ein KI-natives Agent-Framework fuer den Aufbau autonomer, richtlini
 - **🔗 MCP-Integration**: Model Context Protocol Client mit kryptographischer SchemaPin-Tool-Verifikation
 - **⚡ Multi-Language SDKs**: JavaScript- und Python-SDKs fuer vollstaendigen API-Zugriff einschliesslich Scheduling, Channels und Enterprise-Funktionen
 - **🔄 Agentische Reasoning-Schleife**: Typestate-erzwungener Observe-Reason-Gate-Act (ORGA)-Zyklus mit Richtlinien-Gates, Circuit Breakern, dauerhaftem Journal und Wissensbruecke
-- **🧪 Erweitertes Reasoning** (`symbi-dev`): Tool-Profilfilterung, Stuck-Loop-Erkennung, deterministischer Kontext-Pre-Fetch und verzeichnisspezifische Konventionen
+- **🧪 Erweitertes Reasoning** (`orga-adaptive`): Tool-Profilfilterung, Stuck-Loop-Erkennung, deterministischer Kontext-Pre-Fetch und verzeichnisspezifische Konventionen
 - **📜 Cedar Policy Engine**: Integration der formalen Autorisierungssprache fuer feingranulare Zugriffskontrolle
 - **🏗️ Hohe Leistung**: Rust-native Laufzeitumgebung, optimiert fuer Produktionsworkloads mit durchgehender asynchroner Ausfuehrung
 
@@ -190,7 +190,7 @@ graph TB
 Symbiont v1.6.1 ist die neueste stabile Version und bietet ein vollstaendiges KI-Agent-Framework mit produktionsreifen Funktionen:
 
 - **Agentische Reasoning-Schleife**: Typestate-erzwungener ORGA-Zyklus mit Multi-Turn-Konversation, Cloud- und SLM-Inferenz, Circuit Breakern, dauerhaftem Journal und Wissensbruecke
-- **Erweiterte Reasoning-Primitiven** (`symbi-dev`): Tool-Profilfilterung, schrittweise Stuck-Loop-Erkennung, deterministischer Kontext-Pre-Fetch und verzeichnisspezifische Konventionen
+- **Erweiterte Reasoning-Primitiven** (`orga-adaptive`): Tool-Profilfilterung, schrittweise Stuck-Loop-Erkennung, deterministischer Kontext-Pre-Fetch und verzeichnisspezifische Konventionen
 - **Cedar Policy Engine**: Formale Autorisierung ueber Cedar-Richtliniensprachen-Integration (`cedar` Feature)
 - **Cloud-LLM-Inferenz**: OpenRouter-kompatible Cloud-Inferenz (`cloud-llm` Feature)
 - **Standalone Agent-Modus**: Einzeiler fuer Cloud-native Agenten mit LLM + Composio-Tools (`standalone-agent` Feature)
@@ -220,7 +220,7 @@ Symbiont v1.6.1 ist die neueste stabile Version und bietet ein vollstaendiges KI
 - **Dokumentation**: Umfassende Leitfaeden und API-Referenzen
   - [API-Referenz](api-reference.md)
   - [Reasoning-Loop-Leitfaden](reasoning-loop.md)
-  - [Erweitertes Reasoning (symbi-dev)](symbi-dev.md)
+  - [Erweitertes Reasoning (orga-adaptive)](orga-adaptive.md)
   - [Scheduling-Leitfaden](scheduling.md)
   - [HTTP-Eingabemodul](http-input.md)
   - [DSL-Leitfaden](dsl-guide.md)

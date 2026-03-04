@@ -8,7 +8,7 @@ nav_exclude: true
 # Guia DSL
 {: .no_toc }
 
-## 🌐 Outros idiomas
+## Outros idiomas
 {: .no_toc}
 
 [English](dsl-guide.md) | [中文简体](dsl-guide.zh-cn.md) | [Español](dsl-guide.es.md) | **Português** | [日本語](dsl-guide.ja.md) | [Deutsch](dsl-guide.de.md)
@@ -18,7 +18,7 @@ nav_exclude: true
 Domine a DSL do Symbi para construir agentes de IA seguros e conscientes de políticas.
 {: .fs-6 .fw-300 }
 
-## Sumário
+## Índice
 {: .no_toc .text-delta }
 
 1. TOC
@@ -26,11 +26,11 @@ Domine a DSL do Symbi para construir agentes de IA seguros e conscientes de pol�
 
 ---
 
-## Visão geral
+## Visão Geral
 
 A DSL do Symbi é uma linguagem específica de domínio projetada para criar agentes autônomos e conscientes de políticas. Ela combina construções de programação tradicionais com recursos de segurança avançados, operações criptográficas e definições de políticas declarativas.
 
-### Principais características
+### Principais Características
 
 - **Design com segurança em primeiro lugar**: Capacidades integradas de aplicação de políticas e auditoria
 - **Políticas declarativas**: Expressar requisitos de segurança como código
@@ -40,26 +40,30 @@ A DSL do Symbi é uma linguagem específica de domínio projetada para criar age
 
 ---
 
-## Sintaxe da linguagem
+## Sintaxe da Linguagem
 
-### Estrutura básica
+### Estrutura Básica
 
-Todo programa Symbi consiste em metadados opcionais, importações e definições de agentes:
+Todo programa Symbi consiste em metadados opcionais e definições de agentes:
 
 ```rust
 metadata {
-    version = "1.0.0"
-    author = "developer"
-    description = "Example agent"
+    version: "1.0.0"
+    author: "developer"
+    description: "Example agent"
 }
-
-import data_processing as dp;
-import security_utils;
 
 agent process_data(input: DataSet) -> Result {
     // Agent implementation
 }
 ```
+
+> **Recurso planejado** — A sintaxe de importação está planejada para uma versão futura.
+>
+> ```rust
+> import data_processing as dp;
+> import security_utils;
+> ```
 
 ### Comentários
 
@@ -74,26 +78,26 @@ agent process_data(input: DataSet) -> Result {
 
 ---
 
-## Blocos de metadados
+## Blocos de Metadados
 
 Os metadados fornecem informações essenciais sobre seu agente:
 
 ```rust
 metadata {
-    version = "1.2.0"
-    author = "ThirdKey Security Team"
-    description = "Healthcare data analysis agent with HIPAA compliance"
-    license = "Proprietary"
-    tags = ["healthcare", "hipaa", "analysis"]
-    min_runtime_version = "1.0.0"
-    dependencies = ["medical_nlp", "privacy_tools"]
+    version: "1.2.0"
+    author: "ThirdKey Security Team"
+    description: "Healthcare data analysis agent with HIPAA compliance"
+    license: "Proprietary"
+    tags: ["healthcare", "hipaa", "analysis"]
+    min_runtime_version: "1.0.0"
+    dependencies: ["medical_nlp", "privacy_tools"]
 }
 ```
 
-### Campos de metadados
+### Campos de Metadados
 
 | Campo | Tipo | Obrigatório | Descrição |
-|-------|------|----------|-------------|
+|-------|------|-------------|-----------|
 | `version` | String | Sim | Versão semântica do agente |
 | `author` | String | Sim | Autor ou organização do agente |
 | `description` | String | Sim | Breve descrição da funcionalidade do agente |
@@ -104,25 +108,25 @@ metadata {
 
 ---
 
-## Definições de agentes
+## Definições de Agentes
 
-### Estrutura básica de agente
+### Estrutura Básica de Agente
 
 ```rust
 agent agent_name(param1: Type1, param2: Type2) -> ReturnType {
-    capabilities = ["capability1", "capability2"]
-    
+    capabilities: [capability1, capability2]
+
     policy policy_name {
         // Policy rules
     }
-    
+
     with configuration_options {
         // Agent implementation
     }
 }
 ```
 
-### Parâmetros de agente
+### Parâmetros de Agente
 
 Suporte para vários tipos de parâmetros:
 
@@ -130,16 +134,16 @@ Suporte para vários tipos de parâmetros:
 agent complex_agent(
     // Basic types
     name: String,
-    age: Integer,
-    active: Boolean,
-    
+    age: int,
+    active: bool,
+
     // Optional parameters
     email: Optional<String>,
-    
+
     // Complex types
     data: Array<Record>,
     config: Map<String, Value>,
-    
+
     // Security-aware types
     sensitive_data: EncryptedData<PersonalInfo>,
     credentials: SecureString
@@ -148,30 +152,30 @@ agent complex_agent(
 }
 ```
 
-### Declaração de capacidades
+### Declaração de Capacidades
 
 Declare o que seu agente pode fazer:
 
 ```rust
 agent data_processor(input: DataSet) -> Analysis {
-    capabilities = [
-        "data_analysis",        // Core data processing
-        "statistical_modeling", // Advanced analytics
-        "report_generation",    // Output formatting
-        "audit_logging"         // Compliance tracking
+    capabilities: [
+        data_analysis,          // Core data processing
+        statistical_modeling,   // Advanced analytics
+        report_generation,      // Output formatting
+        audit_logging           // Compliance tracking
     ]
-    
+
     // Implementation
 }
 ```
 
 ---
 
-## Definições de políticas
+## Definições de Políticas
 
 As políticas definem regras de segurança e conformidade que são aplicadas em tempo de execução.
 
-### Estrutura de política
+### Estrutura de Política
 
 ```rust
 policy policy_name {
@@ -179,19 +183,15 @@ policy policy_name {
     deny: action_list if condition
     require: requirement_list
     audit: audit_specification
-    conditions: {
-        field: value,
-        another_field: condition
-    }
 }
 ```
 
-### Políticas de controle de acesso
+### Políticas de Controle de Acesso
 
 ```rust
 policy medical_data_access {
     allow: ["read", "analyze"] if user.role == "doctor"
-    allow: ["read"] if user.role == "nurse" 
+    allow: ["read"] if user.role == "nurse"
     deny: ["export", "print"] if data.contains_pii == true
     require: [
         user.clearance >= "medical_professional",
@@ -201,24 +201,17 @@ policy medical_data_access {
 }
 ```
 
-### Políticas de classificação de dados
+### Políticas de Classificação de Dados
 
 ```rust
 policy data_classification {
-    conditions: {
-        classification: "confidential",
-        retention_period: 7.years,
-        geographic_restriction: "EU",
-        encryption_required: true
-    }
-    
     allow: process(data) if data.anonymized == true
     deny: store(data) if data.classification == "restricted"
     audit: all_operations with digital_signature
 }
 ```
 
-### Lógica de política complexa
+### Lógica de Política Complexa
 
 ```rust
 policy dynamic_access_control {
@@ -227,37 +220,36 @@ policy dynamic_access_control {
         user.role == "administrator" ||
         (user.role == "auditor" && current_time.business_hours)
     )
-    
+
     deny: write(resource) if (
         resource.locked == true ||
-        user.last_training < 30.days_ago ||
+        user.last_training < 30d ||
         system.maintenance_mode == true
     )
-    
+
     require: approval("supervisor") for operations on sensitive_data
 }
 ```
 
 ---
 
-## Sistema de tipos
+## Sistema de Tipos
 
-### Tipos primitivos
+### Tipos Primitivos
 
 ```rust
 // Basic types
 let name: String = "Alice";
-let count: Integer = 42;
-let rate: Float = 3.14;
-let active: Boolean = true;
-let data: Bytes = b"binary_data";
+let count: int = 42;
+let rate: float = 3.14;
+let active: bool = true;
 ```
 
-### Tipos de coleção
+### Tipos de Coleção
 
 ```rust
 // Arrays
-let numbers: Array<Integer> = [1, 2, 3, 4, 5];
+let numbers: Array<int> = [1, 2, 3, 4, 5];
 let names: Array<String> = ["Alice", "Bob", "Charlie"];
 
 // Maps
@@ -271,15 +263,15 @@ let config: Map<String, String> = {
 let unique_ids: Set<String> = {"id1", "id2", "id3"};
 ```
 
-### Tipos conscientes de segurança
+### Tipos Conscientes de Segurança
 
 ```rust
 // Encrypted types
 let secret: EncryptedString = encrypt("sensitive_data", key);
-let secure_number: EncryptedInteger = encrypt(42, key);
+let secure_number: Encrypted<int> = encrypt(42, key);
 
 // Private data with differential privacy
-let private_data: PrivateData<Float> = PrivateData::new(value, epsilon=1.0);
+let private_data: PrivateData<float> = PrivateData::new(value, epsilon=1.0);
 
 // Verifiable results with zero-knowledge proofs
 let verified_result: VerifiableResult<Analysis> = VerifiableResult {
@@ -289,37 +281,41 @@ let verified_result: VerifiableResult<Analysis> = VerifiableResult {
 };
 ```
 
-### Tipos personalizados
+### Tipos Personalizados
 
 ```rust
-// Struct definitions
-struct PersonalInfo {
-    name: String,
-    email: EncryptedString,
-    phone: Optional<String>,
-    birth_date: Date
-}
-
-// Enum definitions
-enum SecurityLevel {
-    Public,
-    Internal,
-    Confidential,
-    Restricted
-}
-
 // Type aliases
 type UserId = String;
 type EncryptedPersonalInfo = EncryptedData<PersonalInfo>;
 ```
 
+> **Recurso planejado** — Definições de `struct` e `enum` estão planejadas para uma versão futura. Atualmente, apenas aliases de `type` são suportados.
+>
+> ```rust
+> // Struct definitions (planned)
+> struct PersonalInfo {
+>     name: String,
+>     email: EncryptedString,
+>     phone: Optional<String>,
+>     birth_date: Date
+> }
+>
+> // Enum definitions (planned)
+> enum SecurityLevel {
+>     Public,
+>     Internal,
+>     Confidential,
+>     Restricted
+> }
+> ```
+
 ---
 
-## Contexto de execução
+## Contexto de Execução
 
 Configure como seu agente executa com a cláusula `with`:
 
-### Gerenciamento de memória
+### Gerenciamento de Memória
 
 ```rust
 agent persistent_agent(data: DataSet) -> Result {
@@ -338,7 +334,7 @@ agent ephemeral_agent(query: String) -> Answer {
 }
 ```
 
-### Configurações de privacidade
+### Configurações de Privacidade
 
 ```rust
 agent privacy_preserving_agent(sensitive_data: PersonalInfo) -> Statistics {
@@ -350,11 +346,11 @@ agent privacy_preserving_agent(sensitive_data: PersonalInfo) -> Statistics {
 }
 ```
 
-### Configuração de segurança
+### Configuração de Segurança
 
 ```rust
 agent high_security_agent(classified_data: ClassifiedInfo) -> Report {
-    with 
+    with
         security = "maximum",
         sandbox = "firecracker",
         encryption = "homomorphic",
@@ -368,9 +364,9 @@ agent high_security_agent(classified_data: ClassifiedInfo) -> Report {
 
 ---
 
-## Funções integradas
+## Funções Integradas
 
-### Processamento de dados
+### Processamento de Dados
 
 ```rust
 // Validation functions
@@ -383,7 +379,7 @@ let cleaned_data = sanitize(raw_data);
 let normalized = normalize(cleaned_data);
 ```
 
-### Operações criptográficas
+### Operações Criptográficas
 
 ```rust
 // Encryption/Decryption
@@ -399,7 +395,7 @@ let proof = prove(statement);
 let verified = verify_proof(proof, public_statement);
 ```
 
-### Auditoria e registro
+### Auditoria e Registro
 
 ```rust
 // Audit logging
@@ -419,16 +415,16 @@ security_event("policy_violation", {
 
 ---
 
-## Comunicação entre agentes
+## Comunicação entre Agentes
 
-### Mensagens diretas
+### Mensagens Diretas
 
 ```rust
 agent coordinator(task: Task) -> Result {
     with communication = "secure" {
         // Send task to specialized agent
         let result = agent security_analyzer.analyze(task);
-        
+
         if (result.safe) {
             let processed = agent data_processor.process(task);
             return processed;
@@ -439,7 +435,7 @@ agent coordinator(task: Task) -> Result {
 }
 ```
 
-### Padrão publicar-subscrever
+### Padrão Publicar-Subscrever
 
 ```rust
 agent event_publisher(event: Event) -> Confirmation {
@@ -450,7 +446,7 @@ agent event_publisher(event: Event) -> Confirmation {
             data: event.data,
             timestamp: now()
         });
-        
+
         return Confirmation { sent: true };
     }
 }
@@ -459,7 +455,7 @@ agent event_subscriber() -> Void {
     with communication = "subscribe" {
         // Subscribe to specific events
         let events = subscribe(EventNotification);
-        
+
         for event in events {
             process_event(event);
         }
@@ -467,17 +463,17 @@ agent event_subscriber() -> Void {
 }
 ```
 
-### Comunicação segura
+### Comunicação Segura
 
 ```rust
 agent secure_collaborator(request: SecureRequest) -> SecureResponse {
-    with 
+    with
         communication = "encrypted",
         authentication = "mutual_tls"
     {
         // Establish secure channel
         let channel = establish_secure_channel(request.source);
-        
+
         // Send encrypted response
         let response = process_request(request);
         return encrypt_response(response, channel.key);
@@ -487,7 +483,7 @@ agent secure_collaborator(request: SecureRequest) -> SecureResponse {
 
 ---
 
-## Tratamento de erros
+## Tratamento de Erros
 
 ### Blocos Try-Catch
 
@@ -507,13 +503,13 @@ agent robust_processor(data: DataSet) -> Result {
 }
 ```
 
-### Recuperação de erros
+### Recuperação de Erros
 
 ```rust
 agent fault_tolerant_agent(input: Input) -> Result {
     let max_retries = 3;
     let retry_count = 0;
-    
+
     while (retry_count < max_retries) {
         try {
             return process_with_fallback(input);
@@ -524,37 +520,41 @@ agent fault_tolerant_agent(input: Input) -> Result {
             return Error(e.message);
         }
     }
-    
+
     return Error("Max retries exceeded");
 }
 ```
 
 ---
 
-## Recursos avançados
+## Recursos Avançados
 
-### Compilação condicional
+### Compilação Condicional
+
+> **Recurso planejado** — Compilação condicional está planejada para uma versão futura.
 
 ```rust
 agent development_agent(data: DataSet) -> Result {
-    capabilities = ["development", "testing"]
-    
+    capabilities: [development, testing]
+
     #if debug {
         debug_log("Processing data: " + data.summary);
     }
-    
+
     #if feature.enhanced_security {
         policy strict_security {
             require: multi_factor_authentication
             audit: all_operations with timestamps
         }
     }
-    
+
     // Implementation
 }
 ```
 
-### Macros e geração de código
+### Macros e Geração de Código
+
+> **Recurso planejado** — Definições de macros estão planejadas para uma versão futura.
 
 ```rust
 // Define reusable policy template
@@ -569,24 +569,24 @@ macro secure_data_policy($classification: String) {
 agent classified_processor(data: ClassifiedData) -> Report {
     // Use the macro
     secure_data_policy!("secret");
-    
+
     // Implementation
 }
 ```
 
-### Integração com sistemas externos
+### Integração com Sistemas Externos
 
 ```rust
 agent api_integrator(request: APIRequest) -> APIResponse {
-    capabilities = ["api_access", "data_transformation"]
-    
+    capabilities: [api_access, data_transformation]
+
     policy api_access {
         allow: call(external_api) if api.rate_limit_ok
         require: valid_api_key
         audit: all_api_calls with response_codes
     }
-    
-    with 
+
+    with
         timeout = 30.seconds,
         retry_policy = "exponential_backoff"
     {
@@ -598,9 +598,9 @@ agent api_integrator(request: APIRequest) -> APIResponse {
 
 ---
 
-## Melhores práticas
+## Melhores Práticas
 
-### Diretrizes de segurança
+### Diretrizes de Segurança
 
 1. **Sempre defina políticas** para acesso a dados e operações
 2. **Use tipos criptografados** para dados sensíveis
@@ -608,7 +608,7 @@ agent api_integrator(request: APIRequest) -> APIResponse {
 4. **Valide todas as entradas** antes do processamento
 5. **Use o princípio do menor privilégio** nas definições de políticas
 
-### Otimização de performance
+### Otimização de Performance
 
 1. **Use memória efêmera** para agentes de curta duração
 2. **Agrupe operações** quando possível
@@ -616,36 +616,36 @@ agent api_integrator(request: APIRequest) -> APIResponse {
 4. **Monitore o uso de recursos** no contexto de execução
 5. **Use tipos de dados apropriados** para seu caso de uso
 
-### Organização do código
+### Organização do Código
 
 1. **Agrupe políticas relacionadas** no mesmo bloco
 2. **Use nomes descritivos de capacidades**
 3. **Documente lógica de políticas complexas** com comentários
 4. **Separe responsabilidades** em diferentes agentes
-5. **Reutilize padrões comuns** com macros
+5. **Reutilize padrões comuns** com definições de políticas compartilhadas
 
 ---
 
 ## Exemplos
 
-### Processador de dados de saúde
+### Processador de Dados de Saúde
 
 ```rust
 metadata {
-    version = "2.1.0"
-    author = "Medical AI Team"
-    description = "HIPAA-compliant patient data analyzer"
-    tags = ["healthcare", "hipaa", "privacy"]
+    version: "2.1.0"
+    author: "Medical AI Team"
+    description: "HIPAA-compliant patient data analyzer"
+    tags: ["healthcare", "hipaa", "privacy"]
 }
 
 agent medical_analyzer(patient_data: EncryptedPatientRecord) -> MedicalInsights {
-    capabilities = [
-        "medical_analysis",
-        "privacy_preservation", 
-        "audit_logging",
-        "report_generation"
+    capabilities: [
+        medical_analysis,
+        privacy_preservation,
+        audit_logging,
+        report_generation
     ]
-    
+
     policy hipaa_compliance {
         allow: analyze(data) if user.medical_license.valid
         deny: export(data) if data.contains_identifiers
@@ -654,14 +654,9 @@ agent medical_analyzer(patient_data: EncryptedPatientRecord) -> MedicalInsights 
             session.secure_connection,
             audit_trail = true
         ]
-        conditions: {
-            data_classification: "medical",
-            retention_period: 7.years,
-            access_logging: "detailed"
-        }
     }
-    
-    with 
+
+    with
         memory = "encrypted",
         privacy = "differential",
         security = "high",
@@ -671,13 +666,13 @@ agent medical_analyzer(patient_data: EncryptedPatientRecord) -> MedicalInsights 
             let decrypted = decrypt(patient_data, medical_key);
             let anonymized = anonymize_data(decrypted);
             let insights = analyze_medical_data(anonymized);
-            
+
             audit_log("analysis_completed", {
                 "patient_id_hash": hash(decrypted.id),
                 "insights_generated": insights.count,
                 "timestamp": now()
             });
-            
+
             return insights;
         } catch (DecryptionError e) {
             security_event("decryption_failed", e.details);
@@ -687,12 +682,12 @@ agent medical_analyzer(patient_data: EncryptedPatientRecord) -> MedicalInsights 
 }
 ```
 
-### Monitor de transações financeiras
+### Monitor de Transações Financeiras
 
 ```rust
 agent fraud_detector(transaction: Transaction) -> FraudAssessment {
-    capabilities = ["fraud_detection", "risk_analysis", "real_time_processing"]
-    
+    capabilities: [fraud_detection, risk_analysis, real_time_processing]
+
     policy financial_compliance {
         allow: analyze(transaction) if user.role == "fraud_analyst"
         deny: store(transaction.details) if transaction.amount > 10000
@@ -703,15 +698,15 @@ agent fraud_detector(transaction: Transaction) -> FraudAssessment {
         ]
         audit: all_decisions with reasoning
     }
-    
-    with 
+
+    with
         memory = "ephemeral",
         timeout = 500.milliseconds,
         priority = "high"
     {
         let risk_score = calculate_risk(transaction);
         let historical_pattern = analyze_pattern(transaction.account_id);
-        
+
         if (risk_score > 0.8 || historical_pattern.suspicious) {
             alert_fraud_team(transaction, risk_score);
             return FraudAssessment {
@@ -720,7 +715,7 @@ agent fraud_detector(transaction: Transaction) -> FraudAssessment {
                 confidence: risk_score
             };
         }
-        
+
         return FraudAssessment {
             risk_level: "low",
             recommended_action: "approve",
@@ -732,12 +727,12 @@ agent fraud_detector(transaction: Transaction) -> FraudAssessment {
 
 ---
 
-## Próximos passos
+## Próximos Passos
 
 - **[Especificação do DSL](dsl-specification.md)** - Referência completa da especificação da linguagem
-- **[Arquitetura do runtime](/runtime-architecture.pt)** - Entenda como os agentes executam
-- **[Modelo de segurança](/security-model.pt)** - Aprenda sobre implementação de segurança
-- **[Referência da API](/api-reference.pt)** - Referência completa de funções e tipos
+- **[Arquitetura do Runtime](/runtime-architecture)** - Entenda como os agentes executam
+- **[Modelo de Segurança](/security-model)** - Aprenda sobre implementação de segurança
+- **[Referência da API](/api-reference)** - Referência completa de funções e tipos
 - **[Exemplos](https://github.com/thirdkeyai/symbiont/tree/main/examples)** - Mais exemplos completos
 
-Pronto para construir seu primeiro agente? Confira nosso [guia de início](/getting-started.pt) ou explore os [exemplos do runtime](https://github.com/thirdkeyai/symbiont/tree/main/crates/runtime/examples).
+Pronto para construir seu primeiro agente? Confira nosso [guia de início](/getting-started) ou explore os [exemplos do runtime](https://github.com/thirdkeyai/symbiont/tree/main/crates/runtime/examples).

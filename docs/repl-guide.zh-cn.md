@@ -33,12 +33,11 @@ Symbiont REPL（Read-Eval-Print Loop，读取-求值-输出循环）提供了一
 # Interactive REPL mode
 symbi repl
 
-# JSON-RPC server mode (for IDE integration)
-symbi repl --json-rpc
-
-# With custom configuration
-symbi repl --config custom-config.toml
+# JSON-RPC server mode over stdio (for IDE integration)
+symbi repl --stdio
 ```
+
+> **注意：** `--config` 标志尚不支持。配置从默认的 `symbiont.toml` 位置读取。自定义配置支持计划在未来版本中提供。
 
 ### 基本使用
 
@@ -89,6 +88,31 @@ print(message)
 | `:monitor traces [limit]` | 显示执行追踪 |
 | `:monitor report` | 显示详细执行报告 |
 | `:monitor clear` | 清除监控数据 |
+
+### 内存命令
+
+| 命令 | 描述 |
+|------|------|
+| `:memory inspect <agent-id>` | 查看智能体的内存状态 |
+| `:memory compact <agent-id>` | 压缩智能体的内存存储 |
+| `:memory purge <agent-id>` | 清除智能体的所有内存 |
+
+### Webhook 命令
+
+| 命令 | 描述 |
+|------|------|
+| `:webhook list` | 列出已配置的 webhook |
+| `:webhook add` | 添加新的 webhook |
+| `:webhook remove` | 移除 webhook |
+| `:webhook test` | 测试 webhook |
+| `:webhook logs` | 显示 webhook 日志 |
+
+### 录制命令
+
+| 命令 | 描述 |
+|------|------|
+| `:record on <file>` | 开始将会话录制到文件 |
+| `:record off` | 停止录制会话 |
 
 ### 会话命令
 
@@ -143,6 +167,8 @@ behavior AnalyzeData {
     }
 
     # Perform analysis
+    # NOTE: analyze() is a planned built-in function (not yet implemented).
+    # This example illustrates the intended behavior definition pattern.
     let results = analyze(data, options)
     emit analysis_completed { results: results }
 
@@ -156,10 +182,12 @@ behavior AnalyzeData {
 | 函数 | 描述 | 示例 |
 |------|------|------|
 | `print(...)` | 将值输出到控制台 | `print("Hello", name)` |
-| `len(value)` | 获取字符串、列表或映射的长度 | `len("hello")` → `5` |
-| `upper(string)` | 将字符串转换为大写 | `upper("hello")` → `"HELLO"` |
-| `lower(string)` | 将字符串转换为小写 | `lower("HELLO")` → `"hello"` |
+| `len(value)` | 获取字符串、列表或映射的长度 | `len("hello")` -> `5` |
+| `upper(string)` | 将字符串转换为大写 | `upper("hello")` -> `"HELLO"` |
+| `lower(string)` | 将字符串转换为小写 | `lower("HELLO")` -> `"hello"` |
 | `format(template, ...)` | 使用参数格式化字符串 | `format("Hello, {}!", name)` |
+
+> **计划的内置函数：** 高级 I/O 函数如 `read_file()`、`read_csv()`、`write_results()`、`analyze()` 和 `transform_data()` 尚未实现。这些计划在未来版本中提供。
 
 ### 数据类型
 
@@ -245,6 +273,8 @@ behavior ReadFile {
   steps {
     # This will check if agent has "filesystem" capability
     require capability("filesystem")
+    # NOTE: read_file() is a planned built-in function (not yet implemented).
+    # This example illustrates how capability checking works.
     let content = read_file(path)
     return content
   }
@@ -311,18 +341,23 @@ Agent Debug Information:
 
 ### 语言服务器协议
 
-REPL 提供 LSP 支持用于 IDE 集成：
+REPL 通过 `repl-lsp` crate 为 IDE 集成提供 LSP 支持。LSP 服务器与 REPL 本身是分开启动的：
 
 ```bash
-# Start LSP server
-symbi repl --lsp --port 9257
+# The LSP server is provided by the repl-lsp crate and launched
+# by your editor's LSP client configuration (not via symbi repl flags).
 ```
+
+> **注意：** `symbi repl` 不支持 `--lsp` 标志。LSP 在 `repl-lsp` crate 中实现，应通过编辑器的 LSP 设置进行配置。
 
 ### 支持的功能
 
 - 语法高亮
-- 代码补全
 - 错误诊断
+- 文本同步
+
+**计划功能**（尚未实现）：
+- 代码补全
 - 悬停信息
 - 转到定义
 - 符号搜索
@@ -437,6 +472,9 @@ behavior ProcessCsv {
   steps {
     require capability("data_read")
 
+    # NOTE: read_csv(), transform_data(), and write_results() are planned
+    # built-in functions (not yet implemented). This example illustrates
+    # the intended pattern for data processing behaviors.
     let data = read_csv(file_path)
     let processed = transform_data(data)
 

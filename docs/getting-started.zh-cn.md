@@ -278,10 +278,10 @@ cargo build --features standalone-agent
 启用工具筛选、卡住循环检测、上下文预获取和范围约定：
 
 ```bash
-cargo build --features symbi-dev
+cargo build --features orga-adaptive
 ```
 
-请参阅 [symbi-dev 指南](/symbi-dev) 获取完整文档。
+请参阅 [orga-adaptive 指南](/orga-adaptive) 获取完整文档。
 
 #### Cedar 策略引擎
 
@@ -326,7 +326,7 @@ cd crates/runtime && cargo run --example context_example
 | `composio` | Composio MCP 工具集成 | 否 |
 | `standalone-agent` | 云端 LLM + Composio 组合 | 否 |
 | `cedar` | Cedar 策略引擎 | 否 |
-| `symbi-dev` | 高级推理原语 | 否 |
+| `orga-adaptive` | 高级推理原语 | 否 |
 | `cron` | 持久化 cron 调度 | 否 |
 | `native-sandbox` | 原生进程沙箱 | 否 |
 | `metrics` | OpenTelemetry 指标/追踪 | 否 |
@@ -334,7 +334,7 @@ cd crates/runtime && cargo run --example context_example
 
 ```bash
 # 使用特定特性构建
-cargo build --features "cloud-llm,symbi-dev,cedar"
+cargo build --features "cloud-llm,orga-adaptive,cedar"
 
 # 使用所有特性构建
 cargo build --features full
@@ -470,7 +470,7 @@ cd crates/runtime && cargo run --example basic_agent 2>&1 | tee debug.log
 
 1. **[DSL 指南](/dsl-guide)** - 学习高级 DSL 功能
 2. **[推理循环指南](/reasoning-loop)** - 了解 ORGA 循环
-3. **[高级推理（symbi-dev）](/symbi-dev)** - 工具筛选、卡住循环检测、预水化
+3. **[高级推理（orga-adaptive）](/orga-adaptive)** - 工具筛选、卡住循环检测、预水化
 4. **[运行时架构](/runtime-architecture)** - 了解系统内部结构
 5. **[安全模型](/security-model)** - 实施安全策略
 6. **[贡献](/contributing)** - 为项目做出贡献

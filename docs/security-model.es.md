@@ -11,7 +11,7 @@ nav_exclude: true
 Arquitectura de seguridad integral que garantiza proteccion de confianza cero e impulsada por politicas para agentes de IA.
 {: .fs-6 .fw-300 }
 
-## 🌐 Otros idiomas
+## Otros idiomas
 {: .no_toc}
 
 [English](security-model.md) | [中文简体](security-model.zh-cn.md) | **Español** | [Português](security-model.pt.md) | [日本語](security-model.ja.md) | [Deutsch](security-model.de.md)
@@ -28,7 +28,7 @@ Arquitectura de seguridad integral que garantiza proteccion de confianza cero e 
 
 ## Descripcion General
 
-Symbiont implementa una arquitectura de seguridad primero diseñada para entornos regulados y de alta seguridad. El modelo de seguridad se basa en principios de confianza cero con cumplimiento integral de politicas, sandboxing de multiples niveles y auditabilidad criptografica.
+Symbiont implementa una arquitectura de seguridad primero disenada para entornos regulados y de alta seguridad. El modelo de seguridad se basa en principios de confianza cero con cumplimiento integral de politicas, sandboxing de multiples niveles y auditabilidad criptografica.
 
 ### Principios de Seguridad
 
@@ -132,6 +132,8 @@ gvisor_security:
 > **Caracteristica Enterprise**: El aislamiento avanzado con virtualizacion de hardware (Firecracker) esta disponible en las ediciones Enterprise para los requisitos de seguridad maxima.
 
 ### Algoritmo de Evaluacion de Riesgo
+
+> **Caracteristica planificada** — Esta API es parte de la hoja de ruta de seguridad y aun no esta disponible en la version actual.
 
 ```rust
 pub struct RiskAssessment {
@@ -285,14 +287,14 @@ cargo build --features cedar
 **Capacidades clave:**
 - **Verificacion formal**: Las politicas Cedar pueden ser analizadas estaticamente para verificar su correccion
 - **Autorizacion granular**: Control de acceso basado en entidades con permisos jerarquicos
-- **Integracion con el bucle de razonamiento**: `CedarGate` implementa el trait `ReasoningPolicyGate`, evaluando cada accion propuesta contra las politicas Cedar antes de la ejecucion
+- **Integracion con el bucle de razonamiento**: `CedarPolicyGate` implementa el trait `ReasoningPolicyGate`, evaluando cada accion propuesta contra las politicas Cedar antes de la ejecucion
 - **Rastro de auditoria**: Todas las decisiones de politicas Cedar se registran con contexto completo
 
 ```rust
-use symbi_runtime::reasoning::cedar_gate::CedarGate;
+use symbi_runtime::reasoning::cedar_gate::CedarPolicyGate;
 
-// Load Cedar policies and evaluate actions in the reasoning loop
-let cedar_gate = CedarGate::new(policy_set, entities);
+// Create a Cedar policy gate with deny-by-default stance
+let cedar_gate = CedarPolicyGate::deny_by_default();
 let runner = ReasoningLoopRunner::builder()
     .provider(provider)
     .executor(executor)
@@ -309,16 +311,15 @@ let runner = ReasoningLoopRunner::builder()
 Todas las operaciones relevantes para la seguridad estan firmadas criptograficamente:
 
 **Algoritmo de Firma:** Ed25519 (RFC 8032)
-- **Tamaño de Clave:** Claves privadas de 256 bits, claves publicas de 256 bits
-- **Tamaño de Firma:** 512 bits (64 bytes)
+- **Tamano de Clave:** Claves privadas de 256 bits, claves publicas de 256 bits
+- **Tamano de Firma:** 512 bits (64 bytes)
 - **Rendimiento:** 70,000+ firmas/segundo, 25,000+ verificaciones/segundo
 
 ```rust
-pub struct CryptographicSignature {
-    pub algorithm: SignatureAlgorithm::Ed25519,
-    pub public_key: PublicKey,
-    pub signature: [u8; 64],
-    pub timestamp: SystemTime,
+pub struct MessageSignature {
+    pub signature: Vec<u8>,
+    pub algorithm: SignatureAlgorithm,
+    pub public_key: Vec<u8>,
 }
 
 impl AuditEvent {
@@ -348,6 +349,8 @@ impl AuditEvent {
 - Claves por agente para firma de operaciones
 - Claves efimeras para cifrado de sesion
 - Claves externas para verificacion de herramientas
+
+> **Caracteristica planificada** — La API `KeyManager` mostrada a continuacion es parte de la hoja de ruta de seguridad y aun no esta disponible en la version actual. La implementacion actual proporciona utilidades de claves via `KeyUtils` en `crypto.rs`.
 
 ```rust
 pub struct KeyManager {
@@ -467,7 +470,7 @@ impl AuditChain {
 - Registro de acceso a PHI con identificacion de usuario
 - Aplicacion de minimizacion de datos
 - Deteccion y notificacion de brechas
-- Retencion de rastro de auditoria por 6 años
+- Retencion de rastro de auditoria por 6 anos
 
 **GDPR (Privacidad):**
 - Registros de procesamiento de datos personales
@@ -482,6 +485,9 @@ impl AuditChain {
 - Proteccion de datos financieros
 
 **Cumplimiento Personalizado:**
+
+> **Caracteristica planificada** — La API `ComplianceFramework` mostrada a continuacion es parte de la hoja de ruta de seguridad y aun no esta disponible en la version actual.
+
 ```rust
 pub struct ComplianceFramework {
     pub name: String,
@@ -534,6 +540,8 @@ sequenceDiagram
 3. Fijar la clave publica en el almacen de confianza local
 4. Usar la clave fijada para todas las verificaciones futuras
 
+> **Caracteristica planificada** — La API `TOFUKeyStore` mostrada a continuacion es parte de la hoja de ruta de seguridad y aun no esta disponible en la version actual.
+
 ```rust
 pub struct TOFUKeyStore {
     pinned_keys: HashMap<ProviderId, PinnedKey>,
@@ -578,6 +586,8 @@ Analisis de seguridad automatizado antes de la aprobacion de herramientas:
 - **Deteccion de Codigo Malicioso**: Identificacion de comportamientos maliciosos basada en ML
 - **Analisis de Uso de Recursos**: Evaluacion de requisitos de recursos computacionales
 - **Evaluacion de Impacto en Privacidad**: Manejo de datos e implicaciones de privacidad
+
+> **Caracteristica planificada** — La API `SecurityAnalyzer` mostrada a continuacion es parte de la hoja de ruta de seguridad y aun no esta disponible en la version actual.
 
 ```rust
 pub struct SecurityAnalyzer {
@@ -775,18 +785,17 @@ network_policy:
 
 **Clasificacion de Alertas:**
 ```rust
-pub enum SecurityEventSeverity {
+pub enum ViolationSeverity {
     Info,       // Normal security events
-    Low,        // Minor policy violations
-    Medium,     // Suspicious behavior
-    High,       // Confirmed security issues
+    Warning,    // Minor policy violations
+    Error,      // Confirmed security issues
     Critical,   // Active security breaches
 }
 
 pub struct SecurityEvent {
     pub id: Uuid,
     pub timestamp: SystemTime,
-    pub severity: SecurityEventSeverity,
+    pub severity: ViolationSeverity,
     pub category: SecurityEventCategory,
     pub description: String,
     pub affected_components: Vec<ComponentId>,

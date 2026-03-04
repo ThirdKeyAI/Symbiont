@@ -37,14 +37,14 @@ docker images | grep symbi
 ```bash
 # Start an interactive development session
 docker run -it --rm \
-  --name symbi-dev \
+  --name orga-adaptive \
   -v "$(pwd)":/workspace \
   -w /workspace \
   symbi:latest
 
 # Alternative: Run with port forwarding for development servers
 docker run -it --rm \
-  --name symbi-dev \
+  --name orga-adaptive \
   -v "$(pwd)":/workspace \
   -w /workspace \
   -p 3000:3000 -p 8000:8000 -p 8080:8080 \
@@ -85,7 +85,7 @@ The Docker environment provides a consistent, secure development experience:
 ```bash
 # Start development container with volume mounting
 docker run -it --rm \
-  --name symbi-dev \
+  --name orga-adaptive \
   -v "$(pwd)":/workspace \
   -w /workspace/crates/dsl \
   symbi:latest bash

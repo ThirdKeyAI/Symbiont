@@ -61,7 +61,7 @@ use symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate;
 use symbi_runtime::reasoning::reasoning_loop::ReasoningLoopRunner;
 use symbi_runtime::types::AgentId;
 
-// デフォルトコンポーネントでランナーをセットアップ
+// Set up the runner with default components
 let runner = ReasoningLoopRunner {
     provider: Arc::new(my_inference_provider),
     policy_gate: Arc::new(DefaultPolicyGate::permissive()),
@@ -72,11 +72,11 @@ let runner = ReasoningLoopRunner {
     knowledge_bridge: None,
 };
 
-// 対話を構築
+// Build a conversation
 let mut conv = Conversation::with_system("You are a helpful assistant.");
 conv.push(ConversationMessage::user("What is 6 * 7?"));
 
-// ループを実行
+// Run the loop
 let result = runner.run(AgentId::new(), conv, LoopConfig::default()).await;
 
 println!("Output: {}", result.output);
@@ -119,10 +119,10 @@ let result = runner.run(agent_id, conv, config).await;
 ループはRustの型システムを使用して、コンパイル時に有効なフェーズ遷移を強制します。各フェーズはゼロサイズ型マーカーです：
 
 ```rust
-pub struct Reasoning;      // LLMが提案アクションを生成
-pub struct PolicyCheck;    // 各アクションがゲートで評価される
-pub struct ToolDispatching; // 承認されたアクションが実行される
-pub struct Observing;      // 次のイテレーションのために結果を収集
+pub struct Reasoning;      // LLM produces proposed actions
+pub struct PolicyCheck;    // Each action evaluated by the gate
+pub struct ToolDispatching; // Approved actions executed
+pub struct Observing;      // Results collected for next iteration
 ```
 
 `AgentLoop<Phase>` 構造体はループの状態を保持し、現在のフェーズに適切なメソッドのみを呼び出せます。例えば、`AgentLoop<Reasoning>` は `produce_output()` のみを公開し、これはselfを消費して `AgentLoop<PolicyCheck>` を返します。
@@ -177,7 +177,7 @@ pub trait InferenceProvider: Send + Sync {
 
 ```bash
 export OPENROUTER_API_KEY="sk-or-..."
-export OPENROUTER_MODEL="google/gemini-2.0-flash-001"  # オプション
+export OPENROUTER_MODEL="google/gemini-2.0-flash-001"  # optional
 ```
 
 ```rust
@@ -285,7 +285,7 @@ let bridge = Arc::new(KnowledgeBridge::new(
 ));
 
 let runner = ReasoningLoopRunner {
-    // ... その他のフィールド ...
+    // ... other fields ...
     knowledge_bridge: Some(bridge),
 };
 ```
@@ -332,7 +332,7 @@ let mut conv = Conversation::with_system("You are a helpful assistant.");
 conv.push(ConversationMessage::user("Hello"));
 conv.push(ConversationMessage::assistant("Hi there!"));
 
-// API呼び出し用にシリアライズ
+// Serialize for API calls
 let openai_msgs = conv.to_openai_messages();
 let (system, anthropic_msgs) = conv.to_anthropic_messages();
 ```
@@ -381,13 +381,13 @@ pub enum LoopEvent {
 
 ```rust
 pub struct LoopConfig {
-    pub max_iterations: u32,        // デフォルト：25
-    pub max_total_tokens: u32,      // デフォルト：100,000
-    pub timeout: Duration,          // デフォルト：5分
+    pub max_iterations: u32,        // Default: 25
+    pub max_total_tokens: u32,      // Default: 100,000
+    pub timeout: Duration,          // Default: 5 minutes
     pub default_recovery: RecoveryStrategy,
-    pub tool_timeout: Duration,     // デフォルト：30秒
-    pub max_concurrent_tools: usize, // デフォルト：10
-    pub context_token_budget: usize, // デフォルト：8,000
+    pub tool_timeout: Duration,     // Default: 30 seconds
+    pub max_concurrent_tools: usize, // Default: 5
+    pub context_token_budget: usize, // Default: 32,000
     pub tool_definitions: Vec<ToolDefinition>,
 }
 ```
@@ -442,13 +442,13 @@ OPENROUTER_API_KEY="sk-or-..." OPENROUTER_MODEL="google/gemini-2.0-flash-001" \
 | **4** | マルチエージェント | `agent_registry`、`critic_audit`、`saga` |
 | **5** | 可観測性 | `cedar_gate`、`journal`、`metrics`、`scheduler`、`tracing_spans` |
 | **Bridge** | ナレッジ | `knowledge_bridge`、`knowledge_executor` |
-| **symbi-dev** | 高度な機能 | `tool_profile`、`progress_tracker`、`pre_hydrate`、拡張 `knowledge_bridge` |
+| **orga-adaptive** | 高度な機能 | `tool_profile`、`progress_tracker`、`pre_hydrate`、拡張 `knowledge_bridge` |
 
 ---
 
-## 高度なプリミティブ（symbi-dev）
+## 高度なプリミティブ（orga-adaptive）
 
-`symbi-dev` フィーチャーゲートは4つの高度な機能を追加します。詳細は[完全ガイド](symbi-dev.md)を参照してください。
+`orga-adaptive` フィーチャーゲートは4つの高度な機能を追加します。詳細は[完全ガイド](orga-adaptive.md)を参照してください。
 
 | プリミティブ | 目的 |
 |-------------|------|

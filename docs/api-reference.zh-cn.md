@@ -504,15 +504,15 @@ url = "http://localhost:6333"
 - `SYMBIONT_VECTOR_BACKEND` — `lancedb`（默认）或 `qdrant`
 - `QDRANT_URL` — Qdrant 服务器 URL（仅在使用 Qdrant 时需要）
 
-#### 高级推理原语（`symbi-dev`）
+#### 高级推理原语（`orga-adaptive`）
 
 启用工具筛选、卡住循环检测、上下文预获取和范围约定：
 
 ```bash
-cargo build --features symbi-dev
+cargo build --features orga-adaptive
 ```
 
-请参阅 [symbi-dev 指南](/symbi-dev) 获取完整的配置参考。
+请参阅 [orga-adaptive 指南](/orga-adaptive) 获取完整的配置参考。
 
 ---
 

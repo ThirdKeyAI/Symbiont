@@ -1,6 +1,6 @@
 ---
 layout: default
-title: 高级推理原语 (symbi-dev)
+title: 高级推理原语 (orga-adaptive)
 description: "高级推理循环原语：工具筛选、卡住循环检测、上下文预获取和范围约定"
 nav_exclude: true
 ---
@@ -11,7 +11,7 @@ nav_exclude: true
 ## 其他语言
 {: .no_toc}
 
-[English](symbi-dev.md) | **中文简体** | [Español](symbi-dev.es.md) | [Português](symbi-dev.pt.md) | [日本語](symbi-dev.ja.md) | [Deutsch](symbi-dev.de.md)
+[English](orga-adaptive.md) | **中文简体** | [Español](orga-adaptive.es.md) | [Português](orga-adaptive.pt.md) | [日本語](orga-adaptive.ja.md) | [Deutsch](orga-adaptive.de.md)
 
 ---
 
@@ -28,7 +28,7 @@ nav_exclude: true
 
 ## 概述
 
-`symbi-dev` 特性门控为推理循环添加了四项高级功能：
+`orga-adaptive` 特性门控为推理循环添加了四项高级功能：
 
 | 原语 | 解决的问题 | 模块 |
 |------|-----------|------|
@@ -42,14 +42,14 @@ nav_exclude: true
 ```toml
 # 在您的 Cargo.toml 中
 [dependencies]
-symbi-runtime = { version = "1.6", features = ["symbi-dev"] }
+symbi-runtime = { version = "1.6", features = ["orga-adaptive"] }
 ```
 
 或从源码构建：
 
 ```bash
-cargo build --features symbi-dev
-cargo test --features symbi-dev
+cargo build --features orga-adaptive
+cargo test --features orga-adaptive
 ```
 
 所有原语都是增量和向后兼容的——没有特性门控的现有代码编译和运行完全相同。
@@ -265,7 +265,7 @@ let config = LoopConfig {
 
 ## LoopConfig 字段
 
-当启用 `symbi-dev` 特性时，`LoopConfig` 新增三个可选字段：
+当启用 `orga-adaptive` 特性时，`LoopConfig` 新增三个可选字段：
 
 ```rust
 pub struct LoopConfig {
@@ -316,8 +316,8 @@ cargo clippy --workspace -j2
 cargo test --workspace -j2
 
 # 使用特性
-cargo clippy --workspace -j2 --features symbi-dev
-cargo test --workspace -j2 --features symbi-dev
+cargo clippy --workspace -j2 --features orga-adaptive
+cargo test --workspace -j2 --features orga-adaptive
 ```
 
 所有测试都是内联 `#[cfg(test)]` 模块——无需外部测试 fixture。

@@ -2,7 +2,7 @@
 //!
 //! Filters tool definitions before the LLM sees them. Supports glob patterns
 //! for include/exclude, max_tools cap, and require_verified flag.
-//! Part of the symbi-dev feature gate.
+//! Part of the orga-adaptive feature gate.
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};

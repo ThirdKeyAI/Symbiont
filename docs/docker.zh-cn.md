@@ -35,17 +35,17 @@ docker pull ghcr.io/thirdkeyai/symbi:latest
 # Parse a DSL file
 docker run --rm -v $(pwd):/workspace \
   ghcr.io/thirdkeyai/symbi:latest \
-  dsl parse /workspace/agent.dsl
+  dsl --file /workspace/agent.dsl
 
-# Run MCP server
-docker run --rm -p 8080:8080 \
+# Run MCP server (stdio-based, no port needed)
+docker run --rm -i \
   ghcr.io/thirdkeyai/symbi:latest \
-  mcp --port 8080
+  mcp
 
 # Run with HTTP API
 docker run --rm -p 8080:8080 \
   ghcr.io/thirdkeyai/symbi:latest \
-  mcp --http-api --port 8080
+  up --http-bind 0.0.0.0:8080
 ```
 
 ### 开发工作流
@@ -82,10 +82,10 @@ docker build -t symbi:latest .
 docker run --rm symbi:latest --version
 
 # Test DSL parsing
-docker run --rm -v $(pwd):/workspace symbi:latest dsl parse --help
+docker run --rm -v $(pwd):/workspace symbi:latest dsl --help
 
 # Test MCP server
-docker run --rm symbi:latest mcp --help
+docker run --rm symbi:latest mcp
 ```
 
 ## 多架构支持
@@ -99,7 +99,7 @@ Docker 会自动为您的平台拉取正确的架构。
 ## 安全特性
 
 ### 非 Root 执行
-- 容器以非 root 用户 `symbiont`（UID 1000）运行
+- 容器以非 root 用户 `symbi`（UID 1000）运行
 - 使用安全加固的基础镜像，攻击面最小化
 
 ### 漏洞扫描
@@ -112,12 +112,9 @@ Docker 会自动为您的平台拉取正确的架构。
 ### 环境变量
 
 **Symbi 容器：**
-- `SYMBI_LOG_LEVEL` - 设置日志级别（debug、info、warn、error）
-- `SYMBI_HTTP_PORT` - HTTP API 端口（默认：8080）
-- `SYMBI_MCP_PORT` - MCP 服务器端口（默认：3000）
+- `RUST_LOG` - 设置日志级别（debug、info、warn、error）
 - `SYMBIONT_VECTOR_BACKEND` - 向量后端：`lancedb`（默认）或 `qdrant`
 - `QDRANT_URL` - Qdrant 向量数据库 URL（仅在使用可选的 Qdrant 后端时需要）
-- `DSL_OUTPUT_FORMAT` - DSL 输出格式（json、yaml、text）
 
 ### 卷挂载
 
@@ -152,8 +149,8 @@ services:
       - ./config:/etc/symbi
       - symbi-data:/var/lib/symbi/data
     environment:
-      - SYMBI_LOG_LEVEL=info
-    command: ["mcp", "--http-api", "--port", "8080"]
+      - RUST_LOG=info
+    command: ["up", "--http-bind", "0.0.0.0:8080"]
 
 volumes:
   symbi-data:
@@ -175,12 +172,12 @@ services:
       - ./config:/etc/symbi
       - symbi-data:/var/lib/symbi/data
     environment:
-      - SYMBI_LOG_LEVEL=info
+      - RUST_LOG=info
       - SYMBIONT_VECTOR_BACKEND=qdrant
       - QDRANT_URL=http://qdrant:6334
     depends_on:
       - qdrant
-    command: ["mcp", "--http-api", "--port", "8080"]
+    command: ["up", "--http-bind", "0.0.0.0:8080"]
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -227,7 +224,7 @@ docker build --no-cache -f runtime/Dockerfile .
 
 ```bash
 # Check container health
-docker run --name symbi-test -d ghcr.io/thirdkeyai/symbi:latest mcp --port 8080
+docker run --name symbi-test -d ghcr.io/thirdkeyai/symbi:latest up --http-bind 0.0.0.0:8080
 docker exec symbi-test /usr/local/bin/symbi --version
 docker rm -f symbi-test
 ```

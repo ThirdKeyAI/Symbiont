@@ -1,51 +1,51 @@
 ---
 layout: default
-title: Guía de Programación
-description: "Programación de tareas basada en cron de nivel de producción para agentes de IA de Symbiont"
+title: Guia de Programacion
+description: "Programacion de tareas basada en cron de nivel de produccion para agentes de IA de Symbiont"
 nav_exclude: true
 ---
 
-# Guía de Programación
+# Guia de Programacion
 
-## 🌐 Otros idiomas
+## Otros idiomas
 {: .no_toc}
 
 [English](scheduling.md) | [中文简体](scheduling.zh-cn.md) | **Español** | [Português](scheduling.pt.md) | [日本語](scheduling.ja.md) | [Deutsch](scheduling.de.md)
 
 ---
 
-## Descripción General
+## Descripcion General
 
-El sistema de programación de Symbiont proporciona ejecución de tareas basada en cron de nivel de producción para agentes de IA. El sistema soporta:
+El sistema de programacion de Symbiont proporciona ejecucion de tareas basada en cron de nivel de produccion para agentes de IA. El sistema soporta:
 
 - **Programaciones cron**: Sintaxis cron tradicional para tareas recurrentes
-- **Trabajos de una sola ejecución**: Ejecutar una vez en un momento específico
-- **Patrón de latido (heartbeat)**: Ciclos continuos de evaluación-acción-pausa para agentes de monitoreo
-- **Aislamiento de sesión**: Contextos de agente efímeros, compartidos o completamente aislados
-- **Enrutamiento de entrega**: Múltiples canales de salida (Stdout, LogFile, Webhook, Slack, Email, Custom)
-- **Aplicación de políticas**: Verificaciones de seguridad y cumplimiento antes de la ejecución
-- **Robustez para producción**: Jitter, límites de concurrencia, colas de mensajes no entregados y verificación de AgentPin
+- **Trabajos de una sola ejecucion**: Ejecutar una vez en un momento especifico
+- **Patron de latido (heartbeat)**: Ciclos continuos de evaluacion-accion-pausa para agentes de monitoreo
+- **Aislamiento de sesion**: Contextos de agente efimeros, compartidos o completamente aislados
+- **Enrutamiento de entrega**: Multiples canales de salida (Stdout, LogFile, Webhook, Slack, Email, Custom)
+- **Aplicacion de politicas**: Verificaciones de seguridad y cumplimiento antes de la ejecucion
+- **Robustez para produccion**: Jitter, limites de concurrencia, colas de mensajes no entregados y verificacion de AgentPin
 
 ## Arquitectura
 
-El sistema de programación está construido sobre tres componentes principales:
+El sistema de programacion esta construido sobre tres componentes principales:
 
 ```
 ┌─────────────────────┐
 │   CronScheduler     │  Bucle de ticks en segundo plano (intervalos de 1 segundo)
-│   (Tick Loop)       │  Selección de trabajos y orquestación de ejecución
+│   (Tick Loop)       │  Seleccion de trabajos y orquestacion de ejecucion
 └──────────┬──────────┘
            │
            ▼
 ┌─────────────────────┐
 │   SqliteJobStore    │  Almacenamiento persistente de trabajos
-│   (Job Storage)     │  Soporte de transacciones, gestión de estado
+│   (Job Storage)     │  Soporte de transacciones, gestion de estado
 └──────────┬──────────┘
            │
            ▼
 ┌─────────────────────┐
-│DefaultAgentScheduler│  Entorno de ejecución de agentes
-│ (Execution Engine)  │  Gestión del ciclo de vida de AgentContext
+│DefaultAgentScheduler│  Entorno de ejecucion de agentes
+│ (Execution Engine)  │  Gestion del ciclo de vida de AgentContext
 └─────────────────────┘
 ```
 
@@ -53,10 +53,10 @@ El sistema de programación está construido sobre tres componentes principales:
 
 El `CronScheduler` es el punto de entrada principal. Gestiona:
 
-- Bucle de ticks en segundo plano ejecutándose a intervalos de 1 segundo
-- Selección de trabajos basada en el siguiente tiempo de ejecución
-- Control de concurrencia e inyección de jitter
-- Recolección de métricas y monitoreo de salud
+- Bucle de ticks en segundo plano ejecutandose a intervalos de 1 segundo
+- Seleccion de trabajos basada en el siguiente tiempo de ejecucion
+- Control de concurrencia e inyeccion de jitter
+- Recoleccion de metricas y monitoreo de salud
 - Apagado gracioso con seguimiento de trabajos en curso
 
 ### SqliteJobStore
@@ -65,7 +65,7 @@ El `SqliteJobStore` proporciona persistencia durable de trabajos con:
 
 - Transacciones ACID para actualizaciones de estado de trabajos
 - Seguimiento del ciclo de vida de trabajos (Active, Paused, Completed, Failed, DeadLetter)
-- Historial de ejecuciones con pista de auditoría
+- Historial de ejecuciones con pista de auditoria
 - Capacidades de consulta para filtrar por estado, ID de agente, etc.
 
 ### DefaultAgentScheduler
@@ -73,21 +73,21 @@ El `SqliteJobStore` proporciona persistencia durable de trabajos con:
 El `DefaultAgentScheduler` ejecuta los agentes programados:
 
 - Crea instancias de `AgentContext` aisladas o compartidas
-- Gestiona el ciclo de vida de la sesión (crear, ejecutar, destruir)
+- Gestiona el ciclo de vida de la sesion (crear, ejecutar, destruir)
 - Enruta la entrega a los canales configurados
-- Aplica puertas de política antes de la ejecución
+- Aplica puertas de politica antes de la ejecucion
 
 ## Sintaxis DSL
 
-### Estructura del Bloque de Programación
+### Estructura del Bloque de Programacion
 
-Los bloques de programación se definen en archivos DSL de Symbiont:
+Los bloques de programacion se definen en archivos DSL de Symbiont:
 
 ```symbiont
 schedule {
   name: "daily-report"
   agent: "reporter-agent"
-  cron: "0 9 * * *"
+  cron: "0 0 9 * * *"
 
   session_mode: "ephemeral_with_summary"
   delivery: ["stdout", "log_file"]
@@ -101,15 +101,15 @@ schedule {
 
 ### Sintaxis Cron
 
-Sintaxis cron extendida con seis campos (segundos primero, campo opcional séptimo para año):
+Sintaxis cron extendida con seis campos (segundos primero, campo opcional septimo para ano):
 
 ```
 ┌─────────────── segundo (0-59)
 │ ┌───────────── minuto (0-59)
 │ │ ┌─────────── hora (0-23)
-│ │ │ ┌───────── día del mes (1-31)
+│ │ │ ┌───────── dia del mes (1-31)
 │ │ │ │ ┌─────── mes (1-12)
-│ │ │ │ │ ┌───── día de la semana (0-6, Domingo = 0)
+│ │ │ │ │ ┌───── dia de la semana (0-6, Domingo = 0)
 │ │ │ │ │ │
 * * * * * *
 ```
@@ -117,7 +117,7 @@ Sintaxis cron extendida con seis campos (segundos primero, campo opcional sépti
 **Ejemplos:**
 
 ```symbiont
-# Todos los días a las 9 AM
+# Todos los dias a las 9 AM
 cron: "0 0 9 * * *"
 
 # Cada lunes a las 6 PM
@@ -126,13 +126,13 @@ cron: "0 0 18 * * 1"
 # Cada 15 minutos
 cron: "0 */15 * * * *"
 
-# Primer día de cada mes a medianoche
+# Primer dia de cada mes a medianoche
 cron: "0 0 0 1 * *"
 ```
 
-### Trabajos de Una Sola Ejecución (Sintaxis At)
+### Trabajos de Una Sola Ejecucion (Sintaxis At)
 
-Para trabajos que se ejecutan una sola vez en un momento específico:
+Para trabajos que se ejecutan una sola vez en un momento especifico:
 
 ```symbiont
 schedule {
@@ -145,33 +145,33 @@ schedule {
 }
 ```
 
-### Patrón de Latido (Heartbeat)
+### Patron de Latido (Heartbeat)
 
-Para agentes de monitoreo continuo que evalúan → actúan → duermen:
+Para agentes de monitoreo continuo que evaluan -> actuan -> duermen:
 
 ```symbiont
 schedule {
   name: "system-monitor"
   agent: "heartbeat-agent"
-  cron: "*/5 * * * *"  # Despertar cada 5 minutos
+  cron: "0 */5 * * * *"  # Despertar cada 5 minutos
 
   heartbeat: {
     enabled: true
     context_mode: "ephemeral_with_summary"
-    max_iterations: 100  # Límite de seguridad
+    max_iterations: 100  # Limite de seguridad
   }
 }
 ```
 
 El agente de latido sigue este ciclo:
 
-1. **Evaluación**: Evaluar el estado del sistema (por ejemplo, verificar métricas, registros)
-2. **Acción**: Tomar acción correctiva si es necesario (por ejemplo, reiniciar servicio, alertar a operaciones)
+1. **Evaluacion**: Evaluar el estado del sistema (por ejemplo, verificar metricas, registros)
+2. **Accion**: Tomar accion correctiva si es necesario (por ejemplo, reiniciar servicio, alertar a operaciones)
 3. **Pausa**: Esperar hasta el siguiente tick programado
 
 ## Comandos CLI
 
-El comando `symbi cron` proporciona gestión completa del ciclo de vida:
+El comando `symbi cron` proporciona gestion completa del ciclo de vida:
 
 ### Listar Trabajos
 
@@ -196,11 +196,11 @@ symbi cron list --format json
 # Desde archivo DSL
 symbi cron add --file agent.symbi --schedule "daily-report"
 
-# Definición en línea (JSON)
+# Definicion en linea (JSON)
 symbi cron add --json '{
   "name": "quick-task",
   "agent_id": "agent-123",
-  "cron_expr": "0 * * * *"
+  "cron_expr": "0 0 * * * *"
 }'
 ```
 
@@ -213,14 +213,14 @@ symbi cron remove <job-id>
 # Por nombre
 symbi cron remove --name "daily-report"
 
-# Eliminación forzada (omitir confirmación)
+# Eliminacion forzada (omitir confirmacion)
 symbi cron remove <job-id> --force
 ```
 
 ### Pausar/Reanudar
 
 ```bash
-# Pausar trabajo (detiene la programación, preserva el estado)
+# Pausar trabajo (detiene la programacion, preserva el estado)
 symbi cron pause <job-id>
 
 # Reanudar trabajo pausado
@@ -230,20 +230,20 @@ symbi cron resume <job-id>
 ### Estado
 
 ```bash
-# Detalles del trabajo con próximo tiempo de ejecución
+# Detalles del trabajo con proximo tiempo de ejecucion
 symbi cron status <job-id>
 
-# Incluir los últimos 10 registros de ejecución
+# Incluir los ultimos 10 registros de ejecucion
 symbi cron status <job-id> --history 10
 
-# Modo observación (actualización automática cada 5s)
+# Modo observacion (actualizacion automatica cada 5s)
 symbi cron status <job-id> --watch
 ```
 
 ### Ejecutar Ahora
 
 ```bash
-# Activar ejecución inmediata (omite la programación)
+# Activar ejecucion inmediata (omite la programacion)
 symbi cron run <job-id>
 
 # Con entrada personalizada
@@ -256,7 +256,7 @@ symbi cron run <job-id> --input "Check production database"
 # Ver historial de ejecuciones de un trabajo
 symbi cron history <job-id>
 
-# Últimas 20 ejecuciones
+# Ultimas 20 ejecuciones
 symbi cron history <job-id> --limit 20
 
 # Filtrar por estado
@@ -266,39 +266,39 @@ symbi cron history <job-id> --status failed
 symbi cron history <job-id> --format csv > runs.csv
 ```
 
-## Patrón de Latido (Heartbeat)
+## Patron de Latido (Heartbeat)
 
 ### HeartbeatContextMode
 
-Controla cómo persiste el contexto entre iteraciones del heartbeat:
+Controla como persiste el contexto entre iteraciones del heartbeat:
 
 ```rust
 pub enum HeartbeatContextMode {
-    /// Contexto nuevo en cada iteración, resumen adjunto al historial de ejecuciones
+    /// Fresh context each iteration, append summary to run history
     EphemeralWithSummary,
 
-    /// Contexto compartido entre todas las iteraciones (la memoria se acumula)
+    /// Shared context across all iterations (memory accumulates)
     SharedPersistent,
 
-    /// Contexto nuevo en cada iteración, sin resumen (sin estado)
+    /// Fresh context each iteration, no summary (stateless)
     FullyEphemeral,
 }
 ```
 
 **EphemeralWithSummary (predeterminado)**:
-- Nuevo `AgentContext` por iteración
-- Resumen de la iteración anterior adjunto al contexto
+- Nuevo `AgentContext` por iteracion
+- Resumen de la iteracion anterior adjunto al contexto
 - Previene el crecimiento ilimitado de memoria
 - Mantiene continuidad para acciones relacionadas
 
 **SharedPersistent**:
 - Un solo `AgentContext` reutilizado en todas las iteraciones
-- Historial completo de conversación preservado
+- Historial completo de conversacion preservado
 - Mayor uso de memoria
-- Ideal para agentes que necesitan contexto profundo (por ejemplo, sesiones de depuración)
+- Ideal para agentes que necesitan contexto profundo (por ejemplo, sesiones de depuracion)
 
 **FullyEphemeral**:
-- Nuevo `AgentContext` por iteración, sin traspaso
+- Nuevo `AgentContext` por iteracion, sin traspaso
 - Menor huella de memoria
 - Ideal para verificaciones independientes (por ejemplo, sondas de salud de API)
 
@@ -323,7 +323,7 @@ agent heartbeat_monitor {
 schedule {
   name: "heartbeat-monitor"
   agent: "heartbeat_monitor"
-  cron: "*/10 * * * *"  # Cada 10 minutos
+  cron: "0 */10 * * * *"  # Cada 10 minutos
 
   heartbeat: {
     enabled: true
@@ -336,47 +336,47 @@ schedule {
 }
 ```
 
-## Aislamiento de Sesión
+## Aislamiento de Sesion
 
-### Modos de Sesión
+### Modos de Sesion
 
 ```rust
-pub enum SessionIsolationMode {
-    /// Contexto efímero con traspaso de resumen (predeterminado)
+pub enum HeartbeatContextMode {
+    /// Ephemeral context with summary carryover (default)
     EphemeralWithSummary,
 
-    /// Contexto persistente compartido entre todas las ejecuciones
+    /// Shared persistent context across all runs
     SharedPersistent,
 
-    /// Completamente efímero, sin traspaso de estado
+    /// Fully ephemeral, no state carryover
     FullyEphemeral,
 }
 ```
 
-**Configuración:**
+**Configuracion:**
 
 ```symbiont
 schedule {
   name: "data-pipeline"
   agent: "etl-agent"
-  cron: "0 2 * * *"
+  cron: "0 0 2 * * *"
 
-  # Contexto nuevo por ejecución, resumen de la ejecución anterior incluido
+  # Contexto nuevo por ejecucion, resumen de la ejecucion anterior incluido
   session_mode: "ephemeral_with_summary"
 }
 ```
 
-### Ciclo de Vida de la Sesión
+### Ciclo de Vida de la Sesion
 
-Para cada ejecución programada:
+Para cada ejecucion programada:
 
-1. **Pre-ejecución**: Verificar límites de concurrencia, aplicar jitter
-2. **Creación de sesión**: Crear `AgentContext` basado en `session_mode`
-3. **Puerta de política**: Evaluar condiciones de política
-4. **Ejecución**: Ejecutar agente con entrada y contexto
+1. **Pre-ejecucion**: Verificar limites de concurrencia, aplicar jitter
+2. **Creacion de sesion**: Crear `AgentContext` basado en `session_mode`
+3. **Puerta de politica**: Evaluar condiciones de politica
+4. **Ejecucion**: Ejecutar agente con entrada y contexto
 5. **Entrega**: Enrutar salida a los canales configurados
-6. **Limpieza de sesión**: Destruir o persistir contexto según el modo
-7. **Post-ejecución**: Actualizar registro de ejecución, recolectar métricas
+6. **Limpieza de sesion**: Destruir o persistir contexto segun el modo
+7. **Post-ejecucion**: Actualizar registro de ejecucion, recolectar metricas
 
 ## Enrutamiento de Entrega
 
@@ -384,35 +384,35 @@ Para cada ejecución programada:
 
 ```rust
 pub enum DeliveryChannel {
-    Stdout,           // Imprimir en consola
-    LogFile,          // Escribir al archivo de registro específico del trabajo
-    Webhook,          // HTTP POST a URL
-    Slack,            // Webhook o API de Slack
-    Email,            // Correo electrónico SMTP
-    Custom(String),   // Canal definido por el usuario
+    Stdout,           // Print to console
+    LogFile,          // Append to job-specific log file
+    Webhook,          // HTTP POST to URL
+    Slack,            // Slack webhook or API
+    Email,            // SMTP email
+    Custom(String),   // User-defined channel
 }
 ```
 
-### Ejemplos de Configuración
+### Ejemplos de Configuracion
 
-**Canal único:**
+**Canal unico:**
 
 ```symbiont
 schedule {
   name: "backup"
   agent: "backup-agent"
-  cron: "0 3 * * *"
+  cron: "0 0 3 * * *"
   delivery: ["log_file"]
 }
 ```
 
-**Múltiples canales:**
+**Multiples canales:**
 
 ```symbiont
 schedule {
   name: "security-scan"
   agent: "scanner"
-  cron: "0 1 * * *"
+  cron: "0 0 1 * * *"
 
   delivery: ["log_file", "slack", "email"]
 
@@ -427,7 +427,7 @@ schedule {
 schedule {
   name: "metrics-report"
   agent: "metrics-agent"
-  cron: "*/30 * * * *"
+  cron: "0 */30 * * * *"
 
   delivery: ["webhook"]
   webhook_url: "https://metrics.example.com/ingest"
@@ -455,11 +455,11 @@ pub trait DeliveryRouter: Send + Sync {
 }
 ```
 
-## Aplicación de Políticas
+## Aplicacion de Politicas
 
 ### PolicyGate
 
-El `PolicyGate` evalúa políticas específicas de programación antes de la ejecución:
+El `PolicyGate` evalua politicas especificas de programacion antes de la ejecucion:
 
 ```rust
 pub struct PolicyGate {
@@ -467,7 +467,7 @@ pub struct PolicyGate {
 }
 
 impl PolicyGate {
-    pub async fn evaluate(
+    pub fn evaluate(
         &self,
         job: &CronJobDefinition,
         context: &AgentContext,
@@ -475,25 +475,25 @@ impl PolicyGate {
 }
 ```
 
-### Condiciones de Política
+### Condiciones de Politica
 
 ```symbiont
 schedule {
   name: "production-deploy"
   agent: "deploy-agent"
-  cron: "0 0 * * 0"  # Domingo a medianoche
+  cron: "0 0 0 * * 0"  # Domingo a medianoche
 
   policy {
-    # Requerir aprobación humana antes de la ejecución
+    # Requerir aprobacion humana antes de la ejecucion
     require_approval: true
 
-    # Tiempo máximo de ejecución antes de terminación forzada
+    # Tiempo maximo de ejecucion antes de terminacion forzada
     max_runtime: "30m"
 
-    # Requerir capacidades específicas
+    # Requerir capacidades especificas
     require_capabilities: ["deployment", "production_write"]
 
-    # Aplicación de ventana de tiempo (UTC)
+    # Aplicacion de ventana de tiempo (UTC)
     allowed_hours: {
       start: "00:00"
       end: "04:00"
@@ -502,7 +502,7 @@ schedule {
     # Restricciones de entorno
     allowed_environments: ["staging", "production"]
 
-    # Verificación de AgentPin requerida
+    # Verificacion de AgentPin requerida
     require_agent_pin: true
   }
 }
@@ -514,19 +514,19 @@ schedule {
 pub enum SchedulePolicyDecision {
     Allow,
     Deny { reason: String },
-    RequireApproval { approvers: Vec<String> },
+    RequiresApproval { approver: String, reason: String, policy_id: String },
 }
 ```
 
-## Robustez para Producción
+## Robustez para Produccion
 
 ### Jitter
 
-Previene la estampida (thundering herd) cuando múltiples trabajos comparten una programación:
+Previene la estampida (thundering herd) cuando multiples trabajos comparten una programacion:
 
 ```rust
 pub struct CronSchedulerConfig {
-    pub max_jitter_seconds: u64,  // Retraso aleatorio de 0-N segundos
+    pub max_jitter_seconds: u64,  // Random delay 0-N seconds
     // ...
 }
 ```
@@ -546,29 +546,29 @@ Limitar ejecuciones concurrentes por trabajo para prevenir el agotamiento de rec
 schedule {
   name: "data-sync"
   agent: "sync-agent"
-  cron: "*/5 * * * *"
+  cron: "0 */5 * * * *"
 
-  max_concurrent: 2  # Permitir máximo 2 ejecuciones concurrentes
+  max_concurrent: 2  # Permitir maximo 2 ejecuciones concurrentes
 }
 ```
 
-Si un trabajo ya se está ejecutando al máximo de concurrencia, el programador omite el tick.
+Si un trabajo ya se esta ejecutando al maximo de concurrencia, el programador omite el tick.
 
 ### Cola de Mensajes No Entregados (Dead-Letter Queue)
 
-Los trabajos que exceden `max_retries` pasan al estado `DeadLetter` para revisión manual:
+Los trabajos que exceden `max_retries` pasan al estado `DeadLetter` para revision manual:
 
 ```symbiont
 schedule {
   name: "flaky-job"
   agent: "unreliable-agent"
-  cron: "0 * * * *"
+  cron: "0 0 * * * *"
 
-  max_retries: 3  # Después de 3 fallos, mover a dead-letter
+  max_retries: 3  # Despues de 3 fallos, mover a dead-letter
 }
 ```
 
-**Recuperación:**
+**Recuperacion:**
 
 ```bash
 # Listar trabajos en dead-letter
@@ -577,19 +577,19 @@ symbi cron list --status dead_letter
 # Revisar razones de fallo
 symbi cron history <job-id> --status failed
 
-# Restablecer trabajo a activo después de corregir
+# Restablecer trabajo a activo despues de corregir
 symbi cron reset <job-id>
 ```
 
-### Verificación de AgentPin
+### Verificacion de AgentPin
 
-Verificar criptográficamente la identidad del agente antes de la ejecución:
+Verificar criptograficamente la identidad del agente antes de la ejecucion:
 
 ```symbiont
 schedule {
   name: "secure-task"
   agent: "trusted-agent"
-  cron: "0 * * * *"
+  cron: "0 0 * * * *"
 
   agent_pin_jwt: "${AGENT_PIN_JWT}"  # JWT ES256 de agentpin-cli
 
@@ -603,13 +603,13 @@ El programador verifica:
 1. Firma JWT usando ES256 (ECDSA P-256)
 2. El ID del agente coincide con el claim `iss`
 3. El ancla de dominio coincide con el origen esperado
-4. La expiración (`exp`) es válida
+4. La expiracion (`exp`) es valida
 
-Los fallos activan el evento de auditoría `SecurityEventType::AgentPinVerificationFailed`.
+Los fallos activan el evento de auditoria `SecurityEventType::AgentPinVerificationFailed`.
 
 ## Endpoints de la API HTTP
 
-### Gestión de Programación
+### Gestion de Programacion
 
 **POST /api/v1/schedule**
 Crear un nuevo trabajo programado.
@@ -620,7 +620,7 @@ curl -X POST http://localhost:8080/api/v1/schedule \
   -d '{
     "name": "hourly-report",
     "agent_id": "reporter",
-    "cron_expr": "0 * * * *",
+    "cron_expr": "0 0 * * * *",
     "session_mode": "ephemeral_with_summary",
     "delivery": ["stdout"]
   }'
@@ -641,12 +641,12 @@ curl http://localhost:8080/api/v1/schedule/job-123
 ```
 
 **PUT /api/v1/schedule/{job_id}**
-Actualizar trabajo (expresión cron, entrega, etc.).
+Actualizar trabajo (expresion cron, entrega, etc.).
 
 ```bash
 curl -X PUT http://localhost:8080/api/v1/schedule/job-123 \
   -H "Content-Type: application/json" \
-  -d '{"cron_expr": "0 */2 * * *"}'
+  -d '{"cron_expr": "0 0 */2 * * *"}'
 ```
 
 **DELETE /api/v1/schedule/{job_id}**
@@ -671,7 +671,7 @@ curl -X POST http://localhost:8080/api/v1/schedule/job-123/resume
 ```
 
 **POST /api/v1/schedule/{job_id}/run**
-Activar ejecución inmediata.
+Activar ejecucion inmediata.
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/schedule/job-123/run \
@@ -687,7 +687,7 @@ curl "http://localhost:8080/api/v1/schedule/job-123/history?limit=20&status=fail
 ```
 
 **GET /api/v1/schedule/{job_id}/next_run**
-Obtener el próximo tiempo de ejecución programado.
+Obtener el proximo tiempo de ejecucion programado.
 
 ```bash
 curl http://localhost:8080/api/v1/schedule/job-123/next_run
@@ -696,7 +696,7 @@ curl http://localhost:8080/api/v1/schedule/job-123/next_run
 ### Monitoreo de Salud
 
 **GET /api/v1/health/scheduler**
-Salud y métricas del programador.
+Salud y metricas del programador.
 
 ```bash
 curl http://localhost:8080/api/v1/health/scheduler
@@ -735,7 +735,7 @@ const client = new SymbiontClient({
 const job = await client.schedule.create({
   name: 'daily-backup',
   agentId: 'backup-agent',
-  cronExpr: '0 2 * * *',
+  cronExpr: '0 0 2 * * *',
   sessionMode: 'ephemeral_with_summary',
   delivery: ['webhook'],
   webhookUrl: 'https://backup.example.com/notify'
@@ -751,7 +751,7 @@ console.log(`Active jobs: ${activeJobs.length}`);
 const status = await client.schedule.getStatus(job.id);
 console.log(`Next run: ${status.next_run}`);
 
-// Activar ejecución inmediata
+// Activar ejecucion inmediata
 await client.schedule.runNow(job.id, { input: 'Backup database' });
 
 // Pausar trabajo
@@ -784,7 +784,7 @@ client = SymbiontClient(
 job = client.schedule.create(
     name='hourly-metrics',
     agent_id='metrics-agent',
-    cron_expr='0 * * * *',
+    cron_expr='0 0 * * * *',
     session_mode='ephemeral_with_summary',
     delivery=['slack', 'log_file'],
     slack_channel='#metrics'
@@ -792,7 +792,7 @@ job = client.schedule.create(
 
 print(f"Created job: {job.id}")
 
-# Listar trabajos para un agente específico
+# Listar trabajos para un agente especifico
 jobs = client.schedule.list(agent_id='metrics-agent')
 print(f"Found {len(jobs)} jobs for metrics-agent")
 
@@ -801,10 +801,10 @@ details = client.schedule.get(job.id)
 print(f"Cron: {details.cron_expr}")
 print(f"Next run: {details.next_run}")
 
-# Actualizar expresión cron
-client.schedule.update(job.id, cron_expr='*/30 * * * *')
+# Actualizar expresion cron
+client.schedule.update(job.id, cron_expr='0 */30 * * * *')
 
-# Activar ejecución inmediata
+# Activar ejecucion inmediata
 run = client.schedule.run_now(job.id, input='Generate metrics report')
 print(f"Run ID: {run.id}")
 
@@ -821,7 +821,7 @@ history = client.schedule.get_history(
 for run in history:
     print(f"Failed run {run.id}: {run.error_message}")
 
-# Reanudar después del mantenimiento
+# Reanudar despues del mantenimiento
 client.schedule.resume(job.id)
 
 # Verificar salud del programador
@@ -831,33 +831,27 @@ print(f"Active jobs: {health.active_jobs}")
 print(f"In-flight jobs: {health.in_flight_jobs}")
 ```
 
-## Configuración
+## Configuracion
 
 ### CronSchedulerConfig
 
 ```rust
 pub struct CronSchedulerConfig {
-    /// Intervalo de tick en segundos (predeterminado: 1)
-    pub tick_interval_seconds: u64,
+    /// Tick interval (default: 1 second)
+    pub tick_interval: Duration,
 
-    /// Jitter máximo para prevenir estampida (predeterminado: 0)
-    pub max_jitter_seconds: u64,
+    /// Global concurrency limit (default: 100)
+    pub max_concurrent_cron_jobs: usize,
 
-    /// Límite global de concurrencia (predeterminado: 10)
-    pub max_concurrent_jobs: usize,
+    /// Persistent job store path (default: None)
+    pub job_store_path: Option<PathBuf>,
 
-    /// Habilitar recolección de métricas (predeterminado: true)
-    pub enable_metrics: bool,
-
-    /// Umbral de reintentos para dead-letter (predeterminado: 3)
-    pub default_max_retries: u32,
-
-    /// Tiempo de espera para apagado gracioso (predeterminado: 30s)
-    pub shutdown_timeout_seconds: u64,
+    /// Catch up missed runs on startup (default: true)
+    pub enable_missed_run_catchup: bool,
 }
 ```
 
-### Configuración TOML
+### Configuracion TOML
 
 ```toml
 [scheduler]
@@ -869,15 +863,15 @@ default_max_retries = 3
 shutdown_timeout_seconds = 60
 
 [scheduler.delivery]
-# Configuración de webhook
+# Configuracion de webhook
 webhook_timeout_seconds = 30
 webhook_retry_attempts = 3
 
-# Configuración de Slack
+# Configuracion de Slack
 slack_api_token = "${SLACK_API_TOKEN}"
 slack_default_channel = "#ops"
 
-# Configuración de correo electrónico
+# Configuracion de correo electronico
 smtp_host = "smtp.example.com"
 smtp_port = 587
 smtp_username = "${SMTP_USER}"
@@ -888,22 +882,22 @@ email_from = "symbiont@example.com"
 ### Variables de Entorno
 
 ```bash
-# Configuración del programador
+# Configuracion del programador
 SYMBI_SCHEDULER_MAX_JITTER=30
 SYMBI_SCHEDULER_MAX_CONCURRENT=20
 
-# Configuración de entrega
+# Configuracion de entrega
 SYMBI_SLACK_TOKEN=xoxb-...
 SYMBI_WEBHOOK_AUTH_HEADER="Bearer secret-token"
 
-# Verificación de AgentPin
+# Verificacion de AgentPin
 SYMBI_AGENTPIN_REQUIRED=true
 SYMBI_AGENTPIN_DOMAIN=agent.example.com
 ```
 
 ## Observabilidad
 
-### Métricas (compatibles con Prometheus)
+### Metricas (compatibles con Prometheus)
 
 ```
 # Ejecuciones totales
@@ -912,7 +906,7 @@ symbiont_cron_runs_total{job_name="daily-report",status="succeeded"} 450
 # Ejecuciones fallidas
 symbiont_cron_runs_total{job_name="daily-report",status="failed"} 5
 
-# Histograma de tiempo de ejecución
+# Histograma de tiempo de ejecucion
 symbiont_cron_execution_duration_seconds{job_name="daily-report"} 1.234
 
 # Indicador de trabajos en curso
@@ -922,7 +916,7 @@ symbiont_cron_in_flight_jobs 3
 symbiont_cron_dead_letter_total{job_name="flaky-job"} 2
 ```
 
-### Eventos de Auditoría
+### Eventos de Auditoria
 
 Todas las acciones del programador emiten eventos de seguridad:
 
@@ -940,70 +934,70 @@ pub enum SecurityEventType {
 }
 ```
 
-Consultar el registro de auditoría:
+Consultar el registro de auditoria:
 
 ```bash
 symbi audit query --type CronJobFailed --since "2026-02-01" --limit 50
 ```
 
-## Mejores Prácticas
+## Mejores Practicas
 
-1. **Usar jitter para programaciones compartidas**: Prevenir que múltiples trabajos inicien simultáneamente
-2. **Establecer límites de concurrencia**: Proteger contra el agotamiento de recursos
+1. **Usar jitter para programaciones compartidas**: Prevenir que multiples trabajos inicien simultaneamente
+2. **Establecer limites de concurrencia**: Proteger contra el agotamiento de recursos
 3. **Monitorear la cola de dead-letter**: Revisar y corregir trabajos fallidos regularmente
-4. **Usar EphemeralWithSummary**: Previene el crecimiento ilimitado de memoria en heartbeats de larga duración
-5. **Habilitar verificación de AgentPin**: Verificar criptográficamente la identidad del agente
+4. **Usar EphemeralWithSummary**: Previene el crecimiento ilimitado de memoria en heartbeats de larga duracion
+5. **Habilitar verificacion de AgentPin**: Verificar criptograficamente la identidad del agente
 6. **Configurar enrutamiento de entrega**: Usar canales apropiados para diferentes tipos de trabajos
-7. **Establecer puertas de política**: Aplicar ventanas de tiempo, aprobaciones y verificaciones de capacidades
-8. **Usar patrón de heartbeat para monitoreo**: Ciclos continuos de evaluación-acción-pausa
-9. **Probar programaciones en staging**: Validar expresiones cron y lógica de trabajos antes de producción
-10. **Exportar métricas**: Integrar con Prometheus/Grafana para visibilidad operativa
+7. **Establecer puertas de politica**: Aplicar ventanas de tiempo, aprobaciones y verificaciones de capacidades
+8. **Usar patron de heartbeat para monitoreo**: Ciclos continuos de evaluacion-accion-pausa
+9. **Probar programaciones en staging**: Validar expresiones cron y logica de trabajos antes de produccion
+10. **Exportar metricas**: Integrar con Prometheus/Grafana para visibilidad operativa
 
-## Solución de Problemas
+## Solucion de Problemas
 
 ### El Trabajo No Se Ejecuta
 
 1. Verificar el estado del trabajo: `symbi cron status <job-id>`
-2. Verificar la expresión cron: Usar [crontab.guru](https://crontab.guru/)
+2. Verificar la expresion cron: Usar [crontab.guru](https://crontab.guru/)
 3. Verificar la salud del programador: `curl http://localhost:8080/api/v1/health/scheduler`
 4. Revisar los registros: `symbi logs --filter scheduler --level debug`
 
 ### El Trabajo Falla Repetidamente
 
 1. Ver historial: `symbi cron history <job-id> --status failed`
-2. Verificar mensajes de error en los registros de ejecución
-3. Verificar la configuración y capacidades del agente
+2. Verificar mensajes de error en los registros de ejecucion
+3. Verificar la configuracion y capacidades del agente
 4. Probar el agente fuera del programador: `symbi run <agent-id> --input "test"`
-5. Verificar puertas de política: Asegurar que las ventanas de tiempo y capacidades coincidan
+5. Verificar puertas de politica: Asegurar que las ventanas de tiempo y capacidades coincidan
 
 ### Trabajo en Dead-Letter
 
 1. Listar trabajos en dead-letter: `symbi cron list --status dead_letter`
-2. Revisar el patrón de fallos: `symbi cron history <job-id>`
-3. Corregir la causa raíz (código del agente, permisos, dependencias externas)
+2. Revisar el patron de fallos: `symbi cron history <job-id>`
+3. Corregir la causa raiz (codigo del agente, permisos, dependencias externas)
 4. Restablecer el trabajo: `symbi cron reset <job-id>`
 
 ### Alto Uso de Memoria
 
-1. Verificar el modo de sesión: Cambiar a `ephemeral_with_summary` o `fully_ephemeral`
+1. Verificar el modo de sesion: Cambiar a `ephemeral_with_summary` o `fully_ephemeral`
 2. Reducir iteraciones de heartbeat: Disminuir `max_iterations`
-3. Monitorear el tamaño del contexto: Revisar la verbosidad de salida del agente
-4. Habilitar archivado de contexto: Configurar políticas de retención
+3. Monitorear el tamano del contexto: Revisar la verbosidad de salida del agente
+4. Habilitar archivado de contexto: Configurar politicas de retencion
 
-## Migración desde v0.9.0
+## Migracion desde v0.9.0
 
-La versión v1.0.0 agrega características de robustez para producción. Actualice sus definiciones de trabajos:
+La version v1.0.0 agrega caracteristicas de robustez para produccion. Actualice sus definiciones de trabajos:
 
 ```diff
  schedule {
    name: "my-job"
    agent: "my-agent"
-   cron: "0 * * * *"
+   cron: "0 0 * * * *"
 +
-+  # Agregar límite de concurrencia
++  # Agregar limite de concurrencia
 +  max_concurrent: 2
 +
-+  # Agregar AgentPin para verificación de identidad
++  # Agregar AgentPin para verificacion de identidad
 +  agent_pin_jwt: "${AGENT_PIN_JWT}"
 +
 +  policy {
@@ -1012,7 +1006,7 @@ La versión v1.0.0 agrega características de robustez para producción. Actuali
  }
 ```
 
-Actualizar configuración:
+Actualizar configuracion:
 
 ```diff
  [scheduler]
@@ -1022,4 +1016,4 @@ Actualizar configuración:
 + shutdown_timeout_seconds = 60
 ```
 
-Sin cambios de API incompatibles. Todos los trabajos de v0.9.0 continúan funcionando.
+Sin cambios de API incompatibles. Todos los trabajos de v0.9.0 continuan funcionando.

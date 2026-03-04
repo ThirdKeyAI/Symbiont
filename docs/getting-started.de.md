@@ -278,10 +278,10 @@ cargo build --features standalone-agent
 Tool-Kuratierung, Stuck-Loop-Erkennung, Kontext-Pre-Fetch und verzeichnisspezifische Konventionen aktivieren:
 
 ```bash
-cargo build --features symbi-dev
+cargo build --features orga-adaptive
 ```
 
-Siehe den [symbi-dev-Leitfaden](/symbi-dev) fuer die vollstaendige Dokumentation.
+Siehe den [orga-adaptive-Leitfaden](/orga-adaptive) fuer die vollstaendige Dokumentation.
 
 #### Cedar Policy Engine
 
@@ -326,7 +326,7 @@ cd crates/runtime && cargo run --example context_example
 | `composio` | Composio MCP-Tool-Integration | Nein |
 | `standalone-agent` | Cloud LLM + Composio Kombination | Nein |
 | `cedar` | Cedar Policy Engine | Nein |
-| `symbi-dev` | Erweiterte Reasoning-Primitiven | Nein |
+| `orga-adaptive` | Erweiterte Reasoning-Primitiven | Nein |
 | `cron` | Persistentes Cron-Scheduling | Nein |
 | `native-sandbox` | Native Prozess-Sandbox | Nein |
 | `metrics` | OpenTelemetry Metriken/Tracing | Nein |
@@ -334,7 +334,7 @@ cd crates/runtime && cargo run --example context_example
 
 ```bash
 # Mit bestimmten Features kompilieren
-cargo build --features "cloud-llm,symbi-dev,cedar"
+cargo build --features "cloud-llm,orga-adaptive,cedar"
 
 # Mit allem kompilieren
 cargo build --features full
@@ -470,7 +470,7 @@ Jetzt, da Sie Symbi zum Laufen gebracht haben, erkunden Sie diese fortgeschritte
 
 1. **[DSL-Leitfaden](/dsl-guide)** - Erweiterte DSL-Funktionen lernen
 2. **[Reasoning-Loop-Leitfaden](/reasoning-loop)** - Den ORGA-Zyklus verstehen
-3. **[Erweitertes Reasoning (symbi-dev)](/symbi-dev)** - Tool-Kuratierung, Stuck-Loop-Erkennung, Pre-Hydration
+3. **[Erweitertes Reasoning (orga-adaptive)](/orga-adaptive)** - Tool-Kuratierung, Stuck-Loop-Erkennung, Pre-Hydration
 4. **[Laufzeit-Architektur](/runtime-architecture)** - Systeminternas verstehen
 5. **[Sicherheitsmodell](/security-model)** - Sicherheitsrichtlinien implementieren
 6. **[Beitragen](/contributing)** - Zum Projekt beitragen

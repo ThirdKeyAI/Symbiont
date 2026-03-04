@@ -87,7 +87,7 @@ Schedule blocks are defined in Symbiont DSL files:
 schedule {
   name: "daily-report"
   agent: "reporter-agent"
-  cron: "0 9 * * *"
+  cron: "0 0 9 * * *"
 
   session_mode: "ephemeral_with_summary"
   delivery: ["stdout", "log_file"]
@@ -153,7 +153,7 @@ For continuous monitoring agents that assess → act → sleep:
 schedule {
   name: "system-monitor"
   agent: "heartbeat-agent"
-  cron: "*/5 * * * *"  # Wake every 5 minutes
+  cron: "0 */5 * * * *"  # Wake every 5 minutes
 
   heartbeat: {
     enabled: true
@@ -200,7 +200,7 @@ symbi cron add --file agent.symbi --schedule "daily-report"
 symbi cron add --json '{
   "name": "quick-task",
   "agent_id": "agent-123",
-  "cron_expr": "0 * * * *"
+  "cron_expr": "0 0 * * * *"
 }'
 ```
 
@@ -323,7 +323,7 @@ agent heartbeat_monitor {
 schedule {
   name: "heartbeat-monitor"
   agent: "heartbeat_monitor"
-  cron: "*/10 * * * *"  # Every 10 minutes
+  cron: "0 */10 * * * *"  # Every 10 minutes
 
   heartbeat: {
     enabled: true
@@ -341,7 +341,7 @@ schedule {
 ### Session Modes
 
 ```rust
-pub enum SessionIsolationMode {
+pub enum HeartbeatContextMode {
     /// Ephemeral context with summary carryover (default)
     EphemeralWithSummary,
 
@@ -359,7 +359,7 @@ pub enum SessionIsolationMode {
 schedule {
   name: "data-pipeline"
   agent: "etl-agent"
-  cron: "0 2 * * *"
+  cron: "0 0 2 * * *"
 
   # Fresh context per run, summary of previous run included
   session_mode: "ephemeral_with_summary"
@@ -401,7 +401,7 @@ pub enum DeliveryChannel {
 schedule {
   name: "backup"
   agent: "backup-agent"
-  cron: "0 3 * * *"
+  cron: "0 0 3 * * *"
   delivery: ["log_file"]
 }
 ```
@@ -412,7 +412,7 @@ schedule {
 schedule {
   name: "security-scan"
   agent: "scanner"
-  cron: "0 1 * * *"
+  cron: "0 0 1 * * *"
 
   delivery: ["log_file", "slack", "email"]
 
@@ -427,7 +427,7 @@ schedule {
 schedule {
   name: "metrics-report"
   agent: "metrics-agent"
-  cron: "*/30 * * * *"
+  cron: "0 */30 * * * *"
 
   delivery: ["webhook"]
   webhook_url: "https://metrics.example.com/ingest"
@@ -467,7 +467,7 @@ pub struct PolicyGate {
 }
 
 impl PolicyGate {
-    pub async fn evaluate(
+    pub fn evaluate(
         &self,
         job: &CronJobDefinition,
         context: &AgentContext,
@@ -481,7 +481,7 @@ impl PolicyGate {
 schedule {
   name: "production-deploy"
   agent: "deploy-agent"
-  cron: "0 0 * * 0"  # Sunday midnight
+  cron: "0 0 0 * * 0"  # Sunday midnight
 
   policy {
     # Require human approval before execution
@@ -514,7 +514,7 @@ schedule {
 pub enum SchedulePolicyDecision {
     Allow,
     Deny { reason: String },
-    RequireApproval { approvers: Vec<String> },
+    RequiresApproval { approver: String, reason: String, policy_id: String },
 }
 ```
 
@@ -546,7 +546,7 @@ Limit concurrent runs per job to prevent resource exhaustion:
 schedule {
   name: "data-sync"
   agent: "sync-agent"
-  cron: "*/5 * * * *"
+  cron: "0 */5 * * * *"
 
   max_concurrent: 2  # Allow max 2 concurrent runs
 }
@@ -562,7 +562,7 @@ Jobs exceeding `max_retries` move to `DeadLetter` status for manual review:
 schedule {
   name: "flaky-job"
   agent: "unreliable-agent"
-  cron: "0 * * * *"
+  cron: "0 0 * * * *"
 
   max_retries: 3  # After 3 failures, move to dead-letter
 }
@@ -589,7 +589,7 @@ Cryptographically verify agent identity before execution:
 schedule {
   name: "secure-task"
   agent: "trusted-agent"
-  cron: "0 * * * *"
+  cron: "0 0 * * * *"
 
   agent_pin_jwt: "${AGENT_PIN_JWT}"  # ES256 JWT from agentpin-cli
 
@@ -620,7 +620,7 @@ curl -X POST http://localhost:8080/api/v1/schedule \
   -d '{
     "name": "hourly-report",
     "agent_id": "reporter",
-    "cron_expr": "0 * * * *",
+    "cron_expr": "0 0 * * * *",
     "session_mode": "ephemeral_with_summary",
     "delivery": ["stdout"]
   }'
@@ -646,7 +646,7 @@ Update job (cron expression, delivery, etc.).
 ```bash
 curl -X PUT http://localhost:8080/api/v1/schedule/job-123 \
   -H "Content-Type: application/json" \
-  -d '{"cron_expr": "0 */2 * * *"}'
+  -d '{"cron_expr": "0 0 */2 * * *"}'
 ```
 
 **DELETE /api/v1/schedule/{job_id}**
@@ -735,7 +735,7 @@ const client = new SymbiontClient({
 const job = await client.schedule.create({
   name: 'daily-backup',
   agentId: 'backup-agent',
-  cronExpr: '0 2 * * *',
+  cronExpr: '0 0 2 * * *',
   sessionMode: 'ephemeral_with_summary',
   delivery: ['webhook'],
   webhookUrl: 'https://backup.example.com/notify'
@@ -784,7 +784,7 @@ client = SymbiontClient(
 job = client.schedule.create(
     name='hourly-metrics',
     agent_id='metrics-agent',
-    cron_expr='0 * * * *',
+    cron_expr='0 0 * * * *',
     session_mode='ephemeral_with_summary',
     delivery=['slack', 'log_file'],
     slack_channel='#metrics'
@@ -802,7 +802,7 @@ print(f"Cron: {details.cron_expr}")
 print(f"Next run: {details.next_run}")
 
 # Update cron expression
-client.schedule.update(job.id, cron_expr='*/30 * * * *')
+client.schedule.update(job.id, cron_expr='0 */30 * * * *')
 
 # Trigger immediate run
 run = client.schedule.run_now(job.id, input='Generate metrics report')
@@ -837,23 +837,17 @@ print(f"In-flight jobs: {health.in_flight_jobs}")
 
 ```rust
 pub struct CronSchedulerConfig {
-    /// Tick interval in seconds (default: 1)
-    pub tick_interval_seconds: u64,
+    /// Tick interval (default: 1 second)
+    pub tick_interval: Duration,
 
-    /// Maximum jitter to prevent thundering herd (default: 0)
-    pub max_jitter_seconds: u64,
+    /// Global concurrency limit (default: 100)
+    pub max_concurrent_cron_jobs: usize,
 
-    /// Global concurrency limit (default: 10)
-    pub max_concurrent_jobs: usize,
+    /// Persistent job store path (default: None)
+    pub job_store_path: Option<PathBuf>,
 
-    /// Enable metrics collection (default: true)
-    pub enable_metrics: bool,
-
-    /// Dead-letter retry threshold (default: 3)
-    pub default_max_retries: u32,
-
-    /// Graceful shutdown timeout (default: 30s)
-    pub shutdown_timeout_seconds: u64,
+    /// Catch up missed runs on startup (default: true)
+    pub enable_missed_run_catchup: bool,
 }
 ```
 
@@ -998,7 +992,7 @@ The v1.0.0 release adds production hardening features. Update your job definitio
  schedule {
    name: "my-job"
    agent: "my-agent"
-   cron: "0 * * * *"
+   cron: "0 0 * * * *"
 +
 +  # Add concurrency limit
 +  max_concurrent: 2

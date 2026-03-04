@@ -1,6 +1,6 @@
 ---
 layout: default
-title: Erweiterte Reasoning-Primitiven (symbi-dev)
+title: Erweiterte Reasoning-Primitiven (orga-adaptive)
 description: "Erweiterte Reasoning-Loop-Primitiven: Tool-Kuratierung, Stuck-Loop-Erkennung, Kontext-Pre-Fetch und verzeichnisspezifische Konventionen"
 nav_exclude: true
 ---
@@ -11,7 +11,7 @@ nav_exclude: true
 ## Andere Sprachen
 {: .no_toc}
 
-[English](symbi-dev.md) | [中文简体](symbi-dev.zh-cn.md) | [Español](symbi-dev.es.md) | [Português](symbi-dev.pt.md) | [日本語](symbi-dev.ja.md) | **Deutsch**
+[English](orga-adaptive.md) | [中文简体](orga-adaptive.zh-cn.md) | [Español](orga-adaptive.es.md) | [Português](orga-adaptive.pt.md) | [日本語](orga-adaptive.ja.md) | **Deutsch**
 
 ---
 
@@ -28,7 +28,7 @@ Feature-gated Laufzeitprimitiven, die die Reasoning-Schleife um Tool-Kuratierung
 
 ## Ueberblick
 
-Das `symbi-dev` Feature Gate fuegt vier erweiterte Faehigkeiten zur Reasoning-Schleife hinzu:
+Das `orga-adaptive` Feature Gate fuegt vier erweiterte Faehigkeiten zur Reasoning-Schleife hinzu:
 
 | Primitive | Geloestes Problem | Modul |
 |-----------|------------------|-------|
@@ -42,14 +42,14 @@ Das `symbi-dev` Feature Gate fuegt vier erweiterte Faehigkeiten zur Reasoning-Sc
 ```toml
 # In Ihrer Cargo.toml
 [dependencies]
-symbi-runtime = { version = "1.6", features = ["symbi-dev"] }
+symbi-runtime = { version = "1.6", features = ["orga-adaptive"] }
 ```
 
 Oder aus dem Quellcode kompilieren:
 
 ```bash
-cargo build --features symbi-dev
-cargo test --features symbi-dev
+cargo build --features orga-adaptive
+cargo test --features orga-adaptive
 ```
 
 Alle Primitiven sind additiv und rueckwaertskompatibel -- bestehender Code kompiliert und laeuft identisch ohne das Feature Gate.
@@ -265,7 +265,7 @@ Die Parameter `directory` und `scope` sind optional. Ohne sie verhaelt sich `rec
 
 ## LoopConfig-Felder
 
-Wenn das `symbi-dev` Feature aktiviert ist, erhaelt `LoopConfig` drei optionale Felder:
+Wenn das `orga-adaptive` Feature aktiviert ist, erhaelt `LoopConfig` drei optionale Felder:
 
 ```rust
 pub struct LoopConfig {
@@ -316,8 +316,8 @@ cargo clippy --workspace -j2
 cargo test --workspace -j2
 
 # Mit Feature
-cargo clippy --workspace -j2 --features symbi-dev
-cargo test --workspace -j2 --features symbi-dev
+cargo clippy --workspace -j2 --features orga-adaptive
+cargo test --workspace -j2 --features orga-adaptive
 ```
 
 Alle Tests sind inline `#[cfg(test)]` Module -- keine externen Test-Fixtures erforderlich.

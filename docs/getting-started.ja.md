@@ -278,10 +278,10 @@ cargo build --features standalone-agent
 ツールキュレーション、スタックループ検出、コンテキストプリフェッチ、スコープ付きコンベンションを有効化：
 
 ```bash
-cargo build --features symbi-dev
+cargo build --features orga-adaptive
 ```
 
-完全なドキュメントは[symbi-devガイド](/symbi-dev)を参照してください。
+完全なドキュメントは[orga-adaptiveガイド](/orga-adaptive)を参照してください。
 
 #### Cedarポリシーエンジン
 
@@ -326,7 +326,7 @@ cd crates/runtime && cargo run --example context_example
 | `composio` | Composio MCPツール統合 | いいえ |
 | `standalone-agent` | クラウドLLM + Composioコンボ | いいえ |
 | `cedar` | Cedarポリシーエンジン | いいえ |
-| `symbi-dev` | 高度な推論プリミティブ | いいえ |
+| `orga-adaptive` | 高度な推論プリミティブ | いいえ |
 | `cron` | 永続cronスケジューリング | いいえ |
 | `native-sandbox` | ネイティブプロセスサンドボックス | いいえ |
 | `metrics` | OpenTelemetryメトリクス/トレーシング | いいえ |
@@ -334,7 +334,7 @@ cd crates/runtime && cargo run --example context_example
 
 ```bash
 # 特定の機能でビルド
-cargo build --features "cloud-llm,symbi-dev,cedar"
+cargo build --features "cloud-llm,orga-adaptive,cedar"
 
 # すべてでビルド
 cargo build --features full
@@ -470,7 +470,7 @@ Symbiが動作するようになったので、これらの高度なトピック
 
 1. **[DSLガイド](/dsl-guide)** - 高度なDSL機能を学ぶ
 2. **[推論ループガイド](/reasoning-loop)** - ORGAサイクルを理解する
-3. **[高度な推論 (symbi-dev)](/symbi-dev)** - ツールキュレーション、スタックループ検出、プリハイドレーション
+3. **[高度な推論 (orga-adaptive)](/orga-adaptive)** - ツールキュレーション、スタックループ検出、プリハイドレーション
 4. **[ランタイムアーキテクチャ](/runtime-architecture)** - システム内部を理解する
 5. **[セキュリティモデル](/security-model)** - セキュリティポリシーを実装する
 6. **[コントリビューション](/contributing)** - プロジェクトに貢献する

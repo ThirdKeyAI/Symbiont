@@ -33,12 +33,11 @@ Die Symbiont-REPL (Read-Eval-Print Loop) bietet eine interaktive Umgebung zum En
 # Interaktiver REPL-Modus
 symbi repl
 
-# JSON-RPC-Servermodus (fuer IDE-Integration)
-symbi repl --json-rpc
-
-# Mit benutzerdefinierter Konfiguration
-symbi repl --config custom-config.toml
+# JSON-RPC-Servermodus ueber stdio (fuer IDE-Integration)
+symbi repl --stdio
 ```
+
+> **Hinweis:** Das `--config`-Flag wird noch nicht unterstuetzt. Die Konfiguration wird vom Standard-`symbiont.toml`-Speicherort gelesen. Unterstuetzung fuer benutzerdefinierte Konfiguration ist fuer ein zukuenftiges Release geplant.
 
 ### Grundlegende Verwendung
 
@@ -89,6 +88,31 @@ print(message)
 | `:monitor traces [limit]` | Ausfuehrungs-Traces anzeigen |
 | `:monitor report` | Detaillierten Ausfuehrungsbericht anzeigen |
 | `:monitor clear` | Ueberwachungsdaten loeschen |
+
+### Speicherbefehle
+
+| Befehl | Beschreibung |
+|--------|-------------|
+| `:memory inspect <agent-id>` | Speicherzustand eines Agenten inspizieren |
+| `:memory compact <agent-id>` | Speicher eines Agenten komprimieren |
+| `:memory purge <agent-id>` | Gesamten Speicher eines Agenten loeschen |
+
+### Webhook-Befehle
+
+| Befehl | Beschreibung |
+|--------|-------------|
+| `:webhook list` | Konfigurierte Webhooks auflisten |
+| `:webhook add` | Einen neuen Webhook hinzufuegen |
+| `:webhook remove` | Einen Webhook entfernen |
+| `:webhook test` | Einen Webhook testen |
+| `:webhook logs` | Webhook-Logs anzeigen |
+
+### Aufzeichnungsbefehle
+
+| Befehl | Beschreibung |
+|--------|-------------|
+| `:record on <file>` | Sitzungsaufzeichnung in eine Datei starten |
+| `:record off` | Sitzungsaufzeichnung beenden |
 
 ### Sitzungsbefehle
 
@@ -143,6 +167,8 @@ behavior AnalyzeData {
     }
 
     # Analyse durchfuehren
+    # HINWEIS: analyze() ist eine geplante eingebaute Funktion (noch nicht implementiert).
+    # Dieses Beispiel veranschaulicht das beabsichtigte Verhaltensdefinitionsmuster.
     let results = analyze(data, options)
     emit analysis_completed { results: results }
 
@@ -160,6 +186,8 @@ behavior AnalyzeData {
 | `upper(string)` | String in Grossbuchstaben umwandeln | `upper("hello")` -> `"HELLO"` |
 | `lower(string)` | String in Kleinbuchstaben umwandeln | `lower("HELLO")` -> `"hello"` |
 | `format(template, ...)` | String mit Argumenten formatieren | `format("Hello, {}!", name)` |
+
+> **Geplante eingebaute Funktionen:** Erweiterte E/A-Funktionen wie `read_file()`, `read_csv()`, `write_results()`, `analyze()` und `transform_data()` sind noch nicht implementiert. Diese sind fuer ein zukuenftiges Release geplant.
 
 ### Datentypen
 
@@ -245,6 +273,8 @@ behavior ReadFile {
   steps {
     # Dies prueft, ob der Agent die Capability "filesystem" hat
     require capability("filesystem")
+    # HINWEIS: read_file() ist eine geplante eingebaute Funktion (noch nicht implementiert).
+    # Dieses Beispiel veranschaulicht, wie Capability-Pruefung funktioniert.
     let content = read_file(path)
     return content
   }
@@ -311,23 +341,28 @@ Agent Debug Information:
 
 ### Language Server Protocol
 
-Die REPL bietet LSP-Unterstuetzung fuer IDE-Integration:
+Die REPL bietet LSP-Unterstuetzung fuer IDE-Integration ueber das `repl-lsp` Crate. Der LSP-Server wird separat von der REPL selbst gestartet:
 
 ```bash
-# LSP-Server starten
-symbi repl --lsp --port 9257
+# Der LSP-Server wird vom repl-lsp Crate bereitgestellt und durch
+# die LSP-Client-Konfiguration Ihres Editors gestartet (nicht ueber symbi repl Flags).
 ```
+
+> **Hinweis:** Das `--lsp`-Flag wird bei `symbi repl` nicht unterstuetzt. LSP ist im `repl-lsp` Crate implementiert und sollte ueber die LSP-Einstellungen Ihres Editors konfiguriert werden.
 
 ### Unterstuetzte Funktionen
 
 - Syntaxhervorhebung
-- Code-Vervollstaendigung
 - Fehlerdiagnose
+- Textsynchronisation
+
+**Geplante Funktionen** (noch nicht implementiert):
+- Code-Vervollstaendigung
 - Hover-Informationen
 - Gehe zu Definition
 - Symbolsuche
 
-## Bewaeehrte Praktiken
+## Bewaehrte Praktiken
 
 ### Entwicklungsworkflow
 
@@ -437,6 +472,9 @@ behavior ProcessCsv {
   steps {
     require capability("data_read")
 
+    # HINWEIS: read_csv(), transform_data() und write_results() sind geplante
+    # eingebaute Funktionen (noch nicht implementiert). Dieses Beispiel veranschaulicht
+    # das beabsichtigte Muster fuer Datenverarbeitungsverhalten.
     let data = read_csv(file_path)
     let processed = transform_data(data)
 

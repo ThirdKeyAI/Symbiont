@@ -7,7 +7,7 @@ nav_exclude: true
 
 # Guia de Agendamento
 
-## 🌐 Outros idiomas
+## Outros idiomas
 {: .no_toc}
 
 [English](scheduling.md) | [中文简体](scheduling.zh-cn.md) | [Español](scheduling.es.md) | **Português** | [日本語](scheduling.ja.md) | [Deutsch](scheduling.de.md)
@@ -87,7 +87,7 @@ Blocos de agendamento são definidos em arquivos DSL do Symbiont:
 schedule {
   name: "daily-report"
   agent: "reporter-agent"
-  cron: "0 9 * * *"
+  cron: "0 0 9 * * *"
 
   session_mode: "ephemeral_with_summary"
   delivery: ["stdout", "log_file"]
@@ -147,13 +147,13 @@ schedule {
 
 ### Padrão Heartbeat
 
-Para agentes de monitoramento contínuo que avaliam → agem → dormem:
+Para agentes de monitoramento contínuo que avaliam -> agem -> dormem:
 
 ```symbiont
 schedule {
   name: "system-monitor"
   agent: "heartbeat-agent"
-  cron: "*/5 * * * *"  # Acordar a cada 5 minutos
+  cron: "0 */5 * * * *"  # Acordar a cada 5 minutos
 
   heartbeat: {
     enabled: true
@@ -200,7 +200,7 @@ symbi cron add --file agent.symbi --schedule "daily-report"
 symbi cron add --json '{
   "name": "quick-task",
   "agent_id": "agent-123",
-  "cron_expr": "0 * * * *"
+  "cron_expr": "0 0 * * * *"
 }'
 ```
 
@@ -274,13 +274,13 @@ Controla como o contexto persiste entre iterações do heartbeat:
 
 ```rust
 pub enum HeartbeatContextMode {
-    /// Contexto novo a cada iteração, resumo anexado ao histórico de execução
+    /// Fresh context each iteration, append summary to run history
     EphemeralWithSummary,
 
-    /// Contexto compartilhado entre todas as iterações (memória acumula)
+    /// Shared context across all iterations (memory accumulates)
     SharedPersistent,
 
-    /// Contexto novo a cada iteração, sem resumo (sem estado)
+    /// Fresh context each iteration, no summary (stateless)
     FullyEphemeral,
 }
 ```
@@ -308,22 +308,22 @@ pub enum HeartbeatContextMode {
 agent heartbeat_monitor {
   model: "claude-sonnet-4.5"
   system_prompt: """
-  Você é um agente de monitoramento de sistema. A cada heartbeat:
-  1. Verificar métricas do sistema (CPU, memória, disco)
-  2. Revisar logs de erros recentes
-  3. Se problemas detectados, tomar ação:
-     - Reiniciar serviços se seguro
-     - Alertar equipe de operações via Slack
-     - Registrar detalhes do incidente
-  4. Resumir descobertas
-  5. Retornar 'sleep' quando finalizado
+  You are a system monitoring agent. On each heartbeat:
+  1. Check system metrics (CPU, memory, disk)
+  2. Review recent error logs
+  3. If issues detected, take action:
+     - Restart services if safe
+     - Alert ops team via Slack
+     - Log incident details
+  4. Summarize findings
+  5. Return 'sleep' when done
   """
 }
 
 schedule {
   name: "heartbeat-monitor"
   agent: "heartbeat_monitor"
-  cron: "*/10 * * * *"  # A cada 10 minutos
+  cron: "0 */10 * * * *"  # A cada 10 minutos
 
   heartbeat: {
     enabled: true
@@ -341,14 +341,14 @@ schedule {
 ### Modos de Sessão
 
 ```rust
-pub enum SessionIsolationMode {
-    /// Contexto efêmero com transferência de resumo (padrão)
+pub enum HeartbeatContextMode {
+    /// Ephemeral context with summary carryover (default)
     EphemeralWithSummary,
 
-    /// Contexto persistente compartilhado entre todas as execuções
+    /// Shared persistent context across all runs
     SharedPersistent,
 
-    /// Totalmente efêmero, sem transferência de estado
+    /// Fully ephemeral, no state carryover
     FullyEphemeral,
 }
 ```
@@ -359,7 +359,7 @@ pub enum SessionIsolationMode {
 schedule {
   name: "data-pipeline"
   agent: "etl-agent"
-  cron: "0 2 * * *"
+  cron: "0 0 2 * * *"
 
   # Contexto novo por execução, resumo da execução anterior incluído
   session_mode: "ephemeral_with_summary"
@@ -384,12 +384,12 @@ Para cada execução agendada:
 
 ```rust
 pub enum DeliveryChannel {
-    Stdout,           // Imprimir no console
-    LogFile,          // Anexar ao arquivo de log específico da tarefa
-    Webhook,          // HTTP POST para URL
-    Slack,            // Webhook ou API do Slack
-    Email,            // Email SMTP
-    Custom(String),   // Canal definido pelo usuário
+    Stdout,           // Print to console
+    LogFile,          // Append to job-specific log file
+    Webhook,          // HTTP POST to URL
+    Slack,            // Slack webhook or API
+    Email,            // SMTP email
+    Custom(String),   // User-defined channel
 }
 ```
 
@@ -401,7 +401,7 @@ pub enum DeliveryChannel {
 schedule {
   name: "backup"
   agent: "backup-agent"
-  cron: "0 3 * * *"
+  cron: "0 0 3 * * *"
   delivery: ["log_file"]
 }
 ```
@@ -412,7 +412,7 @@ schedule {
 schedule {
   name: "security-scan"
   agent: "scanner"
-  cron: "0 1 * * *"
+  cron: "0 0 1 * * *"
 
   delivery: ["log_file", "slack", "email"]
 
@@ -427,7 +427,7 @@ schedule {
 schedule {
   name: "metrics-report"
   agent: "metrics-agent"
-  cron: "*/30 * * * *"
+  cron: "0 */30 * * * *"
 
   delivery: ["webhook"]
   webhook_url: "https://metrics.example.com/ingest"
@@ -467,7 +467,7 @@ pub struct PolicyGate {
 }
 
 impl PolicyGate {
-    pub async fn evaluate(
+    pub fn evaluate(
         &self,
         job: &CronJobDefinition,
         context: &AgentContext,
@@ -481,7 +481,7 @@ impl PolicyGate {
 schedule {
   name: "production-deploy"
   agent: "deploy-agent"
-  cron: "0 0 * * 0"  # Domingo à meia-noite
+  cron: "0 0 0 * * 0"  # Domingo à meia-noite
 
   policy {
     # Exigir aprovação humana antes da execução
@@ -514,7 +514,7 @@ schedule {
 pub enum SchedulePolicyDecision {
     Allow,
     Deny { reason: String },
-    RequireApproval { approvers: Vec<String> },
+    RequiresApproval { approver: String, reason: String, policy_id: String },
 }
 ```
 
@@ -526,7 +526,7 @@ Previne efeito manada (thundering herd) quando múltiplas tarefas compartilham u
 
 ```rust
 pub struct CronSchedulerConfig {
-    pub max_jitter_seconds: u64,  // Atraso aleatório de 0-N segundos
+    pub max_jitter_seconds: u64,  // Random delay 0-N seconds
     // ...
 }
 ```
@@ -546,7 +546,7 @@ Limitar execuções concorrentes por tarefa para prevenir esgotamento de recurso
 schedule {
   name: "data-sync"
   agent: "sync-agent"
-  cron: "*/5 * * * *"
+  cron: "0 */5 * * * *"
 
   max_concurrent: 2  # Permitir no máximo 2 execuções concorrentes
 }
@@ -562,7 +562,7 @@ Tarefas que excedem `max_retries` são movidas para o status `DeadLetter` para r
 schedule {
   name: "flaky-job"
   agent: "unreliable-agent"
-  cron: "0 * * * *"
+  cron: "0 0 * * * *"
 
   max_retries: 3  # Após 3 falhas, mover para dead-letter
 }
@@ -589,7 +589,7 @@ Verificar criptograficamente a identidade do agente antes da execução:
 schedule {
   name: "secure-task"
   agent: "trusted-agent"
-  cron: "0 * * * *"
+  cron: "0 0 * * * *"
 
   agent_pin_jwt: "${AGENT_PIN_JWT}"  # JWT ES256 do agentpin-cli
 
@@ -620,7 +620,7 @@ curl -X POST http://localhost:8080/api/v1/schedule \
   -d '{
     "name": "hourly-report",
     "agent_id": "reporter",
-    "cron_expr": "0 * * * *",
+    "cron_expr": "0 0 * * * *",
     "session_mode": "ephemeral_with_summary",
     "delivery": ["stdout"]
   }'
@@ -646,7 +646,7 @@ Atualizar tarefa (expressão cron, entrega, etc.).
 ```bash
 curl -X PUT http://localhost:8080/api/v1/schedule/job-123 \
   -H "Content-Type: application/json" \
-  -d '{"cron_expr": "0 */2 * * *"}'
+  -d '{"cron_expr": "0 0 */2 * * *"}'
 ```
 
 **DELETE /api/v1/schedule/{job_id}**
@@ -735,21 +735,21 @@ const client = new SymbiontClient({
 const job = await client.schedule.create({
   name: 'daily-backup',
   agentId: 'backup-agent',
-  cronExpr: '0 2 * * *',
+  cronExpr: '0 0 2 * * *',
   sessionMode: 'ephemeral_with_summary',
   delivery: ['webhook'],
   webhookUrl: 'https://backup.example.com/notify'
 });
 
-console.log(`Tarefa criada: ${job.id}`);
+console.log(`Created job: ${job.id}`);
 
 // Listar tarefas ativas
 const activeJobs = await client.schedule.list({ status: 'active' });
-console.log(`Tarefas ativas: ${activeJobs.length}`);
+console.log(`Active jobs: ${activeJobs.length}`);
 
 // Obter status da tarefa
 const status = await client.schedule.getStatus(job.id);
-console.log(`Próxima execução: ${status.next_run}`);
+console.log(`Next run: ${status.next_run}`);
 
 // Disparar execução imediata
 await client.schedule.runNow(job.id, { input: 'Backup database' });
@@ -760,7 +760,7 @@ await client.schedule.pause(job.id);
 // Ver histórico
 const history = await client.schedule.getHistory(job.id, { limit: 10 });
 history.forEach(run => {
-  console.log(`Execução ${run.id}: ${run.status} (${run.execution_time_ms}ms)`);
+  console.log(`Run ${run.id}: ${run.status} (${run.execution_time_ms}ms)`);
 });
 
 // Retomar tarefa
@@ -784,33 +784,33 @@ client = SymbiontClient(
 job = client.schedule.create(
     name='hourly-metrics',
     agent_id='metrics-agent',
-    cron_expr='0 * * * *',
+    cron_expr='0 0 * * * *',
     session_mode='ephemeral_with_summary',
     delivery=['slack', 'log_file'],
     slack_channel='#metrics'
 )
 
-print(f"Tarefa criada: {job.id}")
+print(f"Created job: {job.id}")
 
 # Listar tarefas para agente específico
 jobs = client.schedule.list(agent_id='metrics-agent')
-print(f"Encontradas {len(jobs)} tarefas para metrics-agent")
+print(f"Found {len(jobs)} jobs for metrics-agent")
 
 # Obter detalhes da tarefa
 details = client.schedule.get(job.id)
 print(f"Cron: {details.cron_expr}")
-print(f"Próxima execução: {details.next_run}")
+print(f"Next run: {details.next_run}")
 
 # Atualizar expressão cron
-client.schedule.update(job.id, cron_expr='*/30 * * * *')
+client.schedule.update(job.id, cron_expr='0 */30 * * * *')
 
 # Disparar execução imediata
 run = client.schedule.run_now(job.id, input='Generate metrics report')
-print(f"ID da execução: {run.id}")
+print(f"Run ID: {run.id}")
 
 # Pausar durante manutenção
 client.schedule.pause(job.id)
-print("Tarefa pausada para manutenção")
+print("Job paused for maintenance")
 
 # Ver falhas recentes
 history = client.schedule.get_history(
@@ -819,16 +819,16 @@ history = client.schedule.get_history(
     limit=5
 )
 for run in history:
-    print(f"Execução falha {run.id}: {run.error_message}")
+    print(f"Failed run {run.id}: {run.error_message}")
 
 # Retomar após manutenção
 client.schedule.resume(job.id)
 
 # Verificar saúde do agendador
 health = client.schedule.health()
-print(f"Status do agendador: {health.status}")
-print(f"Tarefas ativas: {health.active_jobs}")
-print(f"Tarefas em andamento: {health.in_flight_jobs}")
+print(f"Scheduler status: {health.status}")
+print(f"Active jobs: {health.active_jobs}")
+print(f"In-flight jobs: {health.in_flight_jobs}")
 ```
 
 ## Configuração
@@ -837,23 +837,17 @@ print(f"Tarefas em andamento: {health.in_flight_jobs}")
 
 ```rust
 pub struct CronSchedulerConfig {
-    /// Intervalo de tick em segundos (padrão: 1)
-    pub tick_interval_seconds: u64,
+    /// Tick interval (default: 1 second)
+    pub tick_interval: Duration,
 
-    /// Jitter máximo para prevenir efeito manada (padrão: 0)
-    pub max_jitter_seconds: u64,
+    /// Global concurrency limit (default: 100)
+    pub max_concurrent_cron_jobs: usize,
 
-    /// Limite global de concorrência (padrão: 10)
-    pub max_concurrent_jobs: usize,
+    /// Persistent job store path (default: None)
+    pub job_store_path: Option<PathBuf>,
 
-    /// Habilitar coleta de métricas (padrão: true)
-    pub enable_metrics: bool,
-
-    /// Limite de tentativas para dead-letter (padrão: 3)
-    pub default_max_retries: u32,
-
-    /// Tempo limite para encerramento gracioso (padrão: 30s)
-    pub shutdown_timeout_seconds: u64,
+    /// Catch up missed runs on startup (default: true)
+    pub enable_missed_run_catchup: bool,
 }
 ```
 
@@ -998,7 +992,7 @@ A versão v1.0.0 adiciona recursos de robustez para produção. Atualize suas de
  schedule {
    name: "my-job"
    agent: "my-agent"
-   cron: "0 * * * *"
+   cron: "0 0 * * * *"
 +
 +  # Adicionar limite de concorrência
 +  max_concurrent: 2

@@ -386,8 +386,8 @@ pub struct LoopConfig {
     pub timeout: Duration,          // Default: 5 minutes
     pub default_recovery: RecoveryStrategy,
     pub tool_timeout: Duration,     // Default: 30 seconds
-    pub max_concurrent_tools: usize, // Default: 10
-    pub context_token_budget: usize, // Default: 8,000
+    pub max_concurrent_tools: usize, // Default: 5
+    pub context_token_budget: usize, // Default: 32,000
     pub tool_definitions: Vec<ToolDefinition>,
 }
 ```
@@ -442,13 +442,13 @@ OPENROUTER_API_KEY="sk-or-..." OPENROUTER_MODEL="google/gemini-2.0-flash-001" \
 | **4** | 多智能体 | `agent_registry`、`critic_audit`、`saga` |
 | **5** | 可观测性 | `cedar_gate`、`journal`、`metrics`、`scheduler`、`tracing_spans` |
 | **Bridge** | 知识 | `knowledge_bridge`、`knowledge_executor` |
-| **symbi-dev** | 高级 | `tool_profile`、`progress_tracker`、`pre_hydrate`、扩展 `knowledge_bridge` |
+| **orga-adaptive** | 高级 | `tool_profile`、`progress_tracker`、`pre_hydrate`、扩展 `knowledge_bridge` |
 
 ---
 
-## 高级原语 (symbi-dev)
+## 高级原语 (orga-adaptive)
 
-`symbi-dev` 特性门控添加了四项高级功能。详见[完整指南](symbi-dev.md)。
+`orga-adaptive` 特性门控添加了四项高级功能。详见[完整指南](orga-adaptive.md)。
 
 | 原语 | 用途 |
 |------|------|

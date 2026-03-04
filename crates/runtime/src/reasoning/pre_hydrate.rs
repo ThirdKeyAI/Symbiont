@@ -3,7 +3,7 @@
 //! Extracts references (URLs, file paths, GitHub issues/PRs) from task input
 //! via regex, resolves them in parallel via the executor with timeout, prunes
 //! to a token budget, and formats as a system message.
-//! Part of the symbi-dev feature gate.
+//! Part of the orga-adaptive feature gate.
 
 use std::collections::HashSet;
 use std::sync::Arc;

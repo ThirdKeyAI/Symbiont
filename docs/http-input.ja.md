@@ -133,22 +133,37 @@ let config = HttpInputConfig {
 };
 ```
 
-#### JWT 認証
+#### JWT 認証（EdDSA）
 
-JWT ベース認証を設定：
+Ed25519公開鍵によるJWTベース認証を設定：
 
 ```rust
 let config = HttpInputConfig {
-    jwt_public_key_path: Some("/path/to/jwt/public.key".to_string()),
+    jwt_public_key_path: Some("/path/to/jwt/ed25519-public.pem".to_string()),
     ..Default::default()
 };
 ```
 
+JWTベリファイアは指定されたPEMファイルからEd25519公開鍵をロードし、受信する `Authorization: Bearer <jwt>` トークンを検証します。**EdDSA** アルゴリズムのみが受け入れられ、HS256、RS256、およびその他のアルゴリズムは拒否されます。
+
+#### ヘルスエンドポイント
+
+HTTP 入力モジュールは独自の `/health` エンドポイントを公開しません。ヘルスチェックは、完全なランタイム（APIサーバーを含む）を起動する `symbi up` を実行する際に、メインHTTP APIの `/api/v1/health` を通じて利用可能です：
+
+```bash
+# メインAPIサーバー経由のヘルスチェック（デフォルトポート8080）
+curl http://127.0.0.1:8080/api/v1/health
+# => {"status": "ok"}
+```
+
+HTTP 入力サーバー専用のヘルスプローブが必要な場合は、代わりにロードバランサーをメインAPIヘルスエンドポイントにルーティングしてください。
+
 ### セキュリティ制御
 
+- **ループバックのみがデフォルト**: `bind_address` はデフォルトで `127.0.0.1` — 明示的に設定しない限り、サーバーはローカル接続のみを受け入れます
+- **デフォルトでCORS無効**: `cors_origins` はデフォルトで空リスト。つまりCORSは無効です。クロスオリジンアクセスを有効にするには特定のオリジンを追加してください
 - **リクエストサイズ制限**: 設定可能な最大ボディサイズでリソース枯渇を防止
 - **並行性制限**: 組み込みセマフォが同時リクエスト処理を制御
-- **CORS サポート**: ブラウザベースアプリケーション用のオプション CORS ヘッダー
 - **監査ログ**: 有効時にすべての受信リクエストの構造化ログ
 - **シークレット解決**: Vault とファイルベースシークレットストアとの統合
 
@@ -279,9 +294,9 @@ let config = HttpInputConfig {
 };
 ```
 
-### ヘルスチェックエンドポイント
+### ヘルスチェック統合
 
-サーバーはロードバランサーと監視システム用のヘルスチェック機能を自動的に提供します。
+HTTP 入力モジュールは専用のヘルスエンドポイントを含みません。ロードバランサーと監視の統合にはメインAPIヘルスエンドポイント（`/api/v1/health`）を使用してください。詳細については上記の[ヘルスエンドポイント](#ヘルスエンドポイント)セクションを参照してください。
 
 ## エラーハンドリング
 
@@ -325,7 +340,7 @@ INFO Would invoke agent webhook_handler with input data
 
 ## 関連項目
 
-- [はじめてのガイド](getting-started.ja.md)
-- [DSL ガイド](dsl-guide.ja.md)
-- [API リファレンス](api-reference.ja.md)
+- [はじめてのガイド](getting-started.md)
+- [DSL ガイド](dsl-guide.md)
+- [API リファレンス](api-reference.md)
 - [エージェントランタイムドキュメント](../crates/runtime/README.md)

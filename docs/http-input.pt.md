@@ -52,7 +52,7 @@ let config = HttpInputConfig {
 ### Campos de Configuração
 
 | Campo | Tipo | Padrão | Descrição |
-|-------|------|---------|-------------|
+|-------|------|--------|-----------|
 | `bind_address` | `String` | `"127.0.0.1"` | Endereço IP para vincular o servidor HTTP |
 | `port` | `u16` | `8081` | Número da porta para escutar |
 | `path` | `String` | `"/webhook"` | Endpoint de caminho HTTP |
@@ -133,22 +133,37 @@ let config = HttpInputConfig {
 };
 ```
 
-#### Autenticação JWT
+#### Autenticação JWT (EdDSA)
 
-Configurar autenticação baseada em JWT:
+Configurar autenticação baseada em JWT com chaves públicas Ed25519:
 
 ```rust
 let config = HttpInputConfig {
-    jwt_public_key_path: Some("/path/to/jwt/public.key".to_string()),
+    jwt_public_key_path: Some("/path/to/jwt/ed25519-public.pem".to_string()),
     ..Default::default()
 };
 ```
 
+O verificador JWT carrega uma chave pública Ed25519 do arquivo PEM especificado e valida tokens `Authorization: Bearer <jwt>` recebidos. Apenas o algoritmo **EdDSA** é aceito -- HS256, RS256 e outros algoritmos são rejeitados.
+
+#### Endpoint de Saúde
+
+O módulo de Entrada HTTP não expõe seu próprio endpoint `/health`. Verificações de saúde estão disponíveis através da API HTTP principal em `/api/v1/health` ao executar `symbi up`, que inicia o runtime completo incluindo o servidor de API:
+
+```bash
+# Verificação de saúde via o servidor de API principal (porta padrão 8080)
+curl http://127.0.0.1:8080/api/v1/health
+# => {"status": "ok"}
+```
+
+Se você precisar de probes de saúde especificamente para o servidor de Entrada HTTP, redirecione seu load balancer para o endpoint de saúde da API principal.
+
 ### Controles de Segurança
 
+- **Apenas Loopback por Padrão**: `bind_address` padrão é `127.0.0.1` -- o servidor só aceita conexões locais a menos que configurado explicitamente de outra forma
+- **CORS Desabilitado por Padrão**: `cors_origins` padrão é uma lista vazia, significando que CORS está desabilitado; adicione origens específicas para habilitar acesso cross-origin
 - **Limites de Tamanho de Requisição**: Tamanho máximo configurável do corpo previne esgotamento de recursos
 - **Limites de Concorrência**: Semáforo integrado controla processamento de requisições concorrentes
-- **Suporte CORS**: Cabeçalhos CORS opcionais para aplicações baseadas em navegador
 - **Registro de Auditoria**: Registro estruturado de todas as requisições recebidas quando habilitado
 - **Resolução de Segredos**: Integração com Vault e armazenamentos de segredos baseados em arquivo
 
@@ -279,9 +294,9 @@ let config = HttpInputConfig {
 };
 ```
 
-### Endpoint de Verificação de Saúde
+### Integração com Verificação de Saúde
 
-O servidor automaticamente fornece capacidades de verificação de saúde para balanceadores de carga e sistemas de monitoramento.
+O módulo de Entrada HTTP não inclui um endpoint de saúde dedicado. Use o endpoint de saúde da API principal (`/api/v1/health`) para integração com load balancers e monitoramento. Veja a seção [Endpoint de Saúde](#endpoint-de-saúde) acima para detalhes.
 
 ## Tratamento de Erros
 
@@ -325,7 +340,7 @@ O módulo integra-se com o sistema de métricas do runtime Symbiont para fornece
 
 ## Veja Também
 
-- [Guia de Introdução](getting-started.pt.md)
-- [Guia DSL](dsl-guide.pt.md)
-- [Referência da API](api-reference.pt.md)
+- [Guia de Introdução](getting-started.md)
+- [Guia DSL](dsl-guide.md)
+- [Referência da API](api-reference.md)
 - [Documentação do Runtime de Agentes](../crates/runtime/README.md)

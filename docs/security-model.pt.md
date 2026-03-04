@@ -11,7 +11,7 @@ nav_exclude: true
 Arquitetura de segurança abrangente garantindo proteção de confiança zero e orientada por políticas para agentes de IA.
 {: .fs-6 .fw-300 }
 
-## 🌐 Outros idiomas
+## Outros idiomas
 {: .no_toc}
 
 [English](security-model.md) | [中文简体](security-model.zh-cn.md) | [Español](security-model.es.md) | **Português** | [日本語](security-model.ja.md) | [Deutsch](security-model.de.md)
@@ -132,6 +132,8 @@ gvisor_security:
 > **Recurso Enterprise**: Isolamento avançado com virtualização de hardware (Firecracker) está disponível nas edições Enterprise para requisitos máximos de segurança.
 
 ### Algoritmo de Avaliação de Risco
+
+> **Recurso planejado** — Esta API é parte do roteiro de segurança e ainda não está disponível na versão atual.
 
 ```rust
 pub struct RiskAssessment {
@@ -285,14 +287,14 @@ cargo build --features cedar
 **Capacidades principais:**
 - **Verificação formal**: Políticas Cedar podem ser analisadas estaticamente para correção
 - **Autorização granular**: Controle de acesso baseado em entidades com permissões hierárquicas
-- **Integração com loop de raciocínio**: `CedarGate` implementa a trait `ReasoningPolicyGate`, avaliando cada ação proposta contra políticas Cedar antes da execução
+- **Integração com loop de raciocínio**: `CedarPolicyGate` implementa a trait `ReasoningPolicyGate`, avaliando cada ação proposta contra políticas Cedar antes da execução
 - **Trilha de auditoria**: Todas as decisões de políticas Cedar são registradas com contexto completo
 
 ```rust
-use symbi_runtime::reasoning::cedar_gate::CedarGate;
+use symbi_runtime::reasoning::cedar_gate::CedarPolicyGate;
 
-// Carregar políticas Cedar e avaliar ações no loop de raciocínio
-let cedar_gate = CedarGate::new(policy_set, entities);
+// Criar um portão de políticas Cedar com postura deny-by-default
+let cedar_gate = CedarPolicyGate::deny_by_default();
 let runner = ReasoningLoopRunner::builder()
     .provider(provider)
     .executor(executor)
@@ -311,14 +313,13 @@ Todas as operações relevantes para segurança são assinadas criptograficament
 **Algoritmo de Assinatura:** Ed25519 (RFC 8032)
 - **Tamanho da Chave:** Chaves privadas de 256 bits, chaves públicas de 256 bits
 - **Tamanho da Assinatura:** 512 bits (64 bytes)
-- **Performance:** 70,000+ assinaturas/segundo, 25,000+ verificações/segundo
+- **Performance:** 70.000+ assinaturas/segundo, 25.000+ verificações/segundo
 
 ```rust
-pub struct CryptographicSignature {
-    pub algorithm: SignatureAlgorithm::Ed25519,
-    pub public_key: PublicKey,
-    pub signature: [u8; 64],
-    pub timestamp: SystemTime,
+pub struct MessageSignature {
+    pub signature: Vec<u8>,
+    pub algorithm: SignatureAlgorithm,
+    pub public_key: Vec<u8>,
 }
 
 impl AuditEvent {
@@ -348,6 +349,8 @@ impl AuditEvent {
 - Chaves por agente para assinatura de operações
 - Chaves efêmeras para criptografia de sessão
 - Chaves externas para verificação de ferramentas
+
+> **Recurso planejado** — A API `KeyManager` mostrada abaixo é parte do roteiro de segurança e ainda não está disponível na versão atual. A implementação atual fornece utilitários de chave via `KeyUtils` em `crypto.rs`.
 
 ```rust
 pub struct KeyManager {
@@ -482,6 +485,9 @@ impl AuditChain {
 - Proteção de dados financeiros
 
 **Conformidade Personalizada:**
+
+> **Recurso planejado** — A API `ComplianceFramework` mostrada abaixo é parte do roteiro de segurança e ainda não está disponível na versão atual.
+
 ```rust
 pub struct ComplianceFramework {
     pub name: String,
@@ -534,6 +540,8 @@ sequenceDiagram
 3. Fixar a chave pública no armazenamento de confiança local
 4. Usar a chave fixada para todas as verificações futuras
 
+> **Recurso planejado** — A API `TOFUKeyStore` mostrada abaixo é parte do roteiro de segurança e ainda não está disponível na versão atual.
+
 ```rust
 pub struct TOFUKeyStore {
     pinned_keys: HashMap<ProviderId, PinnedKey>,
@@ -578,6 +586,8 @@ Análise de segurança automatizada antes da aprovação de ferramentas:
 - **Detecção de Código Malicioso**: Identificação de comportamento malicioso baseada em ML
 - **Análise de Uso de Recursos**: Avaliação de requisitos de recursos computacionais
 - **Avaliação de Impacto na Privacidade**: Manuseio de dados e implicações de privacidade
+
+> **Recurso planejado** — A API `SecurityAnalyzer` mostrada abaixo é parte do roteiro de segurança e ainda não está disponível na versão atual.
 
 ```rust
 pub struct SecurityAnalyzer {
@@ -775,18 +785,17 @@ network_policy:
 
 **Classificação de Alertas:**
 ```rust
-pub enum SecurityEventSeverity {
+pub enum ViolationSeverity {
     Info,       // Normal security events
-    Low,        // Minor policy violations
-    Medium,     // Suspicious behavior
-    High,       // Confirmed security issues
+    Warning,    // Minor policy violations
+    Error,      // Confirmed security issues
     Critical,   // Active security breaches
 }
 
 pub struct SecurityEvent {
     pub id: Uuid,
     pub timestamp: SystemTime,
-    pub severity: SecurityEventSeverity,
+    pub severity: ViolationSeverity,
     pub category: SecurityEventCategory,
     pub description: String,
     pub affected_components: Vec<ComponentId>,
@@ -958,12 +967,12 @@ automatic_key_pinning = false
 
 **Operações de Segurança:**
 - Latência de avaliação de políticas: média <1ms
-- Taxa de geração de eventos de auditoria: 10,000+ eventos/segundo
+- Taxa de geração de eventos de auditoria: 10.000+ eventos/segundo
 - Tempo de resposta a incidentes de segurança: <5 minutos
-- Throughput de operações criptográficas: 70,000+ ops/segundo
+- Throughput de operações criptográficas: 70.000+ ops/segundo
 
 **Métricas de Conformidade:**
-- Taxa de conformidade de políticas: >99.9%
+- Taxa de conformidade de políticas: >99,9%
 - Integridade da trilha de auditoria: 100%
 - Taxa de falsos positivos de eventos de segurança: <1%
 - Tempo de resolução de incidentes: <24 horas

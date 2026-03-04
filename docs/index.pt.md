@@ -40,7 +40,7 @@ O Symbiont é um framework de agentes nativo de IA para construir agentes autôn
 - **🔗 Integração MCP**: Cliente do Protocolo de Contexto de Modelo com verificação criptográfica de ferramentas via SchemaPin
 - **⚡ SDKs Multi-Linguagem**: SDKs JavaScript e Python para acesso completo à API incluindo agendamento, canais e recursos enterprise
 - **🔄 Loop de Raciocínio Agêntico**: Ciclo Observe-Reason-Gate-Act (ORGA) com aplicação de typestate, gates de políticas, circuit breakers, journal durável e ponte de conhecimento
-- **🧪 Raciocínio Avançado** (`symbi-dev`): Filtragem de perfil de ferramentas, detecção de loops travados, pré-busca determinística de contexto e convenções com escopo de diretório
+- **🧪 Raciocínio Avançado** (`orga-adaptive`): Filtragem de perfil de ferramentas, detecção de loops travados, pré-busca determinística de contexto e convenções com escopo de diretório
 - **📜 Motor de Políticas Cedar**: Integração de linguagem de autorização formal para controle de acesso granular
 - **🏗️ Alto Desempenho**: Runtime nativo em Rust otimizado para cargas de trabalho de produção com execução assíncrona em toda a pilha
 
@@ -190,7 +190,7 @@ graph TB
 O Symbiont v1.6.1 é a versão estável mais recente, oferecendo um framework completo de agentes de IA com capacidades de nível de produção:
 
 - **Loop de Raciocínio Agêntico**: Ciclo ORGA com aplicação de typestate, conversação multi-turno, inferência em nuvem e SLM, circuit breakers, journal durável e ponte de conhecimento
-- **Primitivas de Raciocínio Avançado** (`symbi-dev`): Filtragem de perfil de ferramentas, detecção de loops travados por passo, pré-busca determinística de contexto e convenções com escopo de diretório
+- **Primitivas de Raciocínio Avançado** (`orga-adaptive`): Filtragem de perfil de ferramentas, detecção de loops travados por passo, pré-busca determinística de contexto e convenções com escopo de diretório
 - **Motor de Políticas Cedar**: Autorização formal via integração de linguagem de políticas Cedar (feature `cedar`)
 - **Inferência LLM em Nuvem**: Provedor de inferência em nuvem compatível com OpenRouter (feature `cloud-llm`)
 - **Modo Agente Autônomo**: Linha única para agentes cloud-native com LLM + ferramentas Composio (feature `standalone-agent`)
@@ -220,7 +220,7 @@ O Symbiont v1.6.1 é a versão estável mais recente, oferecendo um framework co
 - **Documentação**: Guias abrangentes e referências de API
   - [Referência da API](api-reference.md)
   - [Guia do Loop de Raciocínio](reasoning-loop.md)
-  - [Raciocínio Avançado (symbi-dev)](symbi-dev.md)
+  - [Raciocínio Avançado (orga-adaptive)](orga-adaptive.md)
   - [Guia de Agendamento](scheduling.md)
   - [Módulo de Entrada HTTP](http-input.md)
   - [Guia DSL](dsl-guide.md)

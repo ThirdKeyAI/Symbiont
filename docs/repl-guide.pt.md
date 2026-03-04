@@ -34,12 +34,11 @@ O REPL (Read-Eval-Print Loop) do Symbiont oferece um ambiente interativo para de
 # Modo REPL interativo
 symbi repl
 
-# Modo servidor JSON-RPC (para integração com IDE)
-symbi repl --json-rpc
-
-# Com configuração personalizada
-symbi repl --config custom-config.toml
+# Modo servidor JSON-RPC sobre stdio (para integração com IDE)
+symbi repl --stdio
 ```
+
+> **Nota:** A flag `--config` ainda não é suportada. A configuração é lida do local padrão `symbiont.toml`. Suporte a configuração personalizada está planejado para uma versão futura.
 
 ### Uso Básico
 
@@ -90,6 +89,31 @@ print(message)
 | `:monitor traces [limit]` | Mostrar traces de execução |
 | `:monitor report` | Mostrar relatório detalhado de execução |
 | `:monitor clear` | Limpar dados de monitoramento |
+
+### Comandos de Memória
+
+| Comando | Descrição |
+|---------|-----------|
+| `:memory inspect <agent-id>` | Inspecionar estado de memória de um agente |
+| `:memory compact <agent-id>` | Compactar armazenamento de memória de um agente |
+| `:memory purge <agent-id>` | Limpar toda a memória de um agente |
+
+### Comandos de Webhook
+
+| Comando | Descrição |
+|---------|-----------|
+| `:webhook list` | Listar webhooks configurados |
+| `:webhook add` | Adicionar um novo webhook |
+| `:webhook remove` | Remover um webhook |
+| `:webhook test` | Testar um webhook |
+| `:webhook logs` | Mostrar logs de webhook |
+
+### Comandos de Gravação
+
+| Comando | Descrição |
+|---------|-----------|
+| `:record on <file>` | Iniciar gravação da sessão em um arquivo |
+| `:record off` | Parar gravação da sessão |
 
 ### Comandos de Sessão
 
@@ -144,6 +168,8 @@ behavior AnalyzeData {
     }
 
     # Realizar análise
+    # NOTA: analyze() é uma função integrada planejada (ainda não implementada).
+    # Este exemplo ilustra o padrão pretendido de definição de comportamento.
     let results = analyze(data, options)
     emit analysis_completed { results: results }
 
@@ -161,6 +187,8 @@ behavior AnalyzeData {
 | `upper(string)` | Converter string para maiúsculas | `upper("hello")` -> `"HELLO"` |
 | `lower(string)` | Converter string para minúsculas | `lower("HELLO")` -> `"hello"` |
 | `format(template, ...)` | Formatar string com argumentos | `format("Hello, {}!", name)` |
+
+> **Funções integradas planejadas:** Funções avançadas de E/S como `read_file()`, `read_csv()`, `write_results()`, `analyze()` e `transform_data()` ainda não foram implementadas. Estão planejadas para uma versão futura.
 
 ### Tipos de Dados
 
@@ -246,6 +274,8 @@ behavior ReadFile {
   steps {
     # Isto verificará se o agente possui a capacidade "filesystem"
     require capability("filesystem")
+    # NOTA: read_file() é uma função integrada planejada (ainda não implementada).
+    # Este exemplo ilustra como a verificação de capacidades funciona.
     let content = read_file(path)
     return content
   }
@@ -312,18 +342,23 @@ Agent Debug Information:
 
 ### Language Server Protocol
 
-O REPL oferece suporte LSP para integração com IDEs:
+O REPL oferece suporte LSP para integração com IDEs através do crate `repl-lsp`. O servidor LSP é iniciado separadamente do REPL em si:
 
 ```bash
-# Iniciar servidor LSP
-symbi repl --lsp --port 9257
+# O servidor LSP é fornecido pelo crate repl-lsp e iniciado
+# pela configuração do cliente LSP do seu editor (não via flags do symbi repl).
 ```
+
+> **Nota:** A flag `--lsp` não é suportada no `symbi repl`. O LSP é implementado no crate `repl-lsp` e deve ser configurado através das configurações de LSP do seu editor.
 
 ### Funcionalidades Suportadas
 
 - Destaque de sintaxe
-- Autocompletar código
 - Diagnósticos de erros
+- Sincronização de texto
+
+**Funcionalidades planejadas** (ainda não implementadas):
+- Autocompletar código
 - Informações ao passar o cursor
 - Ir para definição
 - Busca de símbolos
@@ -438,6 +473,9 @@ behavior ProcessCsv {
   steps {
     require capability("data_read")
 
+    # NOTA: read_csv(), transform_data() e write_results() são funções
+    # integradas planejadas (ainda não implementadas). Este exemplo ilustra
+    # o padrão pretendido para comportamentos de processamento de dados.
     let data = read_csv(file_path)
     let processed = transform_data(data)
 
@@ -454,7 +492,7 @@ behavior ProcessCsv {
 
 ## Veja Também
 
-- [Guia DSL](dsl-guide.pt.md) - Referência completa da linguagem DSL
-- [Arquitetura de Runtime](runtime-architecture.pt.md) - Visão geral da arquitetura do sistema
-- [Modelo de Segurança](security-model.pt.md) - Detalhes da implementação de segurança
-- [Referência da API](api-reference.pt.md) - Documentação completa da API
+- [Guia DSL](dsl-guide.md) - Referência completa da linguagem DSL
+- [Arquitetura de Runtime](runtime-architecture.md) - Visão geral da arquitetura do sistema
+- [Modelo de Segurança](security-model.md) - Detalhes da implementação de segurança
+- [Referência da API](api-reference.md) - Documentação completa da API

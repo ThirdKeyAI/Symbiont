@@ -40,7 +40,7 @@ Symbiont es un framework de agentes nativo de IA para construir agentes autonomo
 - **🔗 Integracion MCP**: Cliente del Protocolo de Contexto de Modelo con verificacion criptografica de herramientas SchemaPin
 - **⚡ SDKs Multi-Lenguaje**: SDKs de JavaScript y Python para acceso completo a la API incluyendo programacion, canales y funciones empresariales
 - **🔄 Bucle de Razonamiento Agentico**: Ciclo Observe-Reason-Gate-Act (ORGA) con typestates, compuertas de politicas, circuit breakers, diario durable y puente de conocimiento
-- **🧪 Razonamiento Avanzado** (`symbi-dev`): Filtrado de perfiles de herramientas, deteccion de bucles atascados, pre-carga determinista de contexto y convenciones con alcance de directorio
+- **🧪 Razonamiento Avanzado** (`orga-adaptive`): Filtrado de perfiles de herramientas, deteccion de bucles atascados, pre-carga determinista de contexto y convenciones con alcance de directorio
 - **📜 Motor de Politicas Cedar**: Integracion de lenguaje de autorizacion formal para control de acceso granular
 - **🏗️ Alto Rendimiento**: Runtime nativo en Rust optimizado para cargas de trabajo de produccion con ejecucion asincrona completa
 
@@ -190,7 +190,7 @@ graph TB
 Symbiont v1.6.1 es la ultima version estable, que ofrece un framework completo de agentes de IA con capacidades de nivel de produccion:
 
 - **Bucle de Razonamiento Agentico**: Ciclo ORGA con typestates, conversacion multi-turno, inferencia en la nube y SLM, circuit breakers, diario durable y puente de conocimiento
-- **Primitivas de Razonamiento Avanzado** (`symbi-dev`): Filtrado de perfiles de herramientas, deteccion de bucles atascados por paso, pre-carga determinista de contexto y convenciones con alcance de directorio
+- **Primitivas de Razonamiento Avanzado** (`orga-adaptive`): Filtrado de perfiles de herramientas, deteccion de bucles atascados por paso, pre-carga determinista de contexto y convenciones con alcance de directorio
 - **Motor de Politicas Cedar**: Autorizacion formal via integracion del lenguaje de politicas Cedar (feature `cedar`)
 - **Inferencia LLM en la Nube**: Proveedor de inferencia en la nube compatible con OpenRouter (feature `cloud-llm`)
 - **Modo Agente Autonomo**: Una sola linea para agentes nativos de la nube con LLM + herramientas Composio (feature `standalone-agent`)
@@ -220,7 +220,7 @@ Symbiont v1.6.1 es la ultima version estable, que ofrece un framework completo d
 - **Documentacion**: Guias completas y referencias de API
   - [Referencia de API](api-reference.md)
   - [Guia del Bucle de Razonamiento](reasoning-loop.md)
-  - [Razonamiento Avanzado (symbi-dev)](symbi-dev.md)
+  - [Razonamiento Avanzado (orga-adaptive)](orga-adaptive.md)
   - [Guia de Programacion](scheduling.md)
   - [Modulo de Entrada HTTP](http-input.md)
   - [Guia DSL](dsl-guide.md)

@@ -35,17 +35,17 @@ docker pull ghcr.io/thirdkeyai/symbi:latest
 # Fazer parsing de um arquivo DSL
 docker run --rm -v $(pwd):/workspace \
   ghcr.io/thirdkeyai/symbi:latest \
-  dsl parse /workspace/agent.dsl
+  dsl --file /workspace/agent.dsl
 
-# Executar servidor MCP
-docker run --rm -p 8080:8080 \
+# Executar servidor MCP (baseado em stdio, sem necessidade de porta)
+docker run --rm -i \
   ghcr.io/thirdkeyai/symbi:latest \
-  mcp --port 8080
+  mcp
 
 # Executar com API HTTP
 docker run --rm -p 8080:8080 \
   ghcr.io/thirdkeyai/symbi:latest \
-  mcp --http-api --port 8080
+  up --http-bind 0.0.0.0:8080
 ```
 
 ### Fluxo de Desenvolvimento
@@ -82,10 +82,10 @@ docker build -t symbi:latest .
 docker run --rm symbi:latest --version
 
 # Testar parsing DSL
-docker run --rm -v $(pwd):/workspace symbi:latest dsl parse --help
+docker run --rm -v $(pwd):/workspace symbi:latest dsl --help
 
 # Testar servidor MCP
-docker run --rm symbi:latest mcp --help
+docker run --rm symbi:latest mcp
 ```
 
 ## Suporte Multi-Arquitetura
@@ -99,7 +99,7 @@ O Docker automaticamente baixa a arquitetura correta para sua plataforma.
 ## Funcionalidades de Segurança
 
 ### Execução como Não-Root
-- Containers executam como usuário não-root `symbiont` (UID 1000)
+- Containers executam como usuário não-root `symbi` (UID 1000)
 - Superfície de ataque mínima com imagens base com segurança reforçada
 
 ### Varredura de Vulnerabilidades
@@ -112,12 +112,9 @@ O Docker automaticamente baixa a arquitetura correta para sua plataforma.
 ### Variáveis de Ambiente
 
 **Container Symbi:**
-- `SYMBI_LOG_LEVEL` - Definir nível de log (debug, info, warn, error)
-- `SYMBI_HTTP_PORT` - Porta da API HTTP (padrão: 8080)
-- `SYMBI_MCP_PORT` - Porta do servidor MCP (padrão: 3000)
+- `RUST_LOG` - Definir nível de log (debug, info, warn, error)
 - `SYMBIONT_VECTOR_BACKEND` - Backend de vetores: `lancedb` (padrão) ou `qdrant`
 - `QDRANT_URL` - URL do banco de dados vetorial Qdrant (apenas se usar backend Qdrant opcional)
-- `DSL_OUTPUT_FORMAT` - Formato de saída DSL (json, yaml, text)
 
 ### Montagem de Volumes
 
@@ -152,8 +149,8 @@ services:
       - ./config:/etc/symbi
       - symbi-data:/var/lib/symbi/data
     environment:
-      - SYMBI_LOG_LEVEL=info
-    command: ["mcp", "--http-api", "--port", "8080"]
+      - RUST_LOG=info
+    command: ["up", "--http-bind", "0.0.0.0:8080"]
 
 volumes:
   symbi-data:
@@ -175,12 +172,12 @@ services:
       - ./config:/etc/symbi
       - symbi-data:/var/lib/symbi/data
     environment:
-      - SYMBI_LOG_LEVEL=info
+      - RUST_LOG=info
       - SYMBIONT_VECTOR_BACKEND=qdrant
       - QDRANT_URL=http://qdrant:6334
     depends_on:
       - qdrant
-    command: ["mcp", "--http-api", "--port", "8080"]
+    command: ["up", "--http-bind", "0.0.0.0:8080"]
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -227,7 +224,7 @@ docker build --no-cache -f runtime/Dockerfile .
 
 ```bash
 # Verificar saúde do container
-docker run --name symbi-test -d ghcr.io/thirdkeyai/symbi:latest mcp --port 8080
+docker run --name symbi-test -d ghcr.io/thirdkeyai/symbi:latest up --http-bind 0.0.0.0:8080
 docker exec symbi-test /usr/local/bin/symbi --version
 docker rm -f symbi-test
 ```

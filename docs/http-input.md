@@ -148,14 +148,15 @@ The JWT verifier loads an Ed25519 public key from the specified PEM file and val
 
 #### Health Endpoint
 
-The `/health` endpoint is **exempt from authentication**, allowing load balancers and monitoring systems to probe the server without credentials:
+The HTTP Input module does not expose its own `/health` endpoint. Health checks are available via the main HTTP API at `/api/v1/health` when running `symbi up`, which starts the full runtime including the API server:
 
 ```bash
-curl http://127.0.0.1:8081/health
+# Health check via the main API server (default port 8080)
+curl http://127.0.0.1:8080/api/v1/health
 # => {"status": "ok"}
 ```
 
-This endpoint is automatically available on the HTTP Input server and cannot be disabled.
+If you need health probes for the HTTP Input server specifically, route your load balancer to the main API health endpoint instead.
 
 ### Security Controls
 
@@ -293,9 +294,9 @@ let config = HttpInputConfig {
 };
 ```
 
-### Health Check Endpoint
+### Health Check Integration
 
-The server exposes `/health` exempt from authentication for load balancers and monitoring systems. See the [Health Endpoint](#health-endpoint) section above for details.
+The HTTP Input module does not include a dedicated health endpoint. Use the main API health endpoint (`/api/v1/health`) for load balancer and monitoring integration. See the [Health Endpoint](#health-endpoint) section above for details.
 
 ## Error Handling
 

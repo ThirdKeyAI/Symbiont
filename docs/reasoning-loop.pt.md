@@ -61,7 +61,7 @@ use symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate;
 use symbi_runtime::reasoning::reasoning_loop::ReasoningLoopRunner;
 use symbi_runtime::types::AgentId;
 
-// Configurar o runner com componentes padrão
+// Set up the runner with default components
 let runner = ReasoningLoopRunner {
     provider: Arc::new(my_inference_provider),
     policy_gate: Arc::new(DefaultPolicyGate::permissive()),
@@ -72,11 +72,11 @@ let runner = ReasoningLoopRunner {
     knowledge_bridge: None,
 };
 
-// Construir uma conversa
+// Build a conversation
 let mut conv = Conversation::with_system("You are a helpful assistant.");
 conv.push(ConversationMessage::user("What is 6 * 7?"));
 
-// Executar o loop
+// Run the loop
 let result = runner.run(AgentId::new(), conv, LoopConfig::default()).await;
 
 println!("Output: {}", result.output);
@@ -119,10 +119,10 @@ let result = runner.run(agent_id, conv, config).await;
 O loop utiliza o sistema de tipos do Rust para impor transições de fase válidas em tempo de compilação. Cada fase é um marcador de tipo de tamanho zero:
 
 ```rust
-pub struct Reasoning;      // LLM produz ações propostas
-pub struct PolicyCheck;    // Cada ação avaliada pelo portão
-pub struct ToolDispatching; // Ações aprovadas executadas
-pub struct Observing;      // Resultados coletados para próxima iteração
+pub struct Reasoning;      // LLM produces proposed actions
+pub struct PolicyCheck;    // Each action evaluated by the gate
+pub struct ToolDispatching; // Approved actions executed
+pub struct Observing;      // Results collected for next iteration
 ```
 
 A struct `AgentLoop<Phase>` carrega o estado do loop e só pode chamar métodos apropriados para sua fase atual. Por exemplo, `AgentLoop<Reasoning>` expõe apenas `produce_output()`, que consome self e retorna `AgentLoop<PolicyCheck>`.
@@ -145,8 +145,8 @@ graph TD
     R --> P
     P --> T
     T --> O
-    O -->|Continuar| R
-    O -->|Completo| LR
+    O -->|Continue| R
+    O -->|Complete| LR
 ```
 
 ---
@@ -177,7 +177,7 @@ O `CloudInferenceProvider` conecta ao OpenRouter (ou qualquer endpoint compatív
 
 ```bash
 export OPENROUTER_API_KEY="sk-or-..."
-export OPENROUTER_MODEL="google/gemini-2.0-flash-001"  # opcional
+export OPENROUTER_MODEL="google/gemini-2.0-flash-001"  # optional
 ```
 
 ```rust
@@ -285,7 +285,7 @@ let bridge = Arc::new(KnowledgeBridge::new(
 ));
 
 let runner = ReasoningLoopRunner {
-    // ... outros campos ...
+    // ... other fields ...
     knowledge_bridge: Some(bridge),
 };
 ```
@@ -332,7 +332,7 @@ let mut conv = Conversation::with_system("You are a helpful assistant.");
 conv.push(ConversationMessage::user("Hello"));
 conv.push(ConversationMessage::assistant("Hi there!"));
 
-// Serializar para chamadas de API
+// Serialize for API calls
 let openai_msgs = conv.to_openai_messages();
 let (system, anthropic_msgs) = conv.to_anthropic_messages();
 ```
@@ -381,13 +381,13 @@ O `BufferedJournal` padrão armazena entradas em memória. Implantações de pro
 
 ```rust
 pub struct LoopConfig {
-    pub max_iterations: u32,        // Padrão: 25
-    pub max_total_tokens: u32,      // Padrão: 100.000
-    pub timeout: Duration,          // Padrão: 5 minutos
+    pub max_iterations: u32,        // Default: 25
+    pub max_total_tokens: u32,      // Default: 100,000
+    pub timeout: Duration,          // Default: 5 minutes
     pub default_recovery: RecoveryStrategy,
-    pub tool_timeout: Duration,     // Padrão: 30 segundos
-    pub max_concurrent_tools: usize, // Padrão: 10
-    pub context_token_budget: usize, // Padrão: 8.000
+    pub tool_timeout: Duration,     // Default: 30 seconds
+    pub max_concurrent_tools: usize, // Default: 5
+    pub context_token_budget: usize, // Default: 32,000
     pub tool_definitions: Vec<ToolDefinition>,
 }
 ```
@@ -442,13 +442,13 @@ O loop de raciocínio foi construído em cinco fases, cada uma adicionando capac
 | **4** | Multi-agente | `agent_registry`, `critic_audit`, `saga` |
 | **5** | Observabilidade | `cedar_gate`, `journal`, `metrics`, `scheduler`, `tracing_spans` |
 | **Bridge** | Conhecimento | `knowledge_bridge`, `knowledge_executor` |
-| **symbi-dev** | Avançado | `tool_profile`, `progress_tracker`, `pre_hydrate`, `knowledge_bridge` estendido |
+| **orga-adaptive** | Avançado | `tool_profile`, `progress_tracker`, `pre_hydrate`, `knowledge_bridge` estendido |
 
 ---
 
-## Primitivas Avançadas (symbi-dev)
+## Primitivas Avançadas (orga-adaptive)
 
-O feature gate `symbi-dev` adiciona quatro capacidades avançadas. Consulte o [guia completo](symbi-dev.pt.md) para detalhes.
+O feature gate `orga-adaptive` adiciona quatro capacidades avançadas. Consulte o [guia completo](orga-adaptive.md) para detalhes.
 
 | Primitiva | Propósito |
 |-----------|-----------|
@@ -469,7 +469,7 @@ let config = LoopConfig {
 
 ## Próximos Passos
 
-- **[Arquitetura de Runtime](runtime-architecture.pt.md)** — Visão geral completa da arquitetura do sistema
-- **[Modelo de Segurança](security-model.pt.md)** — Imposição de políticas e trilhas de auditoria
-- **[Guia DSL](dsl-guide.pt.md)** — Linguagem de definição de agentes
-- **[Referência da API](api-reference.pt.md)** — Documentação completa da API
+- **[Arquitetura de Runtime](runtime-architecture.md)** — Visão geral completa da arquitetura do sistema
+- **[Modelo de Segurança](security-model.md)** — Imposição de políticas e trilhas de auditoria
+- **[Guia DSL](dsl-guide.md)** — Linguagem de definição de agentes
+- **[Referência da API](api-reference.md)** — Documentação completa da API

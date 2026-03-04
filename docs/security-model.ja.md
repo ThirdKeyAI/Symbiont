@@ -133,6 +133,8 @@ gvisor_security:
 
 ### リスク評価アルゴリズム
 
+> **計画中の機能** — このAPIはセキュリティロードマップの一部であり、現在のリリースではまだ利用できません。
+
 ```rust
 pub struct RiskAssessment {
     data_sensitivity: f32,      // 0.0 = public, 1.0 = top secret
@@ -285,14 +287,14 @@ cargo build --features cedar
 **主要な機能：**
 - **正式検証**: Cedarポリシーは正確性について静的に分析可能
 - **きめ細かな認可**: 階層的権限を持つエンティティベースのアクセス制御
-- **推論ループ統合**: `CedarGate` は `ReasoningPolicyGate` トレイトを実装し、実行前にCedarポリシーに対して各提案アクションを評価
+- **推論ループ統合**: `CedarPolicyGate` は `ReasoningPolicyGate` トレイトを実装し、実行前にCedarポリシーに対して各提案アクションを評価
 - **監査証跡**: すべてのCedarポリシー決定が完全なコンテキストとともにログに記録
 
 ```rust
-use symbi_runtime::reasoning::cedar_gate::CedarGate;
+use symbi_runtime::reasoning::cedar_gate::CedarPolicyGate;
 
-// 推論ループでCedarポリシーをロードしてアクションを評価
-let cedar_gate = CedarGate::new(policy_set, entities);
+// デフォルト拒否のスタンスでCedarポリシーゲートを作成
+let cedar_gate = CedarPolicyGate::deny_by_default();
 let runner = ReasoningLoopRunner::builder()
     .provider(provider)
     .executor(executor)
@@ -314,11 +316,10 @@ let runner = ReasoningLoopRunner::builder()
 - **パフォーマンス：** 70,000+ 署名/秒、25,000+ 検証/秒
 
 ```rust
-pub struct CryptographicSignature {
-    pub algorithm: SignatureAlgorithm::Ed25519,
-    pub public_key: PublicKey,
-    pub signature: [u8; 64],
-    pub timestamp: SystemTime,
+pub struct MessageSignature {
+    pub signature: Vec<u8>,
+    pub algorithm: SignatureAlgorithm,
+    pub public_key: Vec<u8>,
 }
 
 impl AuditEvent {
@@ -348,6 +349,8 @@ impl AuditEvent {
 - 操作署名のためのエージェント別キー
 - セッション暗号化のための一時キー
 - ツール検証のための外部キー
+
+> **計画中の機能** — 以下の `KeyManager` APIはセキュリティロードマップの一部であり、現在のリリースではまだ利用できません。現在の実装は `crypto.rs` の `KeyUtils` を通じてキーユーティリティを提供しています。
 
 ```rust
 pub struct KeyManager {
@@ -482,6 +485,9 @@ impl AuditChain {
 - 金融データ保護
 
 **カスタムコンプライアンス：**
+
+> **計画中の機能** — 以下の `ComplianceFramework` APIはセキュリティロードマップの一部であり、現在のリリースではまだ利用できません。
+
 ```rust
 pub struct ComplianceFramework {
     pub name: String,
@@ -534,6 +540,8 @@ sequenceDiagram
 3. ローカル信頼ストアに公開鍵をピン留め
 4. 将来のすべての検証にピン留めされたキーを使用
 
+> **計画中の機能** — 以下の `TOFUKeyStore` APIはセキュリティロードマップの一部であり、現在のリリースではまだ利用できません。
+
 ```rust
 pub struct TOFUKeyStore {
     pinned_keys: HashMap<ProviderId, PinnedKey>,
@@ -578,6 +586,8 @@ impl TOFUKeyStore {
 - **悪意のあるコード検出**: MLベースの悪意のある動作識別
 - **リソース使用分析**: 計算リソース要件の評価
 - **プライバシー影響評価**: データ処理とプライバシーへの影響
+
+> **計画中の機能** — 以下の `SecurityAnalyzer` APIはセキュリティロードマップの一部であり、現在のリリースではまだ利用できません。
 
 ```rust
 pub struct SecurityAnalyzer {
@@ -775,18 +785,17 @@ network_policy:
 
 **アラート分類：**
 ```rust
-pub enum SecurityEventSeverity {
+pub enum ViolationSeverity {
     Info,       // Normal security events
-    Low,        // Minor policy violations
-    Medium,     // Suspicious behavior
-    High,       // Confirmed security issues
+    Warning,    // Minor policy violations
+    Error,      // Confirmed security issues
     Critical,   // Active security breaches
 }
 
 pub struct SecurityEvent {
     pub id: Uuid,
     pub timestamp: SystemTime,
-    pub severity: SecurityEventSeverity,
+    pub severity: ViolationSeverity,
     pub category: SecurityEventCategory,
     pub description: String,
     pub affected_components: Vec<ComponentId>,
