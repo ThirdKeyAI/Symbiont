@@ -130,6 +130,7 @@ cli-executor = ["libc"]
 metrics = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp"]
 cedar = ["dep:cedar-policy"]  # Cedar policy engine for formal authorization
 composio = []  # Composio MCP integration — uses reqwest (already required) for SSE
+symbi-dev = []  # Advanced reasoning loop primitives (tool curation, stuck-loop detection, pre-hydration, scoped conventions)
 cloud-llm = ["http-input"]  # Cloud LLM inference (Anthropic, OpenAI) — gates CloudInferenceProvider
 standalone-agent = ["cloud-llm", "composio"]  # One-liner for standalone cloud agents
 enterprise = []  # Enterprise sandbox variants (gVisor, Firecracker)

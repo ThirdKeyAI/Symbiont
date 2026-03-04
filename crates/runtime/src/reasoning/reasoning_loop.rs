@@ -195,10 +195,16 @@ impl ReasoningLoopRunner {
             }
         }
 
+        // Apply tool profile filtering (symbi-dev: tool curation)
+        #[cfg(feature = "symbi-dev")]
+        if let Some(ref profile) = config.tool_profile {
+            config.tool_definitions = profile.filter_tools(&config.tool_definitions);
+        }
+
         // Emit loop started event
         let start_event = LoopEvent::Started {
             agent_id: state.agent_id,
-            config: config.clone(),
+            config: Box::new(config.clone()),
         };
         let _ = self
             .journal
@@ -244,6 +250,70 @@ impl ReasoningLoopRunner {
             } else {
                 self.executor.clone()
             };
+
+        // Pre-hydration: extract and resolve references from task input (symbi-dev: cold-start context)
+        #[cfg(feature = "symbi-dev")]
+        if let Some(ref pre_hydration_config) = current_loop.config.pre_hydration {
+            use crate::reasoning::conversation::ConversationMessage;
+            use crate::reasoning::pre_hydrate::PreHydrationEngine;
+
+            let engine = PreHydrationEngine::new(pre_hydration_config.clone());
+
+            // Extract task input from last user message
+            let task_input = current_loop
+                .state
+                .conversation
+                .messages()
+                .iter()
+                .rev()
+                .find(|m| m.role == crate::reasoning::conversation::MessageRole::User)
+                .map(|m| m.content.clone())
+                .unwrap_or_default();
+
+            if !task_input.is_empty() {
+                let refs = engine.extract_references(&task_input);
+                if !refs.is_empty() {
+                    let hydrated = engine
+                        .hydrate(
+                            &refs,
+                            &self.executor,
+                            &self.circuit_breakers,
+                            &current_loop.config,
+                        )
+                        .await;
+
+                    let references_found = refs.len();
+                    let references_resolved = hydrated.resolved.len();
+                    let references_failed = hydrated.failed.len();
+                    let total_tokens = hydrated.total_tokens;
+
+                    let context_text = PreHydrationEngine::format_context(&hydrated);
+                    if !context_text.is_empty() {
+                        current_loop
+                            .state
+                            .conversation
+                            .push(ConversationMessage::system(context_text));
+                    }
+
+                    // Emit pre-hydration event
+                    let _ = self
+                        .journal
+                        .append(JournalEntry {
+                            sequence: self.journal.next_sequence().await,
+                            timestamp: chrono::Utc::now(),
+                            agent_id,
+                            iteration: 0,
+                            event: LoopEvent::PreHydrationComplete {
+                                references_found,
+                                references_resolved,
+                                references_failed,
+                                total_tokens,
+                            },
+                        })
+                        .await;
+                }
+            }
+        }
 
         loop {
             // Inject knowledge context before reasoning if bridge is present

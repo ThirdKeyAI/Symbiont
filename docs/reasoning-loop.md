@@ -455,6 +455,28 @@ The reasoning loop was built in five phases, each adding capabilities:
 | **4** | Multi-agent | `agent_registry`, `critic_audit`, `saga` |
 | **5** | Observability | `cedar_gate`, `journal`, `metrics`, `scheduler`, `tracing_spans` |
 | **Bridge** | Knowledge | `knowledge_bridge`, `knowledge_executor` |
+| **symbi-dev** | Advanced | `tool_profile`, `progress_tracker`, `pre_hydrate`, extended `knowledge_bridge` |
+
+---
+
+## Advanced Primitives (symbi-dev)
+
+The `symbi-dev` feature gate adds four advanced capabilities. See the [full guide](symbi-dev.md) for details.
+
+| Primitive | Purpose |
+|-----------|---------|
+| **Tool Profile** | Glob-based filtering of tools visible to the LLM |
+| **Progress Tracker** | Per-step reattempt limits with stuck-loop detection |
+| **Pre-Hydration** | Deterministic context pre-fetch from task input references |
+| **Scoped Conventions** | Directory-aware convention retrieval via `recall_knowledge` |
+
+```rust
+let config = LoopConfig {
+    tool_profile: Some(ToolProfile::include_only(&["search_*", "file_*"])),
+    pre_hydration: Some(PreHydrationConfig::default()),
+    ..Default::default()
+};
+```
 
 ---
 

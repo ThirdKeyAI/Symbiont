@@ -188,6 +188,12 @@ impl KnowledgeBridge {
             query: String,
             #[serde(default = "default_limit")]
             limit: usize,
+            #[cfg(feature = "symbi-dev")]
+            #[serde(default)]
+            directory: Option<String>,
+            #[cfg(feature = "symbi-dev")]
+            #[serde(default)]
+            scope: Option<String>,
         }
         fn default_limit() -> usize {
             5
@@ -195,6 +201,18 @@ impl KnowledgeBridge {
 
         let args: RecallArgs =
             serde_json::from_str(arguments).map_err(|e| format!("Invalid arguments: {}", e))?;
+
+        // With symbi-dev feature: route to scoped conventions if directory + scope=conventions
+        #[cfg(feature = "symbi-dev")]
+        {
+            if let (Some(ref dir), Some(ref scope)) = (&args.directory, &args.scope) {
+                if scope == "conventions" {
+                    return self
+                        .retrieve_scoped_conventions(agent_id, &args.query, dir, args.limit)
+                        .await;
+                }
+            }
+        }
 
         let items = self
             .context_manager
@@ -208,6 +226,71 @@ impl KnowledgeBridge {
 
         let mut lines = Vec::new();
         for item in &items {
+            lines.push(format!(
+                "- [{:?}, confidence={:.2}] {}",
+                item.knowledge_type, item.confidence, item.content
+            ));
+        }
+        Ok(lines.join("\n"))
+    }
+
+    /// Retrieve conventions scoped to a directory, walking up to parent directories
+    /// and falling back to language-level conventions.
+    #[cfg(feature = "symbi-dev")]
+    async fn retrieve_scoped_conventions(
+        &self,
+        agent_id: &AgentId,
+        language: &str,
+        directory: &str,
+        limit: usize,
+    ) -> Result<String, String> {
+        let mut all_items = Vec::new();
+        let mut seen_content = std::collections::HashSet::new();
+
+        // Walk up directory hierarchy: directory -> parent -> grandparent -> ...
+        let mut current_dir = std::path::PathBuf::from(directory);
+        loop {
+            let dir_query = format!("{} conventions {}", language, current_dir.display());
+            if let Ok(items) = self
+                .context_manager
+                .search_knowledge(*agent_id, &dir_query, limit)
+                .await
+            {
+                for item in items {
+                    if seen_content.insert(item.content.clone()) {
+                        all_items.push(item);
+                    }
+                }
+            }
+
+            if !current_dir.pop() {
+                break;
+            }
+        }
+
+        // Language-level fallback
+        let lang_query = format!("{} conventions", language);
+        if let Ok(items) = self
+            .context_manager
+            .search_knowledge(*agent_id, &lang_query, limit)
+            .await
+        {
+            for item in items {
+                if seen_content.insert(item.content.clone()) {
+                    all_items.push(item);
+                }
+            }
+        }
+
+        // Truncate to limit
+        all_items.truncate(limit);
+
+        if all_items.is_empty() {
+            return Ok("No relevant conventions found.".to_string());
+        }
+
+        let mut lines = Vec::new();
+        for item in &all_items {
             lines.push(format!(
                 "- [{:?}, confidence={:.2}] {}",
                 item.knowledge_type, item.confidence, item.content
@@ -256,6 +339,7 @@ impl KnowledgeBridge {
     }
 }
 
+#[cfg(not(feature = "symbi-dev"))]
 fn recall_tool_def() -> ToolDefinition {
     ToolDefinition {
         name: "recall_knowledge".to_string(),
@@ -271,6 +355,38 @@ fn recall_tool_def() -> ToolDefinition {
                     "type": "integer",
                     "description": "Maximum number of results to return (default: 5)",
                     "default": 5
+                }
+            },
+            "required": ["query"]
+        }),
+    }
+}
+
+#[cfg(feature = "symbi-dev")]
+fn recall_tool_def() -> ToolDefinition {
+    ToolDefinition {
+        name: "recall_knowledge".to_string(),
+        description: "Search the agent's knowledge base for relevant information. Use this to recall facts, procedures, conventions, or patterns that may help with the current task. Use scope='conventions' with a directory to retrieve directory-scoped conventions.".to_string(),
+        parameters: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The search query to find relevant knowledge (or language name when scope='conventions')"
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of results to return (default: 5)",
+                    "default": 5
+                },
+                "directory": {
+                    "type": "string",
+                    "description": "Directory path for scoped convention retrieval. Walks up parent directories for convention inheritance."
+                },
+                "scope": {
+                    "type": "string",
+                    "description": "Set to 'conventions' to retrieve directory-scoped coding conventions instead of general knowledge.",
+                    "enum": ["conventions"]
                 }
             },
             "required": ["query"]
@@ -421,5 +537,29 @@ mod tests {
         assert!(KnowledgeBridge::is_knowledge_tool("store_knowledge"));
         assert!(!KnowledgeBridge::is_knowledge_tool("web_search"));
         assert!(!KnowledgeBridge::is_knowledge_tool(""));
+    }
+
+    #[cfg(feature = "symbi-dev")]
+    #[test]
+    fn test_recall_tool_def_has_directory_and_scope() {
+        let def = recall_tool_def();
+        let props = &def.parameters["properties"];
+        assert!(props.get("directory").is_some());
+        assert!(props.get("scope").is_some());
+        // query is still required
+        assert!(def.parameters["required"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("query")));
+    }
+
+    #[cfg(feature = "symbi-dev")]
+    #[test]
+    fn test_recall_tool_backward_compatible() {
+        let def = recall_tool_def();
+        let required = def.parameters["required"].as_array().unwrap();
+        // directory and scope are NOT required
+        assert!(!required.contains(&serde_json::json!("directory")));
+        assert!(!required.contains(&serde_json::json!("scope")));
     }
 }

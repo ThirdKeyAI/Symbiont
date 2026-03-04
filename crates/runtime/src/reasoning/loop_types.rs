@@ -191,6 +191,18 @@ pub struct LoopConfig {
     /// Tool definitions available during this loop run.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_definitions: Vec<ToolDefinition>,
+    /// Tool profile for filtering tools visible to the LLM.
+    #[cfg(feature = "symbi-dev")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_profile: Option<crate::reasoning::tool_profile::ToolProfile>,
+    /// Per-step iteration limits for stuck loop detection.
+    #[cfg(feature = "symbi-dev")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step_iteration: Option<crate::reasoning::progress_tracker::StepIterationConfig>,
+    /// Pre-hydration configuration for deterministic context pre-fetch.
+    #[cfg(feature = "symbi-dev")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pre_hydration: Option<crate::reasoning::pre_hydrate::PreHydrationConfig>,
 }
 
 impl Default for LoopConfig {
@@ -207,6 +219,12 @@ impl Default for LoopConfig {
             max_concurrent_tools: 5,
             context_token_budget: 32_000,
             tool_definitions: Vec::new(),
+            #[cfg(feature = "symbi-dev")]
+            tool_profile: None,
+            #[cfg(feature = "symbi-dev")]
+            step_iteration: None,
+            #[cfg(feature = "symbi-dev")]
+            pre_hydration: None,
         }
     }
 }
@@ -277,7 +295,7 @@ pub enum LoopEvent {
     /// Loop started.
     Started {
         agent_id: AgentId,
-        config: LoopConfig,
+        config: Box<LoopConfig>,
     },
     /// Reasoning step completed.
     ReasoningComplete {
@@ -315,6 +333,21 @@ pub enum LoopEvent {
         tool_name: String,
         strategy: RecoveryStrategy,
         error: String,
+    },
+    /// A step hit its reattempt limit (emitted by coordinators).
+    #[cfg(feature = "symbi-dev")]
+    StepLimitReached {
+        step_id: String,
+        attempts: u32,
+        reason: String,
+    },
+    /// Pre-hydration phase completed.
+    #[cfg(feature = "symbi-dev")]
+    PreHydrationComplete {
+        references_found: usize,
+        references_resolved: usize,
+        references_failed: usize,
+        total_tokens: usize,
     },
 }
 
@@ -513,7 +546,7 @@ mod tests {
             iteration,
             event: LoopEvent::Started {
                 agent_id: AgentId::new(),
-                config: LoopConfig::default(),
+                config: Box::new(LoopConfig::default()),
             },
         }
     }

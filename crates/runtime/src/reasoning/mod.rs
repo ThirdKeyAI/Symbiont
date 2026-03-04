@@ -55,3 +55,18 @@ pub use phases::AgentPhase;
 pub use policy_bridge::{ReasoningPolicyGate, ToolFilterPolicyGate};
 pub use reasoning_loop::ReasoningLoopRunner;
 pub use schema_validation::{SchemaValidationError, ValidationPipeline};
+
+// Advanced reasoning loop primitives (symbi-dev)
+#[cfg(feature = "symbi-dev")]
+pub mod pre_hydrate;
+#[cfg(feature = "symbi-dev")]
+pub mod progress_tracker;
+#[cfg(feature = "symbi-dev")]
+pub mod tool_profile;
+
+#[cfg(feature = "symbi-dev")]
+pub use pre_hydrate::{HydratedContext, PreHydrationConfig, PreHydrationEngine};
+#[cfg(feature = "symbi-dev")]
+pub use progress_tracker::{LimitAction, ProgressTracker, StepDecision, StepIterationConfig};
+#[cfg(feature = "symbi-dev")]
+pub use tool_profile::ToolProfile;

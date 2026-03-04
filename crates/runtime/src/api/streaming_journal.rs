@@ -74,7 +74,7 @@ mod tests {
             iteration: 0,
             event: LoopEvent::Started {
                 agent_id: AgentId::new(),
-                config: LoopConfig::default(),
+                config: Box::new(LoopConfig::default()),
             },
         };
 
@@ -102,7 +102,7 @@ mod tests {
             iteration: 0,
             event: LoopEvent::Started {
                 agent_id: AgentId::new(),
-                config: LoopConfig::default(),
+                config: Box::new(LoopConfig::default()),
             },
         };
 
