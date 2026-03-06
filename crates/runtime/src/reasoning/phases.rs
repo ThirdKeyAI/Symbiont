@@ -138,18 +138,11 @@ impl AgentLoop<Reasoning> {
             self.config.context_token_budget,
         );
 
-        // Add pending observations to conversation as tool result messages
-        for obs in self.state.pending_observations.drain(..) {
-            if obs.source == "policy_gate" {
-                self.state.conversation.push(
-                    crate::reasoning::conversation::ConversationMessage::user(format!(
-                        "[Policy Feedback] {}",
-                        obs.content
-                    )),
-                );
-            }
-            // Tool results are already added by the executor
-        }
+        // Drain pending observations. Tool results are already in the conversation
+        // (added by dispatch_tools for approved actions, and by check_policy for
+        // denied tool calls). Policy denials are also already added as tool_result
+        // messages in check_policy, so we don't need to add them again here.
+        self.state.pending_observations.clear();
 
         // Build inference options
         let options = crate::reasoning::inference::InferenceOptions {
@@ -157,7 +150,7 @@ impl AgentLoop<Reasoning> {
                 .config
                 .max_total_tokens
                 .saturating_sub(self.state.total_usage.total_tokens)
-                .min(4096),
+                .min(16384),
             tool_definitions: self.config.tool_definitions.clone(),
             ..Default::default()
         };
@@ -286,7 +279,20 @@ impl AgentLoop<PolicyCheck> {
                     approved.push(action);
                 }
                 LoopDecision::Deny { reason } => {
-                    // Feed denial back as observation for next iteration
+                    // For tool calls, add a tool_result to the conversation so the
+                    // Anthropic API constraint (every tool_use must have a tool_result)
+                    // is maintained. Without this, denied tool calls leave orphaned
+                    // tool_use blocks that cause API errors.
+                    if let ProposedAction::ToolCall { ref call_id, ref name, .. } = action {
+                        self.state.conversation.push(
+                            crate::reasoning::conversation::ConversationMessage::tool_result(
+                                call_id,
+                                name,
+                                format!("[Policy denied] {}", reason),
+                            ),
+                        );
+                    }
+                    // Also feed denial back as pending observation for the loop driver
                     self.state
                         .pending_observations
                         .push(Observation::policy_denial(&reason));

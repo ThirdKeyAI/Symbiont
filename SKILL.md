@@ -2,7 +2,7 @@
 name: symbiont
 title: Symbiont
 description: AI-native agent runtime with typestate-enforced ORGA reasoning loop, Cedar policy authorization, knowledge bridge, zero-trust security, multi-tier sandboxing, webhook verification, markdown memory, skill scanning, metrics, scheduling, and a declarative DSL
-version: 1.5.0
+version: 1.6.1
 ---
 
 # Symbiont Agent Development Skills Guide
@@ -24,6 +24,9 @@ version: 1.5.0
 - **Cryptographic Verification**: SchemaPin for MCP tools, AgentPin for agent identity, Ed25519 signatures
 - **Webhook DX**: Signature verification middleware with GitHub/Stripe/Slack presets
 - **Persistent Memory**: Markdown-backed agent memory with retention and compaction
+- **ClawHavoc Security Scanner**: 30+ detection rules across 7 attack categories with 5-level severity model
+- **Agent Registry & Lifecycle**: Persistent agent metadata with delete and re-execute lifecycle support
+- **AGENTS.md Support**: Full bidirectional agent manifest files for ecosystem interoperability
 
 ---
 
@@ -345,6 +348,100 @@ policy orchestration_policy {
         include_dependencies: true,
         trace_id: true
     }
+}
+```
+
+---
+
+## ClawHavoc Security Scanner
+
+Symbiont includes an advanced security scanner with 30+ detection rules across 7 attack categories:
+
+### Built-in Detection Rules
+
+- **Reverse Shells** (7 rules): `pipe-to-shell`, `wget-pipe-to-shell`, etc.
+- **Credential Harvesting** (6 rules): Environment file references, secret extraction patterns
+- **Network Exfiltration** (3 rules): Data transmission to external endpoints
+- **Process Injection** (4 rules): Code injection and process manipulation
+- **Privilege Escalation** (5 rules): Permission elevation attempts
+- **Symlink/Path Traversal** (2 rules): Directory traversal attacks
+- **Downloader Chains** (3 rules): Multi-stage payload delivery
+
+### Severity Model
+
+- **Critical**: Immediate security threat (scans fail on Critical or High findings)
+- **High**: Significant security risk
+- **Medium**: Moderate security concern
+- **Warning**: Potential security issue
+- **Info**: Informational finding
+
+### Custom Rules
+
+Add domain-specific detection patterns:
+
+```dsl
+security_scanner {
+    custom_rules = [
+        {
+            name: "custom-api-key-leak",
+            pattern: "api[_-]?key\\s*[:=]\\s*['\"]?[a-zA-Z0-9]{32,}",
+            severity: "Critical",
+            description: "Potential API key exposure"
+        }
+    ]
+}
+```
+
+### AllowedExecutablesOnly Rule
+
+For strict sandboxed environments:
+
+```dsl
+policy strict_execution {
+    require: {
+        allowed_executables: ["/bin/bash", "/usr/bin/python3", "/usr/bin/curl"],
+        executable_whitelist_only: true
+    }
+}
+```
+
+---
+
+## Agent Registry & Lifecycle
+
+Persistent agent metadata storage with full lifecycle management:
+
+```rust
+use symbi_runtime::registry::AgentRegistry;
+
+let registry = AgentRegistry::new(registry_config).await?;
+
+// Store agent metadata
+registry.register_agent(agent_id, metadata).await?;
+
+// Retrieve agent information
+let agent_info = registry.get_agent(agent_id).await?;
+
+// Delete and re-execute lifecycle
+registry.delete_agent(agent_id).await?;
+registry.re_execute_agent(agent_id, new_config).await?;
+```
+
+### AGENTS.md Support
+
+Generate and parse agent manifest files for ecosystem interoperability:
+
+```rust
+use symbi_runtime::agents_md::{AgentsManifest, generate_manifest, parse_manifest};
+
+// Generate AGENTS.md from registry
+let manifest = generate_manifest(&registry).await?;
+std::fs::write("AGENTS.md", manifest)?;
+
+// Parse existing AGENTS.md
+let agents = parse_manifest(&manifest_content)?;
+for agent in agents {
+    registry.register_agent(agent.id, agent.metadata).await?;
 }
 ```
 
@@ -1442,6 +1539,16 @@ Before deploying an agent, verify:
 | `VALIDATION_ERROR` | Input validation failed | Fix input data format |
 | `NETWORK_ERROR` | Network request failed | Check endpoint and connectivity |
 
+### Performance Benchmarks (v1.6.1)
+
+Verified performance claims:
+- **Policy evaluation**: <1ms (release builds)
+- **ECDSA P-256 signing**: <5ms (release builds)
+- **SchemaPin verification**: <5ms (release builds)
+- **10k agent scheduling**: <2% CPU overhead
+
+*Note: Debug builds have relaxed thresholds due to unoptimized crypto*
+
 ### Documentation Links
 
 - **Full DSL Guide**: [docs/dsl-guide.md](https://github.com/thirdkeyai/symbiont/blob/main/docs/dsl-guide.md)
@@ -1467,6 +1574,8 @@ Before deploying an agent, verify:
 8. **Document Assumptions**: Comment complex policy logic
 9. **Monitor Resources**: Set realistic limits based on workload
 10. **Review Before Deploy**: Use the validation checklist
+11. **Leverage ClawHavoc**: Use built-in security scanner for skill validation
+12. **Use Agent Registry**: Track agent lifecycle and metadata properly
 
 ---
 

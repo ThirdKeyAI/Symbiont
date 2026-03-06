@@ -547,7 +547,7 @@ impl StandardContextManager {
     /// Create a new StandardContextManager
     pub async fn new(config: ContextManagerConfig, agent_id: &str) -> Result<Self, ContextError> {
         let vector_db: Arc<dyn VectorDb> = if config.enable_vector_db {
-            if let Some(ref backend_config) = config.vector_backend {
+            let db = if let Some(ref backend_config) = config.vector_backend {
                 create_vector_backend(backend_config.clone())
                     .await
                     .unwrap_or_else(|e| {
@@ -560,7 +560,12 @@ impl StandardContextManager {
                     tracing::warn!("Failed to create vector backend: {}, using NoOp", e);
                     Arc::new(NoOpVectorDatabase)
                 })
+            };
+            // Initialize the vector DB (creates table/collection if needed)
+            if let Err(e) = db.initialize().await {
+                tracing::warn!("Failed to initialize vector DB: {}, queries may fail", e);
             }
+            db
         } else {
             Arc::new(NoOpVectorDatabase)
         };

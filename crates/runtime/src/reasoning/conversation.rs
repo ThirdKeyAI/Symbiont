@@ -107,15 +107,24 @@ impl ConversationMessage {
         }
     }
 
-    /// Estimate token count for this message using the ~4 chars/token heuristic.
-    /// For accurate counts, use a tokenizer; this is sufficient for budget enforcement.
+    /// Estimate token count for this message.
+    ///
+    /// Uses ~3.3 chars/token (Anthropic's tokenizer averages 3-3.5 for mixed content
+    /// including JSON, code, and prose). Adds per-message framing overhead for the
+    /// role field, JSON structure, and tool metadata that the API sees but we don't
+    /// count in raw content length.
     pub fn estimate_tokens(&self) -> usize {
         let mut chars = self.content.len();
         for tc in &self.tool_calls {
-            chars += tc.name.len() + tc.arguments.len();
+            // Tool call JSON structure adds overhead beyond just name+args
+            chars += tc.name.len() + tc.arguments.len() + tc.id.len() + 30; // JSON framing
         }
-        // ~4 characters per token, plus overhead for message framing
-        (chars / 4).max(1) + 4
+        if let Some(ref id) = self.tool_call_id {
+            chars += id.len() + 20; // tool_result framing
+        }
+        // ~3.3 chars per token (10 tokens per 33 chars), plus per-message overhead
+        // The overhead covers role, JSON structure, content block wrapping
+        (chars * 10 / 33).max(1) + 7
     }
 }
 
@@ -243,60 +252,93 @@ impl Conversation {
             .find(|m| m.role == MessageRole::System)
             .map(|m| m.content.clone());
 
-        let messages = self
-            .messages
-            .iter()
-            .filter(|m| m.role != MessageRole::System)
-            .map(|msg| {
-                let role_str = match msg.role {
-                    MessageRole::User | MessageRole::Tool => "user",
-                    MessageRole::Assistant => "assistant",
-                    MessageRole::System => unreachable!(),
-                };
+        // Build raw messages first, then merge consecutive same-role messages.
+        // Anthropic requires that all tool_result blocks for a given assistant
+        // message's tool_use blocks appear in the immediately following user message.
+        let mut raw_messages: Vec<serde_json::Value> = Vec::new();
 
-                if msg.role == MessageRole::Tool {
-                    // Anthropic tool results go as user messages with tool_result content blocks
-                    serde_json::json!({
-                        "role": "user",
-                        "content": [{
-                            "type": "tool_result",
-                            "tool_use_id": msg.tool_call_id.as_deref().unwrap_or(""),
-                            "content": msg.content,
-                        }]
-                    })
-                } else if !msg.tool_calls.is_empty() {
-                    // Assistant message with tool use
-                    let mut content_blocks: Vec<serde_json::Value> = Vec::new();
-                    if !msg.content.is_empty() {
-                        content_blocks.push(serde_json::json!({
-                            "type": "text",
-                            "text": msg.content,
-                        }));
-                    }
-                    for tc in &msg.tool_calls {
-                        let args: serde_json::Value =
-                            serde_json::from_str(&tc.arguments).unwrap_or(serde_json::json!({}));
-                        content_blocks.push(serde_json::json!({
-                            "type": "tool_use",
-                            "id": tc.id,
-                            "name": tc.name,
-                            "input": args,
-                        }));
-                    }
-                    serde_json::json!({
-                        "role": role_str,
-                        "content": content_blocks,
-                    })
-                } else {
-                    serde_json::json!({
-                        "role": role_str,
+        for msg in self.messages.iter().filter(|m| m.role != MessageRole::System) {
+            let role_str = match msg.role {
+                MessageRole::User | MessageRole::Tool => "user",
+                MessageRole::Assistant => "assistant",
+                MessageRole::System => unreachable!(),
+            };
+
+            let serialized = if msg.role == MessageRole::Tool {
+                // Anthropic tool results go as user messages with tool_result content blocks
+                serde_json::json!({
+                    "role": "user",
+                    "content": [{
+                        "type": "tool_result",
+                        "tool_use_id": msg.tool_call_id.as_deref().unwrap_or(""),
                         "content": msg.content,
-                    })
+                    }]
+                })
+            } else if !msg.tool_calls.is_empty() {
+                // Assistant message with tool use
+                let mut content_blocks: Vec<serde_json::Value> = Vec::new();
+                if !msg.content.is_empty() {
+                    content_blocks.push(serde_json::json!({
+                        "type": "text",
+                        "text": msg.content,
+                    }));
                 }
-            })
-            .collect();
+                for tc in &msg.tool_calls {
+                    let args: serde_json::Value =
+                        serde_json::from_str(&tc.arguments).unwrap_or(serde_json::json!({}));
+                    content_blocks.push(serde_json::json!({
+                        "type": "tool_use",
+                        "id": tc.id,
+                        "name": tc.name,
+                        "input": args,
+                    }));
+                }
+                serde_json::json!({
+                    "role": role_str,
+                    "content": content_blocks,
+                })
+            } else {
+                serde_json::json!({
+                    "role": role_str,
+                    "content": msg.content,
+                })
+            };
 
-        (system, messages)
+            // Merge consecutive messages with the same role by combining content blocks.
+            // This is critical for tool_result blocks: Anthropic requires all tool_results
+            // for a set of tool_use blocks to be in a single user message.
+            if let Some(last) = raw_messages.last_mut() {
+                let last_role = last.get("role").and_then(|r| r.as_str()).unwrap_or("");
+                if last_role == role_str {
+                    // Merge content into the previous message
+                    let prev_content = last.get_mut("content").unwrap();
+                    let new_content = serialized.get("content").unwrap();
+
+                    // Ensure both are arrays for merging
+                    let prev_arr = if prev_content.is_array() {
+                        prev_content.as_array_mut().unwrap()
+                    } else {
+                        // Convert string content to a text block array
+                        let text = prev_content.as_str().unwrap_or("").to_string();
+                        *prev_content = serde_json::json!([{"type": "text", "text": text}]);
+                        prev_content.as_array_mut().unwrap()
+                    };
+
+                    if new_content.is_array() {
+                        prev_arr.extend(new_content.as_array().unwrap().iter().cloned());
+                    } else {
+                        let text = new_content.as_str().unwrap_or("").to_string();
+                        prev_arr.push(serde_json::json!({"type": "text", "text": text}));
+                    }
+
+                    continue;
+                }
+            }
+
+            raw_messages.push(serialized);
+        }
+
+        (system, raw_messages)
     }
 
     /// Truncate the conversation to fit within a token budget.
@@ -511,8 +553,8 @@ mod tests {
     fn test_token_estimation() {
         let msg = ConversationMessage::user("Hello, world!"); // 13 chars
         let tokens = msg.estimate_tokens();
-        // 13/4 = 3, max(3,1) + 4 = 7
-        assert_eq!(tokens, 7);
+        // 13 * 10/33 = 3, max(3,1) + 7 = 10
+        assert_eq!(tokens, 10);
     }
 
     #[test]

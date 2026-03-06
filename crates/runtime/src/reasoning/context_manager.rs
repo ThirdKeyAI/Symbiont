@@ -6,6 +6,8 @@
 //! - ObservationMasking: replace old tool outputs but keep reasoning
 //! - AnchoredSummary: keep system + first user + summarize middle + recent
 
+use tracing::{debug, info, warn};
+
 use crate::reasoning::conversation::{Conversation, MessageRole};
 
 /// Strategy for managing context within token budgets.
@@ -55,13 +57,22 @@ impl DefaultContextManager {
 
     /// Apply observation masking: replace old tool results with placeholders.
     fn apply_observation_masking(conversation: &mut Conversation, max_tokens: usize) {
-        if conversation.estimate_tokens() <= max_tokens {
+        let estimated = conversation.estimate_tokens();
+        if estimated <= max_tokens {
             return;
         }
+
+        info!(
+            estimated_tokens = estimated,
+            max_tokens,
+            over_by = estimated - max_tokens,
+            "ObservationMasking: context exceeds budget, masking old tool results"
+        );
 
         let messages = conversation.messages().to_vec();
         let total = messages.len();
         if total <= 3 {
+            warn!("ObservationMasking: only {} messages, cannot mask", total);
             return;
         }
 
@@ -69,6 +80,7 @@ impl DefaultContextManager {
         // Keep the most recent 6 messages (3 turns) intact
         let keep_recent = 6.min(total);
         let mut new_messages = Vec::new();
+        let mut masked_count = 0usize;
 
         for (i, msg) in messages.iter().enumerate() {
             if i >= total - keep_recent {
@@ -81,12 +93,20 @@ impl DefaultContextManager {
                     "[Previous {} result omitted for context management]",
                     msg.tool_name.as_deref().unwrap_or("tool")
                 );
+                masked_count += 1;
                 new_messages.push(masked);
             } else {
                 // Keep non-tool messages (reasoning, user input)
                 new_messages.push(msg.clone());
             }
         }
+
+        info!(
+            masked_tool_results = masked_count,
+            kept_recent = keep_recent,
+            total_messages = total,
+            "ObservationMasking: masked old tool results"
+        );
 
         *conversation = Conversation::new();
         for msg in new_messages {
@@ -95,6 +115,12 @@ impl DefaultContextManager {
 
         // If still over budget, fall back to sliding window
         if conversation.estimate_tokens() > max_tokens {
+            let still_estimated = conversation.estimate_tokens();
+            warn!(
+                still_estimated,
+                max_tokens,
+                "ObservationMasking insufficient, falling back to SlidingWindow"
+            );
             Self::apply_sliding_window(conversation, max_tokens);
         }
     }
@@ -170,6 +196,16 @@ impl Default for DefaultContextManager {
 
 impl ContextManager for DefaultContextManager {
     fn manage_context(&self, conversation: &mut Conversation, max_tokens: usize) {
+        let before_tokens = conversation.estimate_tokens();
+        let before_len = conversation.len();
+        debug!(
+            strategy = self.strategy_name(),
+            estimated_tokens = before_tokens,
+            max_tokens,
+            message_count = before_len,
+            "Context management check"
+        );
+
         match &self.strategy {
             ContextStrategy::SlidingWindow => {
                 Self::apply_sliding_window(conversation, max_tokens);
@@ -180,6 +216,20 @@ impl ContextManager for DefaultContextManager {
             ContextStrategy::AnchoredSummary { recent_count } => {
                 Self::apply_anchored_summary(conversation, max_tokens, *recent_count);
             }
+        }
+
+        let after_tokens = conversation.estimate_tokens();
+        let after_len = conversation.len();
+        if after_tokens < before_tokens {
+            info!(
+                strategy = self.strategy_name(),
+                before_tokens,
+                after_tokens,
+                tokens_saved = before_tokens - after_tokens,
+                messages_before = before_len,
+                messages_after = after_len,
+                "Context compaction triggered"
+            );
         }
     }
 
