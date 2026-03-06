@@ -118,8 +118,7 @@ impl DefaultContextManager {
             let still_estimated = conversation.estimate_tokens();
             warn!(
                 still_estimated,
-                max_tokens,
-                "ObservationMasking insufficient, falling back to SlidingWindow"
+                max_tokens, "ObservationMasking insufficient, falling back to SlidingWindow"
             );
             Self::apply_sliding_window(conversation, max_tokens);
         }

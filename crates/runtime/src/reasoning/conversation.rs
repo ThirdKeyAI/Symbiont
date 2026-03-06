@@ -257,7 +257,11 @@ impl Conversation {
         // message's tool_use blocks appear in the immediately following user message.
         let mut raw_messages: Vec<serde_json::Value> = Vec::new();
 
-        for msg in self.messages.iter().filter(|m| m.role != MessageRole::System) {
+        for msg in self
+            .messages
+            .iter()
+            .filter(|m| m.role != MessageRole::System)
+        {
             let role_str = match msg.role {
                 MessageRole::User | MessageRole::Tool => "user",
                 MessageRole::Assistant => "assistant",

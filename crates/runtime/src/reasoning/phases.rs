@@ -283,7 +283,12 @@ impl AgentLoop<PolicyCheck> {
                     // Anthropic API constraint (every tool_use must have a tool_result)
                     // is maintained. Without this, denied tool calls leave orphaned
                     // tool_use blocks that cause API errors.
-                    if let ProposedAction::ToolCall { ref call_id, ref name, .. } = action {
+                    if let ProposedAction::ToolCall {
+                        ref call_id,
+                        ref name,
+                        ..
+                    } = action
+                    {
                         self.state.conversation.push(
                             crate::reasoning::conversation::ConversationMessage::tool_result(
                                 call_id,
