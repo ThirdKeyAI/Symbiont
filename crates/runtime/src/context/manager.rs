@@ -3640,7 +3640,9 @@ mod tests {
         use super::super::compaction::CompactionConfig;
         use super::super::token_counter::HeuristicTokenCounter;
 
-        let config = ContextManagerConfig::default();
+        let tmp = tempfile::tempdir().unwrap();
+        let mut config = ContextManagerConfig::default();
+        config.persistence_config.root_data_dir = tmp.path().to_path_buf();
         let agent_id = AgentId::new();
         let manager = StandardContextManager::new(config, &agent_id.to_string())
             .await

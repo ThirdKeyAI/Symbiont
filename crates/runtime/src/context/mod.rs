@@ -92,9 +92,18 @@ mod tests {
     use crate::types::AgentId;
     use std::time::SystemTime;
 
+    /// Create a test config with an isolated temp directory to avoid
+    /// cross-test interference from shared `~/.symbiont/data`.
+    fn test_config() -> (ContextManagerConfig, tempfile::TempDir) {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut config = ContextManagerConfig::default();
+        config.persistence_config.root_data_dir = tmp.path().to_path_buf();
+        (config, tmp)
+    }
+
     #[tokio::test]
     async fn test_context_manager_creation() {
-        let config = ContextManagerConfig::default();
+        let (config, _tmp) = test_config();
         let agent_id = AgentId::new();
         let manager = StandardContextManager::new(config, &agent_id.to_string())
             .await
@@ -104,7 +113,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_creation() {
-        let config = ContextManagerConfig::default();
+        let (config, _tmp) = test_config();
         let agent_id = AgentId::new();
         let manager = StandardContextManager::new(config, &agent_id.to_string())
             .await
@@ -124,7 +133,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_memory_operations() {
-        let config = ContextManagerConfig::default();
+        let (config, _tmp) = test_config();
         let agent_id = AgentId::new();
         let manager = StandardContextManager::new(config, &agent_id.to_string())
             .await
@@ -148,7 +157,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_knowledge_operations() {
-        let config = ContextManagerConfig::default();
+        let (config, _tmp) = test_config();
         let agent_id = AgentId::new();
         let manager = StandardContextManager::new(config, &agent_id.to_string())
             .await
@@ -184,7 +193,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_context_query() {
-        let config = ContextManagerConfig::default();
+        let (config, _tmp) = test_config();
         let agent_id = AgentId::new();
         let manager = StandardContextManager::new(config, &agent_id.to_string())
             .await
@@ -211,7 +220,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_context_stats() {
-        let config = ContextManagerConfig::default();
+        let (config, _tmp) = test_config();
         let agent_id = AgentId::new();
         let manager = StandardContextManager::new(config, &agent_id.to_string())
             .await
@@ -228,7 +237,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_secrets_integration() {
-        let config = ContextManagerConfig::default();
+        let (config, _tmp) = test_config();
         let agent_id = AgentId::new();
         let manager = StandardContextManager::new(config, &agent_id.to_string())
             .await
