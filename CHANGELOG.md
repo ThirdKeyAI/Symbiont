@@ -7,6 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-03-08
+
+### Added
+
+#### Standalone Agent SDK (Phase 1)
+- **`symbi_runtime::prelude`**: One-import module for standalone agent development — re-exports reasoning loop, executors, providers, policy gates, and types
+- **`ReasoningLoopRunner::builder()`**: Typestate builder pattern with compile-time enforcement of required fields (provider → executor → build)
+- **`ToolFilterPolicyGate`**: Tool-name whitelisting gate — restricts which tools an agent can invoke without requiring full Cedar policies
+- **`tool_definitions()` on `ActionExecutor` trait**: Enables executors to self-describe available tools for LLM function-calling
+- **`cloud-llm` and `standalone-agent` feature flags**: Lighter builds for agents that don't need the full runtime
+
+#### External Agent Integration (Phase 2)
+- **External execution mode**: New `ExecutionMode::External` for agents running outside the coordinator
+- **`Unreachable` agent state**: Detects when external agents stop sending heartbeats
+- **Heartbeat and push-event HTTP endpoints**: `/agents/{id}/heartbeat` and `/agents/{id}/events` for external agent liveness and event reporting
+- **Scheduler support**: External agents register with the scheduler but skip the execution queue — coordinator tracks their status without managing their lifecycle
+- **Extended `CreateAgentRequest`**: DSL field now optional for external agents; `AgentStatusResponse` includes new fields for external agent metadata
+
+#### Advanced Reasoning Primitives (`orga-adaptive` feature)
+- **Tool profiling**: Runtime performance tracking per tool behind feature gate
+- **Step iteration**: Per-step iteration controls for reasoning loop
+- **Pre-hydration**: Context pre-loading before reasoning loop execution
+- **Scoped knowledge bridge**: Directory and scope-based knowledge routing
+
+#### Pre-Built Binary Releases
+- **`vendored-openssl` feature**: Static OpenSSL linking for portable binary distribution
+- **Release workflow**: GitHub Actions cross-compilation for 5 targets (linux x86_64/aarch64, macOS x86_64/aarch64, Windows x86_64)
+- **SHA256 checksum verification**: Install script verifies binary integrity
+- **Homebrew tap**: `brew tap thirdkeyai/tap && brew install symbi`
+- **Cross.toml**: aarch64-linux cross-compilation configuration
+
+#### Coordinator Chat
+- **WebSocket-based coordinator chat panel**: Real-time agent interaction with Markdown rendering and thinking indicators
+- **`ComposioToolExecutor`**: Integration with Composio MCP for external tool execution
+- **Observation `call_id` tracking**: Proper correlation of tool calls to observations
+
+### Fixed
+- **Context test isolation**: Tests use isolated temp dirs to prevent cross-test interference from shared filesystem state
+- **Reasoning loop robustness**: Token estimation, context management, and Anthropic protocol compliance improvements
+- **Formatting**: Fixed `cargo fmt` issues in context_manager, conversation, and phases modules
+- **Production safety**: Fixed path traversal, panic-on-unwrap, and potential secret leaks
+- **Async I/O**: Replaced blocking `std::fs` calls with async equivalents in async contexts
+
+### Changed
+- **Feature flag rename**: `symbi-dev` → `orga-adaptive` for advanced reasoning primitives
+- **Apache 2.0 license**: Project relicensed from MIT to Apache 2.0
+- **Copyright update**: 2024-2026 Jascha Wanger / ThirdKey AI
+
+### Crate Versions
+| Crate | Version |
+|-------|---------|
+| `symbi` | 1.7.0 |
+| `symbi-dsl` | 1.7.0 |
+| `symbi-runtime` | 1.7.0 |
+| `symbi-channel-adapter` | 0.1.2 |
+| `repl-core` | 1.7.0 |
+| `repl-proto` | 1.7.0 |
+| `repl-cli` | 1.7.0 |
+| `repl-lsp` | 1.7.0 |
+
 ## [1.6.1] - 2026-02-27
 
 ### Fixed

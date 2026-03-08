@@ -185,9 +185,9 @@ graph TB
 
 ## Projektstatus
 
-### v1.6.1 Stabil
+### v1.7.0 Stabil
 
-Symbiont v1.6.1 ist die neueste stabile Version und bietet ein vollstaendiges KI-Agent-Framework mit produktionsreifen Funktionen:
+Symbiont v1.7.0 ist die neueste stabile Version und bietet ein vollstaendiges KI-Agent-Framework mit produktionsreifen Funktionen:
 
 - **Agentische Reasoning-Schleife**: Typestate-erzwungener ORGA-Zyklus mit Multi-Turn-Konversation, Cloud- und SLM-Inferenz, Circuit Breakern, dauerhaftem Journal und Wissensbruecke
 - **Erweiterte Reasoning-Primitiven** (`orga-adaptive`): Tool-Profilfilterung, schrittweise Stuck-Loop-Erkennung, deterministischer Kontext-Pre-Fetch und verzeichnisspezifische Konventionen

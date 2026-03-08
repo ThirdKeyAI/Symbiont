@@ -185,9 +185,9 @@ graph TB
 
 ## Estado del Proyecto
 
-### v1.6.1 Estable
+### v1.7.0 Estable
 
-Symbiont v1.6.1 es la ultima version estable, que ofrece un framework completo de agentes de IA con capacidades de nivel de produccion:
+Symbiont v1.7.0 es la ultima version estable, que ofrece un framework completo de agentes de IA con capacidades de nivel de produccion:
 
 - **Bucle de Razonamiento Agentico**: Ciclo ORGA con typestates, conversacion multi-turno, inferencia en la nube y SLM, circuit breakers, diario durable y puente de conocimiento
 - **Primitivas de Razonamiento Avanzado** (`orga-adaptive`): Filtrado de perfiles de herramientas, deteccion de bucles atascados por paso, pre-carga determinista de contexto y convenciones con alcance de directorio

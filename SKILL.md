@@ -2,7 +2,7 @@
 name: symbiont
 title: Symbiont
 description: AI-native agent runtime with typestate-enforced ORGA reasoning loop, Cedar policy authorization, knowledge bridge, zero-trust security, multi-tier sandboxing, webhook verification, markdown memory, skill scanning, metrics, scheduling, and a declarative DSL
-version: 1.6.1
+version: 1.7.0
 ---
 
 # Symbiont Agent Development Skills Guide
@@ -1539,7 +1539,7 @@ Before deploying an agent, verify:
 | `VALIDATION_ERROR` | Input validation failed | Fix input data format |
 | `NETWORK_ERROR` | Network request failed | Check endpoint and connectivity |
 
-### Performance Benchmarks (v1.6.1)
+### Performance Benchmarks (v1.7.0)
 
 Verified performance claims:
 - **Policy evaluation**: <1ms (release builds)

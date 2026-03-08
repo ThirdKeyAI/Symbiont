@@ -192,9 +192,9 @@ graph TB
 
 ## Project Status
 
-### v1.6.1 Stable
+### v1.7.0 Stable
 
-Symbiont v1.6.1 is the latest stable release, delivering a complete AI agent framework with production-grade capabilities:
+Symbiont v1.7.0 is the latest stable release, delivering a complete AI agent framework with production-grade capabilities:
 
 - **Agentic Reasoning Loop**: Typestate-enforced ORGA cycle with multi-turn conversation, cloud and SLM inference, circuit breakers, durable journal, and knowledge bridge
 - **Advanced Reasoning Primitives** (`orga-adaptive`): Tool profile filtering, per-step stuck-loop detection, deterministic context pre-fetch, and directory-scoped conventions
