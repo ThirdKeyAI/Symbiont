@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -145,11 +146,29 @@ jobs:
           pattern: binary-*
           merge-multiple: true
 
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3.4.0
+        with:
+          cosign-release: 'v2.2.3'
+
       - name: Generate checksums
         run: |
           cd artifacts
           sha256sum * > checksums.txt
           cat checksums.txt
+
+      - name: Sign artifacts with cosign
+        run: |
+          cd artifacts
+          for file in *.tar.gz *.zip; do
+            [ -f "$file" ] || continue
+            echo "Signing $file..."
+            cosign sign-blob --yes "$file" --output-signature "${file}.sig" --output-certificate "${file}.pem"
+          done
+          # Also sign the checksums file
+          cosign sign-blob --yes checksums.txt --output-signature checksums.txt.sig --output-certificate checksums.txt.pem
+        env:
+          COSIGN_EXPERIMENTAL: "1"
 
       - name: Determine tag
         id: tag
@@ -186,8 +205,14 @@ jobs:
             **Manual download:**
             Download the appropriate binary for your platform from the assets below. Verify checksums with `checksums.txt`.
 
-            ### Checksums
-            See `checksums.txt` attached to this release.
+            ### Verification
+            Each binary is signed with [Sigstore cosign](https://docs.sigstore.dev/). Verify with:
+            ```bash
+            cosign verify-blob --certificate symbi-*.pem --signature symbi-*.sig symbi-*.tar.gz \
+              --certificate-identity-regexp="https://github.com/ThirdKeyAI/Symbiont" \
+              --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
+            ```
+            SHA256 checksums are in `checksums.txt` (also signed).
           append_body: true
 
   update-homebrew:
