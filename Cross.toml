@@ -5,4 +5,4 @@ pre-build = [
 ]
 
 [build.env]
-passthrough = ["OPENSSL_STATIC"]
+passthrough = ["OPENSSL_STATIC", "CARGO_PROFILE_RELEASE_LTO", "CARGO_PROFILE_RELEASE_CODEGEN_UNITS"]

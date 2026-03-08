@@ -82,6 +82,9 @@ jobs:
           fi
 
           if [ "${{ matrix.use_cross }}" = "true" ]; then
+            # Use thin LTO for cross builds to avoid OOM during linking
+            export CARGO_PROFILE_RELEASE_LTO=thin
+            export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=4
             cross build --release --target ${{ matrix.target }} ${FEATURES:+--features $FEATURES} -j2
           else
             cargo build --release --target ${{ matrix.target }} ${FEATURES:+--features $FEATURES} -j2
