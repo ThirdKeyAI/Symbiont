@@ -53,6 +53,10 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Install NASM (Windows only)
+        if: runner.os == 'Windows'
+        uses: ilammy/setup-nasm@v1
+
       - name: Install cross (Linux aarch64 only)
         if: matrix.use_cross
         run: cargo install cross --locked
