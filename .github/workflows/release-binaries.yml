@@ -53,9 +53,13 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install NASM (Windows only)
+      - name: Install OpenSSL (Windows only)
         if: runner.os == 'Windows'
-        uses: ilammy/setup-nasm@v1
+        run: |
+          vcpkg install openssl:x64-windows-static
+          echo "OPENSSL_DIR=C:\vcpkg\installed\x64-windows-static" >> $GITHUB_ENV
+          echo "OPENSSL_STATIC=1" >> $GITHUB_ENV
+        shell: bash
 
       - name: Install cross (Linux aarch64 only)
         if: matrix.use_cross
@@ -73,10 +77,16 @@ jobs:
       - name: Build binary
         shell: bash
         run: |
+          FEATURES="vendored-openssl"
+          # Windows uses vcpkg OpenSSL instead of vendored
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            FEATURES=""
+          fi
+
           if [ "${{ matrix.use_cross }}" = "true" ]; then
-            cross build --release --target ${{ matrix.target }} --features vendored-openssl -j2
+            cross build --release --target ${{ matrix.target }} ${FEATURES:+--features $FEATURES} -j2
           else
-            cargo build --release --target ${{ matrix.target }} --features vendored-openssl -j2
+            cargo build --release --target ${{ matrix.target }} ${FEATURES:+--features $FEATURES} -j2
           fi
 
       - name: Determine version
