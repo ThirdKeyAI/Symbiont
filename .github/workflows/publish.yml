@@ -18,6 +18,11 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
@@ -26,35 +31,80 @@ jobs:
             ~/.cargo/git
           key: ${{ runner.os }}-cargo-publish-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Publish symbi-dsl
-        run: cargo publish -p symbi-dsl --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || echo "symbi-dsl already published"
+      - name: Publish crates in dependency order
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          publish_crate() {
+            local crate="$1"
+            echo "::group::Publishing $crate"
 
-      - name: Publish repl-proto
-        run: cargo publish -p repl-proto --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || echo "repl-proto already published"
+            # Check if this exact version is already on crates.io
+            local version
+            if [ "$crate" = "symbi" ]; then
+              version=$(cargo metadata --no-deps --format-version=1 | jq -r '.packages[] | select(.name == "symbi") | .version')
+            else
+              version=$(cargo metadata --no-deps --format-version=1 | jq -r ".packages[] | select(.name == \"$crate\") | .version")
+            fi
 
-      - name: Wait for crates.io index
-        run: sleep 30
+            # Try to check crates.io for existing version
+            local published
+            published=$(cargo search "$crate" --limit 1 2>/dev/null | grep "^$crate " | sed 's/.*= "\(.*\)".*/\1/')
 
-      - name: Publish symbi-runtime
-        run: cargo publish -p symbi-runtime --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || echo "symbi-runtime already published"
+            if [ "$published" = "$version" ]; then
+              echo "✓ $crate v$version already published, skipping"
+              echo "::endgroup::"
+              return 0
+            fi
 
-      - name: Wait for crates.io index
-        run: sleep 30
+            # Publish
+            if [ "$crate" = "symbi" ]; then
+              cargo publish
+            else
+              cargo publish -p "$crate"
+            fi
 
-      - name: Publish repl-core
-        run: cargo publish -p repl-core --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || echo "repl-core already published"
+            local exit_code=$?
+            echo "::endgroup::"
 
-      - name: Wait for crates.io index
-        run: sleep 30
+            if [ $exit_code -ne 0 ]; then
+              echo "::error::Failed to publish $crate"
+              return 1
+            fi
 
-      - name: Publish repl-cli
-        run: cargo publish -p repl-cli --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || echo "repl-cli already published"
+            echo "✓ Published $crate v$version"
+            return 0
+          }
 
-      - name: Publish repl-lsp
-        run: cargo publish -p repl-lsp --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || echo "repl-lsp already published"
+          # Tier 1: No workspace dependencies
+          publish_crate symbi-dsl || exit 1
+          publish_crate repl-proto || exit 1
 
-      - name: Wait for crates.io index
-        run: sleep 30
+          echo "Waiting 30s for crates.io index..."
+          sleep 30
 
-      - name: Publish symbi
-        run: cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || echo "symbi already published"
+          # Tier 2: Depends on symbi-dsl
+          publish_crate symbi-runtime || exit 1
+
+          echo "Waiting 30s for crates.io index..."
+          sleep 30
+
+          # Tier 3: Depends on symbi-runtime
+          publish_crate repl-core || exit 1
+          publish_crate symbi-channel-adapter || exit 1
+
+          echo "Waiting 30s for crates.io index..."
+          sleep 30
+
+          # Tier 4: Depends on repl-core, repl-proto, symbi-runtime
+          publish_crate repl-cli || exit 1
+          publish_crate repl-lsp || exit 1
+
+          echo "Waiting 30s for crates.io index..."
+          sleep 30
+
+          # Tier 5: Root binary (depends on symbi-runtime, symbi-dsl, symbi-channel-adapter)
+          publish_crate symbi || exit 1
+
+          echo ""
+          echo "All crates published successfully!"
