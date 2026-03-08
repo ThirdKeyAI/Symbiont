@@ -30,9 +30,6 @@ jobs:
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
             use_cross: true
-          - target: x86_64-apple-darwin
-            os: macos-13
-            use_cross: false
           - target: aarch64-apple-darwin
             os: macos-latest
             use_cross: false
@@ -251,7 +248,6 @@ jobs:
 
           # Extract SHA256 values
           DARWIN_ARM64=$(grep "aarch64-apple-darwin" artifacts/checksums.txt | awk '{print $1}')
-          DARWIN_AMD64=$(grep "x86_64-apple-darwin" artifacts/checksums.txt | awk '{print $1}')
           LINUX_ARM64=$(grep "aarch64-unknown-linux-gnu" artifacts/checksums.txt | awk '{print $1}')
           LINUX_AMD64=$(grep "x86_64-unknown-linux-gnu" artifacts/checksums.txt | awk '{print $1}')
 
@@ -262,13 +258,11 @@ jobs:
           # Update version and checksums
           sed -i "s/version \".*\"/version \"${VERSION}\"/" Formula/symbi.rb
           sed -i "s/PLACEHOLDER_ARM64_SHA256/${DARWIN_ARM64}/" Formula/symbi.rb
-          sed -i "s/PLACEHOLDER_AMD64_SHA256/${DARWIN_AMD64}/" Formula/symbi.rb
           sed -i "s/PLACEHOLDER_LINUX_ARM64_SHA256/${LINUX_ARM64}/" Formula/symbi.rb
           sed -i "s/PLACEHOLDER_LINUX_AMD64_SHA256/${LINUX_AMD64}/" Formula/symbi.rb
 
           # Handle subsequent updates (non-placeholder)
           sed -i "/aarch64-apple-darwin/{ n; s/sha256 \".*\"/sha256 \"${DARWIN_ARM64}\"/; }" Formula/symbi.rb
-          sed -i "/x86_64-apple-darwin/{ n; s/sha256 \".*\"/sha256 \"${DARWIN_AMD64}\"/; }" Formula/symbi.rb
           sed -i "/aarch64-unknown-linux-gnu/{ n; s/sha256 \".*\"/sha256 \"${LINUX_ARM64}\"/; }" Formula/symbi.rb
           sed -i "/x86_64-unknown-linux-gnu/{ n; s/sha256 \".*\"/sha256 \"${LINUX_AMD64}\"/; }" Formula/symbi.rb
 
