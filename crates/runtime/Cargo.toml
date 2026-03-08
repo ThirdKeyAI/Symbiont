@@ -85,9 +85,6 @@ dotenvy = "0.15"
 fd-lock = "4.0"
 # OS keychain access dependencies
 keyring = { version = "2.0", optional = true }
-security-framework = { version = "2.9", optional = true }
-secret-service = { version = "3.0", optional = true }
-winapi = { version = "0.3", features = ["wincred"], optional = true }
 
 # Static OpenSSL linking for release binaries
 openssl = { version = "0.10", features = ["vendored"], optional = true }
@@ -126,7 +123,7 @@ vector-qdrant = ["dep:qdrant-client"]
 embedding-models = ["candle-core", "candle-nn", "candle-transformers", "tokenizers", "hf-hub"]
 http-api = ["axum", "tower", "tower-http", "tokio-tungstenite", "governor", "utoipa", "utoipa-swagger-ui"]
 http-input = ["axum", "tower", "tower-http", "dep:jsonwebtoken"]
-keychain = ["keyring", "security-framework", "secret-service", "winapi"]
+keychain = ["keyring"]
 cron = ["dep:cron", "dep:chrono-tz", "dep:rusqlite"]
 native-sandbox = ["rlimit", "libc"]
 cli-executor = ["libc"]
@@ -142,7 +139,14 @@ vendored-openssl = ["openssl"]
 full = ["vector-lancedb", "vector-qdrant", "embedding-models", "http-api", "http-input", "keychain", "cron", "metrics", "composio", "cedar", "cloud-llm"]
 minimal = []  # Minimal build for faster CI
 
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = { version = "2.9", optional = true }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+secret-service = { version = "3.0", optional = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+winapi = { version = "0.3", features = ["wincred"], optional = true }
 
 [[bench]]
 name = "performance_claims"
