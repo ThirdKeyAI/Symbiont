@@ -89,6 +89,9 @@ security-framework = { version = "2.9", optional = true }
 secret-service = { version = "3.0", optional = true }
 winapi = { version = "0.3", features = ["wincred"], optional = true }
 
+# Static OpenSSL linking for release binaries
+openssl = { version = "0.10", features = ["vendored"], optional = true }
+
 # Cedar policy engine (optional)
 cedar-policy = { version = "4", optional = true }
 
@@ -135,6 +138,7 @@ cloud-llm = ["http-input"]  # Cloud LLM inference (Anthropic, OpenAI) — gates 
 standalone-agent = ["cloud-llm", "composio"]  # One-liner for standalone cloud agents
 enterprise = []  # Enterprise sandbox variants (gVisor, Firecracker)
 enterprise-compaction = []  # Enterprise compaction tiers (Tier 2: semantic, Tier 3: vector)
+vendored-openssl = ["openssl"]
 full = ["vector-lancedb", "vector-qdrant", "embedding-models", "http-api", "http-input", "keychain", "cron", "metrics", "composio", "cedar", "cloud-llm"]
 minimal = []  # Minimal build for faster CI
 

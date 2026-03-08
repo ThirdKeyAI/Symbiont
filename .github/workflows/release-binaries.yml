@@ -1,0 +1,240 @@
+name: Release Binaries
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build (e.g. v1.6.1)'
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            use_cross: false
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            use_cross: true
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            use_cross: false
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            use_cross: false
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            use_cross: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install cross (Linux aarch64 only)
+        if: matrix.use_cross
+        run: cargo install cross --locked
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build binary
+        shell: bash
+        run: |
+          if [ "${{ matrix.use_cross }}" = "true" ]; then
+            cross build --release --target ${{ matrix.target }} --features vendored-openssl -j2
+          else
+            cargo build --release --target ${{ matrix.target }} --features vendored-openssl -j2
+          fi
+
+      - name: Determine version
+        id: version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ARCHIVE="symbi-${VERSION}-${{ matrix.target }}.tar.gz"
+          mkdir -p staging
+          cp target/${{ matrix.target }}/release/symbi staging/
+          cp LICENSE README.md staging/
+          cd staging
+          tar czf "../${ARCHIVE}" *
+          cd ..
+          echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ARCHIVE="symbi-${VERSION}-${{ matrix.target }}.zip"
+          mkdir -p staging
+          cp target/${{ matrix.target }}/release/symbi.exe staging/
+          cp LICENSE README.md staging/
+          cd staging
+          7z a "../${ARCHIVE}" *
+          cd ..
+          echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.target }}
+          path: ${{ env.ARCHIVE }}
+
+  checksums:
+    name: Create checksums and upload
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: binary-*
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          sha256sum * > checksums.txt
+          cat checksums.txt
+
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          files: artifacts/*
+          body: |
+            ## Pre-Built Binaries
+
+            > **Note:** Pre-built binaries are tested but considered less reliable than installing via `cargo install symbi` or Docker (`ghcr.io/thirdkeyai/symbi`). If you encounter issues, please try those methods first.
+
+            ### Quick Install
+
+            **macOS / Linux:**
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/thirdkeyai/symbiont/main/scripts/install.sh | bash
+            ```
+
+            **Homebrew (macOS):**
+            ```bash
+            brew tap thirdkeyai/tap
+            brew install symbi
+            ```
+
+            **Manual download:**
+            Download the appropriate binary for your platform from the assets below. Verify checksums with `checksums.txt`.
+
+            ### Checksums
+            See `checksums.txt` attached to this release.
+          append_body: true
+
+  update-homebrew:
+    name: Update Homebrew formula
+    needs: checksums
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: binary-*
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          sha256sum * > checksums.txt
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${{ github.event.release.tag_name }}"
+          fi
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "version=${TAG#v}" >> $GITHUB_OUTPUT
+
+      - name: Update Homebrew formula
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Extract SHA256 values
+          DARWIN_ARM64=$(grep "aarch64-apple-darwin" artifacts/checksums.txt | awk '{print $1}')
+          DARWIN_AMD64=$(grep "x86_64-apple-darwin" artifacts/checksums.txt | awk '{print $1}')
+          LINUX_ARM64=$(grep "aarch64-unknown-linux-gnu" artifacts/checksums.txt | awk '{print $1}')
+          LINUX_AMD64=$(grep "x86_64-unknown-linux-gnu" artifacts/checksums.txt | awk '{print $1}')
+
+          # Clone tap repo
+          git clone https://x-access-token:${GH_TOKEN}@github.com/thirdkeyai/homebrew-tap.git
+          cd homebrew-tap
+
+          # Update version and checksums
+          sed -i "s/version \".*\"/version \"${VERSION}\"/" Formula/symbi.rb
+          sed -i "s/PLACEHOLDER_ARM64_SHA256/${DARWIN_ARM64}/" Formula/symbi.rb
+          sed -i "s/PLACEHOLDER_AMD64_SHA256/${DARWIN_AMD64}/" Formula/symbi.rb
+          sed -i "s/PLACEHOLDER_LINUX_ARM64_SHA256/${LINUX_ARM64}/" Formula/symbi.rb
+          sed -i "s/PLACEHOLDER_LINUX_AMD64_SHA256/${LINUX_AMD64}/" Formula/symbi.rb
+
+          # Handle subsequent updates (non-placeholder)
+          sed -i "/aarch64-apple-darwin/{ n; s/sha256 \".*\"/sha256 \"${DARWIN_ARM64}\"/; }" Formula/symbi.rb
+          sed -i "/x86_64-apple-darwin/{ n; s/sha256 \".*\"/sha256 \"${DARWIN_AMD64}\"/; }" Formula/symbi.rb
+          sed -i "/aarch64-unknown-linux-gnu/{ n; s/sha256 \".*\"/sha256 \"${LINUX_ARM64}\"/; }" Formula/symbi.rb
+          sed -i "/x86_64-unknown-linux-gnu/{ n; s/sha256 \".*\"/sha256 \"${LINUX_AMD64}\"/; }" Formula/symbi.rb
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/symbi.rb
+          git commit -m "Update symbi to ${VERSION}"
+          git push

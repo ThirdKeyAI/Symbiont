@@ -51,24 +51,30 @@ Symbiont is an AI-native agent framework for building autonomous, policy-aware a
 
 ### Quick Installation
 
+**Homebrew (macOS):**
 ```bash
-# Clone the repository
+brew tap thirdkeyai/tap
+brew install symbi
+```
+
+**Install script (macOS / Linux):**
+```bash
+curl -fsSL https://raw.githubusercontent.com/thirdkeyai/symbiont/main/scripts/install.sh | bash
+```
+
+You can also download pre-built binaries from [GitHub Releases](https://github.com/thirdkeyai/symbiont/releases). See the [Getting Started guide](/getting-started) for Docker and source install options.
+
+**Docker:**
+```bash
+docker pull ghcr.io/thirdkeyai/symbi:latest
+docker run --rm symbi:latest --version
+```
+
+**From source:**
+```bash
 git clone https://github.com/thirdkeyai/symbiont.git
 cd symbiont
-
-# Build unified symbi container
-docker build -t symbi:latest .
-
-# Or use pre-built container
-docker pull ghcr.io/thirdkeyai/symbi:latest
-
-# Test the system
-cargo test
-
-# Test the unified CLI
-docker run --rm symbi:latest --version
-docker run --rm -v $(pwd):/workspace symbi:latest dsl parse --help
-docker run --rm symbi:latest mcp --help
+cargo build --release
 ```
 
 ### Your First Agent

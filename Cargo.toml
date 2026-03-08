@@ -68,6 +68,7 @@ default = ["cron"]
 cron = ["symbi-runtime/cron", "dep:cron", "dep:chrono", "dep:chrono-tz"]
 native-sandbox = ["symbi-runtime/native-sandbox"]
 cli-executor = ["symbi-runtime/cli-executor"]
+vendored-openssl = ["symbi-runtime/vendored-openssl"]
 
 [dev-dependencies]
 tracing = "0.1"

@@ -46,7 +46,25 @@ Before getting started with Symbi, ensure you have the following installed:
 
 ## Installation
 
-### Option 1: Docker (Recommended)
+### Option 1: Pre-Built Binaries (Quick Start)
+
+> **Note:** Pre-built binaries are tested but considered less reliable than cargo install or Docker.
+
+**macOS (Homebrew):**
+```bash
+brew tap thirdkeyai/tap
+brew install symbi
+```
+
+**macOS / Linux (install script):**
+```bash
+curl -fsSL https://raw.githubusercontent.com/thirdkeyai/symbiont/main/scripts/install.sh | bash
+```
+
+**Manual download:**
+Download from [GitHub Releases](https://github.com/thirdkeyai/symbiont/releases) and add to your PATH.
+
+### Option 2: Docker (Recommended)
 
 The fastest way to get started is using Docker:
 
@@ -65,7 +83,7 @@ docker pull ghcr.io/thirdkeyai/symbi:latest
 docker run --rm -it -v $(pwd):/workspace symbi:latest bash
 ```
 
-### Option 2: Local Installation
+### Option 3: Local Installation
 
 For local development:
 
