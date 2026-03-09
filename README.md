@@ -1,4 +1,4 @@
-<img src="logo-hz.png" alt="Symbi">
+<img src="https://raw.githubusercontent.com/ThirdKeyAI/Symbiont/main/logo-hz.png" alt="Symbi">
 
 [中文简体](README.zh-cn.md) | [Español](README.es.md) | [Português](README.pt.md) | [日本語](README.ja.md) | [Deutsch](README.de.md)
 
@@ -202,5 +202,5 @@ Contact [ThirdKey](https://thirdkey.ai) for enterprise licensing.
 
 
 <div align="right">
-  <img src="symbi-trans.png" alt="Symbi Logo" width="120">
+  <img src="https://raw.githubusercontent.com/ThirdKeyAI/Symbiont/main/symbi-trans.png" alt="Symbi Logo" width="120">
 </div>
