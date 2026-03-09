@@ -44,6 +44,7 @@ Symbiont is an AI-native agent framework for building autonomous, policy-aware a
 - **🧪 Advanced Reasoning** (`orga-adaptive`): Tool profile filtering, stuck-loop detection, deterministic context pre-fetch, and directory-scoped conventions
 - **📜 Cedar Policy Engine**: Formal authorization language integration for fine-grained access control
 - **🏗️ High Performance**: Rust-native runtime optimized for production workloads with async execution throughout
+- **🤖 AI Assistant Plugins**: First-party governance plugins for [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) and [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli) with Cedar policy enforcement, SchemaPin verification, and audit trails
 
 ---
 
@@ -234,6 +235,7 @@ Symbiont v1.7.0 is the latest stable release, delivering a complete AI agent fra
   - [Security Model](security-model.md)
   - [Runtime Architecture](runtime-architecture.md)
 - **Packages**: [crates.io/crates/symbi](https://crates.io/crates/symbi) | [npm symbiont-sdk-js](https://www.npmjs.com/package/symbiont-sdk-js) | [PyPI symbiont-sdk](https://pypi.org/project/symbiont-sdk/)
+- **Plugins**: [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) | [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli)
 - **Issues**: [GitHub Issues](https://github.com/thirdkeyai/symbiont/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/thirdkeyai/symbiont/discussions)
 - **License**: Open source software by ThirdKey

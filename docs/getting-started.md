@@ -39,6 +39,8 @@ Before getting started with Symbi, ensure you have the following installed:
 ### Optional Dependencies
 
 - **SchemaPin Go CLI** (for tool verification)
+- **[symbi-claude-code](https://github.com/thirdkeyai/symbi-claude-code)** (Claude Code governance plugin)
+- **[symbi-gemini-cli](https://github.com/thirdkeyai/symbi-gemini-cli)** (Gemini CLI governance extension)
 
 > **Note:** Vector search is built in. Symbi ships with [LanceDB](https://lancedb.com/) as an embedded vector database -- no external service required.
 
@@ -357,6 +359,32 @@ cargo build --features "cloud-llm,orga-adaptive,cedar"
 # Build with everything
 cargo build --features full
 ```
+
+---
+
+## AI Assistant Plugins
+
+Symbiont provides first-party governance plugins for popular AI coding assistants. These bring Cedar policy enforcement, SchemaPin tool verification, and cryptographic audit trails directly into your development workflow.
+
+### Claude Code
+
+```bash
+# Install from marketplace
+/plugin marketplace add https://github.com/thirdkeyai/symbi-claude-code
+
+# Available skills: /symbi-init, /symbi-policy, /symbi-verify, /symbi-audit, /symbi-dsl
+```
+
+Supports standalone (advisory) and ORGA-managed (enforced) modes. See [symbi-claude-code](https://github.com/thirdkeyai/symbi-claude-code) for details.
+
+### Gemini CLI
+
+```bash
+# Install extension
+gemini extensions install https://github.com/thirdkeyai/symbi-gemini-cli
+```
+
+See [symbi-gemini-cli](https://github.com/thirdkeyai/symbi-gemini-cli) for details.
 
 ---
 
