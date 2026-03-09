@@ -97,7 +97,7 @@ cargo run -- mcp --port 8080
 * 🧠 **Context Compaction** – Automatic context window management with tiered compaction: LLM-driven summarization (Tier 1) and truncation (Tier 4). Multi-model token counting (OpenAI, Claude, Gemini, Llama, Mistral, and more).
 * 📊 **RAG Engine** – Vector search (LanceDB embedded) with hybrid semantic + keyword retrieval. Optional Qdrant backend for scaled deployments.
 * 🧩 **MCP Integration** – Native support for Model Context Protocol tools, plus Composio SSE integration for external tool access.
-* 🤖 **AI Assistant Plugins** – First-party governance plugins for [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) and [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli) with Cedar policy enforcement, SchemaPin verification, and cryptographic audit trails.
+* 🤖 **AI Assistant Plugins** – First-party governance plugins for [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) and [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli) with three-tier protection: awareness logging, blocking deny lists, and Cedar policy enforcement.
 * 📡 **Optional HTTP API** – Feature-gated REST interface for external integration.
 * 📋 **Delivery Routing** – Route scheduled agent output to webhooks, Slack, email, or custom channels.
 * 📝 **AGENTS.md Support** – Bidirectional agent manifest generation and parsing for interoperability.

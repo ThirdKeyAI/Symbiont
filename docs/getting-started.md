@@ -364,7 +364,20 @@ cargo build --features full
 
 ## AI Assistant Plugins
 
-Symbiont provides first-party governance plugins for popular AI coding assistants. These bring Cedar policy enforcement, SchemaPin tool verification, and cryptographic audit trails directly into your development workflow.
+Symbiont provides first-party governance plugins for popular AI coding assistants with three progressive protection tiers:
+
+1. **Awareness** (default) — advisory logging of all state-modifying tool calls
+2. **Protection** — blocking hook enforces a local deny list (`.symbiont/local-policy.toml`)
+3. **Governance** — Cedar policy evaluation when `symbi` is on PATH
+
+The deny list config is tool-agnostic — the same `.symbiont/local-policy.toml` works with both plugins:
+
+```toml
+[deny]
+paths = [".env", ".ssh/", ".aws/"]
+commands = ["rm -rf", "git push --force"]
+branches = ["main", "master", "production"]
+```
 
 ### Claude Code
 
@@ -375,7 +388,7 @@ Symbiont provides first-party governance plugins for popular AI coding assistant
 # Available skills: /symbi-init, /symbi-policy, /symbi-verify, /symbi-audit, /symbi-dsl
 ```
 
-Supports standalone (advisory) and ORGA-managed (enforced) modes. See [symbi-claude-code](https://github.com/thirdkeyai/symbi-claude-code) for details.
+See [symbi-claude-code](https://github.com/thirdkeyai/symbi-claude-code) for details.
 
 ### Gemini CLI
 
@@ -383,6 +396,8 @@ Supports standalone (advisory) and ORGA-managed (enforced) modes. See [symbi-cla
 # Install extension
 gemini extensions install https://github.com/thirdkeyai/symbi-gemini-cli
 ```
+
+The Gemini CLI extension provides additional defense-in-depth via `excludeTools` manifest blocking and native `policies/*.toml` enforcement at the platform level.
 
 See [symbi-gemini-cli](https://github.com/thirdkeyai/symbi-gemini-cli) for details.
 
