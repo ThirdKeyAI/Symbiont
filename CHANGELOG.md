@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-03-11
+
+### Added
+- **AI Assistant Plugin docs**: Document symbi-claude-code and symbi-gemini-cli governance plugins in README, getting-started, and index docs
+- **SchemaPin discovery JSON**: Support SchemaPin discovery JSON format in `fetch_public_key`
+- **Cosign binary signing**: Release workflow now signs binaries with cosign
+
+### Changed
+- **Drop Intel macOS builds**: Remove x86_64-apple-darwin target from release workflow; install script provides source/Homebrew guidance
+- **Cross-build optimization**: Use thin LTO and 4 codegen units for cross builds to avoid OOM during linking
+- **README images**: Use absolute GitHub URLs for logo images
+
+### Fixed
+- **Release workflow**: Multiple fixes for cross-compilation (protoc in cross container, vcpkg OpenSSL on Windows, NASM for Windows builds)
+- **Publish workflow**: Improved reliability for crates.io publishing
+
+### Crate Versions
+| Crate | Version |
+|-------|---------|
+| `symbi` | 1.7.1 |
+| `symbi-dsl` | 1.7.1 |
+| `symbi-runtime` | 1.7.1 |
+| `symbi-channel-adapter` | 0.1.2 |
+| `repl-core` | 1.7.1 |
+| `repl-proto` | 1.7.1 |
+| `repl-cli` | 1.7.1 |
+| `repl-lsp` | 1.7.1 |
+
 ## [1.7.0] - 2026-03-08
 
 ### Added

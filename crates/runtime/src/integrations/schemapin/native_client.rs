@@ -38,7 +38,12 @@ impl NativeSchemaPinClient {
         Self {}
     }
 
-    /// Fetch public key from URL and return PEM format
+    /// Fetch public key from URL and return PEM format.
+    ///
+    /// Supports two response formats:
+    /// - Raw PEM: response body is the PEM-encoded public key directly
+    /// - SchemaPin discovery JSON: response is a JSON object with a `public_key_pem` field
+    ///   (e.g., from `/.well-known/schemapin.json`)
     async fn fetch_public_key(&self, public_key_url: &str) -> Result<String, SchemaPinError> {
         let response = reqwest::get(public_key_url)
             .await
@@ -52,11 +57,27 @@ impl NativeSchemaPinClient {
             });
         }
 
-        let public_key_pem = response.text().await.map_err(|e| SchemaPinError::IoError {
+        let body = response.text().await.map_err(|e| SchemaPinError::IoError {
             reason: format!("Failed to read public key response: {}", e),
         })?;
 
-        Ok(public_key_pem)
+        // If the response looks like JSON, extract the public_key_pem field
+        let trimmed = body.trim();
+        if trimmed.starts_with('{') {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(trimmed) {
+                if let Some(pem) = json.get("public_key_pem").and_then(|v| v.as_str()) {
+                    return Ok(pem.to_string());
+                }
+                return Err(SchemaPinError::IoError {
+                    reason: format!(
+                        "JSON response from {} does not contain a 'public_key_pem' field",
+                        public_key_url
+                    ),
+                });
+            }
+        }
+
+        Ok(body)
     }
 
     /// Read file contents from filesystem
