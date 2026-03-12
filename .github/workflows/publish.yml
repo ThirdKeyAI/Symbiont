@@ -57,23 +57,28 @@ jobs:
               return 0
             fi
 
-            # Publish
+            # Publish (capture output to detect "already uploaded" errors)
+            local output
             if [ "$crate" = "symbi" ]; then
-              cargo publish
+              output=$(cargo publish 2>&1) || true
             else
-              cargo publish -p "$crate"
+              output=$(cargo publish -p "$crate" 2>&1) || true
             fi
 
-            local exit_code=$?
+            echo "$output"
             echo "::endgroup::"
 
-            if [ $exit_code -ne 0 ]; then
+            # Check if publish succeeded or crate was already uploaded
+            if echo "$output" | grep -q "already uploaded"; then
+              echo "✓ $crate v$version already uploaded, skipping"
+              return 0
+            elif echo "$output" | grep -qE "Published|Uploading.*to registry"; then
+              echo "✓ Published $crate v$version"
+              return 0
+            else
               echo "::error::Failed to publish $crate"
               return 1
             fi
-
-            echo "✓ Published $crate v$version"
-            return 0
           }
 
           # Tier 1: No workspace dependencies
