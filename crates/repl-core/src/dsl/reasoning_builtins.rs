@@ -4,12 +4,17 @@
 //! reasoning loop infrastructure: `reason`, `llm_call`, `parse_json`,
 //! `delegate`, and `tool_call`.
 
+use crate::dsl::agent_composition::{check_comm_policy, log_comm_message};
 use crate::dsl::evaluator::DslValue;
 use crate::error::{ReplError, Result};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
+use symbi_runtime::communication::policy_gate::CommunicationPolicyGate;
+use symbi_runtime::communication::CommunicationBus;
 use symbi_runtime::reasoning::agent_registry::AgentRegistry;
 use symbi_runtime::reasoning::inference::InferenceProvider;
+use symbi_runtime::types::{AgentId, MessageType, RequestId};
 
 /// Shared state for async reasoning builtins.
 #[derive(Clone, Default)]
@@ -18,6 +23,12 @@ pub struct ReasoningBuiltinContext {
     pub provider: Option<Arc<dyn InferenceProvider>>,
     /// Agent registry for multi-agent composition.
     pub agent_registry: Option<Arc<AgentRegistry>>,
+    /// The AgentId of the calling agent (for communication tracking).
+    pub sender_agent_id: Option<AgentId>,
+    /// Communication bus for message tracking and audit.
+    pub comm_bus: Option<Arc<dyn CommunicationBus + Send + Sync>>,
+    /// Communication policy gate for inter-agent authorization.
+    pub comm_policy: Option<Arc<CommunicationPolicyGate>>,
 }
 
 /// Execute the `reason` builtin: runs a full reasoning loop.
@@ -44,7 +55,6 @@ pub async fn builtin_reason(args: &[DslValue], ctx: &ReasoningBuiltinContext) ->
     use symbi_runtime::reasoning::loop_types::{BufferedJournal, LoopConfig};
     use symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate;
     use symbi_runtime::reasoning::reasoning_loop::ReasoningLoopRunner;
-    use symbi_runtime::types::AgentId;
 
     let runner = ReasoningLoopRunner {
         provider: Arc::clone(provider),
@@ -240,6 +250,35 @@ pub async fn builtin_delegate(
         }
     };
 
+    // Communication bus wiring: resolve recipient (fallback for unregistered agents)
+    let recipient_id = if let Some(registry) = &ctx.agent_registry {
+        registry
+            .get_agent(&agent_name)
+            .await
+            .map(|a| a.agent_id)
+            .unwrap_or_default()
+    } else {
+        AgentId::new()
+    };
+    let sender_id = ctx.sender_agent_id.unwrap_or_default();
+    let request_id = RequestId::new();
+
+    check_comm_policy(
+        ctx,
+        sender_id,
+        recipient_id,
+        MessageType::Request(request_id),
+    )?;
+    log_comm_message(
+        ctx,
+        sender_id,
+        recipient_id,
+        &message,
+        MessageType::Request(request_id),
+        Duration::from_secs(30),
+    )
+    .await;
+
     // Use inference provider to simulate delegation (each agent is a separate conversation)
     let provider = ctx
         .provider
@@ -261,6 +300,16 @@ pub async fn builtin_delegate(
         .map_err(|e| {
             ReplError::Execution(format!("Delegation to '{}' failed: {}", agent_name, e))
         })?;
+
+    log_comm_message(
+        ctx,
+        recipient_id,
+        sender_id,
+        &response.content,
+        MessageType::Response(request_id),
+        Duration::from_secs(30),
+    )
+    .await;
 
     Ok(DslValue::String(response.content))
 }

@@ -25,6 +25,7 @@ uuid = { version = "1.0", features = ["v4", "serde"] }
 tokio = { version = "1.0", features = ["sync"] }
 tracing = "0.1"
 futures = "0.3"
+bytes = "1.0"
 symbi-runtime = { path = "../runtime", version = "1.7.1", features = ["http-input"] }
 
 [dev-dependencies]

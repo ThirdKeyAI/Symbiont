@@ -213,6 +213,21 @@ async fn main() {
                 ),
         )
         .subcommand(
+            Command::new("init")
+                .about("Initialize a governed Symbiont project in the current directory")
+                .arg(Arg::new("profile").long("profile").value_name("PROFILE").help("Project profile (minimal, assistant, dev-agent, multi-agent)"))
+                .arg(Arg::new("schemapin").long("schemapin").value_name("MODE").help("SchemaPin verification mode (tofu, strict, disabled)").default_value("tofu"))
+                .arg(Arg::new("sandbox").long("sandbox").value_name("TIER").help("Sandbox isolation tier (tier0, tier1, tier2)").default_value("tier1"))
+                .arg(Arg::new("force").long("force").action(ArgAction::SetTrue).help("Overwrite existing symbiont.toml"))
+                .arg(Arg::new("no-interact").long("no-interact").action(ArgAction::SetTrue).help("Skip interactive prompts (use defaults or --flags)"))
+                .arg(
+                    Arg::new("catalog")
+                        .long("catalog")
+                        .value_name("AGENTS")
+                        .help("Comma-separated agent names to import, or 'list' to show available")
+                )
+        )
+        .subcommand(
             Command::new("mcp")
                 .about("Start MCP server (stdio transport) for AI assistant integration"),
         )
@@ -515,6 +530,9 @@ async fn main() {
         }
         Some(("new", sub_matches)) => {
             commands::new::run(sub_matches).await;
+        }
+        Some(("init", sub_matches)) => {
+            commands::init::run(sub_matches).await;
         }
         Some(("mcp", _sub_matches)) => {
             mcp_server::start_mcp_server().await.unwrap_or_else(|e| {

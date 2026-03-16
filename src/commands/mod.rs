@@ -3,6 +3,7 @@ pub mod chat;
 pub mod cron;
 pub mod doctor;
 pub mod dsl;
+pub mod init;
 pub mod logs;
 pub mod new;
 pub mod skills;

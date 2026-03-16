@@ -8,6 +8,9 @@ use crate::dsl::evaluator::DslValue;
 use crate::dsl::reasoning_builtins::ReasoningBuiltinContext;
 use crate::error::{ReplError, Result};
 use std::collections::HashMap;
+use std::time::Duration;
+use symbi_runtime::communication::policy_gate::CommunicationRequest;
+use symbi_runtime::types::{AgentId, MessageType, RequestId};
 
 /// Execute the `spawn_agent` builtin: register a new named agent.
 ///
@@ -62,10 +65,41 @@ pub async fn builtin_ask(args: &[DslValue], ctx: &ReasoningBuiltinContext) -> Re
 
     let (agent_name, message) = parse_ask_args(args)?;
 
+    // Communication bus wiring: policy check + message logging
+    let recipient_id = resolve_agent_id(&agent_name, ctx).await?;
+    let sender_id = ctx.sender_agent_id.unwrap_or_default();
+    let request_id = RequestId::new();
+
+    check_comm_policy(
+        ctx,
+        sender_id,
+        recipient_id,
+        MessageType::Request(request_id),
+    )?;
+    log_comm_message(
+        ctx,
+        sender_id,
+        recipient_id,
+        &message,
+        MessageType::Request(request_id),
+        Duration::from_secs(30),
+    )
+    .await;
+
     let response = registry
         .ask_agent(&agent_name, &message, provider.as_ref())
         .await
         .map_err(|e| ReplError::Execution(format!("ask({}) failed: {}", agent_name, e)))?;
+
+    log_comm_message(
+        ctx,
+        recipient_id,
+        sender_id,
+        &response,
+        MessageType::Response(request_id),
+        Duration::from_secs(30),
+    )
+    .await;
 
     Ok(DslValue::String(response))
 }
@@ -90,12 +124,25 @@ pub async fn builtin_send_to(args: &[DslValue], ctx: &ReasoningBuiltinContext) -
 
     let (agent_name, message) = parse_ask_args(args)?;
 
-    if !registry.has_agent(&agent_name).await {
-        return Err(ReplError::Execution(format!(
-            "Agent '{}' not found",
-            agent_name
-        )));
-    }
+    // Communication bus wiring: policy check + message logging
+    let recipient_id = resolve_agent_id(&agent_name, ctx).await?;
+    let sender_id = ctx.sender_agent_id.unwrap_or_default();
+
+    check_comm_policy(
+        ctx,
+        sender_id,
+        recipient_id,
+        MessageType::Direct(recipient_id),
+    )?;
+    log_comm_message(
+        ctx,
+        sender_id,
+        recipient_id,
+        &message,
+        MessageType::Direct(recipient_id),
+        Duration::from_secs(30),
+    )
+    .await;
 
     // Fire-and-forget: spawn a background task
     let registry = registry.clone();
@@ -131,15 +178,66 @@ pub async fn builtin_parallel(
 
     let tasks = parse_parallel_args(args)?;
 
+    // Pre-spawn policy checks: all must pass before any task is spawned
+    let sender_id = ctx.sender_agent_id.unwrap_or_default();
+    let mut checked_tasks = Vec::new();
+    for (agent_name, message) in &tasks {
+        let recipient_id = resolve_agent_id(agent_name, ctx).await?;
+        let request_id = RequestId::new();
+        check_comm_policy(
+            ctx,
+            sender_id,
+            recipient_id,
+            MessageType::Request(request_id),
+        )?;
+        checked_tasks.push((
+            agent_name.clone(),
+            message.clone(),
+            recipient_id,
+            request_id,
+        ));
+    }
+
+    // All checks passed — log outbound messages and spawn tasks
+    let comm_bus = ctx.comm_bus.clone();
     let mut handles = Vec::new();
-    for (agent_name, message) in tasks {
+    for (agent_name, message, recipient_id, request_id) in checked_tasks {
+        log_comm_message(
+            ctx,
+            sender_id,
+            recipient_id,
+            &message,
+            MessageType::Request(request_id),
+            Duration::from_secs(30),
+        )
+        .await;
+
         let registry = registry.clone();
         let provider = provider.clone();
+        let bus = comm_bus.clone();
         handles.push(tokio::spawn(async move {
-            registry
+            let result = registry
                 .ask_agent(&agent_name, &message, provider.as_ref())
                 .await
-                .map_err(|e| format!("{}", e))
+                .map_err(|e| format!("{}", e));
+
+            // Log response via cloned bus
+            if let Ok(ref response) = result {
+                if let Some(ref bus) = bus {
+                    let msg = bus.create_internal_message(
+                        recipient_id,
+                        sender_id,
+                        bytes::Bytes::from(response.clone()),
+                        MessageType::Response(request_id),
+                        Duration::from_secs(30),
+                    );
+                    if let Err(e) = bus.send_message(msg).await {
+                        tracing::warn!("Failed to log inter-agent response: {}", e);
+                    }
+                }
+            }
+
+            result
         }));
     }
 
@@ -188,15 +286,66 @@ pub async fn builtin_race(args: &[DslValue], ctx: &ReasoningBuiltinContext) -> R
         ));
     }
 
+    // Pre-spawn policy checks: all must pass before any task is spawned
+    let sender_id = ctx.sender_agent_id.unwrap_or_default();
+    let mut checked_tasks = Vec::new();
+    for (agent_name, message) in &tasks {
+        let recipient_id = resolve_agent_id(agent_name, ctx).await?;
+        let request_id = RequestId::new();
+        check_comm_policy(
+            ctx,
+            sender_id,
+            recipient_id,
+            MessageType::Request(request_id),
+        )?;
+        checked_tasks.push((
+            agent_name.clone(),
+            message.clone(),
+            recipient_id,
+            request_id,
+        ));
+    }
+
+    // All checks passed — log outbound messages and spawn tasks
+    let comm_bus = ctx.comm_bus.clone();
     let mut join_set = tokio::task::JoinSet::new();
-    for (agent_name, message) in tasks {
+    for (agent_name, message, recipient_id, request_id) in checked_tasks {
+        log_comm_message(
+            ctx,
+            sender_id,
+            recipient_id,
+            &message,
+            MessageType::Request(request_id),
+            Duration::from_secs(30),
+        )
+        .await;
+
         let registry = registry.clone();
         let provider = provider.clone();
+        let bus = comm_bus.clone();
         join_set.spawn(async move {
-            registry
+            let result = registry
                 .ask_agent(&agent_name, &message, provider.as_ref())
                 .await
-                .map_err(|e| format!("{}", e))
+                .map_err(|e| format!("{}", e));
+
+            // Log response via cloned bus
+            if let Ok(ref response) = result {
+                if let Some(ref bus) = bus {
+                    let msg = bus.create_internal_message(
+                        recipient_id,
+                        sender_id,
+                        bytes::Bytes::from(response.clone()),
+                        MessageType::Response(request_id),
+                        Duration::from_secs(30),
+                    );
+                    if let Err(e) = bus.send_message(msg).await {
+                        tracing::warn!("Failed to log inter-agent response: {}", e);
+                    }
+                }
+            }
+
+            result
         });
     }
 
@@ -218,6 +367,67 @@ pub async fn builtin_race(args: &[DslValue], ctx: &ReasoningBuiltinContext) -> R
             Err(ReplError::Execution(format!("race: task panic: {}", e)))
         }
         None => Err(ReplError::Execution("race: no tasks to run".into())),
+    }
+}
+
+// --- Communication helpers ---
+
+/// Resolve an agent name to its AgentId via the registry.
+pub(crate) async fn resolve_agent_id(name: &str, ctx: &ReasoningBuiltinContext) -> Result<AgentId> {
+    let registry = ctx
+        .agent_registry
+        .as_ref()
+        .ok_or_else(|| ReplError::Execution("No agent registry configured".into()))?;
+
+    registry
+        .get_agent(name)
+        .await
+        .map(|agent| agent.agent_id)
+        .ok_or_else(|| ReplError::Execution(format!("Unknown agent: {}", name)))
+}
+
+/// Check communication policy. Returns Ok(()) if allowed or if no policy gate is configured.
+pub(crate) fn check_comm_policy(
+    ctx: &ReasoningBuiltinContext,
+    sender: AgentId,
+    recipient: AgentId,
+    message_type: MessageType,
+) -> Result<()> {
+    if let Some(policy) = &ctx.comm_policy {
+        let request = CommunicationRequest {
+            sender,
+            recipient,
+            message_type,
+            topic: None,
+        };
+        policy
+            .evaluate(&request)
+            .map_err(|e| ReplError::Execution(format!("Inter-agent communication denied: {}", e)))
+    } else {
+        Ok(())
+    }
+}
+
+/// Log an outbound message via the CommunicationBus. Best-effort (errors logged, not propagated).
+pub(crate) async fn log_comm_message(
+    ctx: &ReasoningBuiltinContext,
+    sender: AgentId,
+    recipient: AgentId,
+    payload: &str,
+    message_type: MessageType,
+    ttl: Duration,
+) {
+    if let Some(bus) = &ctx.comm_bus {
+        let msg = bus.create_internal_message(
+            sender,
+            recipient,
+            bytes::Bytes::from(payload.to_string()),
+            message_type,
+            ttl,
+        );
+        if let Err(e) = bus.send_message(msg).await {
+            tracing::warn!("Failed to log inter-agent message: {}", e);
+        }
     }
 }
 

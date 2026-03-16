@@ -61,6 +61,9 @@ impl RuntimeBridge {
         crate::dsl::reasoning_builtins::ReasoningBuiltinContext {
             provider,
             agent_registry: Some(Arc::clone(&self.agent_registry)),
+            sender_agent_id: None,
+            comm_bus: None,
+            comm_policy: None,
         }
     }
 

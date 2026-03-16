@@ -173,6 +173,9 @@ pub enum CommunicationError {
 
     #[error("Request cancelled: {request_id}")]
     RequestCancelled { request_id: RequestId },
+
+    #[error("Policy denied: {reason}")]
+    PolicyDenied { reason: String },
 }
 
 /// Policy enforcement errors
