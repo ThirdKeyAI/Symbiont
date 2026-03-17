@@ -51,7 +51,15 @@ graph TB
         ACB[Agent Communication Bus]
         AEH[Agent Error Handler]
     end
-    
+
+    subgraph "Reasoning Loop"
+        RL[ReasoningLoopRunner]
+        IP[Inference Provider]
+        PG[Policy Gate]
+        AE[Action Executor]
+        KBR[Knowledge Bridge]
+    end
+
     subgraph "Context & Knowledge"
         ACM[Agent Context Manager]
         VDB[Vector Database]
@@ -79,10 +87,17 @@ graph TB
     
     ARS --> ACM
     ARS --> PE
+    ARS --> RL
     ALC --> SO
     ACB --> CRYPTO
     ACM --> VDB
     ACM --> RAG
+    RL --> IP
+    RL --> PG
+    RL --> AE
+    KBR --> ACM
+    KBR --> RL
+    PG --> PE
     SO --> T1
     SO --> T2
     MCP --> TV
@@ -266,6 +281,22 @@ pub struct SecureMessage {
     pub timestamp: SystemTime,
 }
 ```
+
+### Portão de Políticas de Comunicação
+
+O `CommunicationPolicyGate` fica entre os builtins do DSL e o CommunicationBus. Todos os cinco builtins inter-agente (`ask`, `delegate`, `send_to`, `parallel`, `race`) são roteados através dele:
+
+1. **Avaliação de políticas** — regras no estilo Cedar verificadas antes de qualquer mensagem ser enviada
+2. **Criação de mensagem** — `SecureMessage` com assinatura Ed25519 e criptografia AES-256-GCM
+3. **Rastreamento de entrega** — status da mensagem e trilha de auditoria via o CommunicationBus
+4. **Registro de respostas** — pares de requisição/resposta rastreados com correlação `RequestId`
+
+Quando o portão de políticas não está configurado (por exemplo, REPL autônomo), os builtins se comportam de forma idêntica à implementação original — sem verificação de política, sem rastreamento de mensagens. Isso preserva a compatibilidade com versões anteriores.
+
+O `ReasoningBuiltinContext` carrega três campos opcionais:
+- `sender_agent_id` — identidade do agente chamador
+- `comm_bus` — referência ao CommunicationBus para roteamento de mensagens
+- `comm_policy` — referência ao CommunicationPolicyGate para autorização
 
 ---
 

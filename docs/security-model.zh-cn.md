@@ -176,6 +176,7 @@ graph TB
     E --> H[Message Routing]
     E --> I[Tool Invocation]
     E --> J[Data Operations]
+    E --> CPG[Inter-Agent Policy]
 
     K[Audit Logger] --> L[Policy Violations]
     E --> K
@@ -300,6 +301,27 @@ let runner = ReasoningLoopRunner::builder()
     .executor(executor)
     .policy_gate(Arc::new(cedar_gate))
     .build();
+```
+
+### 智能体间通信策略
+
+`CommunicationPolicyGate` 为所有智能体间通信强制执行授权规则。通过 `ask`、`delegate`、`send_to`、`parallel` 或 `race` 发起的每次调用都会在执行前经过策略规则评估。
+
+**规则结构：**
+- **条件**：`SenderIs(agent)`、`RecipientIs(agent)`、`Always`、组合 `All`/`Any`
+- **效果**：`Allow` 或 `Deny { reason }`
+- **优先级**：规则按优先级从高到低评估；首个匹配生效
+- **默认**：允许（向后兼容——现有项目无需修改即可正常运行）
+
+**策略拒绝是硬失败** —— 调用方智能体通过 ORGA 循环收到错误并可进行推理。所有智能体间消息通过 Ed25519 进行密码学签名，并使用 AES-256-GCM 加密。
+
+示例策略：阻止工作器智能体向其他智能体委派任务：
+```cedar
+forbid(
+    principal == Agent::"worker",
+    action == Action::"delegate",
+    resource
+);
 ```
 
 ---

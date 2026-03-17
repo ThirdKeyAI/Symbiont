@@ -43,6 +43,15 @@ Symbiont ist ein KI-natives Agent-Framework fuer den Aufbau autonomer, richtlini
 - **🧪 Erweitertes Reasoning** (`orga-adaptive`): Tool-Profilfilterung, Stuck-Loop-Erkennung, deterministischer Kontext-Pre-Fetch und verzeichnisspezifische Konventionen
 - **📜 Cedar Policy Engine**: Integration der formalen Autorisierungssprache fuer feingranulare Zugriffskontrolle
 - **🏗️ Hohe Leistung**: Rust-native Laufzeitumgebung, optimiert fuer Produktionsworkloads mit durchgehender asynchroner Ausfuehrung
+- **🤖 KI-Assistenten-Plugins**: First-Party-Governance-Plugins fuer [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) und [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli) mit Cedar-Richtliniendurchsetzung, SchemaPin-Verifikation und Audit-Spuren
+
+### Projektinitialisierung (`symbi init`)
+
+Interaktives Projekt-Scaffolding mit profilbasierten Vorlagen. Waehlen Sie zwischen minimal, assistant, dev-agent oder multi-agent Profilen. Konfigurierbarer SchemaPin-Verifikationsmodus und Sandbox-Stufen. Enthaelt einen integrierten Agent-Katalog zum Importieren vorgefertigter, verwalteter Agenten. Funktioniert nicht-interaktiv fuer CI/CD-Pipelines mit `--no-interact`.
+
+### Inter-Agent-Kommunikations-Governance
+
+Alle Inter-Agent-Builtins (`ask`, `delegate`, `send_to`, `parallel`, `race`) werden ueber den CommunicationBus mit Richtlinienbewertung geleitet. Das `CommunicationPolicyGate` erzwingt Cedar-Stil-Regeln fuer Inter-Agent-Aufrufe -- kontrolliert, welche Agenten kommunizieren duerfen, mit prioritaetsbasierter Regelbewertung und hartem Deny bei Richtlinienverletzungen. Nachrichten werden kryptographisch signiert, verschluesselt und auditiert.
 
 ---
 
@@ -185,9 +194,9 @@ graph TB
 
 ## Projektstatus
 
-### v1.7.0 Stabil
+### v1.7.1 Stabil
 
-Symbiont v1.7.0 ist die neueste stabile Version und bietet ein vollstaendiges KI-Agent-Framework mit produktionsreifen Funktionen:
+Symbiont v1.7.1 ist die neueste stabile Version und bietet ein vollstaendiges KI-Agent-Framework mit produktionsreifen Funktionen:
 
 - **Agentische Reasoning-Schleife**: Typestate-erzwungener ORGA-Zyklus mit Multi-Turn-Konversation, Cloud- und SLM-Inferenz, Circuit Breakern, dauerhaftem Journal und Wissensbruecke
 - **Erweiterte Reasoning-Primitiven** (`orga-adaptive`): Tool-Profilfilterung, schrittweise Stuck-Loop-Erkennung, deterministischer Kontext-Pre-Fetch und verzeichnisspezifische Konventionen
@@ -209,6 +218,8 @@ Symbiont v1.7.0 ist die neueste stabile Version und bietet ein vollstaendiges KI
 - **JavaScript- und Python-SDKs**: Vollstaendige API-Clients fuer Scheduling, Channels, Webhooks, Speicher, Skills und Metriken
 
 ### 🔮 v1.7.0 Roadmap
+- ~~Inter-Agent-Kommunikations-Governance~~ ✅ Ausgeliefert
+- ~~Projektinitialisierung (`symbi init`)~~ ✅ Ausgeliefert
 - Externe Agent-Integration und A2A-Protokollunterstuetzung
 - Multi-modale RAG-Unterstuetzung (Bilder, Audio, strukturierte Daten)
 - Zusaetzliche Channel-Adapter (Discord, Matrix)
@@ -227,6 +238,7 @@ Symbiont v1.7.0 ist die neueste stabile Version und bietet ein vollstaendiges KI
   - [Sicherheitsmodell](security-model.md)
   - [Laufzeit-Architektur](runtime-architecture.md)
 - **Pakete**: [crates.io/crates/symbi](https://crates.io/crates/symbi) | [npm symbiont-sdk-js](https://www.npmjs.com/package/symbiont-sdk-js) | [PyPI symbiont-sdk](https://pypi.org/project/symbiont-sdk/)
+- **Plugins**: [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) | [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli)
 - **Issues**: [GitHub Issues](https://github.com/thirdkeyai/symbiont/issues)
 - **Diskussionen**: [GitHub Discussions](https://github.com/thirdkeyai/symbiont/discussions)
 - **Lizenz**: Open Source Software von ThirdKey

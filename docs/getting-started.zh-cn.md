@@ -108,6 +108,60 @@ docker run --rm symbi:latest mcp --help
 
 ---
 
+## 项目初始化
+
+启动新 Symbiont 项目的最快方式是 `symbi init`：
+
+```bash
+symbi init
+```
+
+这将启动一个交互式向导，引导您完成：
+- **配置文件选择**：`minimal`、`assistant`、`dev-agent` 或 `multi-agent`
+- **SchemaPin 模式**：`tofu`（首次使用信任）、`strict` 或 `disabled`
+- **沙箱层级**：`tier0`（无）、`tier1`（Docker）或 `tier2`（gVisor）
+
+### 非交互模式
+
+用于 CI/CD 或脚本化设置：
+
+```bash
+symbi init --profile assistant --schemapin tofu --sandbox tier1 --no-interact
+```
+
+### 配置文件
+
+| 配置文件 | 创建的内容 |
+|---------|-----------|
+| `minimal` | `symbiont.toml` + 默认 Cedar 策略 |
+| `assistant` | + 单个治理助手智能体 |
+| `dev-agent` | + 带安全策略的 CliExecutor 智能体 |
+| `multi-agent` | + 协调器/工作器智能体及智能体间策略 |
+
+### 从目录导入
+
+在任何配置文件旁导入预构建的智能体：
+
+```bash
+symbi init --profile minimal --no-interact
+symbi init --catalog assistant,dev
+```
+
+列出可用的目录智能体：
+
+```bash
+symbi init --catalog list
+```
+
+初始化完成后，验证并启动：
+
+```bash
+symbi dsl -f agents/assistant.dsl   # 验证您的智能体
+symbi up                             # 启动运行时
+```
+
+---
+
 ## 您的第一个智能体
 
 让我们创建一个简单的数据分析智能体来了解 Symbi 的基础知识。
@@ -330,6 +384,7 @@ cd crates/runtime && cargo run --example context_example
 | `cron` | 持久化 cron 调度 | 否 |
 | `native-sandbox` | 原生进程沙箱 | 否 |
 | `metrics` | OpenTelemetry 指标/追踪 | 否 |
+| `interactive` | `symbi init` 的交互式提示（dialoguer） | 默认 |
 | `full` | 所有特性（企业版除外） | 否 |
 
 ```bash

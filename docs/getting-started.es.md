@@ -39,6 +39,8 @@ Antes de comenzar con Symbi, asegurate de tener lo siguiente instalado:
 ### Dependencias Opcionales
 
 - **SchemaPin Go CLI** (para verificacion de herramientas)
+- **[symbi-claude-code](https://github.com/thirdkeyai/symbi-claude-code)** (plugin de gobernanza para Claude Code)
+- **[symbi-gemini-cli](https://github.com/thirdkeyai/symbi-gemini-cli)** (extension de gobernanza para Gemini CLI)
 
 > **Nota:** La busqueda vectorial esta integrada. Symbi incluye [LanceDB](https://lancedb.com/) como base de datos vectorial embebida -- no se necesita ningun servicio externo.
 
@@ -46,7 +48,25 @@ Antes de comenzar con Symbi, asegurate de tener lo siguiente instalado:
 
 ## Instalacion
 
-### Opcion 1: Docker (Recomendado)
+### Opcion 1: Binarios Preconstruidos (Inicio Rapido)
+
+> **Nota:** Los binarios preconstruidos estan probados pero se consideran menos confiables que cargo install o Docker.
+
+**macOS (Homebrew):**
+```bash
+brew tap thirdkeyai/tap
+brew install symbi
+```
+
+**macOS / Linux (script de instalacion):**
+```bash
+curl -fsSL https://raw.githubusercontent.com/thirdkeyai/symbiont/main/scripts/install.sh | bash
+```
+
+**Descarga manual:**
+Descargar desde [GitHub Releases](https://github.com/thirdkeyai/symbiont/releases) y agregar al PATH.
+
+### Opcion 2: Docker (Recomendado)
 
 La forma mas rapida de empezar es usando Docker:
 
@@ -65,7 +85,7 @@ docker pull ghcr.io/thirdkeyai/symbi:latest
 docker run --rm -it -v $(pwd):/workspace symbi:latest bash
 ```
 
-### Opcion 2: Instalacion Local
+### Opcion 3: Instalacion Local
 
 Para desarrollo local:
 
@@ -104,6 +124,60 @@ cargo run -- mcp --help
 docker run --rm symbi:latest --version
 docker run --rm -v $(pwd):/workspace symbi:latest dsl parse --help
 docker run --rm symbi:latest mcp --help
+```
+
+---
+
+## Inicializacion de Proyecto
+
+La forma mas rapida de iniciar un nuevo proyecto Symbiont es `symbi init`:
+
+```bash
+symbi init
+```
+
+Esto lanza un asistente interactivo que te guia a traves de:
+- **Seleccion de perfil**: `minimal`, `assistant`, `dev-agent` o `multi-agent`
+- **Modo SchemaPin**: `tofu` (Trust-On-First-Use), `strict` o `disabled`
+- **Nivel de sandbox**: `tier0` (ninguno), `tier1` (Docker) o `tier2` (gVisor)
+
+### Modo no interactivo
+
+Para CI/CD o configuraciones por script:
+
+```bash
+symbi init --profile assistant --schemapin tofu --sandbox tier1 --no-interact
+```
+
+### Perfiles
+
+| Perfil | Que crea |
+|--------|----------|
+| `minimal` | `symbiont.toml` + politica Cedar por defecto |
+| `assistant` | + un agente asistente gobernado |
+| `dev-agent` | + agente CliExecutor con politicas de seguridad |
+| `multi-agent` | + agentes coordinador/worker con politicas inter-agente |
+
+### Importar desde el catalogo
+
+Importa agentes preconstruidos junto con cualquier perfil:
+
+```bash
+symbi init --profile minimal --no-interact
+symbi init --catalog assistant,dev
+```
+
+Listar agentes disponibles en el catalogo:
+
+```bash
+symbi init --catalog list
+```
+
+Despues de la inicializacion, valida e inicia:
+
+```bash
+symbi dsl -f agents/assistant.dsl   # validate your agent
+symbi up                             # start the runtime
 ```
 
 ---
@@ -330,6 +404,7 @@ cd crates/runtime && cargo run --example context_example
 | `cron` | Programacion cron persistente | No |
 | `native-sandbox` | Sandboxing nativo de procesos | No |
 | `metrics` | Metricas/trazado OpenTelemetry | No |
+| `interactive` | Prompts interactivos para `symbi init` (dialoguer) | Si |
 | `full` | Todas las funciones excepto enterprise | No |
 
 ```bash

@@ -176,6 +176,7 @@ graph TB
     E --> H[Message Routing]
     E --> I[Tool Invocation]
     E --> J[Data Operations]
+    E --> CPG[Inter-Agent Policy]
 
     K[Audit Logger] --> L[Policy Violations]
     E --> K
@@ -300,6 +301,27 @@ let runner = ReasoningLoopRunner::builder()
     .executor(executor)
     .policy_gate(Arc::new(cedar_gate))
     .build();
+```
+
+### エージェント間通信ポリシー
+
+`CommunicationPolicyGate` はすべてのエージェント間通信に対する認可ルールを実行します。`ask`、`delegate`、`send_to`、`parallel`、`race` を通じたすべての呼び出しは、実行前にポリシールールに対して評価されます。
+
+**ルール構造：**
+- **条件**: `SenderIs(agent)`、`RecipientIs(agent)`、`Always`、複合 `All`/`Any`
+- **効果**: `Allow` または `Deny { reason }`
+- **優先度**: ルールは優先度の高い順に評価され、最初にマッチしたものが適用
+- **デフォルト**: Allow（後方互換性 -- 既存のプロジェクトはそのまま動作）
+
+**ポリシー拒否はハードフェイル** -- 呼び出し元のエージェントはORGAループを通じてエラーを受け取り、それについて推論できます。すべてのエージェント間メッセージはEd25519で暗号署名され、AES-256-GCMで暗号化されます。
+
+ワーカーエージェントが他のエージェントに委任することを禁止するポリシーの例：
+```cedar
+forbid(
+    principal == Agent::"worker",
+    action == Action::"delegate",
+    resource
+);
 ```
 
 ---

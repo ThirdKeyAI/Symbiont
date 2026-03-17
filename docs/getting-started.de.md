@@ -108,6 +108,60 @@ docker run --rm symbi:latest mcp --help
 
 ---
 
+## Projektinitialisierung
+
+Der schnellste Weg, ein neues Symbiont-Projekt zu starten, ist `symbi init`:
+
+```bash
+symbi init
+```
+
+Dies startet einen interaktiven Assistenten, der Sie durch Folgendes fuehrt:
+- **Profilauswahl**: `minimal`, `assistant`, `dev-agent` oder `multi-agent`
+- **SchemaPin-Modus**: `tofu` (Trust-On-First-Use), `strict` oder `disabled`
+- **Sandbox-Stufe**: `tier0` (keine), `tier1` (Docker) oder `tier2` (gVisor)
+
+### Nicht-interaktiver Modus
+
+Fuer CI/CD oder skriptbasierte Setups:
+
+```bash
+symbi init --profile assistant --schemapin tofu --sandbox tier1 --no-interact
+```
+
+### Profile
+
+| Profil | Was erstellt wird |
+|--------|------------------|
+| `minimal` | `symbiont.toml` + Standard-Cedar-Richtlinie |
+| `assistant` | + einzelner verwalteter Assistenten-Agent |
+| `dev-agent` | + CliExecutor-Agent mit Sicherheitsrichtlinien |
+| `multi-agent` | + Koordinator-/Worker-Agenten mit Inter-Agent-Richtlinien |
+
+### Aus dem Katalog importieren
+
+Vorgefertigte Agenten neben jedem Profil importieren:
+
+```bash
+symbi init --profile minimal --no-interact
+symbi init --catalog assistant,dev
+```
+
+Verfuegbare Katalog-Agenten auflisten:
+
+```bash
+symbi init --catalog list
+```
+
+Nach der Initialisierung validieren und starten:
+
+```bash
+symbi dsl -f agents/assistant.dsl   # Ihren Agenten validieren
+symbi up                             # Die Laufzeitumgebung starten
+```
+
+---
+
 ## Ihr erster Agent
 
 Lassen Sie uns einen einfachen Datenanalyse-Agenten erstellen, um die Grundlagen von Symbi zu verstehen.
@@ -330,6 +384,7 @@ cd crates/runtime && cargo run --example context_example
 | `cron` | Persistentes Cron-Scheduling | Nein |
 | `native-sandbox` | Native Prozess-Sandbox | Nein |
 | `metrics` | OpenTelemetry Metriken/Tracing | Nein |
+| `interactive` | Interaktive Eingabeaufforderungen fuer `symbi init` (dialoguer) | Standard |
 | `full` | Alle Features ausser Enterprise | Nein |
 
 ```bash

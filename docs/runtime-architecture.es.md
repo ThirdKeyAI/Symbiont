@@ -51,38 +51,53 @@ graph TB
         ACB[Agent Communication Bus]
         AEH[Agent Error Handler]
     end
-    
+
+    subgraph "Reasoning Loop"
+        RL[ReasoningLoopRunner]
+        IP[Inference Provider]
+        PG[Policy Gate]
+        AE[Action Executor]
+        KBR[Knowledge Bridge]
+    end
+
     subgraph "Context & Knowledge"
         ACM[Agent Context Manager]
         VDB[Vector Database]
         RAG[RAG Engine]
         KB[Knowledge Base]
     end
-    
+
     subgraph "Security & Policy"
         PE[Policy Engine]
         AT[Audit Trail]
         SO[Sandbox Orchestrator]
         CRYPTO[Crypto Operations]
     end
-    
+
     subgraph "External Integration"
         MCP[MCP Client]
         TV[Tool Verification]
         API[HTTP API]
     end
-    
+
     subgraph "Sandbox Tiers"
         T1[Tier 1: Docker]
         T2[Tier 2: gVisor]
     end
-    
+
     ARS --> ACM
     ARS --> PE
+    ARS --> RL
     ALC --> SO
     ACB --> CRYPTO
     ACM --> VDB
     ACM --> RAG
+    RL --> IP
+    RL --> PG
+    RL --> AE
+    KBR --> ACM
+    KBR --> RL
+    PG --> PE
     SO --> T1
     SO --> T2
     MCP --> TV
@@ -266,6 +281,22 @@ pub struct SecureMessage {
     pub timestamp: SystemTime,
 }
 ```
+
+### Compuerta de Politica de Comunicacion
+
+El `CommunicationPolicyGate` se ubica entre los builtins del DSL y el CommunicationBus. Los cinco builtins inter-agente (`ask`, `delegate`, `send_to`, `parallel`, `race`) se enrutan a traves de el:
+
+1. **Evaluacion de politica** — reglas de estilo Cedar verificadas antes de enviar cualquier mensaje
+2. **Creacion de mensaje** — `SecureMessage` con firma Ed25519 y cifrado AES-256-GCM
+3. **Seguimiento de entrega** — estado del mensaje y rastro de auditoria via el CommunicationBus
+4. **Registro de respuesta** — pares solicitud/respuesta rastreados con correlacion `RequestId`
+
+Cuando la compuerta de politica no esta configurada (por ejemplo, REPL independiente), los builtins se comportan de forma identica a su implementacion original — sin verificacion de politica, sin seguimiento de mensajes. Esto preserva la compatibilidad con versiones anteriores.
+
+El `ReasoningBuiltinContext` lleva tres campos opcionales:
+- `sender_agent_id` — identidad del agente que llama
+- `comm_bus` — referencia al CommunicationBus para enrutamiento de mensajes
+- `comm_policy` — referencia al CommunicationPolicyGate para autorizacion
 
 ---
 

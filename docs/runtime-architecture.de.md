@@ -267,6 +267,22 @@ pub struct SecureMessage {
 }
 ```
 
+### Communication Policy Gate
+
+Das `CommunicationPolicyGate` befindet sich zwischen den DSL-Builtins und dem CommunicationBus. Alle fuenf Inter-Agent-Builtins (`ask`, `delegate`, `send_to`, `parallel`, `race`) werden hindurchgeleitet:
+
+1. **Richtlinienbewertung** -- Cedar-Stil-Regeln werden geprueft, bevor eine Nachricht gesendet wird
+2. **Nachrichtenerstellung** -- `SecureMessage` mit Ed25519-Signatur und AES-256-GCM-Verschluesselung
+3. **Zustellungsverfolgung** -- Nachrichtenstatus und Audit-Spur ueber den CommunicationBus
+4. **Antwortprotokollierung** -- Request/Response-Paare werden mit `RequestId`-Korrelation verfolgt
+
+Wenn das Policy Gate nicht konfiguriert ist (z.B. bei einem eigenstaendigen REPL), verhalten sich die Builtins identisch zur urspruenglichen Implementierung -- keine Richtlinienpruefung, keine Nachrichtenverfolgung. Dies bewahrt die Rueckwaertskompatibilitaet.
+
+Der `ReasoningBuiltinContext` traegt drei optionale Felder:
+- `sender_agent_id` -- Identitaet des aufrufenden Agenten
+- `comm_bus` -- Referenz auf den CommunicationBus fuer Nachrichtenrouting
+- `comm_policy` -- Referenz auf das CommunicationPolicyGate fuer Autorisierung
+
 ---
 
 ## Kontext- und Wissenssysteme

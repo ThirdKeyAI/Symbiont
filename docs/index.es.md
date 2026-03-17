@@ -43,6 +43,15 @@ Symbiont es un framework de agentes nativo de IA para construir agentes autonomo
 - **🧪 Razonamiento Avanzado** (`orga-adaptive`): Filtrado de perfiles de herramientas, deteccion de bucles atascados, pre-carga determinista de contexto y convenciones con alcance de directorio
 - **📜 Motor de Politicas Cedar**: Integracion de lenguaje de autorizacion formal para control de acceso granular
 - **🏗️ Alto Rendimiento**: Runtime nativo en Rust optimizado para cargas de trabajo de produccion con ejecucion asincrona completa
+- **🤖 Plugins para Asistentes de IA**: Plugins de gobernanza de primera mano para [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) y [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli) con aplicacion de politicas Cedar, verificacion SchemaPin y rastros de auditoria
+
+### Inicializacion de Proyecto (`symbi init`)
+
+Scaffolding interactivo de proyectos con plantillas basadas en perfiles. Elige entre perfiles minimal, assistant, dev-agent o multi-agent. Modo de verificacion SchemaPin y niveles de sandbox configurables. Incluye un catalogo de agentes integrado para importar agentes gobernados preconstruidos. Funciona de forma no interactiva para pipelines CI/CD con `--no-interact`.
+
+### Gobernanza de Comunicacion Inter-Agente
+
+Todos los builtins inter-agente (`ask`, `delegate`, `send_to`, `parallel`, `race`) se enrutan a traves del CommunicationBus con evaluacion de politicas. El `CommunicationPolicyGate` aplica reglas de estilo Cedar para llamadas inter-agente — controlando que agentes pueden comunicarse, con evaluacion de reglas basada en prioridad y denegacion estricta ante violaciones de politica. Los mensajes se firman criptograficamente, se cifran y se auditan.
 
 ---
 
@@ -50,24 +59,30 @@ Symbiont es un framework de agentes nativo de IA para construir agentes autonomo
 
 ### Instalacion Rapida
 
+**Homebrew (macOS):**
 ```bash
-# Clone the repository
+brew tap thirdkeyai/tap
+brew install symbi
+```
+
+**Script de instalacion (macOS / Linux):**
+```bash
+curl -fsSL https://raw.githubusercontent.com/thirdkeyai/symbiont/main/scripts/install.sh | bash
+```
+
+Tambien puedes descargar binarios preconstruidos desde [GitHub Releases](https://github.com/thirdkeyai/symbiont/releases). Consulta la [Guia de Primeros Pasos](/getting-started) para opciones de Docker e instalacion desde fuente.
+
+**Docker:**
+```bash
+docker pull ghcr.io/thirdkeyai/symbi:latest
+docker run --rm symbi:latest --version
+```
+
+**Desde fuente:**
+```bash
 git clone https://github.com/thirdkeyai/symbiont.git
 cd symbiont
-
-# Build unified symbi container
-docker build -t symbi:latest .
-
-# Or use pre-built container
-docker pull ghcr.io/thirdkeyai/symbi:latest
-
-# Test the system
-cargo test
-
-# Test the unified CLI
-docker run --rm symbi:latest --version
-docker run --rm -v $(pwd):/workspace symbi:latest dsl parse --help
-docker run --rm symbi:latest mcp --help
+cargo build --release
 ```
 
 ### Tu Primer Agente
@@ -185,9 +200,9 @@ graph TB
 
 ## Estado del Proyecto
 
-### v1.7.0 Estable
+### v1.7.1 Estable
 
-Symbiont v1.7.0 es la ultima version estable, que ofrece un framework completo de agentes de IA con capacidades de nivel de produccion:
+Symbiont v1.7.1 es la ultima version estable, que ofrece un framework completo de agentes de IA con capacidades de nivel de produccion:
 
 - **Bucle de Razonamiento Agentico**: Ciclo ORGA con typestates, conversacion multi-turno, inferencia en la nube y SLM, circuit breakers, diario durable y puente de conocimiento
 - **Primitivas de Razonamiento Avanzado** (`orga-adaptive`): Filtrado de perfiles de herramientas, deteccion de bucles atascados por paso, pre-carga determinista de contexto y convenciones con alcance de directorio
@@ -209,6 +224,8 @@ Symbiont v1.7.0 es la ultima version estable, que ofrece un framework completo d
 - **SDKs de JavaScript y Python**: Clientes API completos cubriendo programacion, canales, webhooks, memoria, habilidades y metricas
 
 ### 🔮 Hoja de Ruta v1.7.0
+- ~~Gobernanza de comunicacion inter-agente~~ ✅ Entregado
+- ~~Inicializacion de proyecto (`symbi init`)~~ ✅ Entregado
 - Integracion de agentes externos y soporte del protocolo A2A
 - Soporte RAG multi-modal (imagenes, audio, datos estructurados)
 - Adaptadores de canal adicionales (Discord, Matrix)
@@ -227,6 +244,7 @@ Symbiont v1.7.0 es la ultima version estable, que ofrece un framework completo d
   - [Modelo de Seguridad](security-model.md)
   - [Arquitectura del Runtime](runtime-architecture.md)
 - **Paquetes**: [crates.io/crates/symbi](https://crates.io/crates/symbi) | [npm symbiont-sdk-js](https://www.npmjs.com/package/symbiont-sdk-js) | [PyPI symbiont-sdk](https://pypi.org/project/symbiont-sdk/)
+- **Plugins**: [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) | [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli)
 - **Issues**: [GitHub Issues](https://github.com/thirdkeyai/symbiont/issues)
 - **Discusiones**: [GitHub Discussions](https://github.com/thirdkeyai/symbiont/discussions)
 - **Licencia**: Software de codigo abierto por ThirdKey

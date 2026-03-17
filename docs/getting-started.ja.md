@@ -108,6 +108,60 @@ docker run --rm symbi:latest mcp --help
 
 ---
 
+## プロジェクト初期化
+
+新しいSymbiontプロジェクトを始める最も速い方法は `symbi init` です：
+
+```bash
+symbi init
+```
+
+これにより、以下の手順を案内するインタラクティブウィザードが起動します：
+- **プロファイル選択**: `minimal`、`assistant`、`dev-agent`、または `multi-agent`
+- **SchemaPinモード**: `tofu`（Trust-On-First-Use）、`strict`、または `disabled`
+- **サンドボックスティア**: `tier0`（なし）、`tier1`（Docker）、または `tier2`（gVisor）
+
+### 非インタラクティブモード
+
+CI/CDやスクリプトセットアップの場合：
+
+```bash
+symbi init --profile assistant --schemapin tofu --sandbox tier1 --no-interact
+```
+
+### プロファイル
+
+| プロファイル | 作成されるもの |
+|-------------|--------------|
+| `minimal` | `symbiont.toml` + デフォルトCedarポリシー |
+| `assistant` | + 単一のガバナンスアシスタントエージェント |
+| `dev-agent` | + 安全ポリシー付きCliExecutorエージェント |
+| `multi-agent` | + エージェント間ポリシー付きコーディネーター/ワーカーエージェント |
+
+### カタログからのインポート
+
+任意のプロファイルと共にビルド済みエージェントをインポート：
+
+```bash
+symbi init --profile minimal --no-interact
+symbi init --catalog assistant,dev
+```
+
+利用可能なカタログエージェントを一覧：
+
+```bash
+symbi init --catalog list
+```
+
+初期化後、検証して起動：
+
+```bash
+symbi dsl -f agents/assistant.dsl   # エージェントを検証
+symbi up                             # ランタイムを起動
+```
+
+---
+
 ## 初めてのエージェント
 
 Symbiの基本を理解するために、シンプルなデータ分析エージェントを作成してみましょう。
@@ -330,6 +384,7 @@ cd crates/runtime && cargo run --example context_example
 | `cron` | 永続cronスケジューリング | いいえ |
 | `native-sandbox` | ネイティブプロセスサンドボックス | いいえ |
 | `metrics` | OpenTelemetryメトリクス/トレーシング | いいえ |
+| `interactive` | `symbi init` のインタラクティブプロンプト（dialoguer） | デフォルト |
 | `full` | エンタープライズ以外のすべての機能 | いいえ |
 
 ```bash

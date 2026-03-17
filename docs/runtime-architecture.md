@@ -310,6 +310,22 @@ pub struct SecureMessage {
 }
 ```
 
+### Communication Policy Gate
+
+The `CommunicationPolicyGate` sits between the DSL builtins and the CommunicationBus. All five inter-agent builtins (`ask`, `delegate`, `send_to`, `parallel`, `race`) are routed through it:
+
+1. **Policy evaluation** — Cedar-style rules checked before any message is sent
+2. **Message creation** — `SecureMessage` with Ed25519 signature and AES-256-GCM encryption
+3. **Delivery tracking** — message status and audit trail via the CommunicationBus
+4. **Response logging** — request/response pairs tracked with `RequestId` correlation
+
+When the policy gate is not configured (e.g., standalone REPL), builtins behave identically to their original implementation — no policy check, no message tracking. This preserves backward compatibility.
+
+The `ReasoningBuiltinContext` carries three optional fields:
+- `sender_agent_id` — identity of the calling agent
+- `comm_bus` — reference to the CommunicationBus for message routing
+- `comm_policy` — reference to the CommunicationPolicyGate for authorization
+
 ---
 
 ## Context & Knowledge Systems

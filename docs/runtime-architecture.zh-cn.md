@@ -267,6 +267,22 @@ pub struct SecureMessage {
 }
 ```
 
+### 通信策略门控
+
+`CommunicationPolicyGate` 位于 DSL 内置函数和 `CommunicationBus` 之间。所有五个智能体间内置函数（`ask`、`delegate`、`send_to`、`parallel`、`race`）均通过它路由：
+
+1. **策略评估** —— 在发送任何消息之前检查 Cedar 风格的规则
+2. **消息创建** —— 带有 Ed25519 签名和 AES-256-GCM 加密的 `SecureMessage`
+3. **投递跟踪** —— 通过 `CommunicationBus` 跟踪消息状态和审计轨迹
+4. **响应记录** —— 使用 `RequestId` 关联跟踪请求/响应对
+
+当策略门控未配置时（例如独立 REPL 模式），内置函数的行为与原始实现完全相同——无策略检查，无消息跟踪。这保持了向后兼容性。
+
+`ReasoningBuiltinContext` 携带三个可选字段：
+- `sender_agent_id` —— 调用方智能体的身份
+- `comm_bus` —— 指向 `CommunicationBus` 的引用，用于消息路由
+- `comm_policy` —— 指向 `CommunicationPolicyGate` 的引用，用于授权
+
 ---
 
 ## 上下文和知识系统

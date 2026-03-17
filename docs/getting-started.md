@@ -128,6 +128,60 @@ docker run --rm symbi:latest mcp --help
 
 ---
 
+## Project Initialization
+
+The fastest way to start a new Symbiont project is `symbi init`:
+
+```bash
+symbi init
+```
+
+This launches an interactive wizard that guides you through:
+- **Profile selection**: `minimal`, `assistant`, `dev-agent`, or `multi-agent`
+- **SchemaPin mode**: `tofu` (Trust-On-First-Use), `strict`, or `disabled`
+- **Sandbox tier**: `tier0` (none), `tier1` (Docker), or `tier2` (gVisor)
+
+### Non-interactive mode
+
+For CI/CD or scripted setups:
+
+```bash
+symbi init --profile assistant --schemapin tofu --sandbox tier1 --no-interact
+```
+
+### Profiles
+
+| Profile | What it creates |
+|---------|----------------|
+| `minimal` | `symbiont.toml` + default Cedar policy |
+| `assistant` | + single governed assistant agent |
+| `dev-agent` | + CliExecutor agent with safety policies |
+| `multi-agent` | + coordinator/worker agents with inter-agent policies |
+
+### Importing from the catalog
+
+Import pre-built agents alongside any profile:
+
+```bash
+symbi init --profile minimal --no-interact
+symbi init --catalog assistant,dev
+```
+
+List available catalog agents:
+
+```bash
+symbi init --catalog list
+```
+
+After initialization, validate and start:
+
+```bash
+symbi dsl -f agents/assistant.dsl   # validate your agent
+symbi up                             # start the runtime
+```
+
+---
+
 ## Your First Agent
 
 Let's create a simple data analysis agent to understand the basics of Symbi.
@@ -350,6 +404,7 @@ cd crates/runtime && cargo run --example context_example
 | `cron` | Persistent cron scheduling | No |
 | `native-sandbox` | Native process sandboxing | No |
 | `metrics` | OpenTelemetry metrics/tracing | No |
+| `interactive` | Interactive prompts for `symbi init` (dialoguer) | Default |
 | `full` | All features except enterprise | No |
 
 ```bash

@@ -176,6 +176,7 @@ graph TB
     E --> H[Message Routing]
     E --> I[Tool Invocation]
     E --> J[Data Operations]
+    E --> CPG[Inter-Agent Policy]
     
     K[Audit Logger] --> L[Policy Violations]
     E --> K
@@ -300,6 +301,27 @@ let runner = ReasoningLoopRunner::builder()
     .executor(executor)
     .policy_gate(Arc::new(cedar_gate))
     .build();
+```
+
+### Inter-Agent Communication Policy
+
+The `CommunicationPolicyGate` enforces authorization rules for all inter-agent communication. Every call through `ask`, `delegate`, `send_to`, `parallel`, or `race` is evaluated against policy rules before execution.
+
+**Rule structure:**
+- **Conditions**: `SenderIs(agent)`, `RecipientIs(agent)`, `Always`, composite `All`/`Any`
+- **Effects**: `Allow` or `Deny { reason }`
+- **Priority**: Rules evaluated highest-priority first; first match wins
+- **Default**: Allow (backward compatible — existing projects work unchanged)
+
+**Policy denial is a hard fail** — the calling agent receives an error through the ORGA loop and can reason about it. All inter-agent messages are cryptographically signed via Ed25519 and encrypted with AES-256-GCM.
+
+Example policy: prevent a worker agent from delegating to other agents:
+```cedar
+forbid(
+    principal == Agent::"worker",
+    action == Action::"delegate",
+    resource
+);
 ```
 
 ---

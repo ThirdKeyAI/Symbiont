@@ -46,6 +46,14 @@ Symbiont is an AI-native agent framework for building autonomous, policy-aware a
 - **🏗️ High Performance**: Rust-native runtime optimized for production workloads with async execution throughout
 - **🤖 AI Assistant Plugins**: First-party governance plugins for [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) and [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli) with Cedar policy enforcement, SchemaPin verification, and audit trails
 
+### Project Initialization (`symbi init`)
+
+Interactive project scaffolding with profile-based templates. Choose from minimal, assistant, dev-agent, or multi-agent profiles. Configurable SchemaPin verification mode and sandbox tiers. Includes a built-in agent catalog for importing pre-built governed agents. Works non-interactively for CI/CD pipelines with `--no-interact`.
+
+### Inter-Agent Communication Governance
+
+All inter-agent builtins (`ask`, `delegate`, `send_to`, `parallel`, `race`) are routed through the CommunicationBus with policy evaluation. The `CommunicationPolicyGate` enforces Cedar-style rules for inter-agent calls — controlling which agents can communicate, with priority-based rule evaluation and hard deny on policy violations. Messages are cryptographically signed, encrypted, and audited.
+
 ---
 
 ## Getting Started
@@ -217,6 +225,8 @@ Symbiont v1.7.1 is the latest stable release, delivering a complete AI agent fra
 - **JavaScript & Python SDKs**: Full API clients covering scheduling, channels, webhooks, memory, skills, and metrics
 
 ### 🔮 v1.7.0 Roadmap
+- ~~Inter-agent communication governance~~ ✅ Shipped
+- ~~Project initialization (`symbi init`)~~ ✅ Shipped
 - External agent integration and A2A protocol support
 - Multi-modal RAG support (images, audio, structured data)
 - Additional channel adapters (Discord, Matrix)

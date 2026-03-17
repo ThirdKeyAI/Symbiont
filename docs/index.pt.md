@@ -43,6 +43,15 @@ O Symbiont é um framework de agentes nativo de IA para construir agentes autôn
 - **🧪 Raciocínio Avançado** (`orga-adaptive`): Filtragem de perfil de ferramentas, detecção de loops travados, pré-busca determinística de contexto e convenções com escopo de diretório
 - **📜 Motor de Políticas Cedar**: Integração de linguagem de autorização formal para controle de acesso granular
 - **🏗️ Alto Desempenho**: Runtime nativo em Rust otimizado para cargas de trabalho de produção com execução assíncrona em toda a pilha
+- **🤖 Plugins para Assistentes de IA**: Plugins de governança de primeira parte para [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) e [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli) com aplicação de políticas Cedar, verificação SchemaPin e trilhas de auditoria
+
+### Inicialização de Projeto (`symbi init`)
+
+Scaffolding interativo de projetos com templates baseados em perfis. Escolha entre os perfis minimal, assistant, dev-agent ou multi-agent. Modo de verificação SchemaPin configurável e camadas de sandbox. Inclui um catálogo integrado de agentes para importar agentes governados pré-construídos. Funciona de forma não interativa para pipelines CI/CD com `--no-interact`.
+
+### Governança de Comunicação Inter-Agente
+
+Todos os builtins inter-agente (`ask`, `delegate`, `send_to`, `parallel`, `race`) são roteados através do CommunicationBus com avaliação de políticas. O `CommunicationPolicyGate` aplica regras no estilo Cedar para chamadas inter-agente — controlando quais agentes podem se comunicar, com avaliação de regras baseada em prioridade e negação firme em violações de política. As mensagens são assinadas criptograficamente, criptografadas e auditadas.
 
 ---
 
@@ -185,9 +194,9 @@ graph TB
 
 ## Status do Projeto
 
-### v1.7.0 Estável
+### v1.7.1 Estável
 
-O Symbiont v1.7.0 é a versão estável mais recente, oferecendo um framework completo de agentes de IA com capacidades de nível de produção:
+O Symbiont v1.7.1 é a versão estável mais recente, oferecendo um framework completo de agentes de IA com capacidades de nível de produção:
 
 - **Loop de Raciocínio Agêntico**: Ciclo ORGA com aplicação de typestate, conversação multi-turno, inferência em nuvem e SLM, circuit breakers, journal durável e ponte de conhecimento
 - **Primitivas de Raciocínio Avançado** (`orga-adaptive`): Filtragem de perfil de ferramentas, detecção de loops travados por passo, pré-busca determinística de contexto e convenções com escopo de diretório
@@ -209,6 +218,8 @@ O Symbiont v1.7.0 é a versão estável mais recente, oferecendo um framework co
 - **SDKs JavaScript e Python**: Clientes de API completos cobrindo agendamento, canais, webhooks, memória, skills e métricas
 
 ### 🔮 Roadmap v1.7.0
+- ~~Governança de comunicação inter-agente~~ ✅ Enviado
+- ~~Inicialização de projeto (`symbi init`)~~ ✅ Enviado
 - Integração de agentes externos e suporte ao protocolo A2A
 - Suporte RAG multi-modal (imagens, áudio, dados estruturados)
 - Adaptadores de canais adicionais (Discord, Matrix)
@@ -227,6 +238,7 @@ O Symbiont v1.7.0 é a versão estável mais recente, oferecendo um framework co
   - [Modelo de Segurança](security-model.md)
   - [Arquitetura de Runtime](runtime-architecture.md)
 - **Pacotes**: [crates.io/crates/symbi](https://crates.io/crates/symbi) | [npm symbiont-sdk-js](https://www.npmjs.com/package/symbiont-sdk-js) | [PyPI symbiont-sdk](https://pypi.org/project/symbiont-sdk/)
+- **Plugins**: [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) | [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli)
 - **Issues**: [GitHub Issues](https://github.com/thirdkeyai/symbiont/issues)
 - **Discussões**: [GitHub Discussions](https://github.com/thirdkeyai/symbiont/discussions)
 - **Licença**: Software de código aberto da ThirdKey

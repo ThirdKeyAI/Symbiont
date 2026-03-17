@@ -51,38 +51,53 @@ graph TB
         ACB[Agent Communication Bus]
         AEH[Agent Error Handler]
     end
-    
+
+    subgraph "Reasoning Loop"
+        RL[ReasoningLoopRunner]
+        IP[Inference Provider]
+        PG[Policy Gate]
+        AE[Action Executor]
+        KBR[Knowledge Bridge]
+    end
+
     subgraph "Context & Knowledge"
         ACM[Agent Context Manager]
         VDB[Vector Database]
         RAG[RAG Engine]
         KB[Knowledge Base]
     end
-    
+
     subgraph "Security & Policy"
         PE[Policy Engine]
         AT[Audit Trail]
         SO[Sandbox Orchestrator]
         CRYPTO[Crypto Operations]
     end
-    
+
     subgraph "External Integration"
         MCP[MCP Client]
         TV[Tool Verification]
         API[HTTP API]
     end
-    
+
     subgraph "Sandbox Tiers"
         T1[Tier 1: Docker]
         T2[Tier 2: gVisor]
     end
-    
+
     ARS --> ACM
     ARS --> PE
+    ARS --> RL
     ALC --> SO
     ACB --> CRYPTO
     ACM --> VDB
     ACM --> RAG
+    RL --> IP
+    RL --> PG
+    RL --> AE
+    KBR --> ACM
+    KBR --> RL
+    PG --> PE
     SO --> T1
     SO --> T2
     MCP --> TV
@@ -266,6 +281,22 @@ pub struct SecureMessage {
     pub timestamp: SystemTime,
 }
 ```
+
+### 通信ポリシーゲート
+
+`CommunicationPolicyGate` はDSLビルトインとCommunicationBusの間に位置します。5つのエージェント間ビルトイン（`ask`、`delegate`、`send_to`、`parallel`、`race`）はすべてこのゲートを経由します：
+
+1. **ポリシー評価** -- メッセージ送信前にCedarスタイルのルールがチェックされる
+2. **メッセージ作成** -- Ed25519署名とAES-256-GCM暗号化を備えた `SecureMessage`
+3. **配信追跡** -- CommunicationBus経由でメッセージステータスと監査証跡を管理
+4. **レスポンスログ** -- `RequestId` 相関によるリクエスト/レスポンスペアの追跡
+
+ポリシーゲートが未設定の場合（例：スタンドアロンREPL）、ビルトインは元の実装と同一に動作します -- ポリシーチェックなし、メッセージ追跡なし。これにより後方互換性が維持されます。
+
+`ReasoningBuiltinContext` は3つのオプションフィールドを持ちます：
+- `sender_agent_id` -- 呼び出し元エージェントのID
+- `comm_bus` -- メッセージルーティング用CommunicationBusへの参照
+- `comm_policy` -- 認可用CommunicationPolicyGateへの参照
 
 ---
 
