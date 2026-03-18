@@ -49,6 +49,16 @@ Symbiont ist ein KI-natives Agent-Framework fuer den Aufbau autonomer, richtlini
 
 Interaktives Projekt-Scaffolding mit profilbasierten Vorlagen. Waehlen Sie zwischen minimal, assistant, dev-agent oder multi-agent Profilen. Konfigurierbarer SchemaPin-Verifikationsmodus und Sandbox-Stufen. Enthaelt einen integrierten Agent-Katalog zum Importieren vorgefertigter, verwalteter Agenten. Funktioniert nicht-interaktiv fuer CI/CD-Pipelines mit `--no-interact`.
 
+### Einzelne Agent-Ausfuehrung (`symbi run`)
+
+Fuehren Sie einen beliebigen Agenten direkt ueber die CLI aus, ohne die vollstaendige Laufzeitumgebung zu starten:
+
+```bash
+symbi run recon --input '{"target": "10.0.1.5"}'
+```
+
+Laedt die Agenten-DSL, richtet die ORGA-Reasoning-Schleife mit Cloud-Inferenz ein, fuehrt aus, gibt die Ergebnisse aus und beendet sich. Loest Agentennamen automatisch aus dem `agents/`-Verzeichnis auf.
+
 ### Inter-Agent-Kommunikations-Governance
 
 Alle Inter-Agent-Builtins (`ask`, `delegate`, `send_to`, `parallel`, `race`) werden ueber den CommunicationBus mit Richtlinienbewertung geleitet. Das `CommunicationPolicyGate` erzwingt Cedar-Stil-Regeln fuer Inter-Agent-Aufrufe -- kontrolliert, welche Agenten kommunizieren duerfen, mit prioritaetsbasierter Regelbewertung und hartem Deny bei Richtlinienverletzungen. Nachrichten werden kryptographisch signiert, verschluesselt und auditiert.
@@ -194,9 +204,9 @@ graph TB
 
 ## Projektstatus
 
-### v1.7.1 Stabil
+### v1.8.1 Stabil
 
-Symbiont v1.7.1 ist die neueste stabile Version und bietet ein vollstaendiges KI-Agent-Framework mit produktionsreifen Funktionen:
+Symbiont v1.8.1 ist die neueste stabile Version und bietet ein vollstaendiges KI-Agent-Framework mit produktionsreifen Funktionen:
 
 - **Agentische Reasoning-Schleife**: Typestate-erzwungener ORGA-Zyklus mit Multi-Turn-Konversation, Cloud- und SLM-Inferenz, Circuit Breakern, dauerhaftem Journal und Wissensbruecke
 - **Erweiterte Reasoning-Primitiven** (`orga-adaptive`): Tool-Profilfilterung, schrittweise Stuck-Loop-Erkennung, deterministischer Kontext-Pre-Fetch und verzeichnisspezifische Konventionen

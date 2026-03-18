@@ -177,7 +177,23 @@ Despues de la inicializacion, valida e inicia:
 
 ```bash
 symbi dsl -f agents/assistant.dsl   # validate your agent
-symbi up                             # start the runtime
+symbi run assistant -i '{"query": "hello"}'  # test a single agent
+symbi up                             # start the full runtime
+```
+
+### Ejecutar un agente individual
+
+Usa `symbi run` para ejecutar un agente sin iniciar el servidor de runtime completo:
+
+```bash
+symbi run <agent-name-or-file> --input <json>
+```
+
+El comando resuelve nombres de agentes buscando: ruta directa, luego el directorio `agents/`. Configura la inferencia en la nube desde variables de entorno (`OPENROUTER_API_KEY`, `OPENAI_API_KEY` o `ANTHROPIC_API_KEY`), ejecuta el bucle de razonamiento ORGA y sale.
+
+```bash
+symbi run assistant -i 'Summarize this document'
+symbi run agents/recon.dsl -i '{"target": "10.0.1.5"}' --max-iterations 5
 ```
 
 ---

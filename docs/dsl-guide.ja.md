@@ -69,6 +69,7 @@ agent process_data(input: DataSet) -> Result {
 
 ```rust
 // Single-line comment
+# Hash-style comment (also supported)
 
 /*
  * Multi-line comment

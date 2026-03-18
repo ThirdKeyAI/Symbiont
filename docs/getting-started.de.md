@@ -157,7 +157,23 @@ Nach der Initialisierung validieren und starten:
 
 ```bash
 symbi dsl -f agents/assistant.dsl   # Ihren Agenten validieren
+symbi run assistant -i '{"query": "hello"}'  # Einen einzelnen Agenten testen
 symbi up                             # Die Laufzeitumgebung starten
+```
+
+### Einen einzelnen Agenten ausfuehren
+
+Verwenden Sie `symbi run`, um einen Agenten auszufuehren, ohne den vollstaendigen Laufzeit-Server zu starten:
+
+```bash
+symbi run <agent-name-oder-datei> --input <json>
+```
+
+Der Befehl loest Agentennamen auf, indem er zuerst den direkten Pfad und dann das `agents/`-Verzeichnis durchsucht. Er richtet Cloud-Inferenz ueber Umgebungsvariablen (`OPENROUTER_API_KEY`, `OPENAI_API_KEY` oder `ANTHROPIC_API_KEY`) ein, fuehrt die ORGA-Reasoning-Schleife aus und beendet sich.
+
+```bash
+symbi run assistant -i 'Summarize this document'
+symbi run agents/recon.dsl -i '{"target": "10.0.1.5"}' --max-iterations 5
 ```
 
 ---

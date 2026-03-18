@@ -157,7 +157,23 @@ symbi init --catalog list
 
 ```bash
 symbi dsl -f agents/assistant.dsl   # 验证您的智能体
-symbi up                             # 启动运行时
+symbi run assistant -i '{"query": "hello"}'  # 测试单个智能体
+symbi up                             # 启动完整运行时
+```
+
+### 运行单个智能体
+
+使用 `symbi run` 执行单个智能体，无需启动完整运行时服务器：
+
+```bash
+symbi run <agent-name-or-file> --input <json>
+```
+
+该命令通过以下方式解析智能体名称：先搜索直接路径，然后搜索 `agents/` 目录。它从环境变量（`OPENROUTER_API_KEY`、`OPENAI_API_KEY` 或 `ANTHROPIC_API_KEY`）设置云端推理，运行 ORGA 推理循环后退出。
+
+```bash
+symbi run assistant -i 'Summarize this document'
+symbi run agents/recon.dsl -i '{"target": "10.0.1.5"}' --max-iterations 5
 ```
 
 ---

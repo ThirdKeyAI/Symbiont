@@ -49,6 +49,16 @@ Symbiont es un framework de agentes nativo de IA para construir agentes autonomo
 
 Scaffolding interactivo de proyectos con plantillas basadas en perfiles. Elige entre perfiles minimal, assistant, dev-agent o multi-agent. Modo de verificacion SchemaPin y niveles de sandbox configurables. Incluye un catalogo de agentes integrado para importar agentes gobernados preconstruidos. Funciona de forma no interactiva para pipelines CI/CD con `--no-interact`.
 
+### Ejecucion de Agente Individual (`symbi run`)
+
+Ejecuta cualquier agente directamente desde la CLI sin iniciar el runtime completo:
+
+```bash
+symbi run recon --input '{"target": "10.0.1.5"}'
+```
+
+Carga el DSL del agente, configura el bucle de razonamiento ORGA con inferencia en la nube, ejecuta, imprime los resultados y sale. Resuelve nombres de agentes desde el directorio `agents/` automaticamente.
+
 ### Gobernanza de Comunicacion Inter-Agente
 
 Todos los builtins inter-agente (`ask`, `delegate`, `send_to`, `parallel`, `race`) se enrutan a traves del CommunicationBus con evaluacion de politicas. El `CommunicationPolicyGate` aplica reglas de estilo Cedar para llamadas inter-agente — controlando que agentes pueden comunicarse, con evaluacion de reglas basada en prioridad y denegacion estricta ante violaciones de politica. Los mensajes se firman criptograficamente, se cifran y se auditan.
@@ -200,9 +210,9 @@ graph TB
 
 ## Estado del Proyecto
 
-### v1.7.1 Estable
+### v1.8.1 Estable
 
-Symbiont v1.7.1 es la ultima version estable, que ofrece un framework completo de agentes de IA con capacidades de nivel de produccion:
+Symbiont v1.8.1 es la ultima version estable, que ofrece un framework completo de agentes de IA con capacidades de nivel de produccion:
 
 - **Bucle de Razonamiento Agentico**: Ciclo ORGA con typestates, conversacion multi-turno, inferencia en la nube y SLM, circuit breakers, diario durable y puente de conocimiento
 - **Primitivas de Razonamiento Avanzado** (`orga-adaptive`): Filtrado de perfiles de herramientas, deteccion de bucles atascados por paso, pre-carga determinista de contexto y convenciones con alcance de directorio

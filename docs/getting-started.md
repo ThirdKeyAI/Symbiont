@@ -174,11 +174,27 @@ List available catalog agents:
 symbi init --catalog list
 ```
 
-After initialization, validate and start:
+After initialization, validate and run:
 
 ```bash
 symbi dsl -f agents/assistant.dsl   # validate your agent
-symbi up                             # start the runtime
+symbi run assistant -i '{"query": "hello"}'  # test a single agent
+symbi up                             # start the full runtime
+```
+
+### Running a single agent
+
+Use `symbi run` to execute one agent without starting the full runtime server:
+
+```bash
+symbi run <agent-name-or-file> --input <json>
+```
+
+The command resolves agent names by searching: direct path, then `agents/` directory. It sets up cloud inference from environment variables (`OPENROUTER_API_KEY`, `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY`), runs the ORGA reasoning loop, and exits.
+
+```bash
+symbi run assistant -i 'Summarize this document'
+symbi run agents/recon.dsl -i '{"target": "10.0.1.5"}' --max-iterations 5
 ```
 
 ---

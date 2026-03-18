@@ -86,7 +86,7 @@ impl LlmClient {
 
         if let Ok(api_key) = std::env::var("ANTHROPIC_API_KEY") {
             let model = std::env::var("ANTHROPIC_MODEL")
-                .unwrap_or_else(|_| "claude-sonnet-4-5-20250514".to_string());
+                .unwrap_or_else(|_| "claude-sonnet-4-20250514".to_string());
             let base_url = std::env::var("ANTHROPIC_BASE_URL")
                 .unwrap_or_else(|_| "https://api.anthropic.com/v1".to_string());
             tracing::info!("LLM client initialized: provider=Anthropic model={}", model);

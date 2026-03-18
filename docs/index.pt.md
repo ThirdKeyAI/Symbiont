@@ -49,6 +49,16 @@ O Symbiont é um framework de agentes nativo de IA para construir agentes autôn
 
 Scaffolding interativo de projetos com templates baseados em perfis. Escolha entre os perfis minimal, assistant, dev-agent ou multi-agent. Modo de verificação SchemaPin configurável e camadas de sandbox. Inclui um catálogo integrado de agentes para importar agentes governados pré-construídos. Funciona de forma não interativa para pipelines CI/CD com `--no-interact`.
 
+### Execução de Agente Individual (`symbi run`)
+
+Execute qualquer agente diretamente pelo CLI sem iniciar o runtime completo:
+
+```bash
+symbi run recon --input '{"target": "10.0.1.5"}'
+```
+
+Carrega o DSL do agente, configura o loop de raciocínio ORGA com inferência em nuvem, executa, imprime os resultados e encerra. Resolve nomes de agentes automaticamente a partir do diretório `agents/`.
+
 ### Governança de Comunicação Inter-Agente
 
 Todos os builtins inter-agente (`ask`, `delegate`, `send_to`, `parallel`, `race`) são roteados através do CommunicationBus com avaliação de políticas. O `CommunicationPolicyGate` aplica regras no estilo Cedar para chamadas inter-agente — controlando quais agentes podem se comunicar, com avaliação de regras baseada em prioridade e negação firme em violações de política. As mensagens são assinadas criptograficamente, criptografadas e auditadas.
@@ -194,9 +204,9 @@ graph TB
 
 ## Status do Projeto
 
-### v1.7.1 Estável
+### v1.8.1 Estável
 
-O Symbiont v1.7.1 é a versão estável mais recente, oferecendo um framework completo de agentes de IA com capacidades de nível de produção:
+O Symbiont v1.8.1 é a versão estável mais recente, oferecendo um framework completo de agentes de IA com capacidades de nível de produção:
 
 - **Loop de Raciocínio Agêntico**: Ciclo ORGA com aplicação de typestate, conversação multi-turno, inferência em nuvem e SLM, circuit breakers, journal durável e ponte de conhecimento
 - **Primitivas de Raciocínio Avançado** (`orga-adaptive`): Filtragem de perfil de ferramentas, detecção de loops travados por passo, pré-busca determinística de contexto e convenções com escopo de diretório

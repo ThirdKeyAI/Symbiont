@@ -50,6 +50,16 @@ Symbiont is an AI-native agent framework for building autonomous, policy-aware a
 
 Interactive project scaffolding with profile-based templates. Choose from minimal, assistant, dev-agent, or multi-agent profiles. Configurable SchemaPin verification mode and sandbox tiers. Includes a built-in agent catalog for importing pre-built governed agents. Works non-interactively for CI/CD pipelines with `--no-interact`.
 
+### Single Agent Execution (`symbi run`)
+
+Run any agent directly from the CLI without starting the full runtime:
+
+```bash
+symbi run recon --input '{"target": "10.0.1.5"}'
+```
+
+Loads the agent DSL, sets up the ORGA reasoning loop with cloud inference, executes, prints results, and exits. Resolves agent names from `agents/` directory automatically.
+
 ### Inter-Agent Communication Governance
 
 All inter-agent builtins (`ask`, `delegate`, `send_to`, `parallel`, `race`) are routed through the CommunicationBus with policy evaluation. The `CommunicationPolicyGate` enforces Cedar-style rules for inter-agent calls — controlling which agents can communicate, with priority-based rule evaluation and hard deny on policy violations. Messages are cryptographically signed, encrypted, and audited.
@@ -201,9 +211,9 @@ graph TB
 
 ## Project Status
 
-### v1.8.0 Stable
+### v1.8.1 Stable
 
-Symbiont v1.8.0 is the latest stable release, delivering a complete AI agent framework with production-grade capabilities:
+Symbiont v1.8.1 is the latest stable release, delivering a complete AI agent framework with production-grade capabilities:
 
 - **Agentic Reasoning Loop**: Typestate-enforced ORGA cycle with multi-turn conversation, cloud and SLM inference, circuit breakers, durable journal, and knowledge bridge
 - **Advanced Reasoning Primitives** (`orga-adaptive`): Tool profile filtering, per-step stuck-loop detection, deterministic context pre-fetch, and directory-scoped conventions

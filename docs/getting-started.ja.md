@@ -157,7 +157,23 @@ symbi init --catalog list
 
 ```bash
 symbi dsl -f agents/assistant.dsl   # エージェントを検証
+symbi run assistant -i '{"query": "hello"}'  # 単一エージェントをテスト
 symbi up                             # ランタイムを起動
+```
+
+### 単一エージェントの実行
+
+完全なランタイムサーバーを起動せずに単一のエージェントを実行するには `symbi run` を使用します：
+
+```bash
+symbi run <agent-name-or-file> --input <json>
+```
+
+このコマンドはエージェント名を解決する際に、直接パス、次に `agents/` ディレクトリの順で検索します。環境変数（`OPENROUTER_API_KEY`、`OPENAI_API_KEY`、または `ANTHROPIC_API_KEY`）からクラウド推論をセットアップし、ORGA推論ループを実行して終了します。
+
+```bash
+symbi run assistant -i 'Summarize this document'
+symbi run agents/recon.dsl -i '{"target": "10.0.1.5"}' --max-iterations 5
 ```
 
 ---
