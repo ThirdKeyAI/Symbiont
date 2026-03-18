@@ -23,6 +23,18 @@ pub struct WorkflowExecutionRequest {
     pub agent_id: Option<AgentId>,
 }
 
+/// Lightweight agent summary for list endpoints
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct AgentSummary {
+    /// The agent identifier
+    pub id: AgentId,
+    /// Agent name (from DSL definition)
+    pub name: String,
+    /// Current state
+    pub state: AgentState,
+}
+
 /// Response structure for agent status queries
 #[cfg(feature = "http-api")]
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

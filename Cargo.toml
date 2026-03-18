@@ -36,7 +36,7 @@ members = [
 ]
 
 [workspace.package]
-rust-version = "1.70"
+rust-version = "1.82"
 
 [dependencies]
 clap = { version = "4.0", features = ["derive"] }
@@ -68,6 +68,7 @@ required-features = ["native-sandbox"]
 default = ["cron", "interactive"]
 interactive = ["dep:dialoguer"]
 cron = ["symbi-runtime/cron", "dep:cron", "dep:chrono", "dep:chrono-tz"]
+cedar = ["symbi-runtime/cedar"]
 native-sandbox = ["symbi-runtime/native-sandbox"]
 cli-executor = ["symbi-runtime/cli-executor"]
 vendored-openssl = ["symbi-runtime/vendored-openssl"]

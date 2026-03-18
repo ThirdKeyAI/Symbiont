@@ -7,18 +7,19 @@
 use async_trait::async_trait;
 
 #[cfg(feature = "http-api")]
-use crate::types::{AgentId, RuntimeError};
+use crate::types::{AgentId, AgentState, RuntimeError};
 
 #[cfg(feature = "http-api")]
 use super::types::{
-    AddIdentityMappingRequest, AgentStatusResponse, ChannelActionResponse, ChannelAuditResponse,
-    ChannelDetail, ChannelHealthResponse, ChannelSummary, CreateAgentRequest, CreateAgentResponse,
-    CreateScheduleRequest, CreateScheduleResponse, DeleteAgentResponse, DeleteChannelResponse,
-    DeleteScheduleResponse, ExecuteAgentRequest, ExecuteAgentResponse, GetAgentHistoryResponse,
-    HeartbeatRequest, IdentityMappingEntry, NextRunsResponse, PushEventRequest,
-    RegisterChannelRequest, RegisterChannelResponse, ScheduleActionResponse, ScheduleDetail,
-    ScheduleHistoryResponse, ScheduleSummary, SchedulerHealthResponse, UpdateAgentRequest,
-    UpdateAgentResponse, UpdateChannelRequest, UpdateScheduleRequest, WorkflowExecutionRequest,
+    AddIdentityMappingRequest, AgentStatusResponse, AgentSummary, ChannelActionResponse,
+    ChannelAuditResponse, ChannelDetail, ChannelHealthResponse, ChannelSummary,
+    CreateAgentRequest, CreateAgentResponse, CreateScheduleRequest, CreateScheduleResponse,
+    DeleteAgentResponse, DeleteChannelResponse, DeleteScheduleResponse, ExecuteAgentRequest,
+    ExecuteAgentResponse, GetAgentHistoryResponse, HeartbeatRequest, IdentityMappingEntry,
+    NextRunsResponse, PushEventRequest, RegisterChannelRequest, RegisterChannelResponse,
+    ScheduleActionResponse, ScheduleDetail, ScheduleHistoryResponse, ScheduleSummary,
+    SchedulerHealthResponse, UpdateAgentRequest, UpdateAgentResponse, UpdateChannelRequest,
+    UpdateScheduleRequest, WorkflowExecutionRequest,
 };
 
 /// Trait providing API access to core runtime functionalities
@@ -40,8 +41,22 @@ pub trait RuntimeApiProvider: Send + Sync {
     /// Get system health information
     async fn get_system_health(&self) -> Result<serde_json::Value, RuntimeError>;
 
-    /// List all active agents
+    /// List all active agents (IDs only — use list_agents_detailed for names)
     async fn list_agents(&self) -> Result<Vec<AgentId>, RuntimeError>;
+
+    /// List all agents with name and state
+    async fn list_agents_detailed(&self) -> Result<Vec<AgentSummary>, RuntimeError> {
+        // Default: fall back to list_agents with unknown names
+        let ids = self.list_agents().await?;
+        Ok(ids
+            .into_iter()
+            .map(|id| AgentSummary {
+                id,
+                name: String::new(),
+                state: AgentState::Created,
+            })
+            .collect())
+    }
 
     /// Shutdown an agent gracefully
     async fn shutdown_agent(&self, agent_id: AgentId) -> Result<(), RuntimeError>;

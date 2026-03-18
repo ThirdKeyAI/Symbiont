@@ -163,19 +163,16 @@ pub async fn get_agent_status(
     get,
     path = "/api/v1/agents",
     responses(
-        (status = 200, description = "Agents listed successfully", body = Vec<String>),
+        (status = 200, description = "Agents listed successfully", body = Vec<AgentSummary>),
         (status = 500, description = "Internal server error", body = ErrorResponse)
     ),
     tag = "agents"
 )]
 pub async fn list_agents(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
-) -> Result<Json<Vec<String>>, (StatusCode, Json<ErrorResponse>)> {
-    match provider.list_agents().await {
-        Ok(agents) => {
-            let agent_ids: Vec<String> = agents.into_iter().map(|id| id.to_string()).collect();
-            Ok(Json(agent_ids))
-        }
+) -> Result<Json<Vec<super::types::AgentSummary>>, (StatusCode, Json<ErrorResponse>)> {
+    match provider.list_agents_detailed().await {
+        Ok(agents) => Ok(Json(agents)),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {

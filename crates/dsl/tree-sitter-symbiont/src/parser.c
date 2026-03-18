@@ -1079,6 +1079,7 @@ static bool ts_lex(TSLexer *lexer, TSStateId state) {
       if (eof) ADVANCE(22);
       ADVANCE_MAP(
         '"', 1,
+        '#', 42,
         '(', 27,
         ')', 28,
         ',', 26,

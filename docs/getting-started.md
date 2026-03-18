@@ -33,7 +33,8 @@ Before getting started with Symbi, ensure you have the following installed:
 ### Required Dependencies
 
 - **Docker** (for containerized development)
-- **Rust 1.88+** (if building locally)
+- **Rust 1.82+** (if building locally)
+- **protobuf-compiler** (required for building — `apt install protobuf-compiler` on Ubuntu, `brew install protobuf` on macOS)
 - **Git** (for cloning the repository)
 
 ### Optional Dependencies

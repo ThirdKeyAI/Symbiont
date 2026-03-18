@@ -102,11 +102,28 @@ pub async fn run(matches: &ArgMatches) {
     // Scan agents directory
     let agents_found = scan_agents_directory();
 
-    println!("✓ Runtime API on {}:{}", http_bind, port);
-    println!("✓ HTTP Input on {}:{}", http_bind, http_port);
-    println!("✓ Authentication: ENABLED (Bearer token required)");
+    // Display clear auth info at startup
+    let api_token_source = if std::env::var("SYMBIONT_API_TOKEN").is_ok() {
+        "SYMBIONT_API_TOKEN env var"
+    } else {
+        "none (unauthenticated)"
+    };
+    println!("✓ Runtime API on {}:{} (auth: {})", http_bind, port, api_token_source);
+    println!(
+        "✓ HTTP Input on {}:{} (auth: --http.token Bearer)",
+        http_bind, http_port
+    );
+    if std::env::var("SYMBIONT_MASTER_KEY").is_err() {
+        eprintln!("⚠  SYMBIONT_MASTER_KEY not set — crypto operations will fail. Set it or use dev mode.");
+    }
 
-    if let Some(agent) = agents_found.first() {
+    if agents_found.len() > 1 {
+        println!("→ Auto-routing by agent name:");
+        for agent in &agents_found {
+            let name = agent.trim_end_matches(".dsl");
+            println!("    /webhook/{} → {}", name, agent);
+        }
+    } else if let Some(agent) = agents_found.first() {
         println!("→ Auto-routing /webhook → {}", agent);
     }
 
@@ -144,18 +161,17 @@ pub async fn run(matches: &ArgMatches) {
     };
 
     // Load agents from DSL files into the scheduler registry
-    let first_agent_id = if let Some(ref rt) = runtime {
+    let loaded_agents = if let Some(ref rt) = runtime {
         let loaded = load_agents_into_registry(rt).await;
-        if loaded.is_empty() {
-            None
-        } else {
+        if !loaded.is_empty() {
             println!("✓ {} agent(s) loaded from agents/", loaded.len());
-            Some(loaded[0])
         }
+        loaded
     } else {
-        None
+        vec![]
     };
 
+    let first_agent_id = loaded_agents.first().map(|(_, id)| *id);
     let agent_id = first_agent_id.unwrap_or_else(AgentId::new);
 
     let http_port_num = match http_port.parse::<u16>() {
@@ -164,6 +180,21 @@ pub async fn run(matches: &ArgMatches) {
             eprintln!("✗ Invalid HTTP port number '{}': {}", http_port, e);
             return;
         }
+    };
+
+    // Auto-generate routing rules when multiple agents are loaded
+    let routing_rules = if loaded_agents.len() > 1 {
+        use symbi_runtime::http_input::config::{AgentRoutingRule, RouteMatch};
+        let rules: Vec<AgentRoutingRule> = loaded_agents
+            .iter()
+            .map(|(name, id)| AgentRoutingRule {
+                condition: RouteMatch::PathPrefix(format!("/webhook/{}", name)),
+                agent: *id,
+            })
+            .collect();
+        Some(rules)
+    } else {
+        None
     };
 
     let http_config = HttpInputConfig {
@@ -176,7 +207,7 @@ pub async fn run(matches: &ArgMatches) {
         audit_enabled: http_audit,
         concurrency: 10,
         max_body_bytes: 1_048_576,
-        routing_rules: None,
+        routing_rules,
         response_control: None,
         forward_headers: vec![],
         jwt_public_key_path: None,
@@ -683,13 +714,13 @@ async fn load_dsl_schedules(cron: &symbi_runtime::CronScheduler) -> usize {
 /// Scan DSL files in the agents directory, parse each one, create an
 /// `AgentConfig`, and register it with the runtime scheduler so that
 /// `/api/v1/agents` lists them and `/api/v1/agents/:id/execute` works.
-async fn load_agents_into_registry(runtime: &AgentRuntime) -> Vec<AgentId> {
+async fn load_agents_into_registry(runtime: &AgentRuntime) -> Vec<(String, AgentId)> {
     let agents_dir = Path::new("agents");
     if !agents_dir.exists() {
         return vec![];
     }
 
-    let mut ids = Vec::new();
+    let mut agents = Vec::new();
     if let Ok(entries) = fs::read_dir(agents_dir) {
         for entry in entries.flatten() {
             if entry.path().extension().is_some_and(|ext| ext == "dsl") {
@@ -716,7 +747,7 @@ async fn load_agents_into_registry(runtime: &AgentRuntime) -> Vec<AgentId> {
                     match runtime.scheduler.schedule_agent(agent_config).await {
                         Ok(id) => {
                             println!("  → {} [{}]", name, id);
-                            ids.push(id);
+                            agents.push((name, id));
                         }
                         Err(e) => {
                             eprintln!("  ⚠ Failed to register agent '{}': {}", name, e);
@@ -726,7 +757,7 @@ async fn load_agents_into_registry(runtime: &AgentRuntime) -> Vec<AgentId> {
             }
         }
     }
-    ids
+    agents
 }
 
 fn scan_agents_directory() -> Vec<String> {

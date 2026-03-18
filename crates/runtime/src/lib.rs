@@ -599,6 +599,28 @@ impl RuntimeApiProvider for AgentRuntime {
         Ok(self.scheduler.list_agents().await)
     }
 
+    async fn list_agents_detailed(
+        &self,
+    ) -> Result<Vec<crate::api::types::AgentSummary>, RuntimeError> {
+        let ids = self.scheduler.list_agents().await;
+        let mut summaries = Vec::new();
+        for id in ids {
+            let name = self
+                .scheduler
+                .get_agent_config(id)
+                .map(|c| c.name)
+                .unwrap_or_default();
+            let state = self
+                .scheduler
+                .get_agent_status(id)
+                .await
+                .map(|s| s.state)
+                .unwrap_or(AgentState::Created);
+            summaries.push(crate::api::types::AgentSummary { id, name, state });
+        }
+        Ok(summaries)
+    }
+
     async fn shutdown_agent(&self, agent_id: AgentId) -> Result<(), RuntimeError> {
         self.scheduler
             .shutdown_agent(agent_id)

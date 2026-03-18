@@ -336,7 +336,7 @@ module.exports = grammar({
     number: $ => /\d+(\.\d+)?/,
     boolean: $ => choice('true', 'false'),
 
-    comment: $ => token(seq('//', /.*/)),
+    comment: $ => token(choice(seq('//', /.*/), seq('#', /.*/))),
   },
 
   extras: $ => [
