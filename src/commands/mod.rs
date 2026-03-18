@@ -6,6 +6,7 @@ pub mod dsl;
 pub mod init;
 pub mod logs;
 pub mod new;
+pub mod run;
 pub mod skills;
 pub mod status;
 pub mod up;

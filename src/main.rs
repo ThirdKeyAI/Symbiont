@@ -228,6 +228,31 @@ async fn main() {
                 )
         )
         .subcommand(
+            Command::new("run")
+                .about("Run a single agent and exit")
+                .arg(
+                    Arg::new("agent")
+                        .value_name("AGENT")
+                        .help("Agent name or DSL file path (searches agents/ directory)")
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("input")
+                        .long("input")
+                        .short('i')
+                        .value_name("JSON")
+                        .help("Input data as JSON string")
+                        .default_value("{}"),
+                )
+                .arg(
+                    Arg::new("max-iterations")
+                        .long("max-iterations")
+                        .value_name("N")
+                        .help("Maximum ORGA loop iterations")
+                        .default_value("10"),
+                ),
+        )
+        .subcommand(
             Command::new("mcp")
                 .about("Start MCP server (stdio transport) for AI assistant integration"),
         )
@@ -533,6 +558,9 @@ async fn main() {
         }
         Some(("init", sub_matches)) => {
             commands::init::run(sub_matches).await;
+        }
+        Some(("run", sub_matches)) => {
+            commands::run::run(sub_matches).await;
         }
         Some(("mcp", _sub_matches)) => {
             mcp_server::start_mcp_server().await.unwrap_or_else(|e| {
