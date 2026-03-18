@@ -108,13 +108,18 @@ pub async fn run(matches: &ArgMatches) {
     } else {
         "none (unauthenticated)"
     };
-    println!("✓ Runtime API on {}:{} (auth: {})", http_bind, port, api_token_source);
+    println!(
+        "✓ Runtime API on {}:{} (auth: {})",
+        http_bind, port, api_token_source
+    );
     println!(
         "✓ HTTP Input on {}:{} (auth: --http.token Bearer)",
         http_bind, http_port
     );
     if std::env::var("SYMBIONT_MASTER_KEY").is_err() {
-        eprintln!("⚠  SYMBIONT_MASTER_KEY not set — crypto operations will fail. Set it or use dev mode.");
+        eprintln!(
+            "⚠  SYMBIONT_MASTER_KEY not set — crypto operations will fail. Set it or use dev mode."
+        );
     }
 
     if agents_found.len() > 1 {

@@ -45,17 +45,17 @@ pub async fn run(matches: &ArgMatches) {
     };
 
     // Set up inference provider from environment
-    let provider = match symbi_runtime::reasoning::providers::cloud::CloudInferenceProvider::from_env()
-    {
-        Some(p) => Arc::new(p) as Arc<dyn symbi_runtime::reasoning::inference::InferenceProvider>,
-        None => {
-            eprintln!("✗ No LLM provider configured.");
-            eprintln!(
-                "  Set one of: OPENROUTER_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY"
-            );
-            std::process::exit(1);
-        }
-    };
+    let provider =
+        match symbi_runtime::reasoning::providers::cloud::CloudInferenceProvider::from_env() {
+            Some(p) => {
+                Arc::new(p) as Arc<dyn symbi_runtime::reasoning::inference::InferenceProvider>
+            }
+            None => {
+                eprintln!("✗ No LLM provider configured.");
+                eprintln!("  Set one of: OPENROUTER_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY");
+                std::process::exit(1);
+            }
+        };
 
     println!("→ Running agent: {} ({})", agent_name, agent_path.display());
     if !description.is_empty() {

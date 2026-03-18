@@ -12,14 +12,14 @@ use crate::types::{AgentId, AgentState, RuntimeError};
 #[cfg(feature = "http-api")]
 use super::types::{
     AddIdentityMappingRequest, AgentStatusResponse, AgentSummary, ChannelActionResponse,
-    ChannelAuditResponse, ChannelDetail, ChannelHealthResponse, ChannelSummary,
-    CreateAgentRequest, CreateAgentResponse, CreateScheduleRequest, CreateScheduleResponse,
-    DeleteAgentResponse, DeleteChannelResponse, DeleteScheduleResponse, ExecuteAgentRequest,
-    ExecuteAgentResponse, GetAgentHistoryResponse, HeartbeatRequest, IdentityMappingEntry,
-    NextRunsResponse, PushEventRequest, RegisterChannelRequest, RegisterChannelResponse,
-    ScheduleActionResponse, ScheduleDetail, ScheduleHistoryResponse, ScheduleSummary,
-    SchedulerHealthResponse, UpdateAgentRequest, UpdateAgentResponse, UpdateChannelRequest,
-    UpdateScheduleRequest, WorkflowExecutionRequest,
+    ChannelAuditResponse, ChannelDetail, ChannelHealthResponse, ChannelSummary, CreateAgentRequest,
+    CreateAgentResponse, CreateScheduleRequest, CreateScheduleResponse, DeleteAgentResponse,
+    DeleteChannelResponse, DeleteScheduleResponse, ExecuteAgentRequest, ExecuteAgentResponse,
+    GetAgentHistoryResponse, HeartbeatRequest, IdentityMappingEntry, NextRunsResponse,
+    PushEventRequest, RegisterChannelRequest, RegisterChannelResponse, ScheduleActionResponse,
+    ScheduleDetail, ScheduleHistoryResponse, ScheduleSummary, SchedulerHealthResponse,
+    UpdateAgentRequest, UpdateAgentResponse, UpdateChannelRequest, UpdateScheduleRequest,
+    WorkflowExecutionRequest,
 };
 
 /// Trait providing API access to core runtime functionalities
