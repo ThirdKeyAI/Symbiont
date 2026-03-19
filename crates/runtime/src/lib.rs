@@ -41,7 +41,7 @@ use api::types::{
     DeleteChannelResponse, DeleteScheduleResponse, ExecuteAgentRequest, ExecuteAgentResponse,
     GetAgentHistoryResponse, IdentityMappingEntry, NextRunsResponse, RegisterChannelRequest,
     RegisterChannelResponse, ScheduleActionResponse, ScheduleDetail, ScheduleHistoryResponse,
-    ScheduleRunEntry, ScheduleSummary, UpdateAgentRequest, UpdateAgentResponse,
+    ScheduleSummary, UpdateAgentRequest, UpdateAgentResponse,
     UpdateChannelRequest, UpdateScheduleRequest, WorkflowExecutionRequest,
 };
 #[cfg(feature = "http-api")]
