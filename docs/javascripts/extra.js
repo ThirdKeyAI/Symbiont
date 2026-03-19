@@ -1,49 +1,52 @@
-// Mermaid diagram rendering for Zensical
-// Zensical wraps mermaid code in <pre class="mermaid"><code>...</code></pre>
-// with HTML-encoded entities. We must clean up before mermaid can parse.
-(function() {
-  document.addEventListener('DOMContentLoaded', function() {
-    // Step 1: Clean up mermaid blocks
-    var blocks = document.querySelectorAll('pre.mermaid');
-    blocks.forEach(function(pre) {
-      var code = pre.querySelector('code');
-      if (code) {
-        // textContent auto-decodes HTML entities (&gt; -> >, etc.)
-        var text = code.textContent;
-        // Clear and set as direct text (no code wrapper)
-        pre.innerHTML = '';
-        pre.textContent = text;
+// Mermaid rendering for Zensical docs
+// Problem: Zensical outputs <pre class="mermaid"><code>...encoded HTML...</code></pre>
+// Mermaid needs <div class="mermaid">...clean text...</div>
+
+// Hide mermaid source code immediately to prevent flash
+document.head.insertAdjacentHTML('beforeend',
+  '<style>pre.mermaid{visibility:hidden;height:0;overflow:hidden}</style>');
+
+document.addEventListener('DOMContentLoaded', function() {
+  var pres = document.querySelectorAll('pre.mermaid');
+  if (pres.length === 0) return;
+
+  // Replace each <pre class="mermaid"><code>...</code></pre>
+  // with <div class="mermaid">...decoded text...</div>
+  pres.forEach(function(pre) {
+    var code = pre.querySelector('code');
+    var text = code ? code.textContent : pre.textContent;
+    var div = document.createElement('div');
+    div.className = 'mermaid';
+    div.textContent = text;
+    pre.parentNode.replaceChild(div, pre);
+  });
+
+  // Load mermaid from CDN
+  var s = document.createElement('script');
+  s.src = 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js';
+  s.onload = function() {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: 'dark',
+      themeVariables: {
+        primaryColor: '#14b8a6',
+        primaryBorderColor: '#0d9488',
+        primaryTextColor: '#e2e8f0',
+        lineColor: '#94a3b8',
+        secondaryColor: '#1e293b',
+        tertiaryColor: '#0f172a'
       }
     });
-
-    // Step 2: Load and initialize mermaid
-    if (blocks.length > 0) {
-      var script = document.createElement('script');
-      script.src = 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js';
-      script.onload = function() {
-        mermaid.initialize({
-          startOnLoad: false,
-          theme: 'dark',
-          themeVariables: {
-            primaryColor: '#14b8a6',
-            primaryBorderColor: '#0d9488',
-            primaryTextColor: '#e2e8f0',
-            lineColor: '#94a3b8',
-            secondaryColor: '#1e293b',
-            tertiaryColor: '#0f172a'
-          }
-        });
-        mermaid.run({ querySelector: '.mermaid' }).then(function() {
-          // Add zoom cursors after successful render
-          document.querySelectorAll('.mermaid svg').forEach(function(svg) {
-            svg.style.cursor = 'zoom-in';
-          });
-        });
-      };
-      document.head.appendChild(script);
-    }
-  });
-})();
+    mermaid.run().then(function() {
+      document.querySelectorAll('.mermaid svg').forEach(function(svg) {
+        svg.style.cursor = 'zoom-in';
+      });
+    }).catch(function(err) {
+      console.error('Mermaid render error:', err);
+    });
+  };
+  document.head.appendChild(s);
+});
 
 // Click-to-zoom for mermaid diagrams
 document.addEventListener('click', function(e) {
@@ -62,7 +65,7 @@ document.addEventListener('click', function(e) {
   if (!clone.getAttribute('viewBox') && svg.getBBox) {
     try {
       var bbox = svg.getBBox();
-      clone.setAttribute('viewBox', bbox.x + ' ' + bbox.y + ' ' + bbox.width + ' ' + bbox.height);
+      clone.setAttribute('viewBox', bbox.x+' '+bbox.y+' '+bbox.width+' '+bbox.height);
     } catch(ex) {}
   }
 
