@@ -7,21 +7,21 @@
 
 // Force the new green color with high specificity to override any cached styles
 :root {
-  --green-000: #15a89d;
-  --green-100: #129680;
+  --green-000: #14b8a6;
+  --green-100: #0d9488;
   --green-200: #0f8469;
   --green-300: #0c7253;
 }
 
 // Override the exact CSS variables that Just the Docs uses
 :root {
-  --link-color: #15a89d !important;
-  --link-color-hover: #129680 !important;
+  --link-color: #14b8a6 !important;
+  --link-color-hover: #0d9488 !important;
   --link-color-visited: #0f8469 !important;
-  --btn-primary-color: #15a89d !important;
-  --btn-primary-background-color: #15a89d !important;
-  --btn-primary-background-color-hover: #129680 !important;
-  --label-primary: #129680 !important;
+  --btn-primary-color: #14b8a6 !important;
+  --btn-primary-background-color: #14b8a6 !important;
+  --btn-primary-background-color-hover: #0d9488 !important;
+  --label-primary: #0d9488 !important;
 }
 
 // Force overrides on all Just the Docs classes with maximum specificity
@@ -29,7 +29,7 @@ html body .main-content a,
 html body .side-bar .nav-list .nav-list-item .nav-list-link,
 html body .site-nav .nav-list .nav-list-item .nav-list-link,
 html body a {
-  color: #15a89d !important;
+  color: #14b8a6 !important;
 }
 
 // Button text should be white for readability
@@ -63,12 +63,12 @@ html body a:visited {
 
 // Additional overrides to ensure new green color is used everywhere
 .btn-primary {
-  background-color: #15a89d !important;
-  border-color: #15a89d !important;
+  background-color: #14b8a6 !important;
+  border-color: #14b8a6 !important;
   
   &:hover {
-    background-color: #129680 !important;
-    border-color: #129680 !important;
+    background-color: #0d9488 !important;
+    border-color: #0d9488 !important;
   }
 }
 
