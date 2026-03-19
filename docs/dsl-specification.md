@@ -1,4 +1,3 @@
----
 layout: default
 title: DSL Specification
 nav_exclude: true

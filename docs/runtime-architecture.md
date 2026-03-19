@@ -1,4 +1,3 @@
----
 layout: default
 title: Runtime Architecture
 nav_order: 4
@@ -6,23 +5,11 @@ description: "Symbiont runtime system architecture and components"
 ---
 
 # Runtime Architecture
-{: .no_toc }
-
-## 🌐 Other Languages
-{: .no_toc}
-
-**English** | [中文简体](runtime-architecture.zh-cn.md) | [Español](runtime-architecture.es.md) | [Português](runtime-architecture.pt.md) | [日本語](runtime-architecture.ja.md) | [Deutsch](runtime-architecture.de.md)
-
----
 
 Understanding the Symbi runtime system architecture and core components.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
 
-1. TOC
-{:toc}
 
 ---
 

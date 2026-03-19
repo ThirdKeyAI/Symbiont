@@ -1,4 +1,3 @@
----
 layout: default
 title: Docker Guide
 nav_order: 10
@@ -8,11 +7,6 @@ description: "Docker container guide for running Symbiont"
 # Docker Container Guide
 
 ## Other Languages
-{: .no_toc}
-
-**English** | [中文简体](docker.zh-cn.md) | [Español](docker.es.md) | [Português](docker.pt.md) | [日本語](docker.ja.md) | [Deutsch](docker.de.md)
-
----
 
 Symbi provides a unified Docker container with all functionality included, available through GitHub Container Registry.
 

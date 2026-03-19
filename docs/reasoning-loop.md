@@ -1,4 +1,3 @@
----
 layout: default
 title: Reasoning Loop Guide
 nav_order: 5
@@ -6,23 +5,13 @@ description: "Guide to the Symbiont agentic reasoning loop system"
 ---
 
 # Reasoning Loop Guide
-{: .no_toc }
 
 ## Other Languages
-{: .no_toc}
-
-**English** | [中文简体](reasoning-loop.zh-cn.md) | [Español](reasoning-loop.es.md) | [Português](reasoning-loop.pt.md) | [日本語](reasoning-loop.ja.md) | [Deutsch](reasoning-loop.de.md)
-
----
 
 Complete guide to the Symbiont agentic reasoning loop: a typestate-enforced Observe-Reason-Gate-Act (ORGA) cycle for autonomous agent behavior.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
 
-1. TOC
-{:toc}
 
 ---
 

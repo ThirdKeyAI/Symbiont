@@ -1,4 +1,3 @@
----
 layout: default
 title: DSL Guide
 nav_order: 3
@@ -6,23 +5,11 @@ description: "Complete guide to the Symbiont Domain-Specific Language"
 ---
 
 # DSL Guide
-{: .no_toc }
-
-## 🌐 Other Languages
-{: .no_toc}
-
-**English** | [中文简体](dsl-guide.zh-cn.md) | [Español](dsl-guide.es.md) | [Português](dsl-guide.pt.md) | [日本語](dsl-guide.ja.md) | [Deutsch](dsl-guide.de.md)
-
----
 
 Master the Symbi DSL for building policy-aware, secure AI agents.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
 
-1. TOC
-{:toc}
 
 ---
 

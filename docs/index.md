@@ -1,4 +1,3 @@
----
 layout: default
 title: Home
 nav_order: 1
@@ -7,20 +6,9 @@ permalink: /
 ---
 
 # Symbiont Documentation
-{: .fs-9 }
 
 AI-native agent framework for building autonomous, policy-aware agents with scheduling, channel adapters, and cryptographic identity — built in Rust.
-{: .fs-6 .fw-300 }
 
-[Get started now](#getting-started){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
-[View on GitHub](https://github.com/thirdkeyai/symbiont){: .btn .fs-5 .mb-4 .mb-md-0 }
-
----
-
-## 🌐 Other Languages
-{: .no_toc}
-
-**English** | [中文简体](index.zh-cn.md) | [Español](index.es.md) | [Português](index.pt.md) | [日本語](index.ja.md) | [Deutsch](index.de.md)
 
 ---
 

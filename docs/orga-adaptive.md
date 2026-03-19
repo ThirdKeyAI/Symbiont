@@ -1,4 +1,3 @@
----
 layout: default
 title: Advanced Reasoning Primitives (orga-adaptive)
 nav_order: 6
@@ -6,23 +5,13 @@ description: "Advanced reasoning loop primitives: tool curation, stuck-loop dete
 ---
 
 # Advanced Reasoning Primitives
-{: .no_toc }
 
 ## Other Languages
-{: .no_toc}
-
-**English** | [中文简体](orga-adaptive.zh-cn.md) | [Español](orga-adaptive.es.md) | [Português](orga-adaptive.pt.md) | [日本語](orga-adaptive.ja.md) | [Deutsch](orga-adaptive.de.md)
-
----
 
 Feature-gated runtime primitives that enhance the reasoning loop with tool curation, stuck-loop detection, deterministic context pre-fetch, and directory-scoped convention retrieval.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
 
-1. TOC
-{:toc}
 
 ---
 

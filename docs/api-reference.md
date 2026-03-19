@@ -1,4 +1,3 @@
----
 layout: default
 title: API Reference
 nav_order: 6
@@ -6,13 +5,6 @@ description: "Comprehensive API documentation for Symbiont runtime"
 ---
 
 # API Reference
-
-## 🌐 Other Languages
-{: .no_toc}
-
-**English** | [中文简体](api-reference.zh-cn.md) | [Español](api-reference.es.md) | [Português](api-reference.pt.md) | [日本語](api-reference.ja.md) | [Deutsch](api-reference.de.md)
-
----
 
 This document provides comprehensive documentation for the Symbiont runtime APIs. The Symbiont project exposes two distinct API systems designed for different use cases and development stages.
 

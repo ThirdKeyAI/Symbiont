@@ -1,4 +1,3 @@
----
 layout: default
 title: Scheduling Guide
 nav_order: 7
@@ -6,13 +5,6 @@ description: "Production-grade cron-based task scheduling for Symbiont AI agents
 ---
 
 # Scheduling Guide
-
-## 🌐 Other Languages
-{: .no_toc}
-
-**English** | [中文简体](scheduling.zh-cn.md) | [Español](scheduling.es.md) | [Português](scheduling.pt.md) | [日本語](scheduling.ja.md) | [Deutsch](scheduling.de.md)
-
----
 
 ## Overview
 

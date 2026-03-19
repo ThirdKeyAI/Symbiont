@@ -1,4 +1,3 @@
----
 layout: default
 title: Contributing
 nav_order: 12
@@ -6,23 +5,13 @@ description: "How to contribute to the Symbiont project"
 ---
 
 # Contributing
-{: .no_toc }
 
 ## Other Languages
-{: .no_toc}
-
-**English** | [中文简体](contributing.zh-cn.md) | [Español](contributing.es.md) | [Português](contributing.pt.md) | [日本語](contributing.ja.md) | [Deutsch](contributing.de.md)
-
----
 
 Learn how to contribute to the Symbiont project, from reporting issues to submitting code changes.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
 
-1. TOC
-{:toc}
 
 ---
 
@@ -316,16 +305,11 @@ description: "Brief page description"
 ---
 
 # Page Title
-{: .no_toc }
 
 Brief introduction paragraph.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
 
-1. TOC
-{:toc}
 
 ---
 
