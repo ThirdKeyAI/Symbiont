@@ -1,5 +1,6 @@
 [project]
 site_name = "Symbiont Documentation"
+copyright = "Copyright &copy; 2025–2026 Tarnover, LLC / ThirdKey.ai. All rights reserved."
 site_url = "https://docs.symbiont.dev/"
 site_description = "AI-native agent framework for building autonomous, policy-aware agents with scheduling, channel adapters, cryptographic identity, and multi-language SDKs."
 repo_url = "https://github.com/ThirdKeyAI/Symbiont"
@@ -73,5 +74,3 @@ icon = "fontawesome/solid/shield-halved"
 link = "https://thirdkey.ai"
 name = "ThirdKey"
 
-[project.extra.copyright]
-text = "Copyright &copy; 2025–2026 Tarnover, LLC / ThirdKey.ai"
