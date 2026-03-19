@@ -119,10 +119,10 @@ This means the following mistakes are **compile errors**, not runtime bugs:
 
 ```mermaid
 graph TD
-    R["AgentLoop&lt;Reasoning&gt;<br/><code>produce_output()</code>"]
-    P["AgentLoop&lt;PolicyCheck&gt;<br/><code>check_policy()</code>"]
-    T["AgentLoop&lt;ToolDispatching&gt;<br/><code>dispatch_tools()</code>"]
-    O["AgentLoop&lt;Observing&gt;<br/><code>observe_results()</code>"]
+    R["Reasoning Phase\nproduce_output"]
+    P["Policy Check Phase\ncheck_policy"]
+    T["Tool Dispatching Phase\ndispatch_tools"]
+    O["Observing Phase\nobserve_results"]
     LR["LoopResult"]
 
     R --> P

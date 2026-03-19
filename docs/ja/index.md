@@ -107,7 +107,7 @@ agent analyze_data(input: DataSet) -> Result {
 
 ```mermaid
 graph TB
-    A[Governance & Policy Layer] --> B[Core Rust Engine]
+    A[Governance and Policy Layer] --> B[Core Rust Engine]
     B --> C[Agent Framework]
     B --> D[Tree-sitter DSL Engine]
     B --> E[Multi-Tier Sandboxing]
@@ -115,7 +115,7 @@ graph TB
     E --> G[gVisor - Medium/High Risk]
     B --> I[Cryptographic Audit Trail]
 
-    subgraph "Scheduling & Execution"
+    subgraph "Scheduling and Execution"
         S[Cron Scheduler]
         H[Session Isolation]
         R[Delivery Router]
@@ -127,7 +127,7 @@ graph TB
         MM[Mattermost]
     end
 
-    subgraph "Context & Knowledge"
+    subgraph "Context and Knowledge"
         J[Context Manager]
         K[Vector Database]
         L[RAG Engine]

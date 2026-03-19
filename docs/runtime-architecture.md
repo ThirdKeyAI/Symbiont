@@ -41,14 +41,14 @@ graph TB
         KBR[Knowledge Bridge]
     end
 
-    subgraph "Context & Knowledge"
+    subgraph "Context and Knowledge"
         ACM[Agent Context Manager]
         VDB[Vector Database]
         RAG[RAG Engine]
         KB[Knowledge Base]
     end
 
-    subgraph "Security & Policy"
+    subgraph "Security and Policy"
         PE[Policy Engine]
         AT[Audit Trail]
         SO[Sandbox Orchestrator]
@@ -427,21 +427,21 @@ For a complete guide, see the [Reasoning Loop Guide](reasoning-loop.md).
 ```mermaid
 graph LR
     subgraph "ORGA Cycle"
-        R[Reasoning<br/>LLM Inference] --> P[Policy Check<br/>Gate Evaluation]
-        P --> D[Tool Dispatching<br/>Action Execution]
-        D --> O[Observing<br/>Result Collection]
+        R[Reasoning\nLLM Inference] --> P[Policy Check\nGate Evaluation]
+        P --> D[Tool Dispatching\nAction Execution]
+        D --> O[Observing\nResult Collection]
         O --> R
     end
 
     subgraph "Knowledge Bridge"
-        KB[Knowledge<br/>Context Manager]
-        KT[recall_knowledge<br/>store_knowledge]
+        KB[Knowledge\nContext Manager]
+        KT[recall_knowledge\nstore_knowledge]
     end
 
     subgraph "Infrastructure"
         CB[Circuit Breakers]
         J[Durable Journal]
-        M[Metrics & Tracing]
+        M[Metrics and Tracing]
     end
 
     KB -->|inject context| R
@@ -540,7 +540,7 @@ sequenceDiagram
     participant Verifier as Tool Verifier
     
     Agent->>MCP: Request Tools
-    MCP->>Server: Connect & List Tools
+    MCP->>Server: Connect and List Tools
     Server-->>MCP: Tool Definitions
     MCP->>Verifier: Verify Tool Schemas
     Verifier-->>MCP: Verification Results

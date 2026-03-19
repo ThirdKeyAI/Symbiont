@@ -119,10 +119,10 @@ pub struct Observing;      // Results collected for next iteration
 
 ```mermaid
 graph TD
-    R["AgentLoop&lt;Reasoning&gt;<br/><code>produce_output()</code>"]
-    P["AgentLoop&lt;PolicyCheck&gt;<br/><code>check_policy()</code>"]
-    T["AgentLoop&lt;ToolDispatching&gt;<br/><code>dispatch_tools()</code>"]
-    O["AgentLoop&lt;Observing&gt;<br/><code>observe_results()</code>"]
+    R["AgentLoop<Reasoning>\nproduce_output()"]
+    P["AgentLoop<PolicyCheck>\ncheck_policy()"]
+    T["AgentLoop<ToolDispatching>\ndispatch_tools()"]
+    O["AgentLoop<Observing>\nobserve_results()"]
     LR["LoopResult"]
 
     R --> P
