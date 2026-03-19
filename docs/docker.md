@@ -1,6 +1,5 @@
 # Docker Container Guide
 
-## Other Languages
 
 Symbi provides a unified Docker container with all functionality included, available through GitHub Container Registry.
 

@@ -2,7 +2,6 @@
 
 Understanding the Symbi runtime system architecture and core components.
 
-## Table of contents
 
 
 ---

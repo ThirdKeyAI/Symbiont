@@ -1,6 +1,5 @@
 # Native Execution Mode (No Docker/Isolation)
 
-## Other Languages
 
 ## Overview
 

@@ -2,7 +2,6 @@
 
 Master the Symbi DSL for building policy-aware, secure AI agents.
 
-## Table of contents
 
 
 ---

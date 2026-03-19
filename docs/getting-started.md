@@ -2,7 +2,6 @@
 
 This guide will walk you through setting up Symbi and creating your first AI agent.
 
-## Table of contents
 
 
 ---

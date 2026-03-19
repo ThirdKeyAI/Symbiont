@@ -1,10 +1,8 @@
 # Advanced Reasoning Primitives
 
-## Other Languages
 
 Feature-gated runtime primitives that enhance the reasoning loop with tool curation, stuck-loop detection, deterministic context pre-fetch, and directory-scoped convention retrieval.
 
-## Table of contents
 
 
 ---

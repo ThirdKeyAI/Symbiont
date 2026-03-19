@@ -1,6 +1,5 @@
 # Symbiont REPL Guide
 
-## Other Languages
 
 The Symbiont REPL (Read-Eval-Print Loop) provides an interactive environment for developing, testing, and debugging Symbiont agents and DSL code.
 

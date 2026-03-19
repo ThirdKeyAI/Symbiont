@@ -1,10 +1,8 @@
 # Reasoning Loop Guide
 
-## Other Languages
 
 Complete guide to the Symbiont agentic reasoning loop: a typestate-enforced Observe-Reason-Gate-Act (ORGA) cycle for autonomous agent behavior.
 
-## Table of contents
 
 
 ---

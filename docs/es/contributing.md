@@ -302,7 +302,6 @@ description: "Brief page description"
 
 Brief introduction paragraph.
 
-## Table of contents
 
 
 ---

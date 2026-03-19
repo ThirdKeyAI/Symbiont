@@ -2,7 +2,6 @@
 
 Comprehensive security architecture ensuring zero-trust, policy-driven protection for AI agents.
 
-## Table of contents
 
 
 ---

@@ -1,10 +1,8 @@
 # Contributing
 
-## Other Languages
 
 Learn how to contribute to the Symbiont project, from reporting issues to submitting code changes.
 
-## Table of contents
 
 
 ---
@@ -302,7 +300,6 @@ description: "Brief page description"
 
 Brief introduction paragraph.
 
-## Table of contents
 
 
 ---
