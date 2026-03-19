@@ -1,49 +1,47 @@
-// Step 1: Strip <code> wrappers from mermaid blocks IMMEDIATELY
-// (before any DOMContentLoaded, as early as possible)
+// Mermaid diagram rendering for Zensical
+// Zensical wraps mermaid code in <pre class="mermaid"><code>...</code></pre>
+// with HTML-encoded entities. We must clean up before mermaid can parse.
 (function() {
-  function stripCodeWrappers() {
-    document.querySelectorAll('pre.mermaid code').forEach(function(code) {
-      var pre = code.parentElement;
-      var text = code.textContent;
-      pre.textContent = text;
-    });
-  }
-
-  // Try now (if DOM is ready)
-  if (document.readyState !== 'loading') {
-    stripCodeWrappers();
-  }
-
-  // Also on DOMContentLoaded (belt and suspenders)
   document.addEventListener('DOMContentLoaded', function() {
-    stripCodeWrappers();
+    // Step 1: Clean up mermaid blocks
+    var blocks = document.querySelectorAll('pre.mermaid');
+    blocks.forEach(function(pre) {
+      var code = pre.querySelector('code');
+      if (code) {
+        // textContent auto-decodes HTML entities (&gt; -> >, etc.)
+        var text = code.textContent;
+        // Clear and set as direct text (no code wrapper)
+        pre.innerHTML = '';
+        pre.textContent = text;
+      }
+    });
 
-    // Step 2: Load mermaid dynamically AFTER cleanup
-    var script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js';
-    script.onload = function() {
-      mermaid.initialize({
-        startOnLoad: true,
-        theme: 'dark',
-        themeVariables: {
-          primaryColor: '#14b8a6',
-          primaryBorderColor: '#0d9488',
-          primaryTextColor: '#e2e8f0',
-          lineColor: '#94a3b8',
-          secondaryColor: '#1e293b',
-          tertiaryColor: '#0f172a'
-        }
-      });
-      mermaid.run({ querySelector: '.mermaid' });
-
-      // Add zoom cursors after render
-      setTimeout(function() {
-        document.querySelectorAll('.mermaid svg').forEach(function(svg) {
-          svg.style.cursor = 'zoom-in';
+    // Step 2: Load and initialize mermaid
+    if (blocks.length > 0) {
+      var script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js';
+      script.onload = function() {
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: 'dark',
+          themeVariables: {
+            primaryColor: '#14b8a6',
+            primaryBorderColor: '#0d9488',
+            primaryTextColor: '#e2e8f0',
+            lineColor: '#94a3b8',
+            secondaryColor: '#1e293b',
+            tertiaryColor: '#0f172a'
+          }
         });
-      }, 1000);
-    };
-    document.body.appendChild(script);
+        mermaid.run({ querySelector: '.mermaid' }).then(function() {
+          // Add zoom cursors after successful render
+          document.querySelectorAll('.mermaid svg').forEach(function(svg) {
+            svg.style.cursor = 'zoom-in';
+          });
+        });
+      };
+      document.head.appendChild(script);
+    }
   });
 })();
 
