@@ -1,9 +1,3 @@
-layout: default
-title: コントリビューション
-description: "Symbiontプロジェクトへの貢献方法"
-nav_exclude: true
----
-
 # コントリビューション
 
 ## 他の言語

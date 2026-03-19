@@ -1,9 +1,3 @@
-layout: default
-title: Docker-Leitfaden
-nav_exclude: true
-description: "Docker-Container-Leitfaden fuer den Betrieb von Symbiont"
----
-
 # Docker-Container-Leitfaden
 
 ## Andere Sprachen

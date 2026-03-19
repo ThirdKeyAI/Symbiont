@@ -1,9 +1,3 @@
-layout: default
-title: Dockerガイド
-description: "Symbiontを実行するためのDockerコンテナガイド"
-nav_exclude: true
----
-
 # Dockerコンテナガイド
 
 ## 他の言語

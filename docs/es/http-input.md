@@ -1,9 +1,3 @@
-layout: default
-title: Modulo de Entrada HTTP
-description: "Modulo de entrada HTTP para integracion de webhook con agentes Symbiont"
-nav_exclude: true
----
-
 # Modulo de Entrada HTTP
 
 El modulo de Entrada HTTP proporciona un servidor webhook que permite a sistemas externos invocar agentes Symbiont a traves de peticiones HTTP. Este modulo habilita la integracion con servicios externos, webhooks y APIs exponiendo agentes a traves de endpoints HTTP.

@@ -1,9 +1,3 @@
-layout: default
-title: Contribuir
-nav_exclude: true
-description: "Como contribuir al proyecto Symbiont"
----
-
 # Contribuir
 
 ## Otros idiomas

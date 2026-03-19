@@ -1,9 +1,3 @@
-layout: default
-title: Inicio
-description: "Symbiont: Framework de agentes nativo de IA con programacion, adaptadores de canal e identidad criptografica"
-nav_exclude: true
----
-
 # Documentacion de Symbiont
 
 Framework de agentes nativo de IA para construir agentes autonomos y conscientes de politicas con programacion de tareas, adaptadores de canal e identidad criptografica — construido en Rust.

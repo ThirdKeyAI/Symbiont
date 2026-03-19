@@ -1,9 +1,3 @@
-layout: default
-title: Reasoning Loop Guide
-nav_order: 5
-description: "Guide to the Symbiont agentic reasoning loop system"
----
-
 # Reasoning Loop Guide
 
 ## Other Languages

@@ -1,9 +1,3 @@
-layout: default
-title: Erweiterte Reasoning-Primitiven (orga-adaptive)
-description: "Erweiterte Reasoning-Loop-Primitiven: Tool-Kuratierung, Stuck-Loop-Erkennung, Kontext-Pre-Fetch und verzeichnisspezifische Konventionen"
-nav_exclude: true
----
-
 # Erweiterte Reasoning-Primitiven
 
 ## Andere Sprachen

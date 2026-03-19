@@ -1,9 +1,3 @@
-layout: default
-title: 高度な推論プリミティブ (orga-adaptive)
-description: "高度な推論ループプリミティブ：ツールキュレーション、スタックループ検出、コンテキストプリフェッチ、スコープ付きコンベンション"
-nav_exclude: true
----
-
 # 高度な推論プリミティブ
 
 ## 他の言語

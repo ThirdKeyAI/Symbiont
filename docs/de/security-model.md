@@ -1,9 +1,3 @@
-layout: default
-title: Sicherheitsmodell
-description: "Symbiont Sicherheitsarchitektur und -implementierung"
-nav_exclude: true
----
-
 # Sicherheitsmodell
 
 Umfassende Sicherheitsarchitektur, die Zero-Trust, richtliniengesteuerten Schutz fuer KI-Agenten gewaehrleistet.

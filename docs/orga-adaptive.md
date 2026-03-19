@@ -1,9 +1,3 @@
-layout: default
-title: Advanced Reasoning Primitives (orga-adaptive)
-nav_order: 6
-description: "Advanced reasoning loop primitives: tool curation, stuck-loop detection, context pre-fetch, and scoped conventions"
----
-
 # Advanced Reasoning Primitives
 
 ## Other Languages

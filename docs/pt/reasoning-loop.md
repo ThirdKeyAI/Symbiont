@@ -1,9 +1,3 @@
-layout: default
-title: Guia do Loop de Raciocínio
-nav_exclude: true
-description: "Guia para o sistema de loop de raciocínio agêntico do Symbiont"
----
-
 # Guia do Loop de Raciocínio
 
 ## Outros idiomas

@@ -1,9 +1,3 @@
-layout: default
-title: DSL Specification
-nav_exclude: true
-description: "Full specification of the Symbiont Domain-Specific Language"
----
-
 # Symbiont DSL Specification
 
 ## Overview

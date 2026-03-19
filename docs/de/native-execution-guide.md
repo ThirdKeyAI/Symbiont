@@ -1,9 +1,3 @@
-layout: default
-title: Leitfaden zur nativen Ausfuehrung
-nav_exclude: true
-description: "Symbiont-Agenten ohne Docker oder Container-Isolation betreiben"
----
-
 # Nativer Ausfuehrungsmodus (ohne Docker/Isolation)
 
 ## Andere Sprachen

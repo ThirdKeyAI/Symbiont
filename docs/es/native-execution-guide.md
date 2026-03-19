@@ -1,9 +1,3 @@
-layout: default
-title: Guia de Ejecucion Nativa
-nav_exclude: true
-description: "Ejecutar agentes de Symbiont sin Docker ni aislamiento de contenedores"
----
-
 # Modo de Ejecucion Nativa (Sin Docker/Aislamiento)
 
 ## Otros idiomas

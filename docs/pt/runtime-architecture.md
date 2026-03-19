@@ -1,9 +1,3 @@
-layout: default
-title: Arquitetura do Runtime
-description: "Visão geral da arquitetura do sistema de runtime do Symbiont"
-nav_exclude: true
----
-
 # Arquitetura de Runtime
 
 Compreenda a arquitetura do sistema de runtime Symbi e os componentes principais.

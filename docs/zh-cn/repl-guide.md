@@ -1,8 +1,3 @@
-layout: default
-title: REPL 指南
-nav_exclude: true
----
-
 # Symbiont REPL 指南
 
 ## 其他语言

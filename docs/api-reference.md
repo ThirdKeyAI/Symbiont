@@ -1,9 +1,3 @@
-layout: default
-title: API Reference
-nav_order: 6
-description: "Comprehensive API documentation for Symbiont runtime"
----
-
 # API Reference
 
 This document provides comprehensive documentation for the Symbiont runtime APIs. The Symbiont project exposes two distinct API systems designed for different use cases and development stages.

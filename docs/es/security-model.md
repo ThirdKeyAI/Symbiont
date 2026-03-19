@@ -1,9 +1,3 @@
-layout: default
-title: Modelo de Seguridad
-description: "Arquitectura e implementacion de seguridad de Symbiont"
-nav_exclude: true
----
-
 # Modelo de Seguridad
 
 Arquitectura de seguridad integral que garantiza proteccion de confianza cero e impulsada por politicas para agentes de IA.

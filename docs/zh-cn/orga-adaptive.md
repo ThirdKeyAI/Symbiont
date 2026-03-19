@@ -1,9 +1,3 @@
-layout: default
-title: 高级推理原语 (orga-adaptive)
-description: "高级推理循环原语：工具筛选、卡住循环检测、上下文预获取和范围约定"
-nav_exclude: true
----
-
 # 高级推理原语
 
 ## 其他语言

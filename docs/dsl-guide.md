@@ -1,9 +1,3 @@
-layout: default
-title: DSL Guide
-nav_order: 3
-description: "Complete guide to the Symbiont Domain-Specific Language"
----
-
 # DSL Guide
 
 Master the Symbi DSL for building policy-aware, secure AI agents.

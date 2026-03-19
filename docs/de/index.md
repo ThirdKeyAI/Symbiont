@@ -1,9 +1,3 @@
-layout: default
-title: Startseite
-description: "Symbiont: KI-natives Agent-Framework mit Scheduling, Channel-Adaptern und kryptographischer Identitaet"
-nav_exclude: true
----
-
 # Symbiont Dokumentation
 
 KI-natives Agent-Framework fuer den Aufbau autonomer, richtlinienbasierter Agenten mit Scheduling, Channel-Adaptern und kryptographischer Identitaet -- entwickelt in Rust.

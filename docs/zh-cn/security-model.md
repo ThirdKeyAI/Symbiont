@@ -1,9 +1,3 @@
-layout: default
-title: 安全模型
-description: "Symbiont 安全架构和实现"
-nav_exclude: true
----
-
 # 安全模型
 
 全面的安全架构，确保为 AI 智能体提供零信任、策略驱动的保护。

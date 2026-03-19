@@ -1,9 +1,3 @@
-layout: default
-title: Erste Schritte
-description: "Schnellstart-Anleitung fuer Symbiont"
-nav_exclude: true
----
-
 # Erste Schritte
 
 Dieser Leitfaden fuehrt Sie durch die Einrichtung von Symbi und die Erstellung Ihres ersten KI-Agenten.

@@ -1,8 +1,3 @@
-layout: default
-title: Guia del REPL
-nav_exclude: true
----
-
 # Guia del REPL de Symbiont
 
 ## Otros idiomas

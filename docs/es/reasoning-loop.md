@@ -1,9 +1,3 @@
-layout: default
-title: Guia del Bucle de Razonamiento
-nav_exclude: true
-description: "Guia del sistema de bucle de razonamiento agentico de Symbiont"
----
-
 # Guia del Bucle de Razonamiento
 
 ## Otros idiomas

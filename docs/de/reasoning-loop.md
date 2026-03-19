@@ -1,9 +1,3 @@
-layout: default
-title: Leitfaden zur Reasoning-Schleife
-nav_exclude: true
-description: "Leitfaden zum agentischen Reasoning-Loop-System von Symbiont"
----
-
 # Leitfaden zur Reasoning-Schleife
 
 ## Andere Sprachen

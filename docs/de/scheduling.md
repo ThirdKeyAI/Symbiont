@@ -1,9 +1,3 @@
-layout: default
-title: Scheduling-Leitfaden
-description: "Produktionsreifes Cron-basiertes Aufgaben-Scheduling fuer Symbiont AI-Agenten"
-nav_exclude: true
----
-
 # Scheduling-Leitfaden
 
 ## Andere Sprachen

@@ -1,9 +1,3 @@
-layout: default
-title: Primitivas de Razonamiento Avanzado (orga-adaptive)
-description: "Primitivas avanzadas del bucle de razonamiento: curacion de herramientas, deteccion de bucles atascados, pre-carga de contexto y convenciones con alcance de directorio"
-nav_exclude: true
----
-
 # Primitivas de Razonamiento Avanzado
 
 ## Otros idiomas

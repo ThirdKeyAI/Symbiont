@@ -1,9 +1,3 @@
-layout: default
-title: 入门指南
-description: "Symbiont 快速入门指南"
-nav_exclude: true
----
-
 # 入门指南
 
 本指南将指导您设置 Symbi 并创建您的第一个 AI 智能体。

@@ -1,9 +1,3 @@
-layout: default
-title: Security Model
-nav_order: 5
-description: "Symbiont security architecture and implementation"
----
-
 # Security Model
 
 Comprehensive security architecture ensuring zero-trust, policy-driven protection for AI agents.

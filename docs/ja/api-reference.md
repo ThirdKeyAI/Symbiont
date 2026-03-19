@@ -1,9 +1,3 @@
-layout: default
-title: APIリファレンス
-description: "Symbiontランタイムの包括的なAPIドキュメント"
-nav_exclude: true
----
-
 # APIリファレンス
 
 このドキュメントは、SymbiontランタイムAPIの包括的なドキュメントを提供します。Symbiontプロジェクトは、異なるユースケースと開発段階向けに設計された2つの独立したAPIシステムを提供します。

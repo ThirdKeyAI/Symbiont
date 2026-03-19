@@ -1,9 +1,3 @@
-layout: default
-title: Docker 指南
-nav_exclude: true
-description: "运行 Symbiont 的 Docker 容器指南"
----
-
 # Docker 容器指南
 
 ## 其他语言

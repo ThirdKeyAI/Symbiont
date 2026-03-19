@@ -1,9 +1,3 @@
-layout: default
-title: API-Referenz
-description: "Umfassende Dokumentation der Symbiont Runtime-APIs"
-nav_exclude: true
----
-
 # API-Referenz
 
 Dieses Dokument bietet umfassende Dokumentation fuer die Symbiont Runtime-APIs. Das Symbiont-Projekt stellt zwei unterschiedliche API-Systeme bereit, die fuer verschiedene Anwendungsfaelle und Entwicklungsstadien konzipiert sind.

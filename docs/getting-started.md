@@ -1,9 +1,3 @@
-layout: default
-title: Getting Started
-nav_order: 2
-description: "Quick start guide for Symbiont"
----
-
 # Getting Started
 
 This guide will walk you through setting up Symbi and creating your first AI agent.

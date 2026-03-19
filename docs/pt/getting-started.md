@@ -1,9 +1,3 @@
-layout: default
-title: Começando
-description: "Guia de início rápido para Symbiont"
-nav_exclude: true
----
-
 # Começando
 
 Este guia irá orientá-lo na configuração do Symbi e na criação do seu primeiro agente de IA.

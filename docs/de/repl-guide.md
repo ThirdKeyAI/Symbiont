@@ -1,8 +1,3 @@
-layout: default
-title: REPL-Leitfaden
-nav_exclude: true
----
-
 # Symbiont REPL-Leitfaden
 
 ## Andere Sprachen

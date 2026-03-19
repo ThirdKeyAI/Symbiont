@@ -1,9 +1,3 @@
-layout: default
-title: Mitwirken
-nav_exclude: true
-description: "Wie Sie zum Symbiont-Projekt beitragen koennen"
----
-
 # Mitwirken
 
 ## Andere Sprachen

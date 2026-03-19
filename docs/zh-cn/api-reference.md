@@ -1,9 +1,3 @@
-layout: default
-title: API 参考
-description: "Symbiont 运行时 API 综合文档"
-nav_exclude: true
----
-
 # API 参考
 
 本文档为 Symbiont 运行时 API 提供全面的文档。Symbiont 项目提供两个针对不同用例和开发阶段设计的独立 API 系统。

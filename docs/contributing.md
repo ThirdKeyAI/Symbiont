@@ -1,9 +1,3 @@
-layout: default
-title: Contributing
-nav_order: 12
-description: "How to contribute to the Symbiont project"
----
-
 # Contributing
 
 ## Other Languages

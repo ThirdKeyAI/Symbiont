@@ -1,9 +1,3 @@
-layout: default
-title: Runtime Architecture
-nav_order: 4
-description: "Symbiont runtime system architecture and components"
----
-
 # Runtime Architecture
 
 Understanding the Symbi runtime system architecture and core components.

@@ -1,9 +1,3 @@
-layout: default
-title: Native Execution Guide
-nav_order: 11
-description: "Running Symbiont agents without Docker or container isolation"
----
-
 # Native Execution Mode (No Docker/Isolation)
 
 ## Other Languages

@@ -1,9 +1,3 @@
-layout: default
-title: Docker Guide
-nav_order: 10
-description: "Docker container guide for running Symbiont"
----
-
 # Docker Container Guide
 
 ## Other Languages

@@ -1,9 +1,3 @@
-layout: default
-title: REPLガイド
-description: "Symbiont REPLの使い方ガイド"
-nav_exclude: true
----
-
 # Symbiont REPLガイド
 
 ## 他の言語

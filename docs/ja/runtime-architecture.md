@@ -1,9 +1,3 @@
-layout: default
-title: ランタイムアーキテクチャ
-description: "Symbiont ランタイムシステムアーキテクチャの概要"
-nav_exclude: true
----
-
 # ランタイムアーキテクチャ
 
 Symbi ランタイムシステムアーキテクチャとコアコンポーネントを理解する。

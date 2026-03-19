@@ -1,9 +1,3 @@
-layout: default
-title: 主页
-description: "Symbiont：AI原生智能体框架，支持调度、通道适配器和密码学身份"
-nav_exclude: true
----
-
 # Symbiont 文档
 
 AI原生智能体框架，用于构建具有调度、通道适配器和密码学身份的自主、策略感知智能体——使用 Rust 构建。

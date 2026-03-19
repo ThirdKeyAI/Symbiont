@@ -1,9 +1,3 @@
-layout: default
-title: Guia de Docker
-nav_exclude: true
-description: "Guia de contenedores Docker para ejecutar Symbiont"
----
-
 # Guia de Contenedores Docker
 
 ## Otros idiomas

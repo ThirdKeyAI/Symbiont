@@ -1,9 +1,3 @@
-layout: default
-title: DSLガイド
-description: "Symbiont ドメイン固有言語の完全ガイド"
-nav_exclude: true
----
-
 # DSLガイド
 
 ## 他の言語

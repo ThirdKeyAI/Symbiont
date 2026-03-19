@@ -1,9 +1,3 @@
-layout: default
-title: 原生执行指南
-nav_exclude: true
-description: "在没有 Docker 或容器隔离的情况下运行 Symbiont 智能体"
----
-
 # 原生执行模式（无 Docker/隔离）
 
 ## 其他语言

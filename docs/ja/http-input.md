@@ -1,9 +1,3 @@
-layout: default
-title: HTTP 入力モジュール
-description: "Symbiont エージェントとのウェブフック統合のための HTTP 入力モジュール"
-nav_exclude: true
----
-
 # HTTP 入力モジュール
 
 HTTP 入力モジュールは、外部システムが HTTP リクエストを通じて Symbiont エージェントを呼び出すことを可能にする webhook サーバーを提供します。このモジュールは、HTTP エンドポイントを通じてエージェントを公開することで、外部サービス、webhook、API との統合を可能にします。

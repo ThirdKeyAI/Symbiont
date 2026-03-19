@@ -1,9 +1,3 @@
-layout: default
-title: Primeros Pasos
-description: "Guia de inicio rapido para Symbiont"
-nav_exclude: true
----
-
 # Primeros Pasos
 
 Esta guia te guiara a traves de la configuracion de Symbi y la creacion de tu primer agente de IA.

@@ -1,9 +1,3 @@
-layout: default
-title: 贡献指南
-nav_exclude: true
-description: "如何为 Symbiont 项目做贡献"
----
-
 # 贡献指南
 
 ## 其他语言

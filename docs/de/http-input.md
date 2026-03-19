@@ -1,9 +1,3 @@
-layout: default
-title: HTTP-Eingabe-Modul
-description: "HTTP-Eingabe-Modul fuer Webhook-Integration mit Symbiont-Agenten"
-nav_exclude: true
----
-
 # HTTP-Eingabe-Modul
 
 Das HTTP-Eingabe-Modul stellt einen Webhook-Server bereit, der es externen Systemen ermoeglicht, Symbiont-Agenten ueber HTTP-Anfragen aufzurufen. Dieses Modul ermoeglicht die Integration mit externen Diensten, Webhooks und APIs, indem es Agenten ueber HTTP-Endpunkte verfuegbar macht.

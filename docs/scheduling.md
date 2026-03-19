@@ -1,9 +1,3 @@
-layout: default
-title: Scheduling Guide
-nav_order: 7
-description: "Production-grade cron-based task scheduling for Symbiont AI agents"
----
-
 # Scheduling Guide
 
 ## Overview

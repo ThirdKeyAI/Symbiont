@@ -1,9 +1,3 @@
-layout: default
-title: Primitivas de Raciocínio Avançado (orga-adaptive)
-description: "Primitivas avançadas do loop de raciocínio: curadoria de ferramentas, detecção de loops travados, pré-busca de contexto e convenções com escopo de diretório"
-nav_exclude: true
----
-
 # Primitivas de Raciocínio Avançado
 
 ## Outros idiomas

@@ -1,9 +1,3 @@
-layout: default
-title: HTTP 输入模块
-description: "与 Symbiont 智能体的 webhook 集成的 HTTP 输入模块"
-nav_exclude: true
----
-
 # HTTP 输入模块
 
 HTTP 输入模块提供了一个 webhook 服务器，允许外部系统通过 HTTP 请求调用 Symbiont 智能体。该模块通过 HTTP 端点暴露智能体，从而实现与外部服务、webhook 和 API 的集成。

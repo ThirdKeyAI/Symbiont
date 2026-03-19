@@ -1,16 +1,6 @@
-layout: default
-title: Home
-nav_order: 1
-description: "Symbiont: AI-native agent framework with scheduling, channel adapters, and cryptographic identity"
-permalink: /
----
-
 # Symbiont Documentation
 
 AI-native agent framework for building autonomous, policy-aware agents with scheduling, channel adapters, and cryptographic identity — built in Rust.
-
-
----
 
 ## What is Symbiont?
 

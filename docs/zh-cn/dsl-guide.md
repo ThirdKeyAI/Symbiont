@@ -1,9 +1,3 @@
-layout: default
-title: DSL 指南
-description: "Symbiont 领域特定语言完整指南"
-nav_exclude: true
----
-
 # DSL 指南
 
 ## 其他语言

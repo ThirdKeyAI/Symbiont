@@ -1,9 +1,3 @@
-layout: default
-title: Guia de Agendamento
-description: "Agendamento de tarefas baseado em cron de nível de produção para agentes de IA do Symbiont"
-nav_exclude: true
----
-
 # Guia de Agendamento
 
 ## Outros idiomas

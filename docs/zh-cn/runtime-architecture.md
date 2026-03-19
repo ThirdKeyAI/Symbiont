@@ -1,9 +1,3 @@
-layout: default
-title: 运行时架构
-description: "Symbiont 运行时系统架构概述"
-nav_exclude: true
----
-
 # 运行时架构
 
 了解 Symbi 运行时系统架构和核心组件。

@@ -1,9 +1,3 @@
-layout: default
-title: Guia de Programacion
-description: "Programacion de tareas basada en cron de nivel de produccion para agentes de IA de Symbiont"
-nav_exclude: true
----
-
 # Guia de Programacion
 
 ## Otros idiomas
