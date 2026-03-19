@@ -3,7 +3,7 @@
   "url": "https://context7.com/thirdkeyai/symbiont",
   "public_key": "pk_Ehy7QXQTu2Keb0e5BNeyx",
   "projectTitle": "Symbiont",
-  "description": "AI-native agent runtime with typestate-enforced ORGA reasoning loop, Cedar policy authorization, knowledge bridge, zero-trust security, multi-tier sandboxing, webhook verification, markdown memory persistence, skill scanning, metrics collection, scheduling, channel adapters, and a declarative DSL. Part of the ThirdKey trust stack (SchemaPin → AgentPin → Symbiont).",
+  "description": "AI-native agent runtime with typestate-enforced ORGA reasoning loop, Cedar policy authorization, CommunicationPolicyGate for inter-agent governance, knowledge bridge, zero-trust security, multi-tier sandboxing, webhook verification, markdown memory persistence, skill scanning, metrics collection, scheduling, channel adapters, symbi init/run/up CLI, and a declarative DSL. Part of the ThirdKey trust stack (SchemaPin → AgentPin → Symbiont).",
   "folders": [
     "SKILL.md",
     "README.md",
@@ -20,6 +20,7 @@
     "docs/reasoning-loop.md",
     "docs/index.md",
     "docs/docker.md",
+    "docs/orga-adaptive.md",
     "docs/contributing.md",
     "agents"
   ],
@@ -28,16 +29,21 @@
     "**/node_modules",
     "src",
     "crates",
-    "docs/assets",
-    "docs/_sass",
-    "docs/_includes",
-    "docs/_plugins",
+    "docs/de",
+    "docs/es",
+    "docs/ja",
+    "docs/pt",
+    "docs/zh-cn",
     "docs/plans",
+    "docs/superpowers",
+    "docs_plans_backup",
+    "docs_superpowers_backup",
     "enterprise",
     "scripts",
     "docker",
     "tools",
-    "examples"
+    "examples",
+    "site"
   ],
   "excludeFiles": [
     "**/*.png",
@@ -45,11 +51,6 @@
     "**/*.ico",
     "**/*.rs",
     "**/*.lock",
-    "docs/*.de.md",
-    "docs/*.es.md",
-    "docs/*.ja.md",
-    "docs/*.pt.md",
-    "docs/*.zh-cn.md",
     "README.de.md",
     "README.es.md",
     "README.ja.md",
@@ -64,12 +65,15 @@
     "deny.toml",
     "Dockerfile",
     ".dockerignore",
-    ".gitignore"
+    ".gitignore",
+    "zensical.toml"
   ],
   "rules": [
-    "Symbiont uses a declarative DSL for agent definitions — metadata, agent blocks, policy blocks, and with-clauses for memory/security/timeout configuration",
+    "Symbiont uses a declarative DSL for agent definitions — metadata, agent blocks, policy blocks, and with-clauses for memory/security/timeout configuration. Both // and # comments are supported.",
     "Zero-trust by default: all inputs are untrusted, explicit allow/deny policies required, multi-tier sandboxing (Docker → gVisor → Firecracker)",
     "Policy-as-code: security rules are declared inline with 'policy' blocks containing allow, deny, require, and audit directives",
+    "CLI workflow: symbi init (project scaffolding with profiles), symbi run (single agent execution), symbi up (full runtime server)",
+    "Inter-agent communication governance: all builtins (ask, delegate, send_to, parallel, race) routed through CommunicationPolicyGate with Cedar-style rules, Ed25519 signing, AES-256-GCM encryption",
     "Workspace crates: runtime (core engine with http-input, http-api, vector-db features), dsl (parser + compiler), channel-adapter (Slack/Teams/Mattermost), repl-core/repl-cli/repl-lsp (REPL tooling)",
     "Webhook verification: HmacVerifier and JwtVerifier with provider presets for GitHub, Stripe, Slack — constant-time signature comparison",
     "Markdown memory persistence: agent context stored as markdown files with daily logs, retention-based compaction, and atomic writes",
@@ -79,6 +83,8 @@
     "Reasoning loop uses typestate-enforced ORGA cycle (Observe-Reason-Gate-Act) with compile-time phase transition safety — Reasoning → PolicyCheck → ToolDispatching → Observing",
     "Cedar policy gate (feature-gated behind 'cedar') uses cedar-policy crate Authorizer::is_authorized() for formal authorization — entity types: Agent (principal), Action (action), Resource (resource)",
     "Journal system emits all 7 LoopEvent variants (Started, ReasoningComplete, PolicyEvaluated, ToolsDispatched, ObservationsCollected, Terminated, RecoveryTriggered) for durable execution and crash recovery",
-    "Knowledge bridge provides context-aware reasoning: vector-backed retrieval, automatic learning persistence, and knowledge-aware tool execution via KnowledgeAwareExecutor"
+    "Knowledge bridge provides context-aware reasoning: vector-backed retrieval, automatic learning persistence, and knowledge-aware tool execution via KnowledgeAwareExecutor",
+    "GET /api/v1/agents returns AgentSummary with id, name, and state (not just UUIDs)",
+    "AI assistant governance plugins available: symbi-claude-code (Claude Code) and symbi-gemini-cli (Gemini CLI)"
   ]
 }
