@@ -16,6 +16,19 @@ This directory contains ten reusable agent examples that demonstrate core Symbio
 | [Notification Router](#notification-router) | Event-driven messaging | Multi-channel notifications, routing rules, rate limiting |
 | [Knowledge Curator](#knowledge-curator) | Persistent knowledge base | Memory block, hybrid search, fact extraction |
 | [Incident Tracker](#incident-tracker) | DevOps incident response | Webhook + memory blocks, deduplication, alert routing |
+| [Threat Hunter](#threat-hunter) | Sandbox & policy validation | Simulates AgentNull/VectorSmuggle attacks to prove defenses work |
+| [SchemaPin Researcher](#schemapin-researcher) | Supply-chain secure research | Only executes cryptographically verified tools and sources |
+| [HITL DevOps](#hitl-devops) | Human-in-the-loop infra | Read-only with cryptographic approval for privilege escalation |
+| [Code Review Pipeline](#code-review-pipeline) | Multi-agent trust boundary | Untrusted developer + AgentPin-authenticated reviewer |
+
+### v1.8.0 Governance Examples
+
+Four new agents demonstrate Symbiont's governance capabilities:
+
+- **Threat Hunter** — Intentionally attempts unauthorized actions (policy self-modification, sandbox downgrade, data exfiltration) to validate that Cedar policies and sandbox isolation block them. Run it to audit your security posture.
+- **SchemaPin Researcher** — Only executes tools with valid cryptographic signatures. Demonstrates supply-chain security where unsigned or tampered MCP tools are rejected before execution.
+- **HITL DevOps** — Read-only infrastructure agent that gathers diagnostics freely but requires a cryptographically signed human approval token before restarting services or deploying. Approval tokens expire after 5 minutes and are single-use.
+- **Code Review Pipeline** — Two-agent setup: an untrusted developer in a Tier2 (gVisor) sandbox performs static analysis, then passes findings to an AgentPin-authenticated reviewer who can run tests and sign approved code. The CommunicationPolicyGate prevents the untrusted agent from bypassing the reviewer.
 
 ### v1.4.0 DSL Features
 
