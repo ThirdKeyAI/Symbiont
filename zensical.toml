@@ -25,8 +25,7 @@ nav = [
 [project.theme]
 language = "en"
 favicon = "favicon-32x32.png"
-logo = "android-chrome-192x192.png"
-icon.logo = ""
+logo = "symbiont-icon.png"
 
 # Dark mode default (slate), with toggle to light
 [[project.theme.palette]]
