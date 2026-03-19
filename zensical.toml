@@ -1,0 +1,78 @@
+[project]
+site_name = "Symbiont Documentation"
+site_url = "https://docs.symbiont.dev/"
+site_description = "AI-native agent framework for building autonomous, policy-aware agents with scheduling, channel adapters, cryptographic identity, and multi-language SDKs."
+repo_url = "https://github.com/ThirdKeyAI/Symbiont"
+repo_name = "ThirdKeyAI/Symbiont"
+nav = [
+  {"Home" = "index.md"},
+  {"Getting Started" = "getting-started.md"},
+  {"DSL Guide" = "dsl-guide.md"},
+  {"Runtime Architecture" = "runtime-architecture.md"},
+  {"Reasoning Loop" = "reasoning-loop.md"},
+  {"Security Model" = "security-model.md"},
+  {"API Reference" = "api-reference.md"},
+  {"Advanced Reasoning" = "orga-adaptive.md"},
+  {"Scheduling" = "scheduling.md"},
+  {"HTTP Input" = "http-input.md"},
+  {"REPL Guide" = "repl-guide.md"},
+  {"Docker Guide" = "docker.md"},
+  {"Native Execution" = "native-execution-guide.md"},
+  {"Contributing" = "contributing.md"},
+  {"symbiont.dev" = "https://symbiont.dev"},
+]
+
+[project.theme]
+language = "en"
+favicon = "favicon-32x32.png"
+logo = "android-chrome-192x192.png"
+icon.logo = ""
+
+# Dark mode default (slate), with toggle to light
+[[project.theme.palette]]
+scheme = "slate"
+primary = "teal"
+accent = "teal"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to light mode"
+
+[[project.theme.palette]]
+scheme = "default"
+primary = "teal"
+accent = "teal"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to dark mode"
+
+[project.theme.features]
+navigation = ["navigation.tabs", "navigation.sections", "navigation.top", "navigation.footer"]
+search = ["search.suggest", "search.highlight"]
+content = ["content.code.copy"]
+
+# Language selector
+[project.extra]
+alternate = [
+  { name = "English", link = "/", lang = "en" },
+  { name = "中文简体", link = "/zh-cn/", lang = "zh" },
+  { name = "Español", link = "/es/", lang = "es" },
+  { name = "Português", link = "/pt/", lang = "pt" },
+  { name = "日本語", link = "/ja/", lang = "ja" },
+  { name = "Deutsch", link = "/de/", lang = "de" },
+]
+
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/ThirdKeyAI/Symbiont"
+name = "Symbiont on GitHub"
+
+[[project.extra.social]]
+icon = "fontawesome/solid/globe"
+link = "https://symbiont.dev"
+name = "symbiont.dev"
+
+[[project.extra.social]]
+icon = "fontawesome/solid/shield-halved"
+link = "https://thirdkey.ai"
+name = "ThirdKey"
+
+[project.extra.copyright]
+text = "Copyright &copy; 2025–2026 Tarnover, LLC / ThirdKey.ai"
