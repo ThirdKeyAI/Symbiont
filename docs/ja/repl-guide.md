@@ -2,7 +2,6 @@
 
 ## 他の言語
 
-[English](repl-guide.md) | [中文简体](repl-guide.zh-cn.md) | [Español](repl-guide.es.md) | [Português](repl-guide.pt.md) | Symbiont REPL（Read-Eval-Print Loop）は、SymbiontエージェントとDSLコードの開発、テスト、デバッグのためのインタラクティブ環境を提供します。
 
 ## 機能
 

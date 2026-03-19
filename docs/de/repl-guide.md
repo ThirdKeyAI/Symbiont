@@ -2,7 +2,6 @@
 
 ## Andere Sprachen
 
-[English](repl-guide.md) | [中文简体](repl-guide.zh-cn.md) | [Español](repl-guide.es.md) | [Português](repl-guide.pt.md) | [日本語](repl-guide.ja.md) | **Deutsch**
 
 ---
 

@@ -2,7 +2,6 @@
 
 ## Otros idiomas
 
-[English](reasoning-loop.md) | [中文简体](reasoning-loop.zh-cn.md) | Guia completa del bucle de razonamiento agentico de Symbiont: un ciclo Observar-Razonar-Evaluar-Actuar (ORGA) con seguridad de tipos para comportamiento autonomo de agentes.
 
 ## Tabla de contenidos
 

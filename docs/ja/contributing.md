@@ -2,7 +2,6 @@
 
 ## 他の言語
 
-[English](contributing.md) | [中文简体](contributing.zh-cn.md) | [Español](contributing.es.md) | [Português](contributing.pt.md) | Symbiontプロジェクトへの貢献方法について、イシュー報告からコード変更の提出まで説明します。
 
 ## 目次
 

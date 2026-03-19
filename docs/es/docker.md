@@ -2,7 +2,6 @@
 
 ## Otros idiomas
 
-[English](docker.md) | [中文简体](docker.zh-cn.md) | Symbi proporciona un contenedor Docker unificado con toda la funcionalidad incluida, disponible a traves de GitHub Container Registry.
 
 ## Imagen Disponible
 

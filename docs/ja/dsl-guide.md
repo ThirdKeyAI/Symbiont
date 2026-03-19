@@ -2,7 +2,6 @@
 
 ## 他の言語
 
-[English](dsl-guide.md) | [中文简体](dsl-guide.zh-cn.md) | [Español](dsl-guide.es.md) | [Português](dsl-guide.pt.md) | ポリシー対応のセキュアなAIエージェントを構築するためのSymbi DSLをマスターしましょう。
 
 ## 目次
 

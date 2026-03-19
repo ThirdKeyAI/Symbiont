@@ -2,7 +2,6 @@
 
 ## Otros idiomas
 
-[English](contributing.md) | [中文简体](contributing.zh-cn.md) | Aprenda como contribuir al proyecto Symbiont, desde reportar problemas hasta enviar cambios de codigo.
 
 ## Tabla de contenidos
 

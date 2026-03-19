@@ -2,7 +2,6 @@
 
 ## Andere Sprachen
 
-[English](native-execution-guide.md) | [中文简体](native-execution-guide.zh-cn.md) | [Español](native-execution-guide.es.md) | [Português](native-execution-guide.pt.md) | [日本語](native-execution-guide.ja.md) | **Deutsch**
 
 ---
 

@@ -2,7 +2,6 @@
 
 ## 其他语言
 
-[English](repl-guide.md) | Symbiont REPL（Read-Eval-Print Loop，读取-求值-输出循环）提供了一个交互式环境，用于开发、测试和调试 Symbiont 智能体和 DSL 代码。
 
 ## 功能特性
 

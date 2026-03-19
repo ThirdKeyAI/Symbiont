@@ -2,7 +2,6 @@
 
 ## Andere Sprachen
 
-[English](reasoning-loop.md) | [中文简体](reasoning-loop.zh-cn.md) | [Español](reasoning-loop.es.md) | [Português](reasoning-loop.pt.md) | [日本語](reasoning-loop.ja.md) | **Deutsch**
 
 ---
 

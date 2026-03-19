@@ -2,7 +2,6 @@
 
 ## 其他语言
 
-[English](dsl-guide.md) | 掌握 Symbi DSL，构建策略感知的安全 AI 智能体。
 
 ## 目录
 

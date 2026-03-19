@@ -2,7 +2,6 @@
 
 ## 他の言語
 
-[English](docker.md) | [中文简体](docker.zh-cn.md) | [Español](docker.es.md) | [Português](docker.pt.md) | Symbiはすべての機能を含む統合Dockerコンテナを提供しており、GitHub Container Registryから利用できます。
 
 ## 利用可能なイメージ
 

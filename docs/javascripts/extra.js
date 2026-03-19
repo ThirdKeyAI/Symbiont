@@ -7,21 +7,17 @@ document.addEventListener('DOMContentLoaded', function() {
   var pres = document.querySelectorAll('pre.mermaid');
   if (pres.length === 0) return;
 
-  // Replace <pre class="mermaid"><code>...</code></pre> with clean <div>
-  var nodes = [];
-  pres.forEach(function(pre) {
+  // Collect diagram definitions
+  var diagrams = [];
+  pres.forEach(function(pre, i) {
     var code = pre.querySelector('code');
     var text = code ? code.textContent : pre.textContent;
-    var div = document.createElement('div');
-    div.className = 'mermaid';
-    div.textContent = text;
-    pre.parentNode.replaceChild(div, pre);
-    nodes.push(div);
+    diagrams.push({ element: pre, text: text, id: 'mmd-' + Date.now() + '-' + i });
   });
 
-  // Load mermaid and render
+  // Load mermaid
   var s = document.createElement('script');
-  s.src = 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js';
+  s.src = 'https://cdn.jsdelivr.net/npm/mermaid@10.9.3/dist/mermaid.min.js';
   s.onload = function() {
     mermaid.initialize({
       startOnLoad: false,
@@ -35,12 +31,21 @@ document.addEventListener('DOMContentLoaded', function() {
         tertiaryColor: '#0f172a'
       }
     });
-    mermaid.run({ nodes: nodes }).then(function() {
-      document.querySelectorAll('.mermaid svg').forEach(function(svg) {
-        svg.style.cursor = 'zoom-in';
+
+    // Render each diagram individually using render() API
+    diagrams.forEach(function(d) {
+      mermaid.render(d.id, d.text).then(function(result) {
+        var div = document.createElement('div');
+        div.className = 'mermaid';
+        div.innerHTML = result.svg;
+        div.querySelector('svg').style.cursor = 'zoom-in';
+        d.element.parentNode.replaceChild(div, d.element);
+      }).catch(function(err) {
+        console.error('Mermaid render error for ' + d.id + ':', err);
+        // Show source on error
+        d.element.style.visibility = 'visible';
+        d.element.style.height = 'auto';
       });
-    }).catch(function(err) {
-      console.error('Mermaid error:', err);
     });
   };
   document.head.appendChild(s);

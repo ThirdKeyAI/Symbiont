@@ -2,7 +2,6 @@
 
 ## Outros idiomas
 
-[English](orga-adaptive.md) | [中文简体](orga-adaptive.zh-cn.md) | [Español](orga-adaptive.es.md) | Primitivas de runtime com feature gate que aprimoram o loop de raciocínio com curadoria de ferramentas, detecção de loops travados, pré-busca determinística de contexto e recuperação de convenções com escopo de diretório.
 
 ## Índice
 

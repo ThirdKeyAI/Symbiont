@@ -2,7 +2,6 @@
 
 ## Otros idiomas
 
-[English](repl-guide.md) | [中文简体](repl-guide.zh-cn.md) | El REPL (Read-Eval-Print Loop) de Symbiont proporciona un entorno interactivo para desarrollar, probar y depurar agentes de Symbiont y codigo DSL.
 
 ## Caracteristicas
 

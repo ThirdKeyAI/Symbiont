@@ -2,7 +2,6 @@
 
 ## 其他语言
 
-[English](reasoning-loop.md) | Symbiont 智能体推理循环完整指南：一个通过类型状态强制的 Observe-Reason-Gate-Act (ORGA) 循环，用于自主智能体行为。
 
 ## 目录
 

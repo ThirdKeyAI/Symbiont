@@ -2,7 +2,6 @@
 
 ## Otros idiomas
 
-[English](orga-adaptive.md) | [中文简体](orga-adaptive.zh-cn.md) | Primitivas de runtime con feature gate que mejoran el bucle de razonamiento con curacion de herramientas, deteccion de bucles atascados, pre-carga determinista de contexto y recuperacion de convenciones con alcance de directorio.
 
 ---
 

@@ -4,7 +4,6 @@
 
 ## 其他语言
 
-[English](security-model.md) | ## 目录
 
 
 ---

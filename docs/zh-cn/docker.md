@@ -2,7 +2,6 @@
 
 ## 其他语言
 
-[English](docker.md) | Symbi 提供了一个统一的 Docker 容器，包含所有功能，可通过 GitHub Container Registry 获取。
 
 ## 可用镜像
 

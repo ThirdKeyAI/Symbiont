@@ -2,7 +2,6 @@
 
 ## Outros idiomas
 
-[English](native-execution-guide.md) | [中文简体](native-execution-guide.zh-cn.md) | [Español](native-execution-guide.es.md) | ## Visão Geral
 
 O Symbiont suporta a execução de agentes sem Docker ou isolamento de containers para ambientes de desenvolvimento ou implantações confiáveis onde desempenho máximo e dependências mínimas são desejados.
 

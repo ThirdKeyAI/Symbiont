@@ -2,7 +2,6 @@
 
 ## 其他语言
 
-[English](contributing.md) | 了解如何为 Symbiont 项目做贡献，从报告问题到提交代码变更。
 
 ## 目录
 

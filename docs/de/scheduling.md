@@ -2,7 +2,6 @@
 
 ## Andere Sprachen
 
-[English](scheduling.md) | [中文简体](scheduling.zh-cn.md) | [Español](scheduling.es.md) | [Português](scheduling.pt.md) | [日本語](scheduling.ja.md) | **Deutsch**
 
 ---
 

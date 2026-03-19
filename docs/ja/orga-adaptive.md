@@ -2,7 +2,6 @@
 
 ## 他の言語
 
-[English](orga-adaptive.md) | [中文简体](orga-adaptive.zh-cn.md) | [Español](orga-adaptive.es.md) | [Português](orga-adaptive.pt.md) | ツールキュレーション、スタックループ検出、決定的コンテキストプリフェッチ、ディレクトリスコープのコンベンション取得により推論ループを強化するフィーチャーゲートランタイムプリミティブ。
 
 ## 目次
 

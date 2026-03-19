@@ -2,7 +2,6 @@
 
 ## 其他语言
 
-[English](scheduling.md) | ## 概述
 
 Symbiont 的调度系统为 AI 智能体提供生产级的 cron 定时任务执行能力。系统支持：
 

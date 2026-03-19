@@ -4,7 +4,6 @@ Arquitectura de seguridad integral que garantiza proteccion de confianza cero e 
 
 ## Otros idiomas
 
-[English](security-model.md) | [中文简体](security-model.zh-cn.md) | ## Tabla de contenidos
 
 
 ---

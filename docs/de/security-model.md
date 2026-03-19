@@ -4,7 +4,6 @@ Umfassende Sicherheitsarchitektur, die Zero-Trust, richtliniengesteuerten Schutz
 
 ## Andere Sprachen
 
-[English](security-model.md) | [中文简体](security-model.zh-cn.md) | [Español](security-model.es.md) | [Português](security-model.pt.md) | [日本語](security-model.ja.md) | **Deutsch**
 
 ---
 

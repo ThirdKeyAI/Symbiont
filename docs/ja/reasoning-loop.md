@@ -2,7 +2,6 @@
 
 ## 他の言語
 
-[English](reasoning-loop.md) | [中文简体](reasoning-loop.zh-cn.md) | [Español](reasoning-loop.es.md) | [Português](reasoning-loop.pt.md) | Symbiontのエージェント推論ループの完全ガイド：自律エージェント動作のための型状態強制されたObserve-Reason-Gate-Act（ORGA）サイクル。
 
 ## 目次
 

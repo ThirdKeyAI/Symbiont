@@ -2,7 +2,6 @@
 
 ## Andere Sprachen
 
-[English](contributing.md) | [中文简体](contributing.zh-cn.md) | [Español](contributing.es.md) | [Português](contributing.pt.md) | [日本語](contributing.ja.md) | **Deutsch**
 
 ---
 

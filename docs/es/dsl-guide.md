@@ -2,7 +2,6 @@
 
 ## Otros idiomas
 
-[English](dsl-guide.md) | [中文简体](dsl-guide.zh-cn.md) | Domina el DSL de Symbi para construir agentes de IA seguros y conscientes de politicas.
 
 ## Tabla de contenidos
 

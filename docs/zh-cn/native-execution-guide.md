@@ -2,7 +2,6 @@
 
 ## 其他语言
 
-[English](native-execution-guide.md) | ## 概述
 
 Symbiont 支持在没有 Docker 或容器隔离的情况下运行智能体，适用于开发环境或需要最大性能和最小依赖的受信任部署。
 

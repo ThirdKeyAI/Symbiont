@@ -2,7 +2,6 @@
 
 ## Outros idiomas
 
-[English](reasoning-loop.md) | [中文简体](reasoning-loop.zh-cn.md) | [Español](reasoning-loop.es.md) | Guia completo do loop de raciocínio agêntico do Symbiont: um ciclo Observe-Reason-Gate-Act (ORGA) com imposição de typestate para comportamento autônomo de agentes.
 
 ## Índice
 

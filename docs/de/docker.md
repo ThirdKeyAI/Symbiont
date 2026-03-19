@@ -2,7 +2,6 @@
 
 ## Andere Sprachen
 
-[English](docker.md) | [中文简体](docker.zh-cn.md) | [Español](docker.es.md) | [Português](docker.pt.md) | [日本語](docker.ja.md) | **Deutsch**
 
 ---
 

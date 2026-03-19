@@ -2,7 +2,6 @@
 
 ## 他の言語
 
-[English](native-execution-guide.md) | [中文简体](native-execution-guide.zh-cn.md) | [Español](native-execution-guide.es.md) | [Português](native-execution-guide.pt.md) | ## 概要
 
 Symbiontは、最高のパフォーマンスと最小限の依存関係が求められる開発環境や信頼されたデプロイメントのために、DockerやコンテナIsolationなしでエージェントを実行することをサポートしています。
 

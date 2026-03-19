@@ -4,7 +4,6 @@ Arquitetura de segurança abrangente garantindo proteção de confiança zero e 
 
 ## Outros idiomas
 
-[English](security-model.md) | [中文简体](security-model.zh-cn.md) | [Español](security-model.es.md) | ## Índice
 
 
 ---

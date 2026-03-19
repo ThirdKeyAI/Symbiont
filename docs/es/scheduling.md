@@ -2,7 +2,6 @@
 
 ## Otros idiomas
 
-[English](scheduling.md) | [中文简体](scheduling.zh-cn.md) | ## Descripcion General
 
 El sistema de programacion de Symbiont proporciona ejecucion de tareas basada en cron de nivel de produccion para agentes de IA. El sistema soporta:
 

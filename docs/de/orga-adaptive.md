@@ -2,7 +2,6 @@
 
 ## Andere Sprachen
 
-[English](orga-adaptive.md) | [中文简体](orga-adaptive.zh-cn.md) | [Español](orga-adaptive.es.md) | [Português](orga-adaptive.pt.md) | [日本語](orga-adaptive.ja.md) | **Deutsch**
 
 ---
 

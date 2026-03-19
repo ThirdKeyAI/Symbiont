@@ -2,7 +2,6 @@
 
 ## Outros idiomas
 
-[English](scheduling.md) | [中文简体](scheduling.zh-cn.md) | [Español](scheduling.es.md) | ## Visão Geral
 
 O sistema de agendamento do Symbiont oferece execução de tarefas baseada em cron de nível de produção para agentes de IA. O sistema suporta:
 

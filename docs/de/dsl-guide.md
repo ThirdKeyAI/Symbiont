@@ -2,7 +2,6 @@
 
 ## Andere Sprachen
 
-[English](dsl-guide.md) | [中文简体](dsl-guide.zh-cn.md) | [Español](dsl-guide.es.md) | [Português](dsl-guide.pt.md) | [日本語](dsl-guide.ja.md) | **Deutsch**
 
 ---
 
