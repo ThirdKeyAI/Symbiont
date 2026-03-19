@@ -1,37 +1,57 @@
-// Initialize mermaid with dark theme
-document.addEventListener('DOMContentLoaded', function() {
-  if (typeof mermaid !== 'undefined') {
-    mermaid.initialize({
-      startOnLoad: true,
-      theme: 'dark',
-      themeVariables: {
-        primaryColor: '#14b8a6',
-        primaryBorderColor: '#0d9488',
-        primaryTextColor: '#e2e8f0',
-        lineColor: '#94a3b8',
-        secondaryColor: '#1e293b',
-        tertiaryColor: '#0f172a'
-      }
-    });
-    // Mermaid needs <pre class="mermaid"> without the inner <code> tag
-    // Zensical renders ```mermaid as <pre class="mermaid"><code>...</code></pre>
-    // Strip the <code> wrapper so mermaid can parse the content
+// Step 1: Strip <code> wrappers from mermaid blocks IMMEDIATELY
+// (before any DOMContentLoaded, as early as possible)
+(function() {
+  function stripCodeWrappers() {
     document.querySelectorAll('pre.mermaid code').forEach(function(code) {
       var pre = code.parentElement;
-      pre.textContent = code.textContent;
+      var text = code.textContent;
+      pre.textContent = text;
     });
-    // Re-run mermaid on cleaned elements
-    mermaid.run();
   }
-});
+
+  // Try now (if DOM is ready)
+  if (document.readyState !== 'loading') {
+    stripCodeWrappers();
+  }
+
+  // Also on DOMContentLoaded (belt and suspenders)
+  document.addEventListener('DOMContentLoaded', function() {
+    stripCodeWrappers();
+
+    // Step 2: Load mermaid dynamically AFTER cleanup
+    var script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js';
+    script.onload = function() {
+      mermaid.initialize({
+        startOnLoad: true,
+        theme: 'dark',
+        themeVariables: {
+          primaryColor: '#14b8a6',
+          primaryBorderColor: '#0d9488',
+          primaryTextColor: '#e2e8f0',
+          lineColor: '#94a3b8',
+          secondaryColor: '#1e293b',
+          tertiaryColor: '#0f172a'
+        }
+      });
+      mermaid.run({ querySelector: '.mermaid' });
+
+      // Add zoom cursors after render
+      setTimeout(function() {
+        document.querySelectorAll('.mermaid svg').forEach(function(svg) {
+          svg.style.cursor = 'zoom-in';
+        });
+      }, 1000);
+    };
+    document.body.appendChild(script);
+  });
+})();
 
 // Click-to-zoom for mermaid diagrams
-// Uses event delegation so it works after mermaid renders asynchronously
 document.addEventListener('click', function(e) {
-  // Find closest mermaid container — could be pre.mermaid or div with svg
-  var target = e.target.closest('pre.mermaid, .mermaid');
+  var target = e.target.closest('.mermaid');
   if (!target) return;
-  var svg = target.querySelector('svg') || (target.tagName === 'svg' ? target : null);
+  var svg = target.querySelector('svg');
   if (!svg) return;
 
   var overlay = document.createElement('div');
@@ -55,11 +75,3 @@ document.addEventListener('click', function(e) {
   });
   document.body.appendChild(overlay);
 });
-
-// Add zoom cursor to mermaid SVGs — retry since mermaid renders async
-(function addCursors() {
-  var svgs = document.querySelectorAll('pre.mermaid svg, .mermaid svg');
-  svgs.forEach(function(svg) { svg.style.cursor = 'zoom-in'; });
-  if (Date.now() - (window._mc || Date.now()) < 10000) setTimeout(addCursors, 500);
-})();
-window._mc = Date.now();
