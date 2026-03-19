@@ -1,3 +1,7 @@
+---
+nav_exclude: true
+---
+
 # Wire Inter-Agent Builtins Through CommunicationBus
 
 **Date:** 2026-03-16
