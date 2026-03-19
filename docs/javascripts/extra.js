@@ -1,17 +1,14 @@
-// Mermaid rendering for Zensical docs
-// Problem: Zensical outputs <pre class="mermaid"><code>...encoded HTML...</code></pre>
-// Mermaid needs <div class="mermaid">...clean text...</div>
-
-// Hide mermaid source code immediately to prevent flash
+// === 1. Hide mermaid source to prevent flash ===
 document.head.insertAdjacentHTML('beforeend',
   '<style>pre.mermaid{visibility:hidden;height:0;overflow:hidden}</style>');
 
+// === 2. Mermaid rendering ===
 document.addEventListener('DOMContentLoaded', function() {
   var pres = document.querySelectorAll('pre.mermaid');
   if (pres.length === 0) return;
 
-  // Replace each <pre class="mermaid"><code>...</code></pre>
-  // with <div class="mermaid">...decoded text...</div>
+  // Replace <pre class="mermaid"><code>...</code></pre> with clean <div>
+  var nodes = [];
   pres.forEach(function(pre) {
     var code = pre.querySelector('code');
     var text = code ? code.textContent : pre.textContent;
@@ -19,9 +16,10 @@ document.addEventListener('DOMContentLoaded', function() {
     div.className = 'mermaid';
     div.textContent = text;
     pre.parentNode.replaceChild(div, pre);
+    nodes.push(div);
   });
 
-  // Load mermaid from CDN
+  // Load mermaid and render
   var s = document.createElement('script');
   s.src = 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js';
   s.onload = function() {
@@ -37,43 +35,39 @@ document.addEventListener('DOMContentLoaded', function() {
         tertiaryColor: '#0f172a'
       }
     });
-    mermaid.run().then(function() {
+    mermaid.run({ nodes: nodes }).then(function() {
       document.querySelectorAll('.mermaid svg').forEach(function(svg) {
         svg.style.cursor = 'zoom-in';
       });
     }).catch(function(err) {
-      console.error('Mermaid render error:', err);
+      console.error('Mermaid error:', err);
     });
   };
   document.head.appendChild(s);
 });
 
-// Fix language selector — rewrite links to include current page path
+// === 3. Language selector fix ===
 document.addEventListener('DOMContentLoaded', function() {
   var path = location.pathname;
-  // Strip language prefix to get the page slug (e.g., /zh-cn/security-model/ -> /security-model/)
   var langPrefixes = ['/zh-cn/', '/es/', '/pt/', '/ja/', '/de/'];
   var pagePath = path;
   langPrefixes.forEach(function(prefix) {
     if (path.startsWith(prefix)) pagePath = path.substring(prefix.length - 1);
   });
-  // If on root, pagePath is /
-  if (pagePath === '' || pagePath === '/') pagePath = '/';
+  if (pagePath === '') pagePath = '/';
 
   document.querySelectorAll('a.md-select__link[hreflang]').forEach(function(a) {
     var lang = a.getAttribute('hreflang');
-    var base = a.getAttribute('href'); // e.g., /zh-cn/
     if (lang === 'en') {
       a.setAttribute('href', pagePath);
     } else {
-      // Map hreflang to directory name
       var langDir = { zh: 'zh-cn', es: 'es', pt: 'pt', ja: 'ja', de: 'de' }[lang] || lang;
       a.setAttribute('href', '/' + langDir + pagePath);
     }
   });
 });
 
-// Click-to-zoom for mermaid diagrams
+// === 4. Click-to-zoom for mermaid diagrams ===
 document.addEventListener('click', function(e) {
   var target = e.target.closest('.mermaid');
   if (!target) return;
