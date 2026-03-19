@@ -1,9 +1,37 @@
+// Initialize mermaid with dark theme
+document.addEventListener('DOMContentLoaded', function() {
+  if (typeof mermaid !== 'undefined') {
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'dark',
+      themeVariables: {
+        primaryColor: '#14b8a6',
+        primaryBorderColor: '#0d9488',
+        primaryTextColor: '#e2e8f0',
+        lineColor: '#94a3b8',
+        secondaryColor: '#1e293b',
+        tertiaryColor: '#0f172a'
+      }
+    });
+    // Mermaid needs <pre class="mermaid"> without the inner <code> tag
+    // Zensical renders ```mermaid as <pre class="mermaid"><code>...</code></pre>
+    // Strip the <code> wrapper so mermaid can parse the content
+    document.querySelectorAll('pre.mermaid code').forEach(function(code) {
+      var pre = code.parentElement;
+      pre.textContent = code.textContent;
+    });
+    // Re-run mermaid on cleaned elements
+    mermaid.run();
+  }
+});
+
 // Click-to-zoom for mermaid diagrams
-// Uses event delegation so it works even after mermaid renders asynchronously
+// Uses event delegation so it works after mermaid renders asynchronously
 document.addEventListener('click', function(e) {
-  var mermaid = e.target.closest('.mermaid');
-  if (!mermaid) return;
-  var svg = mermaid.querySelector('svg');
+  // Find closest mermaid container — could be pre.mermaid or div with svg
+  var target = e.target.closest('pre.mermaid, .mermaid');
+  if (!target) return;
+  var svg = target.querySelector('svg') || (target.tagName === 'svg' ? target : null);
   if (!svg) return;
 
   var overlay = document.createElement('div');
@@ -13,12 +41,11 @@ document.addEventListener('click', function(e) {
   clone.style.cssText = 'max-width:95vw;max-height:95vh;width:auto;height:auto;';
   clone.removeAttribute('width');
   clone.removeAttribute('height');
-  // Ensure viewBox is set so it scales properly
   if (!clone.getAttribute('viewBox') && svg.getBBox) {
     try {
       var bbox = svg.getBBox();
       clone.setAttribute('viewBox', bbox.x + ' ' + bbox.y + ' ' + bbox.width + ' ' + bbox.height);
-    } catch(e) {}
+    } catch(ex) {}
   }
 
   overlay.appendChild(clone);
@@ -29,15 +56,10 @@ document.addEventListener('click', function(e) {
   document.body.appendChild(overlay);
 });
 
-// Add zoom cursor to mermaid diagrams — keep retrying since mermaid renders async
+// Add zoom cursor to mermaid SVGs — retry since mermaid renders async
 (function addCursors() {
-  var diagrams = document.querySelectorAll('.mermaid svg');
-  if (diagrams.length > 0) {
-    diagrams.forEach(function(svg) { svg.style.cursor = 'zoom-in'; });
-  }
-  // Keep checking for new mermaid renders for 10 seconds
-  if (document.readyState !== 'complete' || Date.now() - window._mermaidCursorStart < 10000) {
-    setTimeout(addCursors, 500);
-  }
+  var svgs = document.querySelectorAll('pre.mermaid svg, .mermaid svg');
+  svgs.forEach(function(svg) { svg.style.cursor = 'zoom-in'; });
+  if (Date.now() - (window._mc || Date.now()) < 10000) setTimeout(addCursors, 500);
 })();
-window._mermaidCursorStart = Date.now();
+window._mc = Date.now();
