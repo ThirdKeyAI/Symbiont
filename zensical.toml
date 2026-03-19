@@ -23,6 +23,8 @@ nav = [
   {"symbiont.dev" = "https://symbiont.dev"},
 ]
 
+extra_css = ["stylesheets/extra.css"]
+
 [project.theme]
 language = "en"
 favicon = "favicon-32x32.png"
