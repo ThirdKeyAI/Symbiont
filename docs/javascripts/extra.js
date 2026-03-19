@@ -1,57 +1,5 @@
-// === 1. Hide mermaid source to prevent flash ===
-document.head.insertAdjacentHTML('beforeend',
-  '<style>pre.mermaid{visibility:hidden;height:0;overflow:hidden}</style>');
-
-// === 2. Mermaid rendering ===
-document.addEventListener('DOMContentLoaded', function() {
-  var pres = document.querySelectorAll('pre.mermaid');
-  if (pres.length === 0) return;
-
-  // Collect diagram definitions
-  var diagrams = [];
-  pres.forEach(function(pre, i) {
-    var code = pre.querySelector('code');
-    var text = code ? code.textContent : pre.textContent;
-    diagrams.push({ element: pre, text: text, id: 'mmd-' + Date.now() + '-' + i });
-  });
-
-  // Load mermaid
-  var s = document.createElement('script');
-  s.src = 'https://cdn.jsdelivr.net/npm/mermaid@10.9.3/dist/mermaid.min.js';
-  s.onload = function() {
-    mermaid.initialize({
-      startOnLoad: false,
-      theme: 'dark',
-      themeVariables: {
-        primaryColor: '#14b8a6',
-        primaryBorderColor: '#0d9488',
-        primaryTextColor: '#e2e8f0',
-        lineColor: '#94a3b8',
-        secondaryColor: '#1e293b',
-        tertiaryColor: '#0f172a'
-      }
-    });
-
-    // Render each diagram individually using render() API
-    diagrams.forEach(function(d) {
-      mermaid.render(d.id, d.text).then(function(result) {
-        var div = document.createElement('div');
-        div.className = 'mermaid';
-        div.innerHTML = result.svg;
-        div.querySelector('svg').style.cursor = 'zoom-in';
-        d.element.parentNode.replaceChild(div, d.element);
-      }).catch(function(err) {
-        console.error('Mermaid render error for ' + d.id + ':', err);
-        // Show source on error
-        d.element.style.visibility = 'visible';
-        d.element.style.height = 'auto';
-      });
-    });
-  };
-  document.head.appendChild(s);
-});
-
-// === 3. Language selector fix ===
+// === Language selector fix ===
+// Rewrite language links to include current page path
 document.addEventListener('DOMContentLoaded', function() {
   var path = location.pathname;
   var langPrefixes = ['/zh-cn/', '/es/', '/pt/', '/ja/', '/de/'];
@@ -72,7 +20,7 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 });
 
-// === 4. Click-to-zoom for mermaid diagrams ===
+// === Click-to-zoom for mermaid diagrams ===
 document.addEventListener('click', function(e) {
   var target = e.target.closest('.mermaid');
   if (!target) return;
@@ -100,3 +48,13 @@ document.addEventListener('click', function(e) {
   });
   document.body.appendChild(overlay);
 });
+
+// Add zoom cursor to mermaid SVGs after they render
+(function waitForMermaid() {
+  var svgs = document.querySelectorAll('.mermaid svg');
+  if (svgs.length > 0) {
+    svgs.forEach(function(svg) { svg.style.cursor = 'zoom-in'; });
+  }
+  if (Date.now() - (window._mc || Date.now()) < 15000) setTimeout(waitForMermaid, 1000);
+})();
+window._mc = Date.now();
