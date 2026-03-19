@@ -84,71 +84,22 @@ html body .site-footer {
   cursor: pointer;
   font-size: 14px;
   line-height: 1;
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, color 0.2s;
+  color: inherit;
 }
 .theme-toggle:hover { border-color: #15a89d; }
-
-/* Light theme overrides — applied via data attribute */
-[data-theme="light"] {
-  --body-background-color: #ffffff !important;
-  --sidebar-color: #f5f6fa !important;
-  --search-background-color: #ffffff !important;
-  --table-background-color: #f8f9fb !important;
-  --code-background-color: #f5f6fa !important;
-  --body-text-color: #333333 !important;
-  --body-heading-color: #1a1a1a !important;
-  --border-color: #e0e0e0 !important;
-  --search-result-preview-color: #666666 !important;
-}
-[data-theme="light"] body,
-[data-theme="light"] .side-bar {
-  background-color: #f5f6fa !important;
-  color: #333333 !important;
-}
-[data-theme="light"] .main-content {
-  background-color: #ffffff !important;
-  color: #333333 !important;
-}
-[data-theme="light"] .main-content h1,
-[data-theme="light"] .main-content h2,
-[data-theme="light"] .main-content h3,
-[data-theme="light"] .main-content h4 {
-  color: #1a1a1a !important;
-}
-[data-theme="light"] .site-header,
-[data-theme="light"] .site-footer {
-  background-color: #f5f6fa !important;
-}
-[data-theme="light"] code,
-[data-theme="light"] pre {
-  background-color: #f0f0f0 !important;
-  color: #1a1a1a !important;
-}
-[data-theme="light"] .nav-list-item,
-[data-theme="light"] .nav-list-link {
-  color: #333333 !important;
-}
-[data-theme="light"] .search-input {
-  background-color: #ffffff !important;
-  color: #333333 !important;
-  border-color: #e0e0e0 !important;
-}
-[data-theme="light"] table td,
-[data-theme="light"] table th {
-  background-color: #f8f9fb !important;
-  color: #333333 !important;
-  border-color: #e0e0e0 !important;
-}
-[data-theme="light"] .theme-toggle {
-  border-color: rgba(0,0,0,0.15);
-  color: #333333;
-}
 </style>
 <script>
-// Theme toggle — default dark
+// Theme toggle — load light override stylesheet if saved preference is light
 (function(){
-  var saved = localStorage.getItem('symbi-docs-theme') || 'dark';
-  if (saved === 'light') document.documentElement.setAttribute('data-theme', 'light');
+  var saved = localStorage.getItem('symbi-docs-theme');
+  if (saved === 'light') {
+    var link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.id = 'light-theme-css';
+    link.href = '/assets/css/light-override.css';
+    document.head.appendChild(link);
+  }
 })();
 </script>
 
@@ -376,18 +327,23 @@ document.addEventListener('DOMContentLoaded', function() {
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     // Theme toggle button
+    var isLight = !!document.getElementById('light-theme-css');
     var toggle = document.createElement('button');
     toggle.className = 'theme-toggle';
     toggle.title = 'Toggle light/dark theme';
-    toggle.innerHTML = document.documentElement.getAttribute('data-theme') === 'light' ? '&#9790;' : '&#9788;';
+    toggle.innerHTML = isLight ? '&#9790;' : '&#9788;';
     toggle.onclick = function(){
-      var current = document.documentElement.getAttribute('data-theme');
-      if (current === 'light') {
-        document.documentElement.removeAttribute('data-theme');
+      var existing = document.getElementById('light-theme-css');
+      if (existing) {
+        existing.remove();
         localStorage.setItem('symbi-docs-theme','dark');
         toggle.innerHTML = '&#9788;';
       } else {
-        document.documentElement.setAttribute('data-theme','light');
+        var link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.id = 'light-theme-css';
+        link.href = '/assets/css/light-override.css';
+        document.head.appendChild(link);
         localStorage.setItem('symbi-docs-theme','light');
         toggle.innerHTML = '&#9790;';
       }
