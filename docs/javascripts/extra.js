@@ -48,6 +48,31 @@ document.addEventListener('DOMContentLoaded', function() {
   document.head.appendChild(s);
 });
 
+// Fix language selector — rewrite links to include current page path
+document.addEventListener('DOMContentLoaded', function() {
+  var path = location.pathname;
+  // Strip language prefix to get the page slug (e.g., /zh-cn/security-model/ -> /security-model/)
+  var langPrefixes = ['/zh-cn/', '/es/', '/pt/', '/ja/', '/de/'];
+  var pagePath = path;
+  langPrefixes.forEach(function(prefix) {
+    if (path.startsWith(prefix)) pagePath = path.substring(prefix.length - 1);
+  });
+  // If on root, pagePath is /
+  if (pagePath === '' || pagePath === '/') pagePath = '/';
+
+  document.querySelectorAll('a.md-select__link[hreflang]').forEach(function(a) {
+    var lang = a.getAttribute('hreflang');
+    var base = a.getAttribute('href'); // e.g., /zh-cn/
+    if (lang === 'en') {
+      a.setAttribute('href', pagePath);
+    } else {
+      // Map hreflang to directory name
+      var langDir = { zh: 'zh-cn', es: 'es', pt: 'pt', ja: 'ja', de: 'de' }[lang] || lang;
+      a.setAttribute('href', '/' + langDir + pagePath);
+    }
+  });
+});
+
 // Click-to-zoom for mermaid diagrams
 document.addEventListener('click', function(e) {
   var target = e.target.closest('.mermaid');
