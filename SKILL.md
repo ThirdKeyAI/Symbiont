@@ -1,8 +1,8 @@
 ---
 name: symbiont
 title: Symbiont
-description: AI-native agent runtime with typestate-enforced ORGA reasoning loop, Cedar policy authorization, knowledge bridge, zero-trust security, multi-tier sandboxing, webhook verification, markdown memory, skill scanning, metrics, scheduling, and a declarative DSL
-version: 1.7.0
+description: AI-native agent runtime with typestate-enforced ORGA reasoning loop, Cedar policy authorization, CommunicationPolicyGate for inter-agent governance, ToolClad declarative tool contracts, knowledge bridge, zero-trust security, multi-tier sandboxing, webhook verification, markdown memory, skill scanning, metrics, scheduling, symbi init/run/up CLI, and a declarative DSL
+version: 1.8.1
 ---
 
 # Symbiont Agent Development Skills Guide
@@ -27,6 +27,11 @@ version: 1.7.0
 - **ClawHavoc Security Scanner**: 30+ detection rules across 7 attack categories with 5-level severity model
 - **Agent Registry & Lifecycle**: Persistent agent metadata with delete and re-execute lifecycle support
 - **AGENTS.md Support**: Full bidirectional agent manifest files for ecosystem interoperability
+- **Inter-Agent Communication Governance**: CommunicationPolicyGate enforces Cedar-style rules on `ask`, `delegate`, `send_to`, `parallel`, `race` builtins. Ed25519 signed, AES-256-GCM encrypted messages.
+- **ToolClad Integration**: Declarative `.clad.toml` manifests in `tools/` auto-discovered at startup. Typed argument validation, command template construction, evidence envelopes. `symbi tools list/validate/test/schema` CLI.
+- **CLI Workflow**: `symbi init` (interactive project scaffolding with profiles), `symbi run` (single agent execution), `symbi up` (full runtime). DSL supports both `//` and `#` comments.
+- **Scope Enforcement**: Validates `scope_target` args against `scope/scope.toml` (IP/CIDR range checking, domain matching)
+- **AI Assistant Plugins**: Governance plugins for [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) and [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli)
 
 ---
 
