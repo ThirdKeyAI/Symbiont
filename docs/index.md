@@ -212,13 +212,6 @@ Symbiont v1.8.1 is the latest stable release, delivering a complete AI agent fra
 - **Secrets Management**: HashiCorp Vault, encrypted file, and OS keychain backends
 - **JavaScript & Python SDKs**: Full API clients covering scheduling, channels, webhooks, memory, skills, and metrics
 
-### 🔮 v1.7.0 Roadmap
-- ~~Inter-agent communication governance~~ ✅ Shipped
-- ~~Project initialization (`symbi init`)~~ ✅ Shipped
-- External agent integration and A2A protocol support
-- Multi-modal RAG support (images, audio, structured data)
-- Additional channel adapters (Discord, Matrix)
-
 ---
 
 ## Community
@@ -235,7 +228,6 @@ Symbiont v1.8.1 is the latest stable release, delivering a complete AI agent fra
 - **Packages**: [crates.io/crates/symbi](https://crates.io/crates/symbi) | [npm symbiont-sdk-js](https://www.npmjs.com/package/symbiont-sdk-js) | [PyPI symbiont-sdk](https://pypi.org/project/symbiont-sdk/)
 - **Plugins**: [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) | [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli)
 - **Issues**: [GitHub Issues](https://github.com/thirdkeyai/symbiont/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/thirdkeyai/symbiont/discussions)
 - **License**: Open source software by ThirdKey
 
 ---

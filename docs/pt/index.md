@@ -232,7 +232,6 @@ O Symbiont v1.8.1 é a versão estável mais recente, oferecendo um framework co
 - **Pacotes**: [crates.io/crates/symbi](https://crates.io/crates/symbi) | [npm symbiont-sdk-js](https://www.npmjs.com/package/symbiont-sdk-js) | [PyPI symbiont-sdk](https://pypi.org/project/symbiont-sdk/)
 - **Plugins**: [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) | [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli)
 - **Issues**: [GitHub Issues](https://github.com/thirdkeyai/symbiont/issues)
-- **Discussões**: [GitHub Discussions](https://github.com/thirdkeyai/symbiont/discussions)
 - **Licença**: Software de código aberto da ThirdKey
 
 ---

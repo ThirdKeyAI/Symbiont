@@ -209,13 +209,6 @@ Symbiont v1.8.1 ist die neueste stabile Version und bietet ein vollstaendiges KI
 - **Geheimnismanagement**: HashiCorp Vault, verschluesselte Datei- und OS-Keychain-Backends
 - **JavaScript- und Python-SDKs**: Vollstaendige API-Clients fuer Scheduling, Channels, Webhooks, Speicher, Skills und Metriken
 
-### 🔮 v1.7.0 Roadmap
-- ~~Inter-Agent-Kommunikations-Governance~~ ✅ Ausgeliefert
-- ~~Projektinitialisierung (`symbi init`)~~ ✅ Ausgeliefert
-- Externe Agent-Integration und A2A-Protokollunterstuetzung
-- Multi-modale RAG-Unterstuetzung (Bilder, Audio, strukturierte Daten)
-- Zusaetzliche Channel-Adapter (Discord, Matrix)
-
 ---
 
 ## Community
