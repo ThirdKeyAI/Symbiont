@@ -102,6 +102,19 @@ pub async fn run(matches: &ArgMatches) {
     // Scan agents directory
     let agents_found = scan_agents_directory();
 
+    // Load ToolClad manifests from tools/
+    let toolclad_manifests =
+        symbi_runtime::toolclad::manifest::load_manifests_from_dir(Path::new("tools"));
+    if !toolclad_manifests.is_empty() {
+        println!("✓ {} tool(s) loaded from tools/", toolclad_manifests.len());
+        for (name, manifest) in &toolclad_manifests {
+            println!(
+                "  → {} [{}] ({})",
+                name, manifest.tool.risk_tier, manifest.tool.binary
+            );
+        }
+    }
+
     // Display clear auth info at startup
     let api_token_source = if std::env::var("SYMBIONT_API_TOKEN").is_ok() {
         "SYMBIONT_API_TOKEN env var"

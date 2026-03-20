@@ -21,6 +21,7 @@ pub mod sandbox;
 pub mod scheduler;
 pub mod secrets;
 pub mod skills;
+pub mod toolclad;
 pub mod types;
 
 pub mod prelude;
