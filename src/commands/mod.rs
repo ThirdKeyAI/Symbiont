@@ -9,4 +9,5 @@ pub mod new;
 pub mod run;
 pub mod skills;
 pub mod status;
+pub mod tools;
 pub mod up;

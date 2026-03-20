@@ -4,9 +4,13 @@
 //! an `ActionExecutor` that validates arguments, constructs commands,
 //! executes tools, and wraps output in evidence envelopes.
 
+pub mod cedar_gen;
 pub mod executor;
 pub mod manifest;
+pub mod scope;
 pub mod validator;
+pub mod watcher;
 
 pub use executor::ToolCladExecutor;
 pub use manifest::{load_manifest, load_manifests_from_dir, Manifest};
+pub use scope::Scope;

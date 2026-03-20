@@ -253,6 +253,27 @@ async fn main() {
                 ),
         )
         .subcommand(
+            Command::new("tools")
+                .about("Manage ToolClad tool manifests")
+                .subcommand(Command::new("list").about("List all discovered tools"))
+                .subcommand(
+                    Command::new("validate")
+                        .about("Validate tool manifest(s)")
+                        .arg(Arg::new("file").value_name("FILE").help("Specific .clad.toml file (default: all in tools/)")),
+                )
+                .subcommand(
+                    Command::new("test")
+                        .about("Dry-run a tool invocation")
+                        .arg(Arg::new("name").value_name("NAME").required(true).help("Tool name or manifest file"))
+                        .arg(Arg::new("arg").long("arg").value_name("KEY=VALUE").action(ArgAction::Append).help("Tool argument")),
+                )
+                .subcommand(
+                    Command::new("schema")
+                        .about("Output MCP JSON Schema for a tool")
+                        .arg(Arg::new("name").value_name("NAME").required(true).help("Tool name or manifest file")),
+                ),
+        )
+        .subcommand(
             Command::new("mcp")
                 .about("Start MCP server (stdio transport) for AI assistant integration"),
         )
@@ -596,6 +617,9 @@ async fn main() {
         }
         Some(("cron", sub_matches)) => {
             commands::cron::run(sub_matches).await;
+        }
+        Some(("tools", sub_matches)) => {
+            commands::tools::run(sub_matches).await;
         }
         _ => {
             println!("Symbiont v{}", VERSION);
