@@ -1,0 +1,59 @@
+# ToolClad manifest: HTTP request via curl
+# Demonstrates: url type with scope check, enum for methods, conditionals
+
+[tool]
+name = "curl_fetch"
+version = "1.0.0"
+binary = "curl"
+description = "HTTP request with headers and response capture"
+timeout_seconds = 30
+risk_tier = "low"
+
+[tool.cedar]
+resource = "Tool::HttpFetch"
+action = "execute_tool"
+
+[args.url]
+position = 1
+required = true
+type = "url"
+schemes = ["http", "https"]
+scope_check = true
+description = "URL to fetch"
+
+[args.method]
+position = 2
+required = false
+type = "enum"
+allowed = ["GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"]
+default = "GET"
+description = "HTTP method"
+
+[args.headers]
+position = 3
+required = false
+type = "string"
+sanitize = ["injection"]
+default = ""
+description = "Extra headers as 'Key: Value' (comma-separated)"
+
+[command]
+template = "curl -s -S -X {method} --max-time 25 -w '\\n%{{http_code}}' {_header_flags} {url}"
+
+[command.conditionals]
+header_flags = { when = "headers != ''", template = "-H '{headers}'" }
+
+[output]
+format = "text"
+envelope = true
+
+[output.schema]
+type = "object"
+
+[output.schema.properties.raw_output]
+type = "string"
+description = "HTTP response body"
+
+[output.schema.properties.status_code]
+type = "string"
+description = "HTTP status code"

@@ -1,0 +1,91 @@
+# ToolClad manifest: nmap network scanner
+# Demonstrates: enum types, command mappings, XML output parsing, evidence capture
+
+[tool]
+name = "nmap_scan"
+version = "1.0.0"
+binary = "nmap"
+description = "Network port scanning and service detection"
+timeout_seconds = 600
+risk_tier = "low"
+
+[tool.cedar]
+resource = "Tool::NmapScan"
+action = "execute_tool"
+
+[tool.evidence]
+output_dir = "{evidence_dir}/{scan_id}-nmap"
+capture = true
+hash = "sha256"
+
+# --- Parameters ---
+
+[args.target]
+position = 1
+required = true
+type = "scope_target"
+description = "Target CIDR, IP, or hostname"
+
+[args.scan_type]
+position = 2
+required = true
+type = "enum"
+allowed = ["ping", "service", "version", "syn", "os_detect", "aggressive", "vuln_script"]
+description = "Type of scan to perform"
+
+[args.extra_flags]
+position = 3
+required = false
+type = "string"
+sanitize = ["injection"]
+default = ""
+description = "Additional nmap flags (must pass Gate approval)"
+
+# --- Command Construction ---
+
+[command]
+template = "nmap {_scan_flags} --max-rate {max_rate} -oX {_output_file} --no-stylesheet -v {extra_flags} {target}"
+
+[command.defaults]
+max_rate = 1000
+
+[command.mappings.scan_type]
+ping = "-sn -PE"
+service = "-sT -sV --version-intensity 5"
+version = "-sV --version-all --top-ports 1000"
+syn = "-sS --top-ports 1000"
+os_detect = "-sS -O --osscan-guess"
+aggressive = "-A -T4 --top-ports 10000"
+vuln_script = "-sV --script=vuln --script-timeout 60s"
+
+# --- Output ---
+
+[output]
+format = "xml"
+parser = "builtin:xml"
+envelope = true
+
+[output.schema]
+type = "object"
+
+[output.schema.properties.hosts]
+type = "array"
+description = "Discovered hosts with open ports and services"
+
+[output.schema.properties.hosts.items.properties.ip]
+type = "string"
+
+[output.schema.properties.hosts.items.properties.ports]
+type = "array"
+
+[output.schema.properties.hosts.items.properties.ports.items.properties.port]
+type = "integer"
+
+[output.schema.properties.hosts.items.properties.ports.items.properties.protocol]
+type = "string"
+
+[output.schema.properties.hosts.items.properties.ports.items.properties.service]
+type = "string"
+
+[output.schema.properties.hosts.items.properties.ports.items.properties.version]
+type = "string"

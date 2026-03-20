@@ -1,0 +1,42 @@
+# ToolClad manifest: DNS lookup via dig
+# Demonstrates: enum type for record types, simple template
+
+[tool]
+name = "dig_lookup"
+version = "1.0.0"
+binary = "dig"
+description = "DNS record lookup"
+timeout_seconds = 15
+risk_tier = "low"
+
+[tool.cedar]
+resource = "Tool::DnsLookup"
+action = "execute_tool"
+
+[args.target]
+position = 1
+required = true
+type = "scope_target"
+description = "Domain name to query"
+
+[args.record_type]
+position = 2
+required = false
+type = "enum"
+allowed = ["A", "AAAA", "MX", "NS", "TXT", "CNAME", "SOA", "PTR", "SRV", "ANY"]
+default = "A"
+description = "DNS record type"
+
+[command]
+template = "dig +short {target} {record_type}"
+
+[output]
+format = "text"
+envelope = true
+
+[output.schema]
+type = "object"
+
+[output.schema.properties.raw_output]
+type = "string"
+description = "DNS query results"

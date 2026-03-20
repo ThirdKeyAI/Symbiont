@@ -1,0 +1,34 @@
+# ToolClad manifest: WHOIS domain/IP registration lookup
+# This is the simplest possible ToolClad tool — one parameter, text output.
+
+[tool]
+name = "whois_lookup"
+version = "1.0.0"
+binary = "whois"
+description = "WHOIS domain/IP registration lookup"
+timeout_seconds = 30
+risk_tier = "low"
+
+[tool.cedar]
+resource = "Tool::WhoisLookup"
+action = "execute_tool"
+
+[args.target]
+position = 1
+required = true
+type = "scope_target"
+description = "Domain name or IP address to query"
+
+[command]
+template = "whois {target}"
+
+[output]
+format = "text"
+envelope = true
+
+[output.schema]
+type = "object"
+
+[output.schema.properties.raw_output]
+type = "string"
+description = "Raw WHOIS registration data"
