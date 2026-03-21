@@ -26,7 +26,7 @@ impl ToolCladExecutor {
     pub fn new(manifests: Vec<(String, Manifest)>) -> Self {
         let tool_defs: Vec<ToolDefinition> = manifests
             .iter()
-            .map(|(_, m)| generate_tool_definition(m))
+            .flat_map(|(_, m)| generate_tool_definitions(m))
             .collect();
         let manifest_map: HashMap<String, Manifest> = manifests.into_iter().collect();
         Self {
@@ -36,8 +36,28 @@ impl ToolCladExecutor {
     }
 
     /// Check if this executor handles a given tool name.
+    /// Matches both direct tool names and session/browser sub-commands
+    /// (e.g., "msfconsole_session" or "msfconsole_session.run").
     pub fn handles(&self, tool_name: &str) -> bool {
-        self.manifests.contains_key(tool_name)
+        if self.manifests.contains_key(tool_name) {
+            return true;
+        }
+        // Check for session/browser sub-command pattern: "toolname.command"
+        if let Some(base) = tool_name.split('.').next() {
+            if let Some(m) = self.manifests.get(base) {
+                let cmd = tool_name
+                    .strip_prefix(base)
+                    .unwrap_or("")
+                    .trim_start_matches('.');
+                if let Some(session) = &m.session {
+                    return session.commands.contains_key(cmd);
+                }
+                if let Some(browser) = &m.browser {
+                    return browser.commands.contains_key(cmd);
+                }
+            }
+        }
+        false
     }
 
     /// Number of loaded manifests.
@@ -276,12 +296,104 @@ fn interpolate(template: &str, args: &HashMap<String, String>) -> String {
     result
 }
 
-/// Generate an MCP-compatible ToolDefinition from a manifest.
-fn generate_tool_definition(manifest: &Manifest) -> ToolDefinition {
+/// Generate MCP-compatible ToolDefinitions from a manifest.
+/// Oneshot tools produce one definition. Session/browser tools produce
+/// one definition per declared command (e.g., "msfconsole_session.run").
+fn generate_tool_definitions(manifest: &Manifest) -> Vec<ToolDefinition> {
+    match manifest.tool.mode.as_str() {
+        "session" => generate_session_tool_defs(manifest),
+        "browser" => generate_browser_tool_defs(manifest),
+        _ => vec![generate_oneshot_tool_def(manifest)],
+    }
+}
+
+/// Generate tool definitions for session commands.
+fn generate_session_tool_defs(manifest: &Manifest) -> Vec<ToolDefinition> {
+    let session = match &manifest.session {
+        Some(s) => s,
+        None => return vec![generate_oneshot_tool_def(manifest)],
+    };
+    session
+        .commands
+        .iter()
+        .map(|(cmd_name, cmd_def)| {
+            let mut properties = serde_json::Map::new();
+            properties.insert(
+                "command".to_string(),
+                serde_json::json!({
+                    "type": "string",
+                    "description": format!("Command matching pattern: {}", cmd_def.pattern)
+                }),
+            );
+            for (arg_name, arg_def) in &cmd_def.args {
+                let mut prop = serde_json::Map::new();
+                prop.insert("type".to_string(), serde_json::json!("string"));
+                prop.insert(
+                    "description".to_string(),
+                    serde_json::json!(arg_def.description),
+                );
+                properties.insert(arg_name.clone(), serde_json::Value::Object(prop));
+            }
+            ToolDefinition {
+                name: format!("{}.{}", manifest.tool.name, cmd_name),
+                description: cmd_def.description.clone(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": properties,
+                    "required": ["command"]
+                }),
+            }
+        })
+        .collect()
+}
+
+/// Generate tool definitions for browser commands.
+fn generate_browser_tool_defs(manifest: &Manifest) -> Vec<ToolDefinition> {
+    let browser = match &manifest.browser {
+        Some(b) => b,
+        None => return vec![generate_oneshot_tool_def(manifest)],
+    };
+    browser
+        .commands
+        .iter()
+        .map(|(cmd_name, cmd_def)| {
+            let mut properties = serde_json::Map::new();
+            for (arg_name, arg_def) in &cmd_def.args {
+                let mut prop = serde_json::Map::new();
+                prop.insert("type".to_string(), serde_json::json!("string"));
+                prop.insert(
+                    "description".to_string(),
+                    serde_json::json!(arg_def.description),
+                );
+                if let Some(allowed) = &arg_def.allowed {
+                    prop.insert("enum".to_string(), serde_json::json!(allowed));
+                }
+                properties.insert(arg_name.clone(), serde_json::Value::Object(prop));
+            }
+            let required: Vec<_> = cmd_def
+                .args
+                .iter()
+                .filter(|(_, d)| d.required)
+                .map(|(n, _)| serde_json::json!(n))
+                .collect();
+            ToolDefinition {
+                name: format!("{}.{}", manifest.tool.name, cmd_name),
+                description: cmd_def.description.clone(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": properties,
+                    "required": required
+                }),
+            }
+        })
+        .collect()
+}
+
+/// Generate a single MCP tool definition for a oneshot manifest.
+fn generate_oneshot_tool_def(manifest: &Manifest) -> ToolDefinition {
     let mut properties = serde_json::Map::new();
     let mut required = Vec::new();
 
-    // Sort args by position
     let mut sorted_args: Vec<_> = manifest.args.iter().collect();
     sorted_args.sort_by_key(|(_, def)| def.position);
 
@@ -392,7 +504,7 @@ type = "object"
     }
 
     #[test]
-    fn test_generate_tool_definition() {
+    fn test_generate_oneshot_tool_def() {
         let manifest: Manifest = toml::from_str(
             r#"
 [tool]
@@ -418,7 +530,7 @@ type = "object"
 "#,
         )
         .unwrap();
-        let td = generate_tool_definition(&manifest);
+        let td = generate_oneshot_tool_def(&manifest);
         assert_eq!(td.name, "whois");
         assert_eq!(td.description, "WHOIS lookup");
         let required = td.parameters["required"].as_array().unwrap();

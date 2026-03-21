@@ -46,8 +46,8 @@ fn cmd_list() {
     }
 
     println!(
-        "{:<24} {:<16} {:<8} CEDAR RESOURCE",
-        "TOOL", "BINARY", "RISK"
+        "{:<24} {:<10} {:<16} {:<8} CEDAR RESOURCE",
+        "TOOL", "MODE", "BINARY", "RISK"
     );
     for (name, m) in &manifests {
         let cedar = m
@@ -56,9 +56,14 @@ fn cmd_list() {
             .as_ref()
             .map(|c| c.resource.as_str())
             .unwrap_or("-");
+        let binary = if m.tool.binary.is_empty() {
+            "-"
+        } else {
+            &m.tool.binary
+        };
         println!(
-            "{:<24} {:<16} {:<8} {}",
-            name, m.tool.binary, m.tool.risk_tier, cedar
+            "{:<24} {:<10} {:<16} {:<8} {}",
+            name, m.tool.mode, binary, m.tool.risk_tier, cedar
         );
     }
 }

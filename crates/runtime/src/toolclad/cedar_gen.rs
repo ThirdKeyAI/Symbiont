@@ -87,6 +87,7 @@ mod tests {
                 name: name.to_string(),
                 version: "1.0.0".to_string(),
                 binary: "test".to_string(),
+                mode: "oneshot".to_string(),
                 description: "Test tool".to_string(),
                 timeout_seconds: 30,
                 risk_tier: risk.to_string(),
@@ -111,6 +112,8 @@ mod tests {
                 envelope: true,
                 schema: serde_json::json!({}),
             },
+            session: None,
+            browser: None,
         }
     }
 
