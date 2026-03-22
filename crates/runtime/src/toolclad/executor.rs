@@ -239,8 +239,8 @@ impl ToolCladExecutor {
 
         // Interpolate URL with args and secrets
         let url = interpolate(&http.url, validated);
-        let url =
-            super::template_vars::inject_secrets(&url).map_err(|e| format!("URL secret error: {}", e))?;
+        let url = super::template_vars::inject_secrets(&url)
+            .map_err(|e| format!("URL secret error: {}", e))?;
 
         // Interpolate headers with secrets
         let mut headers = Vec::new();
@@ -1214,5 +1214,186 @@ type = "object"
             executor.manifest_versions.get("versioned").unwrap(),
             "2.5.0"
         );
+    }
+
+    // ---- MCP Proxy Tests ----
+
+    #[test]
+    fn test_mcp_proxy_tool_def_generation() {
+        let manifest: Manifest = toml::from_str(
+            r#"
+[tool]
+name = "governed_search"
+version = "1.0.0"
+description = "Search via governed MCP proxy"
+
+[args.query]
+position = 1
+required = true
+type = "string"
+description = "Search query"
+
+[args.max_results]
+position = 2
+required = false
+type = "integer"
+description = "Maximum results to return"
+default = 10
+
+[mcp]
+server = "brave-search"
+tool = "brave_web_search"
+
+[mcp.field_map]
+query = "q"
+max_results = "count"
+
+[output]
+format = "json"
+
+[output.schema]
+type = "object"
+"#,
+        )
+        .unwrap();
+        let td = generate_oneshot_tool_def(&manifest);
+        assert_eq!(td.name, "governed_search");
+        assert_eq!(td.description, "Search via governed MCP proxy");
+        let props = td.parameters["properties"].as_object().unwrap();
+        assert!(props.contains_key("query"));
+        assert!(props.contains_key("max_results"));
+        let required = td.parameters["required"].as_array().unwrap();
+        assert!(required.contains(&serde_json::json!("query")));
+    }
+
+    #[test]
+    fn test_mcp_proxy_execution_returns_delegated_envelope() {
+        let manifest: Manifest = toml::from_str(
+            r#"
+[tool]
+name = "governed_search"
+version = "1.0.0"
+description = "Search via governed MCP proxy"
+
+[args.query]
+position = 1
+required = true
+type = "string"
+description = "Search query"
+
+[mcp]
+server = "brave-search"
+tool = "brave_web_search"
+
+[mcp.field_map]
+query = "q"
+
+[output]
+format = "json"
+
+[output.schema]
+type = "object"
+"#,
+        )
+        .unwrap();
+
+        let executor =
+            ToolCladExecutor::new(vec![("governed_search".to_string(), manifest.clone())]);
+
+        let mut args = HashMap::new();
+        args.insert("query".to_string(), "rust async".to_string());
+        let result = executor
+            .execute_mcp_backend("governed_search", &manifest, &args)
+            .unwrap();
+
+        assert_eq!(result["status"], "delegated");
+        assert_eq!(result["tool"], "governed_search");
+        assert_eq!(result["mcp_server"], "brave-search");
+        assert_eq!(result["mcp_tool"], "brave_web_search");
+        assert_eq!(result["exit_code"], 0);
+
+        // Check that field mapping was applied
+        let mcp_args = &result["mcp_arguments"];
+        assert_eq!(mcp_args["q"], "rust async");
+    }
+
+    #[test]
+    fn test_mcp_proxy_field_map_passthrough() {
+        let manifest: Manifest = toml::from_str(
+            r#"
+[tool]
+name = "passthrough"
+version = "1.0.0"
+description = "Direct passthrough"
+
+[args.input]
+position = 1
+required = true
+type = "string"
+description = "Input value"
+
+[mcp]
+server = "my-server"
+tool = "upstream_tool"
+
+[output]
+format = "json"
+
+[output.schema]
+type = "object"
+"#,
+        )
+        .unwrap();
+
+        let executor = ToolCladExecutor::new(vec![("passthrough".to_string(), manifest.clone())]);
+
+        let mut args = HashMap::new();
+        args.insert("input".to_string(), "hello".to_string());
+        let result = executor
+            .execute_mcp_backend("passthrough", &manifest, &args)
+            .unwrap();
+
+        // No field_map, so "input" stays as "input" in upstream args
+        let mcp_args = &result["mcp_arguments"];
+        assert_eq!(mcp_args["input"], "hello");
+    }
+
+    #[test]
+    fn test_mcp_proxy_dispatch_via_execute_tool() {
+        let manifest: Manifest = toml::from_str(
+            r#"
+[tool]
+name = "mcp_tool"
+version = "1.0.0"
+description = "MCP proxy tool"
+
+[args.query]
+position = 1
+required = true
+type = "string"
+description = "Query"
+
+[mcp]
+server = "test-server"
+tool = "test_tool"
+
+[output]
+format = "json"
+
+[output.schema]
+type = "object"
+"#,
+        )
+        .unwrap();
+
+        let executor = ToolCladExecutor::new(vec![("mcp_tool".to_string(), manifest)]);
+
+        let result = executor
+            .execute_tool("mcp_tool", r#"{"query": "test"}"#)
+            .unwrap();
+
+        assert_eq!(result["status"], "delegated");
+        assert_eq!(result["mcp_server"], "test-server");
+        assert_eq!(result["mcp_tool"], "test_tool");
     }
 }
