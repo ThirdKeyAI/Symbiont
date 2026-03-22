@@ -46,4 +46,8 @@ The container serves the console on port 3001 and reverse proxies `/api/*` to `s
 
 All runtime data flows through the existing REST API on port 8080. The UI is a thin rendering layer — no server-side state, no database. Auth token is stored in `localStorage`.
 
+## Compatibility
+
+Requires Symbiont v1.8.1 or later (`/api/v1/agents` returns `AgentSummary` objects).
+
 Created: 2026-02-11

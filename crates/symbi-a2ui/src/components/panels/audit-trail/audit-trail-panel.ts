@@ -56,7 +56,7 @@ export class AuditTrailPanel extends LitElement {
 
   private async _fetchAll() {
     try {
-      const [agentIds, schedules, channels] = await Promise.all([
+      const [agentSummaries, schedules, channels] = await Promise.all([
         listAgents(),
         listSchedules(),
         listChannels(),
@@ -66,15 +66,15 @@ export class AuditTrailPanel extends LitElement {
 
       // Fetch agent histories
       const agentHistories = await Promise.all(
-        agentIds.map((id) =>
-          getAgentHistory(id)
+        agentSummaries.map((agent) =>
+          getAgentHistory(agent.id)
             .then((resp) =>
               resp.history.map((h) => ({
                 id: h.execution_id,
                 timestamp: h.timestamp,
                 source: 'agent' as const,
-                sourceId: id,
-                sourceName: id,
+                sourceId: agent.id,
+                sourceName: agent.name || agent.id,
                 eventType: 'execution',
                 status: h.status,
                 details: {} as Record<string, unknown>,

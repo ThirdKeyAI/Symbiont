@@ -43,14 +43,23 @@ export class AgentCard extends LitElement {
       margin-bottom: 0.5rem;
     }
 
-    .agent-id {
+    .agent-name {
       font-size: 0.875rem;
       font-weight: 600;
       color: #e2e8f0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .agent-id {
+      font-size: 0.6875rem;
+      color: #64748b;
       font-family: 'Roboto Mono', monospace;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      margin-bottom: 0.25rem;
     }
 
     .resources {
@@ -80,17 +89,20 @@ export class AgentCard extends LitElement {
   `;
 
   @property({ attribute: false }) agent!: AgentStatusResponse;
+  @property() agentName = '';
 
   render() {
     const a = this.agent;
     const variant = stateToVariant(a.state);
+    const displayName = this.agentName || a.agent_id;
 
     return html`
       <div class="card">
         <div class="header">
-          <span class="agent-id">${a.agent_id}</span>
+          <span class="agent-name">${displayName}</span>
           <status-badge .variant=${variant} .label=${a.state}></status-badge>
         </div>
+        ${this.agentName ? html`<div class="agent-id">${a.agent_id}</div>` : ''}
         <div class="resources">
           <span class="resource">
             <span class="resource-label">MEM</span>

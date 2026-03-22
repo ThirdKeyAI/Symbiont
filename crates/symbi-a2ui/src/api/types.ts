@@ -2,6 +2,12 @@
 
 export type AgentState = 'idle' | 'running' | 'error' | 'stopped';
 
+export interface AgentSummary {
+  id: string;
+  name: string;
+  state: string;
+}
+
 export interface ResourceUsage {
   memory_bytes: number;
   cpu_percent: number;
@@ -136,6 +142,17 @@ export interface ChannelAuditResponse {
   entries: ChannelAuditEntry[];
 }
 
+// ── Inter-agent communication types ─────────────────────────────────
+
+export interface InterAgentEvent {
+  timestamp: string;
+  sender: string;
+  recipient: string;
+  message_type: string;
+  policy_decision: string;
+  tool_name?: string;
+}
+
 // ── Error type ───────────────────────────────────────────────────────
 
 export interface ErrorResponse {
@@ -146,7 +163,7 @@ export interface ErrorResponse {
 
 // ── Unified audit entry (client-side aggregation) ────────────────────
 
-export type AuditSource = 'agent' | 'schedule' | 'channel';
+export type AuditSource = 'agent' | 'schedule' | 'channel' | 'inter_agent';
 
 export interface UnifiedAuditEntry {
   id: string;

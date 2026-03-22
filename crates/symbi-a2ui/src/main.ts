@@ -35,3 +35,5 @@ import './components/panels/coordinator-chat/coordinator-chat-panel.js';
 import './components/panels/coordinator-chat/chat-message.js';
 import './components/panels/coordinator-chat/chat-input.js';
 import './components/panels/coordinator-chat/reasoning-trace.js';
+
+import './components/panels/tools/tools-panel.js';

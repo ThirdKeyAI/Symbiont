@@ -2,7 +2,7 @@ import { LitElement, html, css } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 import { hasToken, setToken, clearToken } from '../../api/client.js';
 
-export type PanelId = 'fleet' | 'audit' | 'compliance' | 'coordinator';
+export type PanelId = 'fleet' | 'audit' | 'compliance' | 'coordinator' | 'tools';
 
 @customElement('app-shell')
 export class AppShell extends LitElement {
@@ -195,6 +195,8 @@ export class AppShell extends LitElement {
         return html`<compliance-panel></compliance-panel>`;
       case 'coordinator':
         return html`<coordinator-chat-panel></coordinator-chat-panel>`;
+      case 'tools':
+        return html`<tools-panel></tools-panel>`;
     }
   }
 }

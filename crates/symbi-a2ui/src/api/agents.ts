@@ -1,8 +1,8 @@
 import { get } from './client.js';
-import type { AgentStatusResponse, GetAgentHistoryResponse } from './types.js';
+import type { AgentSummary, AgentStatusResponse, GetAgentHistoryResponse } from './types.js';
 
-export function listAgents(): Promise<string[]> {
-  return get<string[]>('/api/v1/agents');
+export function listAgents(): Promise<AgentSummary[]> {
+  return get<AgentSummary[]>('/api/v1/agents');
 }
 
 export function getAgentStatus(id: string): Promise<AgentStatusResponse> {

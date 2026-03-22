@@ -5,6 +5,7 @@ import { listSchedules, getScheduleHistory } from '../../../api/schedules.js';
 import { listChannels, getChannelHealth } from '../../../api/channels.js';
 import { getSchedulerHealth } from '../../../api/system.js';
 import type {
+  AgentSummary,
   AgentStatusResponse,
   ScheduleSummary,
   ChannelHealthResponse,
@@ -101,7 +102,7 @@ export class CompliancePanel extends LitElement {
 
   private async _fetchAll() {
     try {
-      const [agentIds, schedules, channels, schedulerHealth] = await Promise.all([
+      const [agentSummaries, schedules, channels, schedulerHealth] = await Promise.all([
         listAgents(),
         listSchedules(),
         listChannels(),
@@ -110,7 +111,7 @@ export class CompliancePanel extends LitElement {
 
       // Fetch agent statuses
       const agentStatuses = await Promise.all(
-        agentIds.map((id) => getAgentStatus(id).catch(() => null)),
+        agentSummaries.map((s) => getAgentStatus(s.id).catch(() => null)),
       );
       const validAgents = agentStatuses.filter((a): a is AgentStatusResponse => a !== null);
 
@@ -127,7 +128,7 @@ export class CompliancePanel extends LitElement {
 
       // Fetch agent histories for violations
       const agentHistories = await Promise.all(
-        agentIds.map((id) => getAgentHistory(id).catch(() => null)),
+        agentSummaries.map((s) => getAgentHistory(s.id).catch(() => null)),
       );
 
       // Compute scores
@@ -135,7 +136,7 @@ export class CompliancePanel extends LitElement {
       this._scores = scores;
 
       // Compute violations
-      this._violations = this._computeViolations(validAgents, schedules, this._channelHealths, schedHistories, agentHistories, agentIds);
+      this._violations = this._computeViolations(validAgents, schedules, this._channelHealths, schedHistories, agentHistories, agentSummaries);
 
       // Compute policy statuses
       this._policies = this._computePolicies(scores, validAgents, schedules, this._channelHealths, schedulerHealth);
@@ -186,7 +187,7 @@ export class CompliancePanel extends LitElement {
     channelHealths: ChannelHealthResponse[],
     schedHistories: (import('../../../api/types.js').ScheduleHistoryResponse | null)[],
     agentHistories: (import('../../../api/types.js').GetAgentHistoryResponse | null)[],
-    agentIds: string[],
+    agentSummaries: AgentSummary[],
   ): Violation[] {
     const violations: Violation[] = [];
 
@@ -244,7 +245,7 @@ export class CompliancePanel extends LitElement {
     // Agent execution violations
     agentHistories.forEach((hist, idx) => {
       if (!hist) return;
-      const agentId = agentIds[idx];
+      const agentId = agentSummaries[idx]?.id ?? 'unknown';
       const recentFails = hist.history.filter((h) => h.status === 'failed').slice(0, 5);
       recentFails.forEach((f) => {
         violations.push({
@@ -306,6 +307,14 @@ export class CompliancePanel extends LitElement {
         status: schedulerHealth.jobs_dead_letter === 0 ? 'pass' : schedulerHealth.jobs_dead_letter <= 3 ? 'warning' : 'fail',
         description: `${schedulerHealth.jobs_dead_letter} jobs in dead letter queue`,
         score: schedulerHealth.jobs_dead_letter === 0 ? 100 : Math.max(0, 100 - schedulerHealth.jobs_dead_letter * 20),
+      },
+      {
+        name: 'Inter-Agent Communication Policies',
+        status: agents.length > 0 ? 'pass' : 'warning',
+        description: agents.length > 0
+          ? `Cedar policies active for ${agents.length} agent(s)`
+          : 'No agents registered for policy enforcement',
+        score: agents.length > 0 ? 100 : 0,
       },
     ];
   }

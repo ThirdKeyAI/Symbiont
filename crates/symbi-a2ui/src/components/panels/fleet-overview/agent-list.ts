@@ -1,6 +1,6 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
-import type { AgentStatusResponse } from '../../../api/types.js';
+import type { AgentSummary, AgentStatusResponse } from '../../../api/types.js';
 
 @customElement('agent-list')
 export class AgentList extends LitElement {
@@ -28,15 +28,26 @@ export class AgentList extends LitElement {
   `;
 
   @property({ attribute: false }) agents: AgentStatusResponse[] = [];
+  @property({ attribute: false }) agentSummaries: AgentSummary[] = [];
   @property() searchText = '';
+
+  private _summaryMap(): Map<string, AgentSummary> {
+    const map = new Map<string, AgentSummary>();
+    for (const s of this.agentSummaries) {
+      map.set(s.id, s);
+    }
+    return map;
+  }
 
   private _filtered(): AgentStatusResponse[] {
     if (!this.searchText) return this.agents;
     const q = this.searchText.toLowerCase();
+    const smap = this._summaryMap();
     return this.agents.filter(
       (a) =>
         a.agent_id.toLowerCase().includes(q) ||
-        a.state.toLowerCase().includes(q),
+        a.state.toLowerCase().includes(q) ||
+        (smap.get(a.agent_id)?.name.toLowerCase().includes(q) ?? false),
     );
   }
 
@@ -46,6 +57,7 @@ export class AgentList extends LitElement {
 
   render() {
     const filtered = this._filtered();
+    const smap = this._summaryMap();
 
     return html`
       <div class="wrapper">
@@ -64,7 +76,7 @@ export class AgentList extends LitElement {
             ></empty-state>`
           : html`
             <div class="cards">
-              ${filtered.map((a) => html`<agent-card .agent=${a}></agent-card>`)}
+              ${filtered.map((a) => html`<agent-card .agent=${a} .agentName=${smap.get(a.agent_id)?.name ?? ''}></agent-card>`)}
             </div>
           `}
       </div>

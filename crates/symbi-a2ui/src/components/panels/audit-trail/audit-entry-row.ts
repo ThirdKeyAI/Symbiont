@@ -16,6 +16,7 @@ function sourceIcon(source: string): string {
     case 'agent': return '⬡';
     case 'schedule': return '◷';
     case 'channel': return '◆';
+    case 'inter_agent': return '⇄';
     default: return '○';
   }
 }
@@ -56,6 +57,37 @@ export class AuditEntryRow extends LitElement {
     .icon.agent { background: rgba(45, 212, 191, 0.1); color: #2dd4bf; }
     .icon.schedule { background: rgba(56, 189, 248, 0.1); color: #38bdf8; }
     .icon.channel { background: rgba(199, 146, 234, 0.1); color: #c792ea; }
+    .icon.inter_agent { background: rgba(251, 191, 36, 0.1); color: #fbbf24; }
+
+    .inter-agent-flow {
+      display: flex;
+      align-items: center;
+      gap: 0.375rem;
+      font-size: 0.8125rem;
+      color: #e2e8f0;
+    }
+
+    .inter-agent-flow .arrow {
+      color: #64748b;
+    }
+
+    .inter-agent-flow .policy-decision {
+      font-size: 0.6875rem;
+      font-family: 'Roboto Mono', monospace;
+      padding: 0.125rem 0.375rem;
+      border-radius: 0.25rem;
+      margin-left: 0.5rem;
+    }
+
+    .inter-agent-flow .policy-decision.allow {
+      background: rgba(34, 197, 94, 0.15);
+      color: #22c55e;
+    }
+
+    .inter-agent-flow .policy-decision.deny {
+      background: rgba(239, 68, 68, 0.15);
+      color: #ef4444;
+    }
 
     .body {
       flex: 1;
@@ -109,27 +141,59 @@ export class AuditEntryRow extends LitElement {
 
   @property({ attribute: false }) entry!: UnifiedAuditEntry;
 
+  private _isInterAgentComm(e: UnifiedAuditEntry): boolean {
+    return e.eventType === 'inter_agent_comm';
+  }
+
+  private _renderInterAgentBody(e: UnifiedAuditEntry) {
+    const sender = String(e.details['sender'] ?? e.sourceName);
+    const recipient = String(e.details['recipient'] ?? 'unknown');
+    const policyDecision = String(e.details['policy_decision'] ?? '');
+    const msgType = String(e.details['message_type'] ?? '');
+    const toolName = e.details['tool_name'] ? String(e.details['tool_name']) : null;
+    const decisionClass = policyDecision.toLowerCase() === 'allow' ? 'allow' : 'deny';
+
+    return html`
+      <div class="inter-agent-flow">
+        <span>${sender}</span>
+        <span class="arrow">&rarr;</span>
+        <span>${recipient}</span>
+        <span class="policy-decision ${decisionClass}">${policyDecision}</span>
+      </div>
+      <div class="details">
+        <span>type: <code>${msgType}</code> </span>
+        ${toolName ? html`<span>tool: <code>${toolName}</code> </span>` : ''}
+      </div>
+    `;
+  }
+
   render() {
     const e = this.entry;
     const variant = statusToVariant(e.status);
-    const icon = sourceIcon(e.source);
+    const isInterAgent = this._isInterAgentComm(e);
+    const icon = isInterAgent ? sourceIcon('inter_agent') : sourceIcon(e.source);
+    const iconClass = isInterAgent ? 'inter_agent' : e.source;
     const hasDetails = Object.keys(e.details).length > 0;
 
     return html`
       <div class="row">
-        <div class="icon ${e.source}">${icon}</div>
+        <div class="icon ${iconClass}">${icon}</div>
         <div class="body">
-          <div class="top-line">
-            <span class="source-name">${e.sourceName}</span>
-            <span class="event-type">${e.eventType}</span>
-          </div>
-          ${hasDetails ? html`
-            <div class="details">
-              ${Object.entries(e.details).map(([k, v]) =>
-                html`<span>${k}: <code>${String(v)}</code> </span>`,
-              )}
-            </div>
-          ` : ''}
+          ${isInterAgent
+            ? this._renderInterAgentBody(e)
+            : html`
+              <div class="top-line">
+                <span class="source-name">${e.sourceName}</span>
+                <span class="event-type">${e.eventType}</span>
+              </div>
+              ${hasDetails ? html`
+                <div class="details">
+                  ${Object.entries(e.details).map(([k, v]) =>
+                    html`<span>${k}: <code>${String(v)}</code> </span>`,
+                  )}
+                </div>
+              ` : ''}
+            `}
         </div>
         <div class="right">
           <status-badge .variant=${variant} .label=${e.status}></status-badge>

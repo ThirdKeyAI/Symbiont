@@ -4,6 +4,7 @@ import { listAgents, getAgentStatus } from '../../../api/agents.js';
 import { listSchedules } from '../../../api/schedules.js';
 import { getHealth, getSchedulerHealth, getMetrics } from '../../../api/system.js';
 import type {
+  AgentSummary,
   AgentStatusResponse,
   ScheduleSummary,
   HealthResponse,
@@ -66,6 +67,7 @@ export class FleetOverviewPanel extends LitElement {
   `;
 
   @state() private _agents: AgentStatusResponse[] = [];
+  @state() private _agentSummaries: AgentSummary[] = [];
   @state() private _schedules: ScheduleSummary[] = [];
   @state() private _health: HealthResponse | null = null;
   @state() private _schedulerHealth: SchedulerHealthResponse | null = null;
@@ -89,7 +91,7 @@ export class FleetOverviewPanel extends LitElement {
 
   private async _fetchAll() {
     try {
-      const [agentIds, schedules, health, schedulerHealth, metrics] = await Promise.all([
+      const [agentSummaries, schedules, health, schedulerHealth, metrics] = await Promise.all([
         listAgents(),
         listSchedules(),
         getHealth(),
@@ -98,10 +100,11 @@ export class FleetOverviewPanel extends LitElement {
       ]);
 
       const agentStatuses = await Promise.all(
-        agentIds.map((id) => getAgentStatus(id).catch(() => null)),
+        agentSummaries.map((s) => getAgentStatus(s.id).catch(() => null)),
       );
 
       this._agents = agentStatuses.filter((a): a is AgentStatusResponse => a !== null);
+      this._agentSummaries = agentSummaries;
       this._schedules = schedules;
       this._health = health;
       this._schedulerHealth = schedulerHealth;
@@ -143,6 +146,7 @@ export class FleetOverviewPanel extends LitElement {
             <p class="section-title">Agents</p>
             <agent-list
               .agents=${this._agents}
+              .agentSummaries=${this._agentSummaries}
               .searchText=${this._searchText}
               @search=${this._onSearch}
             ></agent-list>
