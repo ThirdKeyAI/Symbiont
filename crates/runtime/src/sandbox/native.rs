@@ -139,7 +139,16 @@ impl NativeRunner {
     /// This runner is gated behind the `native-sandbox` compile-time feature.
     /// It will refuse to run in production environments (`SYMBIONT_ENV=production`).
     pub fn new(config: NativeConfig) -> Result<Self, anyhow::Error> {
-        // Hard-block in production — no runtime override
+        // Compile-time guard: in release builds, emit a prominent warning.
+        // The native sandbox should only be used during development.
+        #[cfg(not(debug_assertions))]
+        tracing::error!(
+            "SECURITY: NativeRunner compiled in RELEASE mode — \
+             this provides ZERO isolation and must not be used in production deployments. \
+             Use Docker, gVisor, Firecracker, or E2B instead."
+        );
+
+        // Runtime guard: hard-block in production — no override possible
         if let Ok(env) = std::env::var("SYMBIONT_ENV") {
             if env.eq_ignore_ascii_case("production") {
                 anyhow::bail!(
@@ -149,12 +158,13 @@ impl NativeRunner {
             }
         }
 
-        // Always log warning when native execution is initialized
+        // Always log a prominent warning when native execution is initialized
         tracing::warn!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        tracing::warn!("Native Sandbox: NO ISOLATION");
+        tracing::warn!("SECURITY WARNING: NativeRunner provides NO ISOLATION");
         tracing::warn!("Executable: {}", config.executable);
         tracing::warn!("Working dir: {}", config.working_directory.display());
-        tracing::warn!("Code will run directly on host system");
+        tracing::warn!("Code will run directly on host system with full access");
+        tracing::warn!("DO NOT USE IN PRODUCTION — use a proper sandbox instead");
         tracing::warn!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
         // Validate configuration

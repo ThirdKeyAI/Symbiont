@@ -227,26 +227,70 @@ pub async fn auth_middleware(request: Request, next: Next) -> Result<Response, S
     Ok(next.run(request).await)
 }
 
+/// Maximum number of per-IP rate limiter entries to prevent unbounded memory growth.
+/// When exceeded, stale entries (oldest `last_seen`) are evicted; if eviction
+/// cannot free space, new IPs are allowed through without rate limiting
+/// (fail-open is preferable to OOM).
+#[cfg(feature = "http-api")]
+const MAX_RATE_LIMIT_ENTRIES: usize = 100_000;
+
+/// Per-IP rate limiter with a last-access timestamp for eviction.
+#[cfg(feature = "http-api")]
+struct IpRateLimiterEntry {
+    limiter: Arc<RateLimiter<NotKeyed, InMemoryState, DefaultClock>>,
+    last_seen: std::time::Instant,
+}
+
 /// Global rate limiter store for per-IP rate limiting
 #[cfg(feature = "http-api")]
-type IpRateLimiter = Arc<RateLimiter<NotKeyed, InMemoryState, DefaultClock>>;
-static RATE_LIMITERS: OnceLock<DashMap<IpAddr, IpRateLimiter>> = OnceLock::new();
+static RATE_LIMITERS: OnceLock<DashMap<IpAddr, IpRateLimiterEntry>> = OnceLock::new();
 
-/// Get or create a rate limiter for a specific IP address
+/// Get or create a rate limiter for a specific IP address.
+///
+/// If the map exceeds `MAX_RATE_LIMIT_ENTRIES`, stale entries older than 10
+/// minutes are evicted. If the map is still over capacity after eviction,
+/// new IPs are allowed through without rate limiting (fail-open).
 #[cfg(feature = "http-api")]
-fn get_rate_limiter_for_ip(ip: IpAddr) -> Arc<RateLimiter<NotKeyed, InMemoryState, DefaultClock>> {
+fn get_rate_limiter_for_ip(
+    ip: IpAddr,
+) -> Option<Arc<RateLimiter<NotKeyed, InMemoryState, DefaultClock>>> {
     let limiters = RATE_LIMITERS.get_or_init(DashMap::new);
+    let now = std::time::Instant::now();
 
-    // Check if limiter exists, if not create one
-    if let Some(limiter) = limiters.get(&ip) {
-        Arc::clone(&limiter)
-    } else {
-        // Create a rate limiter: 100 requests per minute (roughly 1.67 requests per second)
-        let quota = Quota::per_minute(NonZeroU32::new(100).unwrap());
-        let limiter = Arc::new(RateLimiter::direct(quota));
-        limiters.insert(ip, Arc::clone(&limiter));
-        limiter
+    // If the entry already exists, update last_seen and return it
+    if let Some(mut entry) = limiters.get_mut(&ip) {
+        entry.last_seen = now;
+        return Some(Arc::clone(&entry.limiter));
     }
+
+    // Need to insert a new entry — check capacity first
+    if limiters.len() >= MAX_RATE_LIMIT_ENTRIES {
+        // Evict entries not seen in the last 10 minutes
+        let eviction_threshold = now - std::time::Duration::from_secs(600);
+        limiters.retain(|_, entry| entry.last_seen > eviction_threshold);
+
+        if limiters.len() >= MAX_RATE_LIMIT_ENTRIES {
+            // Still over capacity after eviction — fail-open for this request
+            tracing::warn!(
+                ip = %ip,
+                entries = limiters.len(),
+                "Rate limiter map at capacity after eviction — skipping rate limit for new IP"
+            );
+            return None;
+        }
+    }
+
+    // Create a rate limiter: 100 requests per minute (roughly 1.67 requests per second)
+    let quota = Quota::per_minute(NonZeroU32::new(100).unwrap());
+    let limiter = Arc::new(RateLimiter::direct(quota));
+    limiters.insert(
+        ip,
+        IpRateLimiterEntry {
+            limiter: Arc::clone(&limiter),
+            last_seen: now,
+        },
+    );
+    Some(limiter)
 }
 
 /// Extract the client IP address from a request.
@@ -275,11 +319,12 @@ fn extract_client_ip(request: &Request) -> Option<IpAddr> {
 
     if from_trusted_proxy {
         // Connection is from a trusted proxy — respect forwarded headers.
-        // Take the rightmost X-Forwarded-For entry (appended by our proxy).
+        // Take the leftmost X-Forwarded-For entry (the original client IP).
+        // Proxies append to the right, so the first entry is the client.
         if let Some(forwarded_for) = request.headers().get("x-forwarded-for") {
             if let Ok(forwarded_str) = forwarded_for.to_str() {
-                if let Some(last_ip) = forwarded_str.split(',').next_back() {
-                    if let Ok(ip) = last_ip.trim().parse::<IpAddr>() {
+                if let Some(first_ip) = forwarded_str.split(',').next() {
+                    if let Ok(ip) = first_ip.trim().parse::<IpAddr>() {
                         return Some(ip);
                     }
                 }
@@ -328,7 +373,13 @@ pub async fn rate_limit_middleware(request: Request, next: Next) -> Result<Respo
         }
     };
 
-    let rate_limiter = get_rate_limiter_for_ip(client_ip);
+    let rate_limiter = match get_rate_limiter_for_ip(client_ip) {
+        Some(rl) => rl,
+        None => {
+            // Fail-open: rate limiter map is at capacity, allow the request
+            return Ok(next.run(request).await);
+        }
+    };
 
     match rate_limiter.check() {
         Ok(_) => Ok(next.run(request).await),

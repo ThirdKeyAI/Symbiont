@@ -183,6 +183,7 @@ fuzz_target!(|input: Input| {
                 secret.as_bytes().to_vec(),
                 header_name.clone(),
                 issuer,
+                None,
             );
 
             let headers = vec![(header_name, token)];

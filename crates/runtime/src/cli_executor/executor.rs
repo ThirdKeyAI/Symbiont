@@ -17,6 +17,26 @@ use crate::sandbox::ExecutionResult;
 use super::adapter::{AiCliAdapter, CodeGenRequest, CodeGenResult};
 use super::watchdog::OutputWatchdog;
 
+/// Environment variables that are safe to inherit from the caller.
+///
+/// We filter the caller-provided environment to prevent accidental leakage of
+/// sensitive host variables (e.g. credentials, session tokens, internal paths)
+/// into spawned AI CLI tool processes. Only variables needed for basic
+/// operation and explicitly-required API keys are allowed through.
+const ENV_ALLOWLIST: &[&str] = &[
+    "PATH",
+    "HOME",
+    "USER",
+    "SHELL",
+    "TERM",
+    "LANG",
+    "LC_ALL",
+    "TZ",
+    "OPENROUTER_API_KEY",
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+];
+
 /// How to handle stdin for the spawned process.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StdinStrategy {
@@ -117,14 +137,20 @@ impl CliExecutor {
         command.args(args);
         command.current_dir(working_dir);
 
-        // Merge environment: base non-interactive → adapter → caller
+        // Merge environment: base non-interactive → adapter → filtered caller.
+        // Caller env is filtered through ENV_ALLOWLIST to prevent leaking
+        // sensitive host variables into the spawned process.
         let mut env = HashMap::new();
         env.insert("TERM".to_string(), "dumb".to_string());
         env.insert("CI".to_string(), "true".to_string());
         env.insert("NON_INTERACTIVE".to_string(), "1".to_string());
         env.insert("NO_COLOR".to_string(), "1".to_string());
         env.extend(adapter_env);
-        env.extend(caller_env);
+        for (key, value) in caller_env {
+            if ENV_ALLOWLIST.contains(&key.as_str()) {
+                env.insert(key, value);
+            }
+        }
         command.envs(&env);
 
         // Configure stdin

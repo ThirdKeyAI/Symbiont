@@ -60,13 +60,29 @@ impl FileSecretStore {
     ///
     /// Returns cached data if the file's mtime hasn't changed, avoiding
     /// expensive re-decryption (Argon2 KDF) on every call.
+    ///
+    /// To avoid a TOCTOU race (stat then open), we open the file first and
+    /// obtain mtime from the open file handle. This ensures the mtime we
+    /// check corresponds to the file we actually read.
     async fn load_secrets_cached(&self) -> Result<HashMap<String, String>, SecretError> {
-        let mtime = tokio::fs::metadata(&self.config.path)
-            .await
-            .and_then(|m| m.modified())
-            .map_err(|e| SecretError::IoError {
-                message: format!("Failed to stat secrets file: {}", e),
+        let path = self.config.path.clone();
+
+        // Open the file first, then get mtime from the file handle to avoid
+        // TOCTOU: the file could be replaced between a separate stat() and open().
+        let mtime = tokio::task::spawn_blocking(move || -> Result<SystemTime, SecretError> {
+            let file = std::fs::File::open(&path).map_err(|e| SecretError::IoError {
+                message: format!("Failed to open secrets file for mtime check: {}", e),
             })?;
+            file.metadata()
+                .and_then(|m| m.modified())
+                .map_err(|e| SecretError::IoError {
+                    message: format!("Failed to get mtime from open file handle: {}", e),
+                })
+        })
+        .await
+        .map_err(|e| SecretError::IoError {
+            message: format!("Blocking task panicked: {}", e),
+        })??;
 
         // Fast path: return cached data if mtime matches
         {
@@ -78,7 +94,7 @@ impl FileSecretStore {
             }
         }
 
-        // Slow path: reload from disk
+        // Slow path: reload from disk (load_secrets opens and locks the file)
         let secrets = self.load_secrets().await?;
 
         // Update cache

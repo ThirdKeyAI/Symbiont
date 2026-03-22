@@ -123,6 +123,11 @@ pub struct JwtVerifier {
     secret: Vec<u8>,
     header_name: String,
     required_issuer: Option<String>,
+    /// If set, the `aud` claim must match this value. When `None`, audience
+    /// validation is disabled — callers should be aware that any valid JWT
+    /// will be accepted regardless of intended audience, which may allow
+    /// token misuse across services sharing the same signing key.
+    audience: Option<String>,
 }
 
 impl JwtVerifier {
@@ -132,11 +137,18 @@ impl JwtVerifier {
     /// * `secret` — the shared HMAC secret
     /// * `header_name` — HTTP header carrying the JWT (e.g. `"Authorization"`)
     /// * `required_issuer` — if set, the `iss` claim must match this value
-    pub fn new_hmac(secret: Vec<u8>, header_name: String, required_issuer: Option<String>) -> Self {
+    /// * `audience` — if set, the `aud` claim must match this value
+    pub fn new_hmac(
+        secret: Vec<u8>,
+        header_name: String,
+        required_issuer: Option<String>,
+        audience: Option<String>,
+    ) -> Self {
         Self {
             secret,
             header_name,
             required_issuer,
+            audience,
         }
     }
 
@@ -176,11 +188,17 @@ impl SignatureVerifier for JwtVerifier {
 
         if let Some(ref issuer) = self.required_issuer {
             validation.set_issuer(&[issuer]);
+        }
+
+        if let Some(ref aud) = self.audience {
+            validation.validate_aud = true;
+            validation.aud = Some(std::collections::HashSet::from([aud.clone()]));
         } else {
+            // SECURITY: audience validation is disabled — any valid JWT signed
+            // with this key will be accepted regardless of the `aud` claim.
+            // Configure an audience value to prevent cross-service token reuse.
             validation.validate_aud = false;
         }
-        // Always skip audience validation for webhook JWTs
-        validation.validate_aud = false;
 
         let token_data = jsonwebtoken::decode::<JwtClaims>(token, &decoding_key, &validation)
             .map_err(|e| {
@@ -379,6 +397,7 @@ mod tests {
             secret.to_vec(),
             "Authorization".to_string(),
             Some("test-issuer".to_string()),
+            None,
         );
 
         let headers = vec![("Authorization".to_string(), format!("Bearer {}", token))];
@@ -413,6 +432,7 @@ mod tests {
             secret.to_vec(),
             "Authorization".to_string(),
             Some("test-issuer".to_string()),
+            None,
         );
 
         let headers = vec![("Authorization".to_string(), format!("Bearer {}", token))];
