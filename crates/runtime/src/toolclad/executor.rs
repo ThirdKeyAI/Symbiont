@@ -22,12 +22,17 @@ use crate::reasoning::loop_types::{LoopConfig, Observation, ProposedAction};
 use super::manifest::ArgDef;
 
 /// An executor that dispatches tool calls to ToolClad manifests.
+/// Handles all five backends: shell, HTTP, MCP proxy, session (PTY), browser (CDP).
 pub struct ToolCladExecutor {
     manifests: HashMap<String, Manifest>,
     tool_defs: Vec<ToolDefinition>,
     custom_types: HashMap<String, ArgDef>,
     /// Manifest versions recorded at construction time for hot-reload detection.
     manifest_versions: HashMap<String, String>,
+    /// Session executor for interactive CLI tools.
+    session_executor: super::session_executor::SessionExecutor,
+    /// Browser executor for CDP-based browser sessions.
+    browser_executor: super::browser_executor::BrowserExecutor,
 }
 
 impl ToolCladExecutor {
@@ -49,12 +54,28 @@ impl ToolCladExecutor {
             .iter()
             .map(|(name, m)| (name.clone(), m.tool.version.clone()))
             .collect();
+        // Create sub-executors for session and browser modes
+        let session_manifests: Vec<_> = manifests
+            .iter()
+            .filter(|(_, m)| m.tool.mode == "session")
+            .map(|(n, m)| (n.clone(), m.clone()))
+            .collect();
+        let browser_manifests: Vec<_> = manifests
+            .iter()
+            .filter(|(_, m)| m.tool.mode == "browser")
+            .map(|(n, m)| (n.clone(), m.clone()))
+            .collect();
+        let session_executor = super::session_executor::SessionExecutor::new(session_manifests);
+        let browser_executor = super::browser_executor::BrowserExecutor::new(browser_manifests);
+
         let manifest_map: HashMap<String, Manifest> = manifests.into_iter().collect();
         Self {
             manifests: manifest_map,
             tool_defs,
             custom_types,
             manifest_versions,
+            session_executor,
+            browser_executor,
         }
     }
 
@@ -63,6 +84,10 @@ impl ToolCladExecutor {
     /// (e.g., "msfconsole_session" or "msfconsole_session.run").
     pub fn handles(&self, tool_name: &str) -> bool {
         if self.manifests.contains_key(tool_name) {
+            return true;
+        }
+        // Check session and browser executors
+        if self.session_executor.handles(tool_name) || self.browser_executor.handles(tool_name) {
             return true;
         }
         // Check for session/browser sub-command pattern: "toolname.command"
@@ -399,7 +424,18 @@ impl ActionExecutor for ToolCladExecutor {
                     continue; // Not a ToolClad tool — skip
                 }
 
-                let (content, is_error) = match self.execute_tool(name, arguments) {
+                // Dispatch to appropriate executor based on tool type
+                let result = if self.session_executor.handles(name) {
+                    self.session_executor
+                        .execute_session_command(name, arguments)
+                } else if self.browser_executor.handles(name) {
+                    self.browser_executor
+                        .execute_browser_command(name, arguments)
+                } else {
+                    self.execute_tool(name, arguments)
+                };
+
+                let (content, is_error) = match result {
                     Ok(envelope) => (
                         serde_json::to_string_pretty(&envelope).unwrap_or_default(),
                         false,

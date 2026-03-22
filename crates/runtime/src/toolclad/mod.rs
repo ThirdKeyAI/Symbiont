@@ -4,10 +4,14 @@
 //! an `ActionExecutor` that validates arguments, constructs commands,
 //! executes tools, and wraps output in evidence envelopes.
 
+pub mod browser_executor;
+pub mod browser_state;
 pub mod cedar_gen;
 pub mod executor;
 pub mod manifest;
 pub mod scope;
+pub mod session_executor;
+pub mod session_state;
 pub mod template_vars;
 pub mod validator;
 pub mod watcher;
