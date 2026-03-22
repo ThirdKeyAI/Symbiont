@@ -8,6 +8,7 @@ pub mod cedar_gen;
 pub mod executor;
 pub mod manifest;
 pub mod scope;
+pub mod template_vars;
 pub mod validator;
 pub mod watcher;
 

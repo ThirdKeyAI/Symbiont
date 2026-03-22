@@ -140,7 +140,15 @@ impl ToolCladExecutor {
             }
         }
 
-        // Build command from template
+        // Dispatch to appropriate backend
+        if manifest.http.is_some() {
+            return self.execute_http_backend(name, manifest, &validated);
+        }
+        if manifest.mcp.is_some() {
+            return self.execute_mcp_backend(name, manifest, &validated);
+        }
+
+        // Build command from template (shell backend)
         let command = build_command(manifest, &validated)?;
 
         // Execute with timeout
@@ -218,6 +226,155 @@ impl ToolCladExecutor {
         }
 
         Ok(envelope)
+    }
+
+    /// Execute an HTTP backend tool.
+    fn execute_http_backend(
+        &self,
+        name: &str,
+        manifest: &Manifest,
+        validated: &HashMap<String, String>,
+    ) -> Result<serde_json::Value, String> {
+        let http = manifest.http.as_ref().unwrap();
+
+        // Interpolate URL with args and secrets
+        let url = interpolate(&http.url, validated);
+        let url =
+            super::template_vars::inject_secrets(&url).map_err(|e| format!("URL secret error: {}", e))?;
+
+        // Interpolate headers with secrets
+        let mut headers = Vec::new();
+        for (key, val) in &http.headers {
+            let resolved = interpolate(val, validated);
+            let resolved = super::template_vars::inject_secrets(&resolved)
+                .map_err(|e| format!("Header secret error: {}", e))?;
+            headers.push((key.clone(), resolved));
+        }
+
+        // Interpolate body
+        let body = http
+            .body_template
+            .as_ref()
+            .map(|t| {
+                let b = interpolate(t, validated);
+                super::template_vars::inject_secrets(&b)
+            })
+            .transpose()
+            .map_err(|e| format!("Body secret error: {}", e))?;
+
+        // Execute HTTP request
+        let client = reqwest::blocking::Client::new();
+        let timeout = std::time::Duration::from_secs(manifest.tool.timeout_seconds);
+        let mut request = match http.method.to_uppercase().as_str() {
+            "GET" => client.get(&url),
+            "POST" => client.post(&url),
+            "PUT" => client.put(&url),
+            "DELETE" => client.delete(&url),
+            "PATCH" => client.patch(&url),
+            "HEAD" => client.head(&url),
+            other => return Err(format!("Unsupported HTTP method: {}", other)),
+        };
+
+        request = request.timeout(timeout);
+        for (key, val) in &headers {
+            request = request.header(key.as_str(), val.as_str());
+        }
+        if let Some(body_str) = &body {
+            request = request.body(body_str.clone());
+        }
+
+        let start = std::time::Instant::now();
+        let response = request
+            .send()
+            .map_err(|e| format!("HTTP request failed: {}", e))?;
+        let duration_ms = start.elapsed().as_millis() as u64;
+
+        let status_code = response.status().as_u16();
+        let response_body = response
+            .text()
+            .map_err(|e| format!("Failed to read response: {}", e))?;
+
+        let is_success = if !http.success_status.is_empty() {
+            http.success_status.contains(&status_code)
+        } else {
+            (200..300).contains(&status_code)
+        };
+
+        // Parse response
+        let parsed = parse_output(manifest, &response_body);
+        let results = parsed.unwrap_or_else(|_| serde_json::json!({"raw_output": response_body}));
+
+        let scan_id = format!(
+            "{}-{}",
+            chrono::Utc::now().timestamp(),
+            uuid::Uuid::new_v4().as_fields().0
+        );
+
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(response_body.as_bytes());
+        let hash = format!("sha256:{}", hex::encode(hasher.finalize()));
+
+        Ok(serde_json::json!({
+            "status": if is_success { "success" } else { "error" },
+            "scan_id": scan_id,
+            "tool": name,
+            "http_method": http.method,
+            "http_url": url,
+            "http_status": status_code,
+            "duration_ms": duration_ms,
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "output_hash": hash,
+            "exit_code": if is_success { 0 } else { status_code as i32 },
+            "stderr": "",
+            "results": results
+        }))
+    }
+
+    /// Execute an MCP proxy backend tool.
+    fn execute_mcp_backend(
+        &self,
+        name: &str,
+        manifest: &Manifest,
+        validated: &HashMap<String, String>,
+    ) -> Result<serde_json::Value, String> {
+        let mcp = manifest.mcp.as_ref().unwrap();
+
+        // Map validated args to upstream tool's expected format
+        let mut upstream_args = serde_json::Map::new();
+        for (local_name, value) in validated {
+            let upstream_name = mcp
+                .field_map
+                .get(local_name)
+                .cloned()
+                .unwrap_or_else(|| local_name.clone());
+            upstream_args.insert(upstream_name, serde_json::json!(value));
+        }
+
+        let scan_id = format!(
+            "{}-{}",
+            chrono::Utc::now().timestamp(),
+            uuid::Uuid::new_v4().as_fields().0
+        );
+
+        // Note: Full MCP execution requires the runtime's MCP transport.
+        // For now, build and return the request structure. The runtime's
+        // EnforcedActionExecutor will forward to the actual MCP server.
+        Ok(serde_json::json!({
+            "status": "delegated",
+            "scan_id": scan_id,
+            "tool": name,
+            "mcp_server": mcp.server,
+            "mcp_tool": mcp.tool,
+            "mcp_arguments": upstream_args,
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "exit_code": 0,
+            "stderr": "",
+            "results": {
+                "delegated_to": format!("{}:{}", mcp.server, mcp.tool),
+                "arguments": upstream_args,
+            }
+        }))
     }
 }
 

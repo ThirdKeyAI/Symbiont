@@ -6,6 +6,32 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 
+/// HTTP backend configuration for oneshot API tools.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpDef {
+    pub method: String,
+    pub url: String,
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
+    pub body_template: Option<String>,
+    #[serde(default)]
+    pub success_status: Vec<u16>,
+    #[serde(default)]
+    pub error_status: Vec<u16>,
+}
+
+/// MCP proxy backend configuration for governed MCP tool passthrough.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpProxyDef {
+    /// Named MCP server connection (from symbiont.toml).
+    pub server: String,
+    /// Upstream MCP tool name to invoke.
+    pub tool: String,
+    /// Field mapping from manifest args to upstream tool args.
+    #[serde(default)]
+    pub field_map: HashMap<String, String>,
+}
+
 /// A parsed ToolClad manifest.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Manifest {
@@ -15,6 +41,10 @@ pub struct Manifest {
     #[serde(default)]
     pub command: CommandDef,
     pub output: OutputDef,
+    /// HTTP backend configuration (oneshot API tools).
+    pub http: Option<HttpDef>,
+    /// MCP proxy backend (for governed MCP tool passthrough).
+    pub mcp: Option<McpProxyDef>,
     /// Session mode configuration (for interactive CLI tools).
     pub session: Option<SessionDef>,
     /// Browser mode configuration (for headless browser sessions).
@@ -440,6 +470,8 @@ type = "object"
             manifest.command.template,
             Some("echo {message}".to_string())
         );
+        assert!(manifest.mcp.is_none());
+        assert!(manifest.http.is_none());
     }
 
     #[test]
@@ -477,5 +509,85 @@ type = "object"
 "#;
         let manifest: Manifest = toml::from_str(toml_str).unwrap();
         assert_eq!(manifest.command.mappings["scan_type"]["ping"], "-sn");
+    }
+
+    #[test]
+    fn test_parse_mcp_proxy_manifest() {
+        let toml_str = r#"
+[tool]
+name = "governed_search"
+version = "1.0.0"
+description = "Search via governed MCP proxy"
+mode = "oneshot"
+
+[tool.cedar]
+resource = "Tool::Search"
+action = "execute_search"
+
+[args.query]
+position = 1
+required = true
+type = "string"
+description = "Search query"
+
+[args.max_results]
+position = 2
+required = false
+type = "integer"
+description = "Maximum results to return"
+default = 10
+
+[mcp]
+server = "brave-search"
+tool = "brave_web_search"
+
+[mcp.field_map]
+query = "q"
+max_results = "count"
+
+[output]
+format = "json"
+
+[output.schema]
+type = "object"
+"#;
+        let manifest: Manifest = toml::from_str(toml_str).unwrap();
+        assert_eq!(manifest.tool.name, "governed_search");
+        let mcp = manifest.mcp.as_ref().unwrap();
+        assert_eq!(mcp.server, "brave-search");
+        assert_eq!(mcp.tool, "brave_web_search");
+        assert_eq!(mcp.field_map.get("query").unwrap(), "q");
+        assert_eq!(mcp.field_map.get("max_results").unwrap(), "count");
+    }
+
+    #[test]
+    fn test_parse_mcp_proxy_no_field_map() {
+        let toml_str = r#"
+[tool]
+name = "passthrough_tool"
+version = "1.0.0"
+description = "Direct passthrough to MCP tool"
+
+[args.input]
+position = 1
+required = true
+type = "string"
+description = "Input value"
+
+[mcp]
+server = "my-server"
+tool = "upstream_tool"
+
+[output]
+format = "json"
+
+[output.schema]
+type = "object"
+"#;
+        let manifest: Manifest = toml::from_str(toml_str).unwrap();
+        let mcp = manifest.mcp.as_ref().unwrap();
+        assert_eq!(mcp.server, "my-server");
+        assert_eq!(mcp.tool, "upstream_tool");
+        assert!(mcp.field_map.is_empty());
     }
 }

@@ -112,6 +112,8 @@ mod tests {
                 envelope: true,
                 schema: serde_json::json!({}),
             },
+            http: None,
+            mcp: None,
             session: None,
             browser: None,
         }
