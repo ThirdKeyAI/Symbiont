@@ -3,9 +3,13 @@
 //! Implements the `ActionExecutor` trait: receives tool calls, validates
 //! arguments, constructs commands from templates, executes, and returns
 //! structured JSON observations.
+//!
+//! Supports built-in output parsers (json, xml, csv, jsonl, text), custom
+//! external parsers, and output schema validation.
 
 use async_trait::async_trait;
 use std::collections::HashMap;
+use std::io::Write;
 use std::time::Duration;
 
 use super::manifest::Manifest;
@@ -15,23 +19,42 @@ use crate::reasoning::executor::ActionExecutor;
 use crate::reasoning::inference::ToolDefinition;
 use crate::reasoning::loop_types::{LoopConfig, Observation, ProposedAction};
 
+use super::manifest::ArgDef;
+
 /// An executor that dispatches tool calls to ToolClad manifests.
 pub struct ToolCladExecutor {
     manifests: HashMap<String, Manifest>,
     tool_defs: Vec<ToolDefinition>,
+    custom_types: HashMap<String, ArgDef>,
+    /// Manifest versions recorded at construction time for hot-reload detection.
+    manifest_versions: HashMap<String, String>,
 }
 
 impl ToolCladExecutor {
     /// Create an executor from a set of loaded manifests.
     pub fn new(manifests: Vec<(String, Manifest)>) -> Self {
+        Self::with_custom_types(manifests, HashMap::new())
+    }
+
+    /// Create an executor with custom type definitions loaded from `toolclad.toml`.
+    pub fn with_custom_types(
+        manifests: Vec<(String, Manifest)>,
+        custom_types: HashMap<String, ArgDef>,
+    ) -> Self {
         let tool_defs: Vec<ToolDefinition> = manifests
             .iter()
             .flat_map(|(_, m)| generate_tool_definitions(m))
+            .collect();
+        let manifest_versions: HashMap<String, String> = manifests
+            .iter()
+            .map(|(name, m)| (name.clone(), m.tool.version.clone()))
             .collect();
         let manifest_map: HashMap<String, Manifest> = manifests.into_iter().collect();
         Self {
             manifests: manifest_map,
             tool_defs,
+            custom_types,
+            manifest_versions,
         }
     }
 
@@ -72,6 +95,17 @@ impl ToolCladExecutor {
             .get(name)
             .ok_or_else(|| format!("No ToolClad manifest for '{}'", name))?;
 
+        // Check manifest version against recorded version (hot-reload detection)
+        if let Some(recorded_version) = self.manifest_versions.get(name) {
+            if *recorded_version != manifest.tool.version {
+                return Err(format!(
+                    "Manifest version mismatch for '{}': executor was built with v{} but manifest \
+                     is now v{}. The tool definition may have changed — please re-plan.",
+                    name, recorded_version, manifest.tool.version
+                ));
+            }
+        }
+
         // Parse arguments from JSON
         let args: HashMap<String, serde_json::Value> = serde_json::from_str(args_json)
             .map_err(|e| format!("Invalid arguments JSON: {}", e))?;
@@ -93,7 +127,12 @@ impl ToolCladExecutor {
             };
 
             if !value.is_empty() {
-                let cleaned = validator::validate_arg(arg_def, &value)
+                let custom = if self.custom_types.is_empty() {
+                    None
+                } else {
+                    Some(&self.custom_types)
+                };
+                let cleaned = validator::validate_arg_with_custom(arg_def, &value, custom)
                     .map_err(|e| format!("Validation failed for '{}': {}", arg_name, e))?;
                 validated.insert(arg_name.clone(), cleaned);
             } else {
@@ -117,6 +156,12 @@ impl ToolCladExecutor {
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
+        // Parse output using the manifest's format/parser configuration
+        let parsed = parse_output(manifest, stdout.trim())?;
+
+        // Validate parsed output against schema (warnings only, non-fatal)
+        let schema_warnings = validate_output_schema(&parsed, &manifest.output.schema);
+
         // Build evidence envelope
         let scan_id = format!(
             "{}-{}",
@@ -135,7 +180,7 @@ impl ToolCladExecutor {
         hasher.update(stdout.as_bytes());
         let hash = format!("sha256:{}", hex::encode(hasher.finalize()));
 
-        let envelope = serde_json::json!({
+        let mut envelope = serde_json::json!({
             "status": status,
             "scan_id": scan_id,
             "tool": name,
@@ -143,12 +188,34 @@ impl ToolCladExecutor {
             "duration_ms": duration_ms,
             "timestamp": chrono::Utc::now().to_rfc3339(),
             "output_hash": hash,
-            "results": {
-                "raw_output": stdout.trim(),
-                "stderr": if stderr.is_empty() { None } else { Some(stderr.trim().to_string()) },
-                "exit_code": output.status.code()
-            }
+            "results": parsed,
         });
+
+        // Attach stderr and exit_code to the results
+        if let Some(obj) = envelope.as_object_mut() {
+            if let Some(results) = obj.get_mut("results").and_then(|r| r.as_object_mut()) {
+                if !stderr.is_empty() {
+                    results.insert(
+                        "stderr".to_string(),
+                        serde_json::Value::String(stderr.trim().to_string()),
+                    );
+                }
+                results.insert(
+                    "exit_code".to_string(),
+                    serde_json::json!(output.status.code()),
+                );
+            }
+        }
+
+        // Attach schema warnings if any
+        if !schema_warnings.is_empty() {
+            if let Some(obj) = envelope.as_object_mut() {
+                obj.insert(
+                    "schema_warnings".to_string(),
+                    serde_json::json!(schema_warnings),
+                );
+            }
+        }
 
         Ok(envelope)
     }
@@ -198,6 +265,199 @@ impl ActionExecutor for ToolCladExecutor {
 
     fn tool_definitions(&self) -> Vec<ToolDefinition> {
         self.tool_defs.clone()
+    }
+}
+
+// ---- Output Parsing ----
+
+/// Parse raw tool output based on the manifest's `output.format` and `output.parser` fields.
+fn parse_output(manifest: &Manifest, raw_output: &str) -> Result<serde_json::Value, String> {
+    let default_parser = match manifest.output.format.as_str() {
+        "json" => "builtin:json",
+        "xml" => "builtin:xml",
+        "csv" => "builtin:csv",
+        "jsonl" => "builtin:jsonl",
+        _ => "builtin:text",
+    };
+    let parser = manifest.output.parser.as_deref().unwrap_or(default_parser);
+
+    match parser {
+        "builtin:json" => parse_json(raw_output),
+        "builtin:xml" => parse_xml(raw_output),
+        "builtin:csv" => parse_csv(raw_output),
+        "builtin:jsonl" => parse_jsonl(raw_output),
+        "builtin:text" => Ok(serde_json::json!({"raw_output": raw_output})),
+        custom => run_custom_parser(custom, raw_output),
+    }
+}
+
+/// Parse raw output as JSON.
+fn parse_json(raw_output: &str) -> Result<serde_json::Value, String> {
+    serde_json::from_str(raw_output).map_err(|e| format!("Failed to parse output as JSON: {}", e))
+}
+
+/// Parse raw output as XML (placeholder — wraps as string since full XML-to-JSON
+/// conversion would require a crate like `quick-xml`).
+fn parse_xml(raw_output: &str) -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({
+        "xml_output": raw_output,
+        "_note": "Basic XML wrapping; install quick-xml for full XML-to-JSON conversion"
+    }))
+}
+
+/// Parse raw output as CSV: first line is headers, subsequent lines are data rows.
+/// Returns an array of objects.
+fn parse_csv(raw_output: &str) -> Result<serde_json::Value, String> {
+    let mut lines = raw_output.lines();
+
+    let header_line = lines.next().ok_or("CSV output is empty — no header row")?;
+    let headers: Vec<&str> = header_line.split(',').map(|h| h.trim()).collect();
+
+    let mut rows = Vec::new();
+    for line in lines {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let values: Vec<&str> = line.split(',').map(|v| v.trim()).collect();
+        let mut row = serde_json::Map::new();
+        for (i, header) in headers.iter().enumerate() {
+            let value = values.get(i).copied().unwrap_or("");
+            row.insert(
+                header.to_string(),
+                serde_json::Value::String(value.to_string()),
+            );
+        }
+        rows.push(serde_json::Value::Object(row));
+    }
+
+    Ok(serde_json::Value::Array(rows))
+}
+
+/// Parse raw output as JSON Lines: each line is a separate JSON value.
+/// Returns an array of parsed values.
+fn parse_jsonl(raw_output: &str) -> Result<serde_json::Value, String> {
+    let mut items = Vec::new();
+    for (i, line) in raw_output.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let value: serde_json::Value = serde_json::from_str(line)
+            .map_err(|e| format!("Failed to parse JSONL line {}: {}", i + 1, e))?;
+        items.push(value);
+    }
+    Ok(serde_json::Value::Array(items))
+}
+
+/// Run a custom external parser. Writes raw_output to a temp file, executes
+/// the parser binary with the temp file path as argv[1], and captures stdout
+/// as JSON.
+fn run_custom_parser(parser_path: &str, raw_output: &str) -> Result<serde_json::Value, String> {
+    let mut tmp = tempfile::NamedTempFile::new()
+        .map_err(|e| format!("Failed to create temp file for custom parser: {}", e))?;
+
+    tmp.write_all(raw_output.as_bytes())
+        .map_err(|e| format!("Failed to write to temp file: {}", e))?;
+
+    let tmp_path = tmp.path().to_string_lossy().to_string();
+
+    let output = std::process::Command::new(parser_path)
+        .arg(&tmp_path)
+        .output()
+        .map_err(|e| format!("Failed to execute custom parser '{}': {}", parser_path, e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "Custom parser '{}' exited with {}: {}",
+            parser_path,
+            output.status.code().unwrap_or(-1),
+            stderr.trim()
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    serde_json::from_str(stdout.trim()).map_err(|e| {
+        format!(
+            "Custom parser '{}' produced invalid JSON: {}",
+            parser_path, e
+        )
+    })
+}
+
+// ---- Output Schema Validation ----
+
+/// Validate parsed output against the manifest's output schema.
+/// Returns a list of warnings (never fails — partial results are OK).
+fn validate_output_schema(parsed: &serde_json::Value, schema: &serde_json::Value) -> Vec<String> {
+    let mut warnings = Vec::new();
+
+    // If schema has no properties defined, skip validation
+    let properties = match schema.get("properties").and_then(|p| p.as_object()) {
+        Some(props) => props,
+        None => return warnings,
+    };
+
+    // If parsed output is wrapped as raw_output, skip property checks
+    if parsed.get("raw_output").is_some() {
+        return warnings;
+    }
+
+    // Check required properties
+    let required: Vec<&str> = schema
+        .get("required")
+        .and_then(|r| r.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
+        .unwrap_or_default();
+
+    for key in required {
+        if parsed.get(key).is_none() {
+            warnings.push(format!(
+                "Required property '{}' missing from parsed output",
+                key
+            ));
+        }
+    }
+
+    // Check declared properties exist and types match
+    for (key, prop_schema) in properties {
+        if let Some(value) = parsed.get(key) {
+            if let Some(expected_type) = prop_schema.get("type").and_then(|t| t.as_str()) {
+                let type_ok = match expected_type {
+                    "string" => value.is_string(),
+                    "number" => value.is_number(),
+                    "integer" => value.is_i64() || value.is_u64(),
+                    "boolean" => value.is_boolean(),
+                    "array" => value.is_array(),
+                    "object" => value.is_object(),
+                    "null" => value.is_null(),
+                    _ => true, // Unknown type — don't warn
+                };
+                if !type_ok {
+                    warnings.push(format!(
+                        "Property '{}' has type '{}' but expected '{}'",
+                        key,
+                        json_type_name(value),
+                        expected_type
+                    ));
+                }
+            }
+        }
+    }
+
+    warnings
+}
+
+/// Return a human-readable type name for a JSON value.
+fn json_type_name(value: &serde_json::Value) -> &'static str {
+    match value {
+        serde_json::Value::Null => "null",
+        serde_json::Value::Bool(_) => "boolean",
+        serde_json::Value::Number(_) => "number",
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::Object(_) => "object",
     }
 }
 
@@ -535,5 +795,267 @@ type = "object"
         assert_eq!(td.description, "WHOIS lookup");
         let required = td.parameters["required"].as_array().unwrap();
         assert!(required.contains(&serde_json::json!("target")));
+    }
+
+    // ---- Parser Tests ----
+
+    #[test]
+    fn test_parse_json_valid() {
+        let result = parse_json(r#"{"key": "value", "count": 42}"#).unwrap();
+        assert_eq!(result["key"], "value");
+        assert_eq!(result["count"], 42);
+    }
+
+    #[test]
+    fn test_parse_json_invalid() {
+        let result = parse_json("not json at all");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_csv_basic() {
+        let csv = "name,age,city\nAlice,30,NYC\nBob,25,LA";
+        let result = parse_csv(csv).unwrap();
+        let rows = result.as_array().unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["name"], "Alice");
+        assert_eq!(rows[0]["age"], "30");
+        assert_eq!(rows[1]["city"], "LA");
+    }
+
+    #[test]
+    fn test_parse_csv_empty_body() {
+        let csv = "name,age";
+        let result = parse_csv(csv).unwrap();
+        let rows = result.as_array().unwrap();
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn test_parse_csv_no_header() {
+        let result = parse_csv("");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_jsonl_valid() {
+        let jsonl = r#"{"a":1}
+{"b":2}
+{"c":3}"#;
+        let result = parse_jsonl(jsonl).unwrap();
+        let items = result.as_array().unwrap();
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[0]["a"], 1);
+        assert_eq!(items[2]["c"], 3);
+    }
+
+    #[test]
+    fn test_parse_jsonl_with_blanks() {
+        let jsonl = r#"{"a":1}
+
+{"b":2}
+"#;
+        let result = parse_jsonl(jsonl).unwrap();
+        let items = result.as_array().unwrap();
+        assert_eq!(items.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_jsonl_invalid_line() {
+        let jsonl = "{\"a\":1}\nnot json";
+        let result = parse_jsonl(jsonl);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("line 2"));
+    }
+
+    #[test]
+    fn test_parse_xml_wraps() {
+        let xml = "<root><item>hello</item></root>";
+        let result = parse_xml(xml).unwrap();
+        assert_eq!(result["xml_output"], xml);
+        assert!(result.get("_note").is_some());
+    }
+
+    #[test]
+    fn test_parse_output_default_text() {
+        let manifest: Manifest = toml::from_str(
+            r#"
+[tool]
+name = "test"
+version = "1.0.0"
+binary = "test"
+description = "Test"
+
+[command]
+template = "test"
+
+[output]
+format = "text"
+
+[output.schema]
+type = "object"
+"#,
+        )
+        .unwrap();
+        let result = parse_output(&manifest, "hello world").unwrap();
+        assert_eq!(result["raw_output"], "hello world");
+    }
+
+    #[test]
+    fn test_parse_output_json_format() {
+        let manifest: Manifest = toml::from_str(
+            r#"
+[tool]
+name = "test"
+version = "1.0.0"
+binary = "test"
+description = "Test"
+
+[command]
+template = "test"
+
+[output]
+format = "json"
+
+[output.schema]
+type = "object"
+"#,
+        )
+        .unwrap();
+        let result = parse_output(&manifest, r#"{"status":"ok"}"#).unwrap();
+        assert_eq!(result["status"], "ok");
+    }
+
+    #[test]
+    fn test_parse_output_explicit_parser() {
+        let manifest: Manifest = toml::from_str(
+            r#"
+[tool]
+name = "test"
+version = "1.0.0"
+binary = "test"
+description = "Test"
+
+[command]
+template = "test"
+
+[output]
+format = "text"
+parser = "builtin:csv"
+
+[output.schema]
+type = "object"
+"#,
+        )
+        .unwrap();
+        let result = parse_output(&manifest, "a,b\n1,2").unwrap();
+        let rows = result.as_array().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["a"], "1");
+    }
+
+    // ---- Schema Validation Tests ----
+
+    #[test]
+    fn test_validate_schema_no_properties() {
+        let parsed = serde_json::json!({"foo": "bar"});
+        let schema = serde_json::json!({"type": "object"});
+        let warnings = validate_output_schema(&parsed, &schema);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn test_validate_schema_missing_required() {
+        let parsed = serde_json::json!({"foo": "bar"});
+        let schema = serde_json::json!({
+            "type": "object",
+            "required": ["missing_key"],
+            "properties": {
+                "missing_key": {"type": "string"}
+            }
+        });
+        let warnings = validate_output_schema(&parsed, &schema);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("missing_key"));
+    }
+
+    #[test]
+    fn test_validate_schema_type_mismatch() {
+        let parsed = serde_json::json!({"count": "not_a_number"});
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "count": {"type": "number"}
+            }
+        });
+        let warnings = validate_output_schema(&parsed, &schema);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("count"));
+        assert!(warnings[0].contains("number"));
+    }
+
+    #[test]
+    fn test_validate_schema_raw_output_skips() {
+        let parsed = serde_json::json!({"raw_output": "some text"});
+        let schema = serde_json::json!({
+            "type": "object",
+            "required": ["specific_field"],
+            "properties": {
+                "specific_field": {"type": "string"}
+            }
+        });
+        let warnings = validate_output_schema(&parsed, &schema);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn test_validate_schema_all_types() {
+        let parsed = serde_json::json!({
+            "s": "hello",
+            "n": 42,
+            "b": true,
+            "a": [1, 2],
+            "o": {"nested": true}
+        });
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "s": {"type": "string"},
+                "n": {"type": "number"},
+                "b": {"type": "boolean"},
+                "a": {"type": "array"},
+                "o": {"type": "object"}
+            }
+        });
+        let warnings = validate_output_schema(&parsed, &schema);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn test_manifest_version_recorded() {
+        let manifest: Manifest = toml::from_str(
+            r#"
+[tool]
+name = "versioned"
+version = "2.5.0"
+binary = "echo"
+description = "Test"
+
+[command]
+template = "echo test"
+
+[output]
+format = "text"
+
+[output.schema]
+type = "object"
+"#,
+        )
+        .unwrap();
+        let executor = ToolCladExecutor::new(vec![("versioned".to_string(), manifest)]);
+        assert_eq!(
+            executor.manifest_versions.get("versioned").unwrap(),
+            "2.5.0"
+        );
     }
 }

@@ -299,6 +299,109 @@ pub fn load_manifests_from_dir(dir: &Path) -> Vec<(String, Manifest)> {
     manifests
 }
 
+/// Load custom type definitions from `toolclad.toml` at the project root.
+///
+/// The file uses `[types.*]` sections where each entry has a `base` field
+/// (mapped to `type_name`) and other `ArgDef` fields. For example:
+///
+/// ```toml
+/// [types.service_protocol]
+/// base = "enum"
+/// allowed = ["ssh", "ftp", "http"]
+/// ```
+pub fn load_custom_types(project_dir: &Path) -> HashMap<String, ArgDef> {
+    let path = project_dir.join("toolclad.toml");
+    if !path.exists() {
+        return HashMap::new();
+    }
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("  Warning: failed to read {}: {}", path.display(), e);
+            return HashMap::new();
+        }
+    };
+    let table: toml::Value = match toml::from_str(&content) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("  Warning: failed to parse {}: {}", path.display(), e);
+            return HashMap::new();
+        }
+    };
+    let types_table = match table.get("types").and_then(|t| t.as_table()) {
+        Some(t) => t,
+        None => return HashMap::new(),
+    };
+    let mut result = HashMap::new();
+    for (name, value) in types_table {
+        let tbl = match value.as_table() {
+            Some(t) => t,
+            None => continue,
+        };
+        let base = match tbl.get("base").and_then(|b| b.as_str()) {
+            Some(b) => b.to_string(),
+            None => {
+                eprintln!(
+                    "  Warning: custom type '{}' missing 'base' field, skipping",
+                    name
+                );
+                continue;
+            }
+        };
+        // Build an ArgDef from the table, using `base` as the type_name
+        let allowed = tbl.get("allowed").and_then(|a| {
+            a.as_array().map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+        });
+        let pattern = tbl
+            .get("pattern")
+            .and_then(|p| p.as_str())
+            .map(String::from);
+        let min = tbl.get("min").and_then(|v| v.as_integer());
+        let max = tbl.get("max").and_then(|v| v.as_integer());
+        let clamp = tbl.get("clamp").and_then(|v| v.as_bool()).unwrap_or(false);
+        let schemes = tbl.get("schemes").and_then(|s| {
+            s.as_array().map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+        });
+        let scope_check = tbl
+            .get("scope_check")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let description = tbl
+            .get("description")
+            .and_then(|d| d.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        result.insert(
+            name.clone(),
+            ArgDef {
+                position: 0,
+                required: false,
+                type_name: base,
+                description,
+                allowed,
+                default: None,
+                pattern,
+                sanitize: None,
+                min,
+                max,
+                clamp,
+                schemes,
+                scope_check,
+            },
+        );
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -12,5 +12,5 @@ pub mod validator;
 pub mod watcher;
 
 pub use executor::ToolCladExecutor;
-pub use manifest::{load_manifest, load_manifests_from_dir, Manifest};
+pub use manifest::{load_custom_types, load_manifest, load_manifests_from_dir, Manifest};
 pub use scope::Scope;

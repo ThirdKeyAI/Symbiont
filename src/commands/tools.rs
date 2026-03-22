@@ -1,6 +1,6 @@
 //! `symbi tools` — Manage ToolClad tool manifests
 //!
-//! Subcommands: list, validate, test, schema
+//! Subcommands: list, validate, test, schema, init
 
 use clap::ArgMatches;
 use std::collections::HashMap;
@@ -28,12 +28,17 @@ pub async fn run(matches: &ArgMatches) {
             let name = sub.get_one::<String>("name").unwrap();
             cmd_schema(name);
         }
+        Some(("init", sub)) => {
+            let name = sub.get_one::<String>("name").unwrap();
+            cmd_init(name);
+        }
         _ => {
-            println!("Usage: symbi tools <list|validate|test|schema>");
+            println!("Usage: symbi tools <list|validate|test|schema|init>");
             println!("  list                        List all discovered tools");
             println!("  validate [file]             Validate manifest(s)");
             println!("  test <name> --arg k=v ...   Dry-run a tool invocation");
             println!("  schema <name>               Output MCP JSON Schema");
+            println!("  init <name>                 Create a starter .clad.toml manifest");
         }
     }
 }
@@ -276,6 +281,96 @@ fn parse_arg_pairs(args: &[String]) -> HashMap<String, String> {
         }
     }
     map
+}
+
+fn cmd_init(name: &str) {
+    let tools_dir = Path::new("tools");
+    if !tools_dir.exists() {
+        if let Err(e) = std::fs::create_dir_all(tools_dir) {
+            eprintln!("Failed to create tools/ directory: {}", e);
+            std::process::exit(1);
+        }
+    }
+
+    let file_path = tools_dir.join(format!("{}.clad.toml", name));
+    if file_path.exists() {
+        eprintln!("Manifest already exists: {}", file_path.display());
+        eprintln!(
+            "Use 'symbi tools validate {}' to check it",
+            file_path.display()
+        );
+        std::process::exit(1);
+    }
+
+    // Title-case the name for Cedar resource (e.g., "my_tool" -> "MyTool")
+    let title_name: String = name
+        .split(['_', '-'])
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => {
+                    let upper: String = first.to_uppercase().collect();
+                    upper + chars.as_str()
+                }
+                None => String::new(),
+            }
+        })
+        .collect();
+
+    let template = format!(
+        r#"[tool]
+name = "{name}"
+version = "1.0.0"
+binary = "{name}"
+description = "TODO: describe what this tool does"
+timeout_seconds = 30
+risk_tier = "low"
+
+[tool.cedar]
+resource = "Tool::{title_name}"
+action = "execute_tool"
+
+[args.target]
+position = 1
+required = true
+type = "string"
+description = "TODO: describe the target"
+
+[command]
+template = "{name} {{target}}"
+
+[output]
+format = "text"
+envelope = true
+
+[output.schema]
+type = "object"
+
+[output.schema.properties.raw_output]
+type = "string"
+description = "Tool output"
+"#,
+        name = name,
+        title_name = title_name,
+    );
+
+    if let Err(e) = std::fs::write(&file_path, template) {
+        eprintln!("Failed to write {}: {}", file_path.display(), e);
+        std::process::exit(1);
+    }
+
+    println!("Created {}", file_path.display());
+    println!();
+    println!("Next steps:");
+    println!("  1. Edit {} to configure your tool", file_path.display());
+    println!(
+        "  2. Run 'symbi tools validate {}' to check it",
+        file_path.display()
+    );
+    println!(
+        "  3. Run 'symbi tools test {} --arg target=example' to dry-run",
+        name
+    );
 }
 
 fn print_manifest_summary(m: &symbi_runtime::toolclad::manifest::Manifest) {

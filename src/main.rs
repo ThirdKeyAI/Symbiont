@@ -271,6 +271,11 @@ async fn main() {
                     Command::new("schema")
                         .about("Output MCP JSON Schema for a tool")
                         .arg(Arg::new("name").value_name("NAME").required(true).help("Tool name or manifest file")),
+                )
+                .subcommand(
+                    Command::new("init")
+                        .about("Create a starter .clad.toml manifest")
+                        .arg(Arg::new("name").value_name("NAME").required(true).help("Tool name (creates tools/<name>.clad.toml)")),
                 ),
         )
         .subcommand(
