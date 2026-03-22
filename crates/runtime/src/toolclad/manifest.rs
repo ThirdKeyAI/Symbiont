@@ -233,13 +233,19 @@ pub struct SessionCommandDef {
 
 // ---- Browser Mode Types ----
 
-/// Browser mode configuration for headless browser sessions.
+/// Browser mode configuration for headless or live browser sessions.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BrowserDef {
     #[serde(default = "default_browser_engine")]
     pub engine: String,
     #[serde(default = "default_true")]
     pub headless: bool,
+    /// "launch" (spawn headless) or "live" (attach to running Chrome).
+    #[serde(default = "default_connect")]
+    pub connect: String,
+    /// "accessibility_tree" | "html" | "text" — default content extraction mode.
+    #[serde(default = "default_extract_mode")]
+    pub extract_mode: String,
     #[serde(default = "default_timeout")]
     pub startup_timeout_seconds: u64,
     #[serde(default = "default_session_timeout")]
@@ -258,7 +264,13 @@ pub struct BrowserDef {
 }
 
 fn default_browser_engine() -> String {
-    "playwright".to_string()
+    "cdp".to_string()
+}
+fn default_connect() -> String {
+    "launch".to_string()
+}
+fn default_extract_mode() -> String {
+    "accessibility_tree".to_string()
 }
 
 /// Browser URL scope enforcement.
