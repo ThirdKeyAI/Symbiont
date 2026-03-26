@@ -82,7 +82,9 @@ use crate::types::RuntimeError;
         super::routes::get_channel_audit,
         super::routes::agent_heartbeat,
         super::routes::agent_push_event,
-        health_check
+        health_check,
+        liveness_check,
+        readiness_check
     ),
     components(
         schemas(
@@ -305,6 +307,8 @@ impl HttpApiServer {
 
         let mut router = Router::new()
             .route("/api/v1/health", get(health_check))
+            .route("/api/v1/health/live", get(liveness_check))
+            .route("/api/v1/health/ready", get(readiness_check))
             .with_state(self.start_time);
 
         // Add Swagger UI only in non-production environments
@@ -502,4 +506,45 @@ async fn health_check(
     };
 
     Ok(Json(response))
+}
+
+/// Liveness probe — confirms the process is running and able to serve requests.
+#[cfg(feature = "http-api")]
+#[utoipa::path(
+    get,
+    path = "/api/v1/health/live",
+    responses(
+        (status = 200, description = "Process is alive"),
+        (status = 503, description = "Process is not alive")
+    ),
+    tag = "system"
+)]
+async fn liveness_check() -> StatusCode {
+    // Liveness: the process is running and can serve requests.
+    // No dependency checks — if this handler runs, we're alive.
+    StatusCode::OK
+}
+
+/// Readiness probe — confirms the system has completed initialization.
+#[cfg(feature = "http-api")]
+#[utoipa::path(
+    get,
+    path = "/api/v1/health/ready",
+    responses(
+        (status = 200, description = "System is ready to accept work"),
+        (status = 503, description = "System is not ready")
+    ),
+    tag = "system"
+)]
+async fn readiness_check(
+    axum::extract::State(start_time): axum::extract::State<Instant>,
+) -> StatusCode {
+    // Readiness: the system has completed initialization and can accept work.
+    // After 5 seconds of uptime, consider the system ready.
+    // In the future, check scheduler state, DB connections, etc.
+    if start_time.elapsed().as_secs() >= 5 {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    }
 }

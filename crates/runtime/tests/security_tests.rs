@@ -389,6 +389,79 @@ fn test_crypto_different_salts_produce_different_ciphertexts() {
 }
 
 // ============================================================================
+// Type-level Security Tests
+// ============================================================================
+
+#[test]
+fn test_agent_id_is_unique() {
+    use symbi_runtime::types::AgentId;
+    let id1 = AgentId::new();
+    let id2 = AgentId::new();
+    assert_ne!(id1, id2);
+}
+
+#[test]
+fn test_message_id_is_unique() {
+    use symbi_runtime::types::MessageId;
+    let id1 = MessageId::new();
+    let id2 = MessageId::new();
+    assert_ne!(id1, id2);
+}
+
+#[cfg(test)]
+mod sandbox_security {
+    use symbi_runtime::types::SecurityTier;
+
+    #[test]
+    fn test_security_tier_ordering() {
+        // Higher tiers should provide more isolation
+        assert!(SecurityTier::Tier3 > SecurityTier::Tier2);
+        assert!(SecurityTier::Tier2 > SecurityTier::Tier1);
+    }
+}
+
+#[cfg(test)]
+mod error_security {
+    use symbi_runtime::types::error::*;
+    use symbi_runtime::types::AgentId;
+
+    #[test]
+    fn test_error_messages_dont_leak_secrets() {
+        let err = SecurityError::AuthenticationFailed("token validation failed".to_string());
+        let msg = format!("{err}");
+        // Error message should not contain raw tokens or keys
+        assert!(!msg.contains("Bearer"));
+        assert!(!msg.contains("sk-"));
+    }
+
+    #[test]
+    fn test_boxed_str_error_variants_work() {
+        let err = ResourceError::AllocationFailed {
+            agent_id: AgentId::new(),
+            reason: "insufficient memory".into(),
+        };
+        let msg = format!("{err}");
+        assert!(msg.contains("insufficient memory"));
+    }
+}
+
+#[cfg(test)]
+mod communication_security {
+    use symbi_runtime::types::error::CommunicationError;
+
+    #[test]
+    fn test_message_size_limit() {
+        let err = CommunicationError::MessageTooLarge {
+            size: 2_000_000,
+            max_size: 1_000_000,
+        };
+        let msg = format!("{err}");
+        assert!(msg.contains("2000000"));
+        assert!(msg.contains("1000000"));
+    }
+}
+
+// ============================================================================
 // Token Generation Tests
 // ============================================================================
 

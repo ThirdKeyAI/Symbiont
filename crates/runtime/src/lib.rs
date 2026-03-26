@@ -34,6 +34,8 @@ pub mod api;
 
 #[cfg(feature = "http-api")]
 use api::traits::RuntimeApiProvider;
+#[cfg(all(feature = "http-api", feature = "cron"))]
+use api::types::ScheduleRunEntry;
 #[cfg(feature = "http-api")]
 use api::types::{
     AddIdentityMappingRequest, AgentExecutionRecord, AgentStatusResponse, ChannelActionResponse,
@@ -42,8 +44,8 @@ use api::types::{
     DeleteChannelResponse, DeleteScheduleResponse, ExecuteAgentRequest, ExecuteAgentResponse,
     GetAgentHistoryResponse, IdentityMappingEntry, NextRunsResponse, RegisterChannelRequest,
     RegisterChannelResponse, ScheduleActionResponse, ScheduleDetail, ScheduleHistoryResponse,
-    ScheduleRunEntry, ScheduleSummary, UpdateAgentRequest, UpdateAgentResponse,
-    UpdateChannelRequest, UpdateScheduleRequest, WorkflowExecutionRequest,
+    ScheduleSummary, UpdateAgentRequest, UpdateAgentResponse, UpdateChannelRequest,
+    UpdateScheduleRequest, WorkflowExecutionRequest,
 };
 #[cfg(feature = "http-api")]
 use async_trait::async_trait;
@@ -365,6 +367,7 @@ pub struct RuntimeConfig {
 /// Implementation of RuntimeApiProvider for AgentRuntime
 #[cfg(feature = "http-api")]
 #[async_trait]
+#[allow(unused_variables)] // Params used inside #[cfg(feature = "cron")] blocks
 impl RuntimeApiProvider for AgentRuntime {
     async fn execute_workflow(
         &self,

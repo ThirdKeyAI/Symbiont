@@ -26,11 +26,10 @@ impl SseTransport {
     /// Returns an error if the API key contains invalid header characters
     /// or if the HTTP client fails to build.
     pub fn new(endpoint_url: String, api_key: String) -> Result<Self, ComposioError> {
-        let header_value = HeaderValue::from_str(&api_key).map_err(|e| {
-            ComposioError::Configuration(format!(
-                "invalid API key (contains non-ASCII or control characters): {e}"
-            ))
-        })?;
+        let header_value =
+            HeaderValue::from_str(&api_key).map_err(|e| ComposioError::ConfigError {
+                reason: format!("invalid API key (contains non-ASCII or control characters): {e}"),
+            })?;
 
         let mut headers = HeaderMap::new();
         headers.insert("x-api-key", header_value);
@@ -38,8 +37,8 @@ impl SseTransport {
         let client = reqwest::Client::builder()
             .default_headers(headers)
             .build()
-            .map_err(|e| {
-                ComposioError::Configuration(format!("failed to build HTTP client: {e}"))
+            .map_err(|e| ComposioError::ConfigError {
+                reason: format!("failed to build HTTP client: {e}"),
             })?;
 
         Ok(Self {

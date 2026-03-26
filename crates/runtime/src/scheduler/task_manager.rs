@@ -15,7 +15,7 @@ use crate::types::*;
 pub struct TaskManager {
     task_timeout: Duration,
     running_tasks: Arc<RwLock<HashMap<AgentId, TaskHandle>>>,
-    task_sender: mpsc::UnboundedSender<TaskCommand>,
+    task_sender: mpsc::Sender<TaskCommand>,
     #[allow(dead_code)]
     system_info: Arc<RwLock<System>>,
 }
@@ -24,7 +24,9 @@ impl TaskManager {
     /// Create a new task manager
     pub fn new(task_timeout: Duration) -> Self {
         let running_tasks = Arc::new(RwLock::new(HashMap::new()));
-        let (task_sender, task_receiver) = mpsc::unbounded_channel();
+        // Bounded channel prevents unbounded memory growth under load.
+        // 1024 is sufficient for most workloads; submitters block when full.
+        let (task_sender, task_receiver) = mpsc::channel(1024);
 
         let manager = Self {
             task_timeout,
@@ -47,15 +49,16 @@ impl TaskManager {
         // Store the handle
         self.running_tasks.write().insert(agent_id, handle.clone());
 
-        // Send command to start the task
+        // Send command to start the task (try_send avoids blocking the caller;
+        // returns an error if the bounded channel is full).
         self.task_sender
-            .send(TaskCommand::Start {
+            .try_send(TaskCommand::Start {
                 task: Box::new(task),
                 handle,
             })
             .map_err(|_| SchedulerError::SchedulingFailed {
                 agent_id,
-                reason: "Failed to send start command".into(),
+                reason: "Task channel full — backpressure applied".into(),
             })?;
 
         Ok(())
@@ -67,12 +70,12 @@ impl TaskManager {
         let handle = self.running_tasks.write().remove(&agent_id);
 
         if let Some(handle) = handle {
-            // Send termination command
+            // Send termination command (try_send to avoid blocking).
             self.task_sender
-                .send(TaskCommand::Terminate { agent_id, handle })
+                .try_send(TaskCommand::Terminate { agent_id, handle })
                 .map_err(|_| SchedulerError::SchedulingFailed {
                     agent_id,
-                    reason: "Failed to send terminate command".into(),
+                    reason: "Task channel full — cannot send terminate command".into(),
                 })?;
         }
 
@@ -131,7 +134,7 @@ impl TaskManager {
     }
 
     /// Start the task execution loop
-    fn start_task_loop(&self, mut task_receiver: mpsc::UnboundedReceiver<TaskCommand>) {
+    fn start_task_loop(&self, mut task_receiver: mpsc::Receiver<TaskCommand>) {
         let task_timeout = self.task_timeout;
 
         tokio::spawn(async move {

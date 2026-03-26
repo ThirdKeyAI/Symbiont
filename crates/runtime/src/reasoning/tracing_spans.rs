@@ -132,6 +132,11 @@ impl LoopTracer {
         );
     }
 
+    /// Get the trace ID for this loop (for external correlation).
+    pub fn trace_id(&self) -> &str {
+        &self.loop_id
+    }
+
     /// Get the loop ID.
     pub fn loop_id(&self) -> &str {
         &self.loop_id
