@@ -21,9 +21,19 @@ impl LoopTracer {
     /// Start tracing a new reasoning loop.
     pub fn start(agent_id: AgentId) -> Self {
         let loop_id = uuid::Uuid::new_v4().to_string();
+        // Pre-compute traceparent for the initial log entry
+        let trace_id_hex = loop_id.replace('-', "");
+        let trace_id_str = if trace_id_hex.len() >= 32 {
+            &trace_id_hex[..32]
+        } else {
+            &trace_id_hex
+        };
+        let parent_id_str = &trace_id_str[..16];
+        let traceparent = format!("00-{trace_id_str}-{parent_id_str}-01");
         tracing::info!(
             agent_id = %agent_id,
             loop_id = %loop_id,
+            traceparent = %traceparent,
             "Reasoning loop started"
         );
         Self {
@@ -132,6 +142,35 @@ impl LoopTracer {
         );
     }
 
+    /// Generate a W3C traceparent header value for this loop.
+    /// Format: {version}-{trace-id}-{parent-id}-{trace-flags}
+    /// Example: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
+    pub fn traceparent(&self) -> String {
+        // Use loop_id as trace-id (pad/truncate to 32 hex chars)
+        let trace_id = self.loop_id.replace('-', "");
+        let trace_id = if trace_id.len() >= 32 {
+            &trace_id[..32]
+        } else {
+            &trace_id
+        };
+        // Generate a parent span id (16 hex chars from first 8 bytes of loop_id)
+        let parent_id = &trace_id[..16];
+        format!("00-{trace_id}-{parent_id}-01")
+    }
+
+    /// Parse a W3C traceparent header into (trace_id, parent_id).
+    /// Returns None if the header is malformed.
+    pub fn parse_traceparent(header: &str) -> Option<(String, String)> {
+        let parts: Vec<&str> = header.split('-').collect();
+        if parts.len() != 4 || parts[0] != "00" {
+            return None;
+        }
+        if parts[1].len() != 32 || parts[2].len() != 16 {
+            return None;
+        }
+        Some((parts[1].to_string(), parts[2].to_string()))
+    }
+
     /// Get the trace ID for this loop (for external correlation).
     pub fn trace_id(&self) -> &str {
         &self.loop_id
@@ -196,6 +235,63 @@ mod tests {
         let agent_id = AgentId::new();
         let tracer = LoopTracer::start(agent_id);
         tracer.trace_terminated("max_iterations", 10, 5000);
+    }
+
+    #[test]
+    fn test_traceparent_format() {
+        let agent_id = AgentId::new();
+        let tracer = LoopTracer::start(agent_id);
+        let tp = tracer.traceparent();
+
+        // Should match W3C format: version-trace_id-parent_id-flags
+        let parts: Vec<&str> = tp.split('-').collect();
+        assert_eq!(parts.len(), 4);
+        assert_eq!(parts[0], "00"); // version
+        assert_eq!(parts[1].len(), 32); // trace-id: 32 hex chars
+        assert_eq!(parts[2].len(), 16); // parent-id: 16 hex chars
+        assert_eq!(parts[3], "01"); // flags: sampled
+
+        // parent-id should be the first 16 chars of trace-id
+        assert_eq!(parts[2], &parts[1][..16]);
+    }
+
+    #[test]
+    fn test_parse_traceparent_valid() {
+        let header = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+        let result = LoopTracer::parse_traceparent(header);
+        assert!(result.is_some());
+        let (trace_id, parent_id) = result.unwrap();
+        assert_eq!(trace_id, "4bf92f3577b34da6a3ce929d0e0e4736");
+        assert_eq!(parent_id, "00f067aa0ba902b7");
+    }
+
+    #[test]
+    fn test_parse_traceparent_invalid_version() {
+        assert!(LoopTracer::parse_traceparent("01-abc-def-01").is_none());
+    }
+
+    #[test]
+    fn test_parse_traceparent_wrong_lengths() {
+        // trace-id too short
+        assert!(LoopTracer::parse_traceparent("00-abc-00f067aa0ba902b7-01").is_none());
+        // parent-id too short
+        assert!(
+            LoopTracer::parse_traceparent("00-4bf92f3577b34da6a3ce929d0e0e4736-short-01").is_none()
+        );
+    }
+
+    #[test]
+    fn test_parse_traceparent_too_few_parts() {
+        assert!(LoopTracer::parse_traceparent("00-abc-def").is_none());
+    }
+
+    #[test]
+    fn test_traceparent_roundtrip() {
+        let agent_id = AgentId::new();
+        let tracer = LoopTracer::start(agent_id);
+        let tp = tracer.traceparent();
+        let parsed = LoopTracer::parse_traceparent(&tp);
+        assert!(parsed.is_some());
     }
 
     #[test]

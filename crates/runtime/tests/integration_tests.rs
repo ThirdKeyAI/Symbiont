@@ -391,3 +391,234 @@ async fn test_agent_instance_creation() {
     assert_eq!(agent_instance.error_count, 0);
     assert_eq!(agent_instance.restart_count, 0);
 }
+
+// ---------------------------------------------------------------------------
+// Multi-Agent Scheduling Tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_concurrent_agent_scheduling() {
+    use symbi_runtime::scheduler::priority_queue::PriorityQueue;
+    use symbi_runtime::scheduler::ScheduledTask;
+    use symbi_runtime::types::*;
+
+    let mut queue: PriorityQueue<ScheduledTask> = PriorityQueue::new();
+
+    // Create 100 agents with rotating priorities: Low, Normal, High
+    for i in 0..100 {
+        let priority = match i % 3 {
+            0 => Priority::Low,
+            1 => Priority::Normal,
+            _ => Priority::High,
+        };
+        let config = AgentConfig {
+            id: AgentId::new(),
+            name: format!("agent_{}", i),
+            dsl_source: "test".to_string(),
+            execution_mode: ExecutionMode::Ephemeral,
+            security_tier: SecurityTier::Tier1,
+            resource_limits: ResourceLimits::default(),
+            capabilities: vec![],
+            policies: vec![],
+            metadata: std::collections::HashMap::new(),
+            priority,
+        };
+        queue.push(ScheduledTask::new(config));
+    }
+
+    assert_eq!(queue.len(), 100);
+
+    // Pop all and verify ordering: all High before Normal before Low
+    let mut last_priority = Priority::Critical; // highest possible
+    while let Some(task) = queue.pop() {
+        assert!(
+            task.priority <= last_priority,
+            "Priority ordering violated: {:?} after {:?}",
+            task.priority,
+            last_priority
+        );
+        last_priority = task.priority;
+    }
+
+    assert!(queue.is_empty());
+}
+
+#[test]
+fn test_agent_isolation() {
+    // Verify that agent IDs are unique across 10,000 generations
+    use std::collections::HashSet;
+    use symbi_runtime::types::AgentId;
+
+    let mut ids = HashSet::new();
+    for _ in 0..10_000 {
+        let id = AgentId::new();
+        assert!(ids.insert(id), "AgentId collision detected!");
+    }
+    assert_eq!(ids.len(), 10_000);
+}
+
+#[test]
+fn test_communication_error_types() {
+    use symbi_runtime::types::error::*;
+    use symbi_runtime::types::*;
+
+    // Verify DeliveryFailed error carries the message ID and reason
+    let msg_id = MessageId::new();
+    let err = CommunicationError::DeliveryFailed {
+        message_id: msg_id,
+        reason: "recipient not found".into(),
+    };
+    let msg = format!("{err}");
+    assert!(
+        msg.contains("recipient not found"),
+        "Error message should contain the reason, got: {msg}"
+    );
+    assert!(
+        msg.contains(&msg_id.to_string()),
+        "Error message should contain the message ID, got: {msg}"
+    );
+
+    // Verify MessageTooLarge error carries size info
+    let err2 = CommunicationError::MessageTooLarge {
+        size: 2048,
+        max_size: 1024,
+    };
+    let msg2 = format!("{err2}");
+    assert!(
+        msg2.contains("2048"),
+        "Error message should contain actual size, got: {msg2}"
+    );
+    assert!(
+        msg2.contains("1024"),
+        "Error message should contain max size, got: {msg2}"
+    );
+
+    // Verify AgentNotRegistered error
+    let agent_id = AgentId::new();
+    let err3 = CommunicationError::AgentNotRegistered { agent_id };
+    let msg3 = format!("{err3}");
+    assert!(
+        msg3.contains(&agent_id.to_string()),
+        "Error message should contain agent ID, got: {msg3}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Sandbox Lifecycle Test
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_sandbox_full_lifecycle() {
+    use symbi_runtime::integrations::sandbox_orchestrator::{
+        MockSandboxOrchestrator, NetworkConfig, NetworkMode, RestartPolicy, SandboxCommand,
+        SandboxConfig, SandboxOrchestrator, SandboxRequest, SandboxStatus, SandboxType,
+        SecurityOptions, StorageConfig,
+    };
+    use symbi_runtime::types::{AgentId, ResourceLimits, SecurityTier};
+
+    let orchestrator = MockSandboxOrchestrator::new();
+    let agent_id = AgentId::new();
+
+    // Create sandbox
+    let request = SandboxRequest {
+        agent_id,
+        sandbox_type: SandboxType::Docker {
+            image: "ubuntu".to_string(),
+            tag: "22.04".to_string(),
+        },
+        config: SandboxConfig {
+            name: "lifecycle-test-sandbox".to_string(),
+            description: "Integration test sandbox".to_string(),
+            environment_variables: std::collections::HashMap::new(),
+            working_directory: None,
+            command: None,
+            entrypoint: None,
+            user: None,
+            group: None,
+            capabilities: vec![],
+            security_options: SecurityOptions {
+                read_only_root: false,
+                no_new_privileges: true,
+                seccomp_profile: None,
+                apparmor_profile: None,
+                selinux_label: None,
+                privileged: false,
+                drop_capabilities: vec![],
+                add_capabilities: vec![],
+            },
+            auto_remove: true,
+            restart_policy: RestartPolicy::Never,
+            health_check: None,
+        },
+        security_level: SecurityTier::Tier2,
+        resource_limits: ResourceLimits {
+            memory_mb: 256,
+            cpu_cores: 1.0,
+            disk_io_mbps: 50,
+            network_io_mbps: 10,
+            execution_timeout: Duration::from_secs(120),
+            idle_timeout: Duration::from_secs(30),
+        },
+        network_config: NetworkConfig {
+            mode: NetworkMode::Bridge,
+            ports: vec![],
+            dns_servers: vec![],
+            dns_search: vec![],
+            hostname: Some("test-host".to_string()),
+            extra_hosts: std::collections::HashMap::new(),
+            network_aliases: vec![],
+        },
+        storage_config: StorageConfig {
+            volumes: vec![],
+            tmpfs_mounts: vec![],
+            storage_driver: None,
+            storage_options: std::collections::HashMap::new(),
+        },
+        metadata: std::collections::HashMap::new(),
+    };
+
+    let info = orchestrator.create_sandbox(request).await.unwrap();
+    assert_eq!(info.status, SandboxStatus::Created);
+    assert_eq!(info.agent_id, agent_id);
+
+    // Start sandbox
+    orchestrator.start_sandbox(info.id).await.unwrap();
+    let running_info = orchestrator.get_sandbox_info(info.id).await.unwrap();
+    assert_eq!(running_info.status, SandboxStatus::Running);
+    assert!(running_info.started_at.is_some());
+
+    // Execute command
+    let command = SandboxCommand {
+        command: vec!["echo".to_string(), "hello".to_string()],
+        working_dir: None,
+        environment: std::collections::HashMap::new(),
+        user: None,
+        timeout: None,
+        stdin: None,
+    };
+    let result = orchestrator
+        .execute_command(info.id, command)
+        .await
+        .unwrap();
+    assert_eq!(result.exit_code, 0);
+    assert!(!result.timed_out);
+    assert!(!result.stdout.is_empty());
+
+    // Stop sandbox
+    orchestrator.stop_sandbox(info.id).await.unwrap();
+    let stopped_info = orchestrator.get_sandbox_info(info.id).await.unwrap();
+    assert_eq!(stopped_info.status, SandboxStatus::Stopped);
+    assert!(stopped_info.stopped_at.is_some());
+
+    // Destroy sandbox
+    orchestrator.destroy_sandbox(info.id).await.unwrap();
+    let destroyed_info = orchestrator.get_sandbox_info(info.id).await.unwrap();
+    assert_eq!(destroyed_info.status, SandboxStatus::Destroyed);
+
+    // Operations on a non-existent sandbox should fail
+    let fake_id = uuid::Uuid::new_v4();
+    assert!(orchestrator.start_sandbox(fake_id).await.is_err());
+    assert!(orchestrator.stop_sandbox(fake_id).await.is_err());
+    assert!(orchestrator.destroy_sandbox(fake_id).await.is_err());
+    assert!(orchestrator.get_sandbox_info(fake_id).await.is_err());
+}

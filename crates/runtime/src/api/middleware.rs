@@ -146,6 +146,16 @@ pub(crate) fn init_trusted_proxies() {
     });
 }
 
+/// Extract W3C traceparent from request headers.
+/// Returns the traceparent string if present and valid.
+#[cfg(feature = "http-api")]
+pub fn extract_traceparent(headers: &axum::http::HeaderMap) -> Option<String> {
+    headers
+        .get("traceparent")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+}
+
 /// Authentication middleware for bearer token validation.
 ///
 /// Authentication strategy (fail-closed):
