@@ -166,6 +166,34 @@ impl JournalWriter for DurableJournal {
     }
 }
 
+/// Export all journal entries for an agent as a JSON string for backup.
+pub async fn export_entries(
+    storage: &dyn JournalStorage,
+    agent_id: &AgentId,
+) -> Result<String, JournalError> {
+    let entries = storage.read_entries(agent_id).await?;
+    serde_json::to_string_pretty(&entries)
+        .map_err(|e| JournalError::WriteFailed(format!("Failed to serialize journal entries: {e}")))
+}
+
+/// Import journal entries from a JSON string (restore from backup).
+///
+/// Entries are appended to storage. Callers should compact first if
+/// a clean restore is desired.
+pub async fn import_entries(
+    storage: &dyn JournalStorage,
+    json: &str,
+) -> Result<usize, JournalError> {
+    let entries: Vec<JournalEntry> = serde_json::from_str(json).map_err(|e| {
+        JournalError::ReadFailed(format!("Failed to deserialize journal entries: {e}"))
+    })?;
+    let count = entries.len();
+    for entry in &entries {
+        storage.store(entry).await?;
+    }
+    Ok(count)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -349,5 +377,47 @@ mod tests {
         journal.append(entry).await.unwrap();
 
         assert_eq!(journal.last_completed_iteration().await.unwrap(), 7);
+    }
+
+    #[tokio::test]
+    async fn test_export_entries() {
+        let storage = MemoryJournalStorage::new();
+        let agent = AgentId::new();
+
+        storage.store(&make_entry(agent, 0, 0)).await.unwrap();
+        storage.store(&make_entry(agent, 1, 1)).await.unwrap();
+
+        let json = export_entries(&storage, &agent).await.unwrap();
+        assert!(json.contains("sequence"));
+
+        // Should be valid JSON array
+        let parsed: Vec<JournalEntry> = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_import_entries() {
+        let storage = MemoryJournalStorage::new();
+        let agent = AgentId::new();
+
+        // Create entries, export, then import into a fresh storage
+        storage.store(&make_entry(agent, 0, 0)).await.unwrap();
+        storage.store(&make_entry(agent, 1, 1)).await.unwrap();
+
+        let json = export_entries(&storage, &agent).await.unwrap();
+
+        let fresh_storage = MemoryJournalStorage::new();
+        let count = import_entries(&fresh_storage, &json).await.unwrap();
+        assert_eq!(count, 2);
+
+        let entries = fresh_storage.read_entries(&agent).await.unwrap();
+        assert_eq!(entries.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_import_invalid_json() {
+        let storage = MemoryJournalStorage::new();
+        let result = import_entries(&storage, "not valid json").await;
+        assert!(result.is_err());
     }
 }

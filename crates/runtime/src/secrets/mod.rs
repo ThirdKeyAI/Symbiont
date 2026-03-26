@@ -163,6 +163,61 @@ pub trait SecretStore: Send + Sync {
     async fn list_secrets(&self) -> Result<Vec<String>, SecretError>;
 }
 
+/// Metadata for a stored secret, including TTL for rotation.
+#[derive(Debug, Clone)]
+pub struct SecretMetadata {
+    /// When the secret was created.
+    pub created_at: std::time::SystemTime,
+    /// When the secret expires (None = never).
+    pub expires_at: Option<std::time::SystemTime>,
+    /// How long before expiry to start warning about rotation.
+    pub rotation_hint: Option<std::time::Duration>,
+}
+
+impl SecretMetadata {
+    /// Check if this secret has expired.
+    pub fn is_expired(&self) -> bool {
+        if let Some(expires) = self.expires_at {
+            std::time::SystemTime::now() > expires
+        } else {
+            false
+        }
+    }
+
+    /// Check if this secret should be rotated (within rotation hint window).
+    pub fn needs_rotation(&self) -> bool {
+        if let (Some(expires), Some(hint)) = (self.expires_at, self.rotation_hint) {
+            if let Ok(remaining) = expires.duration_since(std::time::SystemTime::now()) {
+                return remaining < hint;
+            }
+        }
+        false
+    }
+}
+
+/// Retrieve a secret with expiry checking.
+/// Returns an error if the secret has expired; logs a warning if rotation is due.
+pub async fn get_secret_checked(
+    store: &dyn SecretStore,
+    key: &str,
+    metadata: Option<&SecretMetadata>,
+) -> Result<Secret, SecretError> {
+    if let Some(meta) = metadata {
+        if meta.is_expired() {
+            return Err(SecretError::BackendError {
+                message: format!("Secret '{key}' has expired"),
+            });
+        }
+        if meta.needs_rotation() {
+            tracing::warn!(
+                secret = key,
+                "Secret is approaching expiry and should be rotated"
+            );
+        }
+    }
+    store.get_secret(key).await
+}
+
 /// Result type for secrets operations
 pub type SecretResult<T> = Result<T, SecretError>;
 
@@ -243,5 +298,60 @@ mod tests {
             key: "missing_key".to_string(),
         };
         assert!(error.to_string().contains("Secret not found: missing_key"));
+    }
+
+    #[test]
+    fn test_secret_metadata_not_expired() {
+        let meta = SecretMetadata {
+            created_at: std::time::SystemTime::now(),
+            expires_at: Some(std::time::SystemTime::now() + std::time::Duration::from_secs(3600)),
+            rotation_hint: None,
+        };
+        assert!(!meta.is_expired());
+    }
+
+    #[test]
+    fn test_secret_metadata_expired() {
+        let meta = SecretMetadata {
+            created_at: std::time::SystemTime::now() - std::time::Duration::from_secs(7200),
+            expires_at: Some(std::time::SystemTime::now() - std::time::Duration::from_secs(1)),
+            rotation_hint: None,
+        };
+        assert!(meta.is_expired());
+    }
+
+    #[test]
+    fn test_secret_metadata_no_expiry() {
+        let meta = SecretMetadata {
+            created_at: std::time::SystemTime::now(),
+            expires_at: None,
+            rotation_hint: None,
+        };
+        assert!(!meta.is_expired());
+        assert!(!meta.needs_rotation());
+    }
+
+    #[test]
+    fn test_secret_metadata_needs_rotation() {
+        // Expires in 5 minutes, rotation hint is 10 minutes => needs rotation
+        let meta = SecretMetadata {
+            created_at: std::time::SystemTime::now() - std::time::Duration::from_secs(3600),
+            expires_at: Some(std::time::SystemTime::now() + std::time::Duration::from_secs(300)),
+            rotation_hint: Some(std::time::Duration::from_secs(600)),
+        };
+        assert!(!meta.is_expired());
+        assert!(meta.needs_rotation());
+    }
+
+    #[test]
+    fn test_secret_metadata_no_rotation_needed() {
+        // Expires in 2 hours, rotation hint is 10 minutes => no rotation needed
+        let meta = SecretMetadata {
+            created_at: std::time::SystemTime::now(),
+            expires_at: Some(std::time::SystemTime::now() + std::time::Duration::from_secs(7200)),
+            rotation_hint: Some(std::time::Duration::from_secs(600)),
+        };
+        assert!(!meta.is_expired());
+        assert!(!meta.needs_rotation());
     }
 }

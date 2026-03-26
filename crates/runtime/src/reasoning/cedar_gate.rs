@@ -89,6 +89,50 @@ impl CedarPolicyGate {
         self.policies.read().await.clone()
     }
 
+    /// Reload policies from a JSON file (hot-reload for production).
+    ///
+    /// The file must contain a JSON array of `CedarPolicy` objects.
+    /// All existing policies are replaced atomically.
+    pub async fn reload_policies_from_file(
+        &self,
+        path: &std::path::Path,
+    ) -> Result<usize, CedarGateError> {
+        let contents = tokio::fs::read_to_string(path).await.map_err(|e| {
+            CedarGateError::ParseError(format!("Failed to read {}: {}", path.display(), e))
+        })?;
+        let new_policies: Vec<CedarPolicy> = serde_json::from_str(&contents).map_err(|e| {
+            CedarGateError::ParseError(format!("Invalid JSON in {}: {}", path.display(), e))
+        })?;
+
+        // Validate all policies parse as valid Cedar before swapping
+        for policy in &new_policies {
+            if policy.active {
+                if let Err(e) = policy.source.parse::<PolicySet>() {
+                    return Err(CedarGateError::ParseError(format!(
+                        "Policy '{}' has invalid Cedar syntax: {}",
+                        policy.name, e
+                    )));
+                }
+            }
+        }
+
+        let count = new_policies.len();
+        let mut policies = self.policies.write().await;
+        *policies = new_policies;
+        tracing::info!(
+            count,
+            path = %path.display(),
+            "Cedar policies reloaded"
+        );
+        Ok(count)
+    }
+
+    /// Replace all policies atomically (for programmatic hot-reload).
+    pub async fn replace_policies(&self, new_policies: Vec<CedarPolicy>) {
+        let mut policies = self.policies.write().await;
+        *policies = new_policies;
+    }
+
     /// Get active policy count.
     pub async fn active_policy_count(&self) -> usize {
         self.policies

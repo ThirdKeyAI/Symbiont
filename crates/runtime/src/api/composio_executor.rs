@@ -7,6 +7,9 @@
 use std::sync::Arc;
 
 #[cfg(feature = "composio")]
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+
+#[cfg(feature = "composio")]
 use async_trait::async_trait;
 
 #[cfg(feature = "composio")]
@@ -22,15 +25,78 @@ use crate::reasoning::inference::ToolDefinition;
 #[cfg(feature = "composio")]
 use crate::reasoning::loop_types::{LoopConfig, Observation, ProposedAction};
 
+/// Simple per-minute rate limiter for MCP tool calls.
+#[cfg(feature = "composio")]
+struct McpRateLimiter {
+    /// Maximum calls allowed per minute (0 = unlimited).
+    max_per_minute: u32,
+    /// Calls made in the current window.
+    calls: AtomicU32,
+    /// Start of the current window (seconds since UNIX epoch).
+    window_start: AtomicU64,
+}
+
+#[cfg(feature = "composio")]
+impl McpRateLimiter {
+    fn new(max_per_minute: Option<u32>) -> Self {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        Self {
+            max_per_minute: max_per_minute.unwrap_or(0),
+            calls: AtomicU32::new(0),
+            window_start: AtomicU64::new(now),
+        }
+    }
+
+    /// Check if a call is allowed. Returns `true` if within limits.
+    fn check(&self) -> bool {
+        if self.max_per_minute == 0 {
+            return true; // unlimited
+        }
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let window = self.window_start.load(Ordering::Relaxed);
+
+        // Reset window if more than 60 seconds have passed
+        if now - window >= 60 {
+            self.window_start.store(now, Ordering::Relaxed);
+            self.calls.store(1, Ordering::Relaxed);
+            return true;
+        }
+
+        let current = self.calls.fetch_add(1, Ordering::Relaxed);
+        current < self.max_per_minute
+    }
+}
+
 /// An [`ActionExecutor`] that dispatches tool calls to Composio via JSON-RPC.
 #[cfg(feature = "composio")]
 pub struct ComposioToolExecutor {
     transport: Arc<SseTransport>,
     tool_definitions: Vec<ToolDefinition>,
+    rate_limiter: McpRateLimiter,
 }
 
 #[cfg(feature = "composio")]
 impl ComposioToolExecutor {
+    /// Discover available tools from the Composio MCP endpoint and return a
+    /// new executor ready to dispatch calls.
+    ///
+    /// `max_calls_per_minute` enforces a per-server rate limit (None = unlimited).
+    pub async fn discover_with_rate_limit(
+        transport: Arc<SseTransport>,
+        max_calls_per_minute: Option<u32>,
+    ) -> Result<Self, ComposioError> {
+        let mut executor = Self::discover(transport).await?;
+        executor.rate_limiter = McpRateLimiter::new(max_calls_per_minute);
+        Ok(executor)
+    }
+
     /// Discover available tools from the Composio MCP endpoint and return a
     /// new executor ready to dispatch calls.
     pub async fn discover(transport: Arc<SseTransport>) -> Result<Self, ComposioError> {
@@ -69,6 +135,7 @@ impl ComposioToolExecutor {
         Ok(Self {
             transport,
             tool_definitions,
+            rate_limiter: McpRateLimiter::new(None),
         })
     }
 
@@ -79,6 +146,14 @@ impl ComposioToolExecutor {
 
     /// Call a single tool on the Composio MCP endpoint.
     async fn call_tool(&self, name: &str, arguments: &str) -> Result<String, String> {
+        if !self.rate_limiter.check() {
+            tracing::warn!(tool = name, "MCP rate limit exceeded");
+            return Err(format!(
+                "Rate limit exceeded: max {} calls/min for MCP server",
+                self.rate_limiter.max_per_minute
+            ));
+        }
+
         let args: serde_json::Value =
             serde_json::from_str(arguments).unwrap_or(serde_json::json!({}));
 
@@ -197,6 +272,24 @@ mod tests {
         assert_eq!(defs.len(), 1);
         assert_eq!(defs[0].name, "TWITTER_CREATE_TWEET");
         assert!(defs[0].parameters["properties"]["text"].is_object());
+    }
+
+    #[test]
+    fn test_rate_limiter_unlimited() {
+        let limiter = McpRateLimiter::new(None);
+        for _ in 0..1000 {
+            assert!(limiter.check());
+        }
+    }
+
+    #[test]
+    fn test_rate_limiter_enforced() {
+        let limiter = McpRateLimiter::new(Some(5));
+        for _ in 0..5 {
+            assert!(limiter.check());
+        }
+        // 6th call should be rejected
+        assert!(!limiter.check());
     }
 
     #[test]

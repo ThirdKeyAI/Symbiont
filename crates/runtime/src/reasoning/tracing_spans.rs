@@ -15,6 +15,8 @@ pub struct LoopTracer {
     loop_id: String,
     start: Instant,
     iteration: u32,
+    /// Optional external request ID for correlation with API requests.
+    request_id: Option<String>,
 }
 
 impl LoopTracer {
@@ -41,7 +43,25 @@ impl LoopTracer {
             loop_id,
             start: Instant::now(),
             iteration: 0,
+            request_id: None,
         }
+    }
+
+    /// Set an external request ID for correlation with API requests.
+    pub fn with_request_id(mut self, request_id: String) -> Self {
+        tracing::info!(
+            agent_id = %self.agent_id,
+            loop_id = %self.loop_id,
+            request_id = %request_id,
+            "Correlated with API request"
+        );
+        self.request_id = Some(request_id);
+        self
+    }
+
+    /// Get the request ID, if set.
+    pub fn request_id(&self) -> Option<&str> {
+        self.request_id.as_deref()
     }
 
     /// Begin a new iteration.
@@ -292,6 +312,20 @@ mod tests {
         let tp = tracer.traceparent();
         let parsed = LoopTracer::parse_traceparent(&tp);
         assert!(parsed.is_some());
+    }
+
+    #[test]
+    fn test_with_request_id() {
+        let agent_id = AgentId::new();
+        let tracer = LoopTracer::start(agent_id).with_request_id("req-abc-123".to_string());
+        assert_eq!(tracer.request_id(), Some("req-abc-123"));
+    }
+
+    #[test]
+    fn test_request_id_default_none() {
+        let agent_id = AgentId::new();
+        let tracer = LoopTracer::start(agent_id);
+        assert!(tracer.request_id().is_none());
     }
 
     #[test]
