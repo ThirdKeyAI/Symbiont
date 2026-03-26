@@ -151,7 +151,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Simulate an error
         let error = RuntimeError::Resource(ResourceError::InsufficientResources {
-            requirements: "Need more memory".to_string(),
+            requirements: "Need more memory".into(),
         });
 
         let action = error_handler.handle_error(agent_id, error).await?;

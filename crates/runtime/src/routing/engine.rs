@@ -57,7 +57,7 @@ pub struct DefaultRoutingEngine {
     /// Routing statistics (lock-free atomic counters)
     statistics: Arc<RoutingStatistics>,
     /// Configuration
-    config: Arc<RwLock<RoutingConfig>>,
+    config: Arc<arc_swap::ArcSwap<RoutingConfig>>,
     /// LLM client pool for fallback
     llm_clients: Arc<LLMClientPool>,
     /// SLM executor for local model inference
@@ -173,7 +173,7 @@ impl DefaultRoutingEngine {
             confidence_monitor: Arc::new(RwLock::new(confidence_monitor)),
             model_logger,
             statistics: Arc::new(RoutingStatistics::default()),
-            config: Arc::new(RwLock::new(config)),
+            config: Arc::new(arc_swap::ArcSwap::from_pointee(config)),
             llm_clients,
             slm_executor,
         };
@@ -261,7 +261,7 @@ impl DefaultRoutingEngine {
         request: &ModelRequest,
         _reason: &str,
     ) -> Result<ModelResponse, RoutingError> {
-        let config = self.config.read().await;
+        let config = self.config.load();
         let fallback_config = &config.policy.fallback_config;
 
         if !fallback_config.enabled {
@@ -480,14 +480,14 @@ impl RoutingEngine for DefaultRoutingEngine {
     }
 
     async fn update_config(&self, config: RoutingConfig) -> Result<(), RoutingError> {
-        // Update configuration
-        *self.config.write().await = config.clone();
-
         // Update policy evaluator
         self.policy_evaluator
             .write()
             .await
-            .update_config(config.policy)?;
+            .update_config(config.policy.clone())?;
+
+        // Update configuration (swap atomically)
+        self.config.store(Arc::new(config));
 
         Ok(())
     }
@@ -983,8 +983,9 @@ mod tests {
 
         // Disable fallback in config
         {
-            let mut config = engine.config.write().await;
+            let mut config = (*engine.config.load().as_ref()).clone();
             config.policy.fallback_config.enabled = false;
+            engine.config.store(Arc::new(config));
         }
 
         let request = create_test_request("Test disabled fallback");
@@ -1089,7 +1090,7 @@ mod tests {
         assert!(result.is_ok());
 
         // Verify config was updated
-        let updated_config = engine.config.read().await;
+        let updated_config = engine.config.load();
         assert!(!updated_config.policy.fallback_config.enabled);
     }
 

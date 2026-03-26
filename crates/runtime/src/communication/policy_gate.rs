@@ -84,7 +84,7 @@ impl CommunicationPolicyGate {
                 return match &rule.effect {
                     CommunicationEffect::Allow => Ok(()),
                     CommunicationEffect::Deny { reason } => Err(CommunicationError::PolicyDenied {
-                        reason: format!("[{}] {}", rule.name, reason),
+                        reason: format!("[{}] {}", rule.name, reason).into(),
                     }),
                 };
             }
@@ -93,7 +93,7 @@ impl CommunicationPolicyGate {
             Ok(())
         } else {
             Err(CommunicationError::PolicyDenied {
-                reason: "No matching rule and default is deny".to_string(),
+                reason: "No matching rule and default is deny".into(),
             })
         }
     }

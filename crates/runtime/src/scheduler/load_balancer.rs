@@ -122,7 +122,7 @@ impl LoadBalancer {
         pool.allocate(agent_id, limits)
             .ok_or_else(|| ResourceError::AllocationFailed {
                 agent_id,
-                reason: "Insufficient resources for round-robin allocation".to_string(),
+                reason: "Insufficient resources for round-robin allocation".into(),
             })
     }
 
@@ -151,14 +151,15 @@ impl LoadBalancer {
                 reason: format!(
                     "Active allocation count ({}) exceeds 80% capacity threshold ({})",
                     active_count, threshold
-                ),
+                )
+                .into(),
             });
         }
 
         pool.allocate(agent_id, limits)
             .ok_or_else(|| ResourceError::AllocationFailed {
                 agent_id,
-                reason: "Insufficient resources for least-connections allocation".to_string(),
+                reason: "Insufficient resources for least-connections allocation".into(),
             })
     }
 
@@ -179,14 +180,15 @@ impl LoadBalancer {
                     limits.cpu_cores,
                     pool.available_memory,
                     pool.available_cpu_cores
-                ),
+                )
+                .into(),
             });
         }
 
         pool.allocate(agent_id, limits)
             .ok_or_else(|| ResourceError::AllocationFailed {
                 agent_id,
-                reason: "Resource allocation failed unexpectedly".to_string(),
+                reason: "Resource allocation failed unexpectedly".into(),
             })
     }
 
@@ -213,7 +215,8 @@ impl LoadBalancer {
                 reason: format!(
                     "Weighted round-robin rejected: only {:.1}% resources available (minimum 10% required)",
                     available_fraction * 100.0
-                ),
+                )
+                .into(),
             });
         }
 
@@ -236,7 +239,8 @@ impl LoadBalancer {
                 reason: format!(
                     "Weighted round-robin allocation failed: requested {}MB (scaled from {}MB), available {}MB",
                     scaled_limits.memory_mb, limits.memory_mb, pool.available_memory
-                ),
+                )
+                .into(),
             })
     }
 

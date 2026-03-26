@@ -555,7 +555,7 @@ impl AgentScheduler for DefaultAgentScheduler {
                 .await
                 .map_err(|e| SchedulerError::SchedulingFailed {
                     agent_id,
-                    reason: format!("Failed to terminate task: {}", e),
+                    reason: format!("Failed to terminate task: {}", e).into(),
                 })?;
 
             self.registered_agents.remove(&agent_id);
@@ -585,7 +585,7 @@ impl AgentScheduler for DefaultAgentScheduler {
                 .await
                 .map_err(|e| SchedulerError::SchedulingFailed {
                     agent_id,
-                    reason: format!("Failed to shutdown task: {}", e),
+                    reason: format!("Failed to shutdown task: {}", e).into(),
                 })?;
 
             tracing::info!("Gracefully shutdown agent {}", agent_id);
@@ -1219,7 +1219,7 @@ impl DefaultAgentScheduler {
                 self.running_agents.insert(agent_id, task);
                 return Err(SchedulerError::SchedulingFailed {
                     agent_id,
-                    reason: format!("Failed to suspend agent: {}", e),
+                    reason: format!("Failed to suspend agent: {}", e).into(),
                 });
             }
 
@@ -1248,7 +1248,7 @@ impl DefaultAgentScheduler {
             if !suspension_info.can_resume {
                 return Err(SchedulerError::SchedulingFailed {
                     agent_id,
-                    reason: "Agent cannot be resumed".to_string(),
+                    reason: "Agent cannot be resumed".into(),
                 });
             }
 

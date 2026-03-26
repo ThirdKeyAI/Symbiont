@@ -385,7 +385,7 @@ impl ResourceManager for DefaultResourceManager {
             crate::integrations::policy_engine::AllocationResult::Approve => requirements,
             crate::integrations::policy_engine::AllocationResult::Deny => {
                 return Err(ResourceError::PolicyViolation {
-                    reason: policy_decision.reason,
+                    reason: policy_decision.reason.into(),
                 });
             }
             crate::integrations::policy_engine::AllocationResult::Modified => {
@@ -396,12 +396,12 @@ impl ResourceManager for DefaultResourceManager {
             }
             crate::integrations::policy_engine::AllocationResult::Queued => {
                 return Err(ResourceError::AllocationQueued {
-                    reason: policy_decision.reason,
+                    reason: policy_decision.reason.into(),
                 });
             }
             crate::integrations::policy_engine::AllocationResult::Escalate => {
                 return Err(ResourceError::EscalationRequired {
-                    reason: policy_decision.reason,
+                    reason: policy_decision.reason.into(),
                 });
             }
         };
@@ -418,7 +418,7 @@ impl ResourceManager for DefaultResourceManager {
         // Check if allocation was successful
         self.allocations.read().get(&agent_id).cloned().ok_or(
             ResourceError::InsufficientResources {
-                requirements: "Insufficient system resources".to_string(),
+                requirements: "Insufficient system resources".into(),
             },
         )
     }

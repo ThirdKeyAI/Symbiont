@@ -183,7 +183,7 @@ async fn test_error_types() {
     let lifecycle_error = LifecycleError::AgentNotFound { agent_id };
 
     let resource_error = ResourceError::InsufficientResources {
-        requirements: "Need more memory".to_string(),
+        requirements: "Need more memory".into(),
     };
 
     let comm_error = CommunicationError::MessageTooLarge {

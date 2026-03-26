@@ -8834,6 +8834,7 @@ dependencies = [
  "aes-gcm",
  "agentpin",
  "anyhow",
+ "arc-swap",
  "argon2",
  "arrow-array",
  "arrow-schema",

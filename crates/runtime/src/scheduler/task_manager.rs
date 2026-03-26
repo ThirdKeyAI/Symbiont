@@ -55,7 +55,7 @@ impl TaskManager {
             })
             .map_err(|_| SchedulerError::SchedulingFailed {
                 agent_id,
-                reason: "Failed to send start command".to_string(),
+                reason: "Failed to send start command".into(),
             })?;
 
         Ok(())
@@ -72,7 +72,7 @@ impl TaskManager {
                 .send(TaskCommand::Terminate { agent_id, handle })
                 .map_err(|_| SchedulerError::SchedulingFailed {
                     agent_id,
-                    reason: "Failed to send terminate command".to_string(),
+                    reason: "Failed to send terminate command".into(),
                 })?;
         }
 
@@ -90,7 +90,7 @@ impl TaskManager {
             if health.uptime > self.task_timeout {
                 return Err(SchedulerError::SchedulingFailed {
                     agent_id,
-                    reason: "Task timeout exceeded".to_string(),
+                    reason: "Task timeout exceeded".into(),
                 });
             }
 

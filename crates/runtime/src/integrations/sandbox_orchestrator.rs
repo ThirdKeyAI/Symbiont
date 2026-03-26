@@ -12,6 +12,11 @@ use crate::sandbox::{ExecutionResult, SandboxRunner, SandboxTier};
 use crate::types::*;
 use std::sync::Arc;
 
+/// Maximum bytes for stdout/stderr capture from sandbox commands.
+const MAX_STDOUT_BYTES: usize = 10 * 1024 * 1024; // 10 MB
+/// Maximum bytes for file download from sandbox.
+const MAX_FILE_DOWNLOAD_BYTES: usize = 50 * 1024 * 1024; // 50 MB
+
 /// Sandbox orchestrator trait for managing agent sandboxes
 #[async_trait]
 pub trait SandboxOrchestrator: Send + Sync {
@@ -322,7 +327,11 @@ pub struct SandboxCommand {
     pub stdin: Option<String>,
 }
 
-/// Command execution result
+/// Result of a command execution in a sandbox.
+///
+/// **Security**: stdout and stderr are capped at 10 MB to prevent OOM from
+/// runaway commands (e.g. `cat /dev/urandom`). Callers should use streaming
+/// interfaces for large outputs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommandResult {
     pub exit_code: i32,
@@ -342,7 +351,9 @@ pub struct FileUpload {
     pub group: Option<String>,
 }
 
-/// File download from sandbox
+/// File download from sandbox.
+///
+/// **Security**: content is capped at 50 MB. Use streaming download for larger files.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileDownload {
     pub sandbox_path: String,
@@ -454,9 +465,9 @@ pub type SnapshotId = uuid::Uuid;
 
 /// Mock sandbox orchestrator for testing and development
 pub struct MockSandboxOrchestrator {
-    sandboxes: std::sync::RwLock<HashMap<SandboxId, SandboxInfo>>,
-    snapshots: std::sync::RwLock<HashMap<SnapshotId, SandboxSnapshot>>,
-    sandbox_runners: std::sync::RwLock<HashMap<SandboxTier, Arc<dyn SandboxRunner>>>,
+    sandboxes: dashmap::DashMap<SandboxId, SandboxInfo>,
+    snapshots: dashmap::DashMap<SnapshotId, SandboxSnapshot>,
+    sandbox_runners: dashmap::DashMap<SandboxTier, Arc<dyn SandboxRunner>>,
 }
 
 /// Snapshot information
@@ -514,9 +525,9 @@ impl SandboxSnapshot {
 impl MockSandboxOrchestrator {
     pub fn new() -> Self {
         Self {
-            sandboxes: std::sync::RwLock::new(HashMap::new()),
-            snapshots: std::sync::RwLock::new(HashMap::new()),
-            sandbox_runners: std::sync::RwLock::new(HashMap::new()),
+            sandboxes: dashmap::DashMap::new(),
+            snapshots: dashmap::DashMap::new(),
+            sandbox_runners: dashmap::DashMap::new(),
         }
     }
 
@@ -590,16 +601,12 @@ impl SandboxOrchestrator for MockSandboxOrchestrator {
             metadata: request.metadata,
         };
 
-        self.sandboxes
-            .write()
-            .unwrap()
-            .insert(sandbox_id, sandbox_info.clone());
+        self.sandboxes.insert(sandbox_id, sandbox_info.clone());
         Ok(sandbox_info)
     }
 
     async fn start_sandbox(&self, sandbox_id: SandboxId) -> Result<(), SandboxError> {
-        let mut sandboxes = self.sandboxes.write().unwrap();
-        if let Some(sandbox) = sandboxes.get_mut(&sandbox_id) {
+        if let Some(mut sandbox) = self.sandboxes.get_mut(&sandbox_id) {
             sandbox.status = SandboxStatus::Running;
             sandbox.started_at = Some(SystemTime::now());
             Ok(())
@@ -611,8 +618,7 @@ impl SandboxOrchestrator for MockSandboxOrchestrator {
     }
 
     async fn stop_sandbox(&self, sandbox_id: SandboxId) -> Result<(), SandboxError> {
-        let mut sandboxes = self.sandboxes.write().unwrap();
-        if let Some(sandbox) = sandboxes.get_mut(&sandbox_id) {
+        if let Some(mut sandbox) = self.sandboxes.get_mut(&sandbox_id) {
             sandbox.status = SandboxStatus::Stopped;
             sandbox.stopped_at = Some(SystemTime::now());
             Ok(())
@@ -624,8 +630,7 @@ impl SandboxOrchestrator for MockSandboxOrchestrator {
     }
 
     async fn destroy_sandbox(&self, sandbox_id: SandboxId) -> Result<(), SandboxError> {
-        let mut sandboxes = self.sandboxes.write().unwrap();
-        if let Some(sandbox) = sandboxes.get_mut(&sandbox_id) {
+        if let Some(mut sandbox) = self.sandboxes.get_mut(&sandbox_id) {
             sandbox.status = SandboxStatus::Destroyed;
             Ok(())
         } else {
@@ -636,18 +641,16 @@ impl SandboxOrchestrator for MockSandboxOrchestrator {
     }
 
     async fn get_sandbox_info(&self, sandbox_id: SandboxId) -> Result<SandboxInfo, SandboxError> {
-        let sandboxes = self.sandboxes.read().unwrap();
-        sandboxes
+        self.sandboxes
             .get(&sandbox_id)
-            .cloned()
+            .map(|r| r.clone())
             .ok_or(SandboxError::SandboxNotFound {
                 id: sandbox_id.to_string(),
             })
     }
 
     async fn list_sandboxes(&self) -> Result<Vec<SandboxInfo>, SandboxError> {
-        let sandboxes = self.sandboxes.read().unwrap();
-        Ok(sandboxes.values().cloned().collect())
+        Ok(self.sandboxes.iter().map(|r| r.value().clone()).collect())
     }
 
     async fn execute_command(
@@ -655,13 +658,35 @@ impl SandboxOrchestrator for MockSandboxOrchestrator {
         sandbox_id: SandboxId,
         command: SandboxCommand,
     ) -> Result<CommandResult, SandboxError> {
-        let sandboxes = self.sandboxes.read().unwrap();
-        if sandboxes.contains_key(&sandbox_id) {
+        if self.sandboxes.contains_key(&sandbox_id) {
             // Mock command execution
+            let stdout = format!("Mock output for command: {:?}", command.command);
+            let stderr = String::new();
+
+            // Truncate stdout/stderr to MAX_STDOUT_BYTES
+            let stdout = if stdout.len() > MAX_STDOUT_BYTES {
+                format!(
+                    "{}... [truncated at {} bytes]",
+                    &stdout[..MAX_STDOUT_BYTES],
+                    MAX_STDOUT_BYTES
+                )
+            } else {
+                stdout
+            };
+            let stderr = if stderr.len() > MAX_STDOUT_BYTES {
+                format!(
+                    "{}... [truncated at {} bytes]",
+                    &stderr[..MAX_STDOUT_BYTES],
+                    MAX_STDOUT_BYTES
+                )
+            } else {
+                stderr
+            };
+
             Ok(CommandResult {
                 exit_code: 0,
-                stdout: format!("Mock output for command: {:?}", command.command),
-                stderr: String::new(),
+                stdout,
+                stderr,
                 execution_time: Duration::from_millis(100),
                 timed_out: false,
             })
@@ -677,8 +702,7 @@ impl SandboxOrchestrator for MockSandboxOrchestrator {
         sandbox_id: SandboxId,
         _files: Vec<FileUpload>,
     ) -> Result<(), SandboxError> {
-        let sandboxes = self.sandboxes.read().unwrap();
-        if sandboxes.contains_key(&sandbox_id) {
+        if self.sandboxes.contains_key(&sandbox_id) {
             Ok(())
         } else {
             Err(SandboxError::SandboxNotFound {
@@ -692,16 +716,25 @@ impl SandboxOrchestrator for MockSandboxOrchestrator {
         sandbox_id: SandboxId,
         paths: Vec<String>,
     ) -> Result<Vec<FileDownload>, SandboxError> {
-        let sandboxes = self.sandboxes.read().unwrap();
-        if sandboxes.contains_key(&sandbox_id) {
+        if self.sandboxes.contains_key(&sandbox_id) {
             let downloads = paths
                 .into_iter()
-                .map(|path| FileDownload {
-                    sandbox_path: path,
-                    content: b"mock file content".to_vec(),
-                    permissions: 0o644,
-                    size: 18,
-                    modified_at: SystemTime::now(),
+                .map(|path| {
+                    let content = b"mock file content".to_vec();
+                    // Truncate content to MAX_FILE_DOWNLOAD_BYTES
+                    let content = if content.len() > MAX_FILE_DOWNLOAD_BYTES {
+                        content[..MAX_FILE_DOWNLOAD_BYTES].to_vec()
+                    } else {
+                        content
+                    };
+                    let size = content.len() as u64;
+                    FileDownload {
+                        sandbox_path: path,
+                        content,
+                        permissions: 0o644,
+                        size,
+                        modified_at: SystemTime::now(),
+                    }
                 })
                 .collect();
             Ok(downloads)
@@ -716,8 +749,7 @@ impl SandboxOrchestrator for MockSandboxOrchestrator {
         &self,
         sandbox_id: SandboxId,
     ) -> Result<SandboxResourceUsage, SandboxError> {
-        let sandboxes = self.sandboxes.read().unwrap();
-        if sandboxes.contains_key(&sandbox_id) {
+        if self.sandboxes.contains_key(&sandbox_id) {
             Ok(Self::create_mock_resource_usage())
         } else {
             Err(SandboxError::SandboxNotFound {
@@ -731,8 +763,7 @@ impl SandboxOrchestrator for MockSandboxOrchestrator {
         sandbox_id: SandboxId,
         config: SandboxConfig,
     ) -> Result<(), SandboxError> {
-        let mut sandboxes = self.sandboxes.write().unwrap();
-        if let Some(sandbox) = sandboxes.get_mut(&sandbox_id) {
+        if let Some(mut sandbox) = self.sandboxes.get_mut(&sandbox_id) {
             sandbox.config = config;
             Ok(())
         } else {
@@ -747,8 +778,7 @@ impl SandboxOrchestrator for MockSandboxOrchestrator {
         sandbox_id: SandboxId,
         _options: LogOptions,
     ) -> Result<Vec<LogEntry>, SandboxError> {
-        let sandboxes = self.sandboxes.read().unwrap();
-        if sandboxes.contains_key(&sandbox_id) {
+        if self.sandboxes.contains_key(&sandbox_id) {
             Ok(vec![LogEntry {
                 timestamp: SystemTime::now(),
                 level: LogLevel::Info,
@@ -768,8 +798,7 @@ impl SandboxOrchestrator for MockSandboxOrchestrator {
         sandbox_id: SandboxId,
         name: String,
     ) -> Result<SnapshotId, SandboxError> {
-        let sandboxes = self.sandboxes.read().unwrap();
-        if sandboxes.contains_key(&sandbox_id) {
+        if self.sandboxes.contains_key(&sandbox_id) {
             let snapshot_id = SnapshotId::new_v4();
             let mut snapshot = SandboxSnapshot::new(snapshot_id, sandbox_id, name);
             snapshot.set_size(1024 * 1024 * 100); // 100MB
@@ -781,10 +810,7 @@ impl SandboxOrchestrator for MockSandboxOrchestrator {
                 snapshot.get_size()
             );
 
-            self.snapshots
-                .write()
-                .unwrap()
-                .insert(snapshot_id, snapshot);
+            self.snapshots.insert(snapshot_id, snapshot);
             Ok(snapshot_id)
         } else {
             Err(SandboxError::SandboxNotFound {
@@ -798,16 +824,13 @@ impl SandboxOrchestrator for MockSandboxOrchestrator {
         sandbox_id: SandboxId,
         snapshot_id: SnapshotId,
     ) -> Result<(), SandboxError> {
-        let sandboxes = self.sandboxes.read().unwrap();
-        let snapshots = self.snapshots.read().unwrap();
-
-        if !sandboxes.contains_key(&sandbox_id) {
+        if !self.sandboxes.contains_key(&sandbox_id) {
             return Err(SandboxError::SandboxNotFound {
                 id: sandbox_id.to_string(),
             });
         }
 
-        if !snapshots.contains_key(&snapshot_id) {
+        if !self.snapshots.contains_key(&snapshot_id) {
             return Err(SandboxError::SnapshotNotFound {
                 id: snapshot_id.to_string(),
             });
@@ -817,8 +840,7 @@ impl SandboxOrchestrator for MockSandboxOrchestrator {
     }
 
     async fn delete_snapshot(&self, snapshot_id: SnapshotId) -> Result<(), SandboxError> {
-        let mut snapshots = self.snapshots.write().unwrap();
-        if let Some(snapshot) = snapshots.get(&snapshot_id) {
+        if let Some(snapshot) = self.snapshots.get(&snapshot_id) {
             tracing::info!(
                 "Deleting snapshot '{}' (age: {:?}s, size: {} bytes)",
                 snapshot.get_name(),
@@ -827,7 +849,7 @@ impl SandboxOrchestrator for MockSandboxOrchestrator {
             );
         }
 
-        if snapshots.remove(&snapshot_id).is_some() {
+        if self.snapshots.remove(&snapshot_id).is_some() {
             Ok(())
         } else {
             Err(SandboxError::SnapshotNotFound {
@@ -842,10 +864,7 @@ impl SandboxOrchestrator for MockSandboxOrchestrator {
         code: &str,
         env: HashMap<String, String>,
     ) -> Result<ExecutionResult, SandboxError> {
-        let runner = {
-            let runners = self.sandbox_runners.read().unwrap();
-            runners.get(&tier).cloned()
-        };
+        let runner = self.sandbox_runners.get(&tier).map(|r| r.value().clone());
 
         if let Some(runner) = runner {
             runner
@@ -862,8 +881,7 @@ impl SandboxOrchestrator for MockSandboxOrchestrator {
         tier: SandboxTier,
         runner: Arc<dyn SandboxRunner>,
     ) -> Result<(), SandboxError> {
-        let mut runners = self.sandbox_runners.write().unwrap();
-        runners.insert(tier, runner);
+        self.sandbox_runners.insert(tier, runner);
         Ok(())
     }
 }
@@ -871,27 +889,26 @@ impl SandboxOrchestrator for MockSandboxOrchestrator {
 impl MockSandboxOrchestrator {
     /// Clean up expired snapshots
     pub async fn cleanup_expired_snapshots(&self, max_age: Duration) -> u32 {
-        let mut snapshots = self.snapshots.write().unwrap();
-        let mut expired_count = 0;
-        let expired_ids: Vec<SnapshotId> = snapshots
+        let expired_ids: Vec<SnapshotId> = self
+            .snapshots
             .iter()
-            .filter_map(|(id, snapshot)| {
-                if snapshot.is_expired(max_age) {
+            .filter_map(|entry| {
+                if entry.value().is_expired(max_age) {
                     tracing::info!(
                         "Snapshot '{}' expired (age: {:?})",
-                        snapshot.get_name(),
-                        snapshot.get_age()
+                        entry.value().get_name(),
+                        entry.value().get_age()
                     );
-                    expired_count += 1;
-                    Some(*id)
+                    Some(*entry.key())
                 } else {
                     None
                 }
             })
             .collect();
 
+        let expired_count = expired_ids.len() as u32;
         for id in expired_ids {
-            snapshots.remove(&id);
+            self.snapshots.remove(&id);
         }
 
         expired_count

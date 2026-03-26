@@ -65,7 +65,7 @@ pub enum ResourceError {
     Insufficient(String),
 
     #[error("Resource allocation failed for agent {agent_id}: {reason}")]
-    AllocationFailed { agent_id: AgentId, reason: String },
+    AllocationFailed { agent_id: AgentId, reason: Box<str> },
 
     #[error("Resource limit exceeded: {0}")]
     LimitExceeded(String),
@@ -86,19 +86,19 @@ pub enum ResourceError {
     AllocationExists { agent_id: AgentId },
 
     #[error("Insufficient resources for requirements: {requirements:?}")]
-    InsufficientResources { requirements: String },
+    InsufficientResources { requirements: Box<str> },
 
     #[error("Policy error: {0}")]
     PolicyError(String),
 
     #[error("Policy violation: {reason}")]
-    PolicyViolation { reason: String },
+    PolicyViolation { reason: Box<str> },
 
     #[error("Resource allocation queued: {reason}")]
-    AllocationQueued { reason: String },
+    AllocationQueued { reason: Box<str> },
 
     #[error("Escalation required: {reason}")]
-    EscalationRequired { reason: String },
+    EscalationRequired { reason: Box<str> },
 }
 
 /// Security-related errors
@@ -132,7 +132,7 @@ pub enum CommunicationError {
     #[error("Message delivery failed for message {message_id}: {reason}")]
     DeliveryFailed {
         message_id: MessageId,
-        reason: String,
+        reason: Box<str>,
     },
 
     #[error("Connection failed: {0}")]
@@ -157,7 +157,7 @@ pub enum CommunicationError {
     ShuttingDown,
 
     #[error("Event processing failed: {reason}")]
-    EventProcessingFailed { reason: String },
+    EventProcessingFailed { reason: Box<str> },
 
     #[error("Agent not registered: {agent_id}")]
     AgentNotRegistered { agent_id: AgentId },
@@ -175,7 +175,7 @@ pub enum CommunicationError {
     RequestCancelled { request_id: RequestId },
 
     #[error("Policy denied: {reason}")]
-    PolicyDenied { reason: String },
+    PolicyDenied { reason: Box<str> },
 }
 
 /// Policy enforcement errors
@@ -200,7 +200,7 @@ pub enum PolicyError {
     EngineUnavailable(String),
 
     #[error("Invalid policy: {reason}")]
-    InvalidPolicy { reason: String },
+    InvalidPolicy { reason: Box<str> },
 }
 
 /// Sandbox orchestration errors
@@ -235,13 +235,13 @@ pub enum SandboxError {
 #[derive(Error, Debug, Clone)]
 pub enum SchedulerError {
     #[error("Agent scheduling failed for {agent_id}: {reason}")]
-    SchedulingFailed { agent_id: AgentId, reason: String },
+    SchedulingFailed { agent_id: AgentId, reason: Box<str> },
 
     #[error("Agent not found: {agent_id}")]
     AgentNotFound { agent_id: AgentId },
 
     #[error("Scheduler overloaded: {0}")]
-    Overloaded(String),
+    Overloaded(Box<str>),
 
     #[error("Invalid priority: {0}")]
     InvalidPriority(String),

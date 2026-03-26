@@ -207,7 +207,7 @@ impl DefaultPolicyEnforcementPoint {
     async fn load_default_policies(&self) -> Result<(), PolicyError> {
         let policies_data: serde_yaml::Value = serde_yaml::from_str(DEFAULT_POLICIES_YAML)
             .map_err(|e| PolicyError::InvalidPolicy {
-                reason: format!("Failed to parse default policies: {}", e),
+                reason: format!("Failed to parse default policies: {}", e).into(),
             })?;
 
         let policies = self.parse_policies_from_yaml(&policies_data)?;
@@ -232,7 +232,7 @@ impl DefaultPolicyEnforcementPoint {
             .get("policies")
             .and_then(|v| v.as_sequence())
             .ok_or_else(|| PolicyError::InvalidPolicy {
-                reason: "Missing 'policies' array in YAML".to_string(),
+                reason: "Missing 'policies' array in YAML".into(),
             })?;
 
         let mut policies = Vec::new();
@@ -257,7 +257,7 @@ impl DefaultPolicyEnforcementPoint {
             .get("id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| PolicyError::InvalidPolicy {
-                reason: "Policy missing 'id' field".to_string(),
+                reason: "Policy missing 'id' field".into(),
             })?
             .to_string();
 
@@ -324,7 +324,7 @@ impl DefaultPolicyEnforcementPoint {
             .get("id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| PolicyError::InvalidPolicy {
-                reason: "Rule missing 'id' field".to_string(),
+                reason: "Rule missing 'id' field".into(),
             })?
             .to_string();
 
@@ -365,14 +365,14 @@ impl DefaultPolicyEnforcementPoint {
         data: Option<&serde_yaml::Value>,
     ) -> Result<RuleEffect, PolicyError> {
         let effect_data = data.ok_or_else(|| PolicyError::InvalidPolicy {
-            reason: "Rule missing 'effect' field".to_string(),
+            reason: "Rule missing 'effect' field".into(),
         })?;
 
         let effect_type = effect_data
             .get("type")
             .and_then(|v| v.as_str())
             .ok_or_else(|| PolicyError::InvalidPolicy {
-                reason: "Effect missing 'type' field".to_string(),
+                reason: "Effect missing 'type' field".into(),
             })?;
 
         match effect_type {
@@ -415,7 +415,7 @@ impl DefaultPolicyEnforcementPoint {
                 Ok(RuleEffect::Escalate { to, reason })
             }
             _ => Err(PolicyError::InvalidPolicy {
-                reason: format!("Unknown effect type: {}", effect_type),
+                reason: format!("Unknown effect type: {}", effect_type).into(),
             }),
         }
     }

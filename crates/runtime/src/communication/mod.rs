@@ -485,7 +485,7 @@ impl DefaultCommunicationBus {
         self.event_sender
             .send(event)
             .map_err(|_| CommunicationError::EventProcessingFailed {
-                reason: "Failed to send communication event".to_string(),
+                reason: "Failed to send communication event".into(),
             })
     }
 
