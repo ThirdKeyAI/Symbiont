@@ -107,7 +107,7 @@ The central orchestrator responsible for managing agent execution with real task
 - **Event-Driven**: Triggered execution based on system events
 
 **Performance Characteristics:**
-- Support for 10,000+ concurrent agents
+- Support for 10,000+ logical agents in memory (concurrent sandbox executions depend on host resources and sandbox tier — Docker containers require more resources than in-process agents)
 - Sub-millisecond scheduling decisions
 - Priority-based preemption
 - Resource-aware placement
@@ -659,7 +659,7 @@ pub struct AuditEvent {
 ### Scalability Metrics
 
 **Agent Management:**
-- **Concurrent Agents**: 10,000+ simultaneous agents
+- **Concurrent Agents**: 10,000+ logical agents (in-process); sandboxed agents scale with host resources
 - **Agent Startup**: <1s for standard agents
 - **Memory Usage**: 1-5MB per agent (varies by configuration)
 - **CPU Overhead**: <5% system overhead for runtime

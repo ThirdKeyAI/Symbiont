@@ -20,7 +20,7 @@ Symbiont is an AI-native agent framework for building autonomous, policy-aware a
 - **⚡ Multi-Language SDKs**: JavaScript and Python SDKs for full API access including scheduling, channels, and enterprise features
 - **🔄 Agentic Reasoning Loop**: Typestate-enforced Observe-Reason-Gate-Act (ORGA) cycle with policy gates, circuit breakers, durable journal, and knowledge bridge
 - **🧪 Advanced Reasoning** (`orga-adaptive`): Tool profile filtering, stuck-loop detection, deterministic context pre-fetch, and directory-scoped conventions
-- **📜 Cedar Policy Engine**: Formal authorization language integration for fine-grained access control
+- **📜 Cedar Policy Engine**: Formal authorization language integration for fine-grained access control (requires `cedar` feature flag: `cargo build --features cedar`)
 - **🏗️ High Performance**: Rust-native runtime optimized for production workloads with async execution throughout
 - **🤖 AI Assistant Plugins**: First-party governance plugins for [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) and [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli) with Cedar policy enforcement, SchemaPin verification, and audit trails
 

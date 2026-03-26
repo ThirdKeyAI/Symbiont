@@ -130,6 +130,8 @@ graph TD
     O -->|Complete| LR
 ```
 
+**Dynamic branching within the typestate:** The LLM's output during the Reasoning phase may indicate continuation (more tool calls needed) or completion (final text response). The `observe_results()` method returns a `LoopContinuation` enum — either `Continue(AgentLoop<Reasoning>)` to re-enter the reasoning phase, or `Complete(LoopResult)` to terminate. This enum is the only point where the loop branches dynamically; all other phase transitions are strictly linear and enforced at compile time. No dynamic dispatch or trait objects are used — the branching is a standard Rust `match` on a concrete enum.
+
 ---
 
 ## Inference Providers

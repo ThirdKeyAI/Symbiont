@@ -355,6 +355,7 @@ impl AuditEvent {
 > **Planned feature** — The `KeyManager` API shown below is part of the security roadmap and not yet available in the current release. The current implementation provides key utilities via `KeyUtils` in `crypto.rs`.
 
 ```rust
+// PLANNED — not yet implemented in the current release
 pub struct KeyManager {
     hsm: HardwareSecurityModule,
     key_store: SecureKeyStore,
@@ -491,6 +492,7 @@ impl AuditChain {
 > **Planned feature** — The `ComplianceFramework` API shown below is part of the security roadmap and not yet available in the current release.
 
 ```rust
+// PLANNED — not yet implemented in the current release
 pub struct ComplianceFramework {
     pub name: String,
     pub audit_requirements: Vec<AuditRequirement>,
@@ -545,6 +547,7 @@ sequenceDiagram
 > **Planned feature** — The `TOFUKeyStore` API shown below is part of the security roadmap and not yet available in the current release.
 
 ```rust
+// PLANNED — not yet implemented in the current release
 pub struct TOFUKeyStore {
     pinned_keys: HashMap<ProviderId, PinnedKey>,
     trust_policies: Vec<TrustPolicy>,
@@ -592,6 +595,7 @@ Automated security analysis before tool approval:
 > **Planned feature** — The `SecurityAnalyzer` API shown below is part of the security roadmap and not yet available in the current release.
 
 ```rust
+// PLANNED — not yet implemented in the current release
 pub struct SecurityAnalyzer {
     vulnerability_patterns: VulnerabilityDatabase,
     ml_detector: MaliciousCodeDetector,
@@ -729,20 +733,24 @@ pub struct SecureChannel {
 }
 
 impl SecureChannel {
-    pub fn encrypt_message(&self, plaintext: &[u8]) -> Result<Vec<u8>> {
+    pub fn encrypt_message(&self, plaintext: &[u8]) -> Result<EncryptedMessage> {
         let counter = self.send_counter.fetch_add(1, Ordering::SeqCst);
         let nonce = self.generate_nonce(counter);
-        
+
         let ciphertext = ChaCha20Poly1305::new(&self.encryption_key)
             .encrypt(&nonce, plaintext)?;
-        
+
         let mac = Hmac::<Sha256>::new_from_slice(&self.mac_key)?
             .chain_update(&ciphertext)
             .chain_update(&counter.to_le_bytes())
             .finalize()
             .into_bytes();
-        
-        Ok([ciphertext, mac.to_vec()].concat())
+
+        Ok(EncryptedMessage {
+            nonce: nonce.to_vec(),
+            ciphertext,
+            sender_public_key: self.local_public_key(),
+        })
     }
 }
 ```

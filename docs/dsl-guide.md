@@ -218,11 +218,13 @@ policy dynamic_access_control {
 
 ### Primitive Types
 
+The DSL uses simplified type names (`int`, `float`) rather than Rust-specific types (`i64`, `f64`) to remain accessible to non-Rust developers. At compile time, `int` maps to `i64` and `float` maps to `f64`.
+
 ```rust
 // Basic types
 let name: String = "Alice";
-let count: int = 42;
-let rate: float = 3.14;
+let count: int = 42;        // compiles to i64
+let rate: float = 3.14;     // compiles to f64
 let active: bool = true;
 ```
 
