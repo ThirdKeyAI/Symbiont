@@ -130,7 +130,7 @@ impl ComposioMcpSource {
 
         // Reuse or create transport
         if !self.transports.contains_key(name) {
-            let transport = SseTransport::new(url.clone(), api_key);
+            let transport = SseTransport::new(url.clone(), api_key)?;
             self.transports.insert(name.to_string(), transport);
         }
 

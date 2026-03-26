@@ -136,8 +136,10 @@ impl LanceDbBackend {
             });
         }
 
+        // Build arrow array from embedding slice. Use from_iter_primitive
+        // with a single row containing the embedding values.
         let vector_array = FixedSizeListArray::from_iter_primitive::<Float32Type, _, _>(
-            vec![Some(embedding.iter().map(|v| Some(*v)).collect::<Vec<_>>())],
+            std::iter::once(Some(embedding.iter().copied().map(Some))),
             self.config.vector_dimension as i32,
         );
 

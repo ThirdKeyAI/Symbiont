@@ -22,25 +22,33 @@ pub struct SseTransport {
 
 impl SseTransport {
     /// Create a new SSE transport for the given endpoint and API key.
-    pub fn new(endpoint_url: String, api_key: String) -> Self {
+    ///
+    /// Returns an error if the API key contains invalid header characters
+    /// or if the HTTP client fails to build.
+    pub fn new(endpoint_url: String, api_key: String) -> Result<Self, ComposioError> {
+        let header_value = HeaderValue::from_str(&api_key).map_err(|e| {
+            ComposioError::Configuration(format!(
+                "invalid API key (contains non-ASCII or control characters): {e}"
+            ))
+        })?;
+
         let mut headers = HeaderMap::new();
-        headers.insert(
-            "x-api-key",
-            HeaderValue::from_str(&api_key).unwrap_or_else(|_| HeaderValue::from_static("")),
-        );
+        headers.insert("x-api-key", header_value);
 
         let client = reqwest::Client::builder()
             .default_headers(headers)
             .build()
-            .expect("failed to build reqwest client");
+            .map_err(|e| {
+                ComposioError::Configuration(format!("failed to build HTTP client: {e}"))
+            })?;
 
-        Self {
+        Ok(Self {
             client,
             endpoint_url,
             api_key,
             request_timeout: Duration::from_secs(30),
             next_id: AtomicU64::new(1),
-        }
+        })
     }
 
     /// Create a transport with a custom request timeout.
@@ -333,7 +341,8 @@ mod tests {
         let transport = SseTransport::new(
             "https://backend.composio.dev/v3/mcp/srv_123?user_id=usr_456".to_string(),
             "test-key".to_string(),
-        );
+        )
+        .unwrap();
         assert_eq!(
             transport.endpoint_url(),
             "https://backend.composio.dev/v3/mcp/srv_123?user_id=usr_456"
@@ -343,7 +352,7 @@ mod tests {
     #[test]
     fn test_api_key_stored() {
         let transport =
-            SseTransport::new("https://example.com".to_string(), "my-api-key".to_string());
+            SseTransport::new("https://example.com".to_string(), "my-api-key".to_string()).unwrap();
         assert_eq!(transport.api_key(), "my-api-key");
     }
 
@@ -415,13 +424,15 @@ mod tests {
     #[test]
     fn test_timeout_configuration() {
         let transport = SseTransport::new("https://example.com".to_string(), "key".to_string())
+            .unwrap()
             .with_timeout(Duration::from_secs(60));
         assert_eq!(transport.request_timeout, Duration::from_secs(60));
     }
 
     #[test]
     fn test_parse_sse_response_plain_json() {
-        let transport = SseTransport::new("https://example.com".to_string(), "key".to_string());
+        let transport =
+            SseTransport::new("https://example.com".to_string(), "key".to_string()).unwrap();
         let body = r#"{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}"#;
         let resp = transport.parse_sse_response(body).unwrap();
         assert!(resp.result.is_some());
@@ -430,7 +441,8 @@ mod tests {
 
     #[test]
     fn test_parse_sse_response_composio_format() {
-        let transport = SseTransport::new("https://example.com".to_string(), "key".to_string());
+        let transport =
+            SseTransport::new("https://example.com".to_string(), "key".to_string()).unwrap();
         let body = "event: message\ndata: {\"result\":{\"tools\":[{\"name\":\"TEST_TOOL\"}]}}";
         let resp = transport.parse_sse_response(body).unwrap();
         let result = resp.result.unwrap();
@@ -441,7 +453,8 @@ mod tests {
 
     #[test]
     fn test_parse_sse_response_error() {
-        let transport = SseTransport::new("https://example.com".to_string(), "key".to_string());
+        let transport =
+            SseTransport::new("https://example.com".to_string(), "key".to_string()).unwrap();
         let body = "data: {\"error\":{\"code\":-32000,\"message\":\"Not Acceptable\"}}";
         let resp = transport.parse_sse_response(body).unwrap();
         assert!(resp.error.is_some());
@@ -451,7 +464,8 @@ mod tests {
 
     #[test]
     fn test_parse_sse_response_empty_body() {
-        let transport = SseTransport::new("https://example.com".to_string(), "key".to_string());
+        let transport =
+            SseTransport::new("https://example.com".to_string(), "key".to_string()).unwrap();
         let result = transport.parse_sse_response("event: ping\n\n");
         assert!(result.is_err());
     }

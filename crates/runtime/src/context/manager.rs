@@ -95,7 +95,12 @@ pub trait ContextManager: Send + Sync {
     async fn shutdown(&self) -> Result<(), ContextError>;
 }
 
-/// Standard implementation of ContextManager
+/// Standard implementation of ContextManager.
+///
+/// PERF: The contexts map uses a single RwLock. Under high concurrency
+/// (many agents storing/retrieving simultaneously), consider migrating to
+/// per-agent locking (HashMap<AgentId, Arc<RwLock<AgentContext>>>) or
+/// dashmap to reduce contention.
 pub struct StandardContextManager {
     /// In-memory storage for contexts (cache layer)
     contexts: Arc<RwLock<HashMap<AgentId, AgentContext>>>,
