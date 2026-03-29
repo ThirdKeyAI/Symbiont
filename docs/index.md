@@ -189,10 +189,15 @@ graph TB
 
 ## Project Status
 
-### v1.8.1 Stable
+### v1.9.0 Stable
 
-Symbiont v1.8.1 is the latest stable release, delivering a complete AI agent framework with production-grade capabilities:
+Symbiont v1.9.0 is the latest stable release, delivering a complete AI agent framework with production-grade capabilities:
 
+- **ToolClad Integration**: Declarative tool contracts with manifest loading, argument validation, HTTP/MCP proxy backends, secrets injection, and session/browser executors
+- **`symbi tools` CLI**: Scope enforcement, Cedar policy generation, and hot-reload file watcher for ToolClad manifests
+- **Production Hardening**: Bounded channels, health probes, secrets TTL, Cedar policy reload, audit export, and rate limiting
+- **Security Fixes**: Critical DoS vector mitigation, JWT validation hardening, environment variable leakage prevention, and sandbox guard improvements
+- **W3C Traceparent Propagation**: OpenTelemetry distributed trace context propagation across agent boundaries
 - **Agentic Reasoning Loop**: Typestate-enforced ORGA cycle with multi-turn conversation, cloud and SLM inference, circuit breakers, durable journal, and knowledge bridge
 - **Advanced Reasoning Primitives** (`orga-adaptive`): Tool profile filtering, per-step stuck-loop detection, deterministic context pre-fetch, and directory-scoped conventions
 - **Cedar Policy Engine**: Formal authorization via Cedar policy language integration (`cedar` feature)

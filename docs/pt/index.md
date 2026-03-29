@@ -186,10 +186,15 @@ graph TB
 
 ## Status do Projeto
 
-### v1.8.1 Estável
+### v1.9.0 Estável
 
-O Symbiont v1.8.1 é a versão estável mais recente, oferecendo um framework completo de agentes de IA com capacidades de nível de produção:
+O Symbiont v1.9.0 é a versão estável mais recente, oferecendo um framework completo de agentes de IA com capacidades de nível de produção:
 
+- **Integração ToolClad**: Contratos de ferramentas declarativos com carregamento de manifestos, validação de argumentos, backends HTTP/MCP proxy, injeção de segredos e executores de sessão/navegador
+- **CLI `symbi tools`**: Aplicação de escopo, geração de políticas Cedar e observador de recarga automática para manifestos ToolClad
+- **Endurecimento de produção**: Canais limitados, sondas de saúde, TTL de segredos, recarga de políticas Cedar, exportação de auditoria e limitação de taxa
+- **Correções de segurança**: Mitigação de vetores DoS críticos, endurecimento de validação JWT, prevenção de vazamento de variáveis de ambiente e melhorias no guard do sandbox
+- **Propagação W3C Traceparent**: Propagação de contexto de rastreamento distribuído OpenTelemetry através dos limites de agentes
 - **Loop de Raciocínio Agêntico**: Ciclo ORGA com aplicação de typestate, conversação multi-turno, inferência em nuvem e SLM, circuit breakers, journal durável e ponte de conhecimento
 - **Primitivas de Raciocínio Avançado** (`orga-adaptive`): Filtragem de perfil de ferramentas, detecção de loops travados por passo, pré-busca determinística de contexto e convenções com escopo de diretório
 - **Motor de Políticas Cedar**: Autorização formal via integração de linguagem de políticas Cedar (feature `cedar`)

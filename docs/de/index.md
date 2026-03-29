@@ -186,10 +186,15 @@ graph TB
 
 ## Projektstatus
 
-### v1.8.1 Stabil
+### v1.9.0 Stabil
 
-Symbiont v1.8.1 ist die neueste stabile Version und bietet ein vollstaendiges KI-Agent-Framework mit produktionsreifen Funktionen:
+Symbiont v1.9.0 ist die neueste stabile Version und bietet ein vollstaendiges KI-Agent-Framework mit produktionsreifen Funktionen:
 
+- **ToolClad-Integration**: Deklarative Tool-Vertraege mit Manifest-Laden, Argument-Validierung, HTTP/MCP-Proxy-Backends, Secrets-Injection und Session-/Browser-Executors
+- **`symbi tools`-CLI**: Scope-Durchsetzung, Cedar-Policy-Generierung und Hot-Reload-Dateiueberwachung fuer ToolClad-Manifeste
+- **Produktionshaertung**: Begrenzte Kanaele, Health-Probes, Secrets-TTL, Cedar-Policy-Reload, Audit-Export und Rate-Limiting
+- **Sicherheitskorrekturen**: Kritische DoS-Vektor-Mitigierung, JWT-Validierungshaertung, Umgebungsvariablen-Leak-Praevention und Sandbox-Guard-Verbesserungen
+- **W3C-Traceparent-Propagierung**: OpenTelemetry Distributed-Trace-Kontext-Propagierung ueber Agentengrenzen hinweg
 - **Agentische Reasoning-Schleife**: Typestate-erzwungener ORGA-Zyklus mit Multi-Turn-Konversation, Cloud- und SLM-Inferenz, Circuit Breakern, dauerhaftem Journal und Wissensbruecke
 - **Erweiterte Reasoning-Primitiven** (`orga-adaptive`): Tool-Profilfilterung, schrittweise Stuck-Loop-Erkennung, deterministischer Kontext-Pre-Fetch und verzeichnisspezifische Konventionen
 - **Cedar Policy Engine**: Formale Autorisierung ueber Cedar-Richtliniensprachen-Integration (`cedar` Feature)

@@ -192,9 +192,15 @@ graph TB
 
 ## Estado del Proyecto
 
-### v1.8.1 Estable
+### v1.9.0 Estable
 
-Symbiont v1.8.1 es la ultima version estable, que ofrece un framework completo de agentes de IA con capacidades de nivel de produccion:
+Symbiont v1.9.0 es la ultima version estable, que ofrece un framework completo de agentes de IA con capacidades de nivel de produccion:
+
+- **Integracion ToolClad**: Contratos de herramientas declarativos con carga de manifiestos, validacion de argumentos, backends HTTP/MCP proxy, inyeccion de secretos y ejecutores de sesion/navegador
+- **CLI `symbi tools`**: Aplicacion de alcance, generacion de politicas Cedar y vigilancia de recarga en caliente para manifiestos ToolClad
+- **Endurecimiento de produccion**: Canales limitados, sondas de salud, TTL de secretos, recarga de politicas Cedar, exportacion de auditoria y limitacion de velocidad
+- **Correcciones de seguridad**: Mitigacion de vectores DoS criticos, endurecimiento de validacion JWT, prevencion de fugas de variables de entorno y mejoras en el guard del sandbox
+- **Propagacion W3C Traceparent**: Propagacion de contexto de traza distribuida OpenTelemetry a traves de los limites de agentes
 
 - **Bucle de Razonamiento Agentico**: Ciclo ORGA con typestates, conversacion multi-turno, inferencia en la nube y SLM, circuit breakers, diario durable y puente de conocimiento
 - **Primitivas de Razonamiento Avanzado** (`orga-adaptive`): Filtrado de perfiles de herramientas, deteccion de bucles atascados por paso, pre-carga determinista de contexto y convenciones con alcance de directorio

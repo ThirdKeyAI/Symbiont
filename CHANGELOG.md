@@ -7,6 +7,88 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-03-29
+
+### Added
+- **ToolClad runtime integration**: Manifest loading, argument validation, and command execution for declarative tool contracts
+- **ToolClad extended types**: Output parsers, custom types, schema validation, and tools init
+- **ToolClad session and browser mode**: SessionExecutor and BrowserExecutor support for ToolClad v0.4.0+ spec
+- **HTTP backend and MCP proxy backend**: ToolClad backends with secrets injection
+- **`symbi tools` CLI**: Scope enforcement, Cedar policy generation, and hot-reload file watcher
+- **ToolClad manifests**: Built-in tool contracts for whois, nmap, dig, and curl
+- **W3C traceparent propagation**: OpenTelemetry distributed trace context across agent boundaries with integration tests
+- **Production readiness**: Bounded channels, health probes, secrets TTL, Cedar reload, audit export, and rate limiting
+- **A2UI v0.2.0**: Updated Agent-to-UI interface for Symbiont v1.9.0 compatibility
+
+### Changed
+- **BrowserDef v0.5.1**: Add connect, extract_mode, and default engine to CDP configuration
+
+### Fixed
+- **Critical security fixes**: DoS vector mitigation, JWT validation hardening, environment variable leakage prevention, sandbox guard improvements
+- **Concurrency and resource exhaustion**: Address priority queue, Composio auth, and vector DB allocation issues
+- **Memory efficiency**: Resource exhaustion and memory efficiency review improvements
+- **Documentation accuracy**: Fix 6 documentation accuracy issues from external review
+- **Fuzz workflow**: ComposioError variant, unused imports, cfg-gated vars
+
+### Crate Versions
+| Crate | Version |
+|-------|---------|
+| `symbi` | 1.9.0 |
+| `symbi-dsl` | 1.9.0 |
+| `symbi-runtime` | 1.9.0 |
+| `symbi-channel-adapter` | 0.1.2 |
+| `repl-core` | 1.9.0 |
+| `repl-proto` | 1.9.0 |
+| `repl-cli` | 1.9.0 |
+| `repl-lsp` | 1.9.0 |
+
+## [1.8.1] - 2026-03-16
+
+### Added
+- **`symbi run` command**: Execute any agent directly from the CLI without starting the full runtime
+- **Hash comments**: Support `#` line comments in DSL files
+
+### Fixed
+- **Default Anthropic model name**: Corrected default model identifier
+- **Agent names in API list**: Proper name display in agent listing endpoint
+- **Usability improvements**: Auth clarity, cedar flag docs, auto-routing, rust-version alignment
+- **Formatting**: cargo fmt compliance
+
+### Crate Versions
+| Crate | Version |
+|-------|---------|
+| `symbi` | 1.8.1 |
+| `symbi-dsl` | 1.8.1 |
+| `symbi-runtime` | 1.8.1 |
+| `symbi-channel-adapter` | 0.1.2 |
+| `repl-core` | 1.8.1 |
+| `repl-proto` | 1.8.1 |
+| `repl-cli` | 1.8.1 |
+| `repl-lsp` | 1.8.1 |
+
+## [1.8.0] - 2026-03-13
+
+### Added
+- **`symbi init` command**: Interactive project scaffolding with profile-based templates (minimal, assistant, dev-agent, multi-agent)
+- **Agent catalog**: Built-in catalog with list and import for pre-built governed agents
+- **Inter-agent communication bus**: CommunicationBus with policy evaluation for all builtins (`ask`, `delegate`, `send_to`, `parallel`, `race`)
+- **CommunicationPolicyGate**: Cedar-style rule enforcement for inter-agent calls with priority-based evaluation and hard deny
+
+### Changed
+- **CI workflow**: Replace arduino/setup-protoc with native package managers (Node.js 20 deprecation)
+
+### Crate Versions
+| Crate | Version |
+|-------|---------|
+| `symbi` | 1.8.0 |
+| `symbi-dsl` | 1.8.0 |
+| `symbi-runtime` | 1.8.0 |
+| `symbi-channel-adapter` | 0.1.2 |
+| `repl-core` | 1.8.0 |
+| `repl-proto` | 1.8.0 |
+| `repl-cli` | 1.8.0 |
+| `repl-lsp` | 1.8.0 |
+
 ## [1.7.1] - 2026-03-11
 
 ### Added
