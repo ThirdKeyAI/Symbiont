@@ -29,7 +29,7 @@ O Symbiont recebe contribuições da comunidade com satisfação! Seja corrigind
 
 Antes de contribuir, certifique-se de ter:
 
-- **Rust 1.88+** com cargo
+- **Rust 1.82+** com cargo
 - **Git** para controle de versão
 - **Docker** para testes e desenvolvimento
 - **Conhecimento básico** de Rust, princípios de segurança e sistemas de IA

@@ -38,7 +38,7 @@ Symbiont-Agenten arbeiten sicher mit Menschen, Tools und LLMs zusammen — ohne 
 
 ### Voraussetzungen
 
-* Docker (empfohlen) oder Rust 1.88+
+* Docker (empfohlen) oder Rust 1.82+
 * Keine externe Vektordatenbank erforderlich (LanceDB eingebettet; Qdrant optional für skalierte Deployments)
 
 ### Ausführung mit vorgefertigten Containern

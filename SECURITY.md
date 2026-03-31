@@ -6,12 +6,11 @@ The following versions of Symbiont are currently supported with security updates
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 1.4.x   | :white_check_mark: |
-| 1.1.x   | :white_check_mark: |
-| 1.0.x   | :x:                |
-| < 1.0   | :x:                |
+| 1.9.x   | :white_check_mark: |
+| 1.8.x   | :white_check_mark: |
+| < 1.8   | :x:                |
 
-*Last updated: 2026-02-15*
+*Last updated: 2026-03-30*
 
 ## Reporting a Vulnerability
 

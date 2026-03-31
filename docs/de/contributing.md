@@ -33,7 +33,7 @@ Symbiont freut sich ueber Beitraege aus der Community! Ob Sie Bugs beheben, Feat
 
 Stellen Sie vor der Mitwirkung sicher, dass Sie Folgendes haben:
 
-- **Rust 1.88+** mit cargo
+- **Rust 1.82+** mit cargo
 - **Git** fuer Versionskontrolle
 - **Docker** fuer Tests und Entwicklung
 - **Grundkenntnisse** in Rust, Sicherheitsprinzipien und KI-Systemen

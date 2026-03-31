@@ -14,7 +14,7 @@ Bevor Sie mit Symbi beginnen, stellen Sie sicher, dass Sie Folgendes installiert
 ### Erforderliche Abhaengigkeiten
 
 - **Docker** (fuer containerisierte Entwicklung)
-- **Rust 1.88+** (wenn Sie lokal kompilieren)
+- **Rust 1.82+** (wenn Sie lokal kompilieren)
 - **Git** (zum Klonen des Repositories)
 
 ### Optionale Abhaengigkeiten

@@ -28,7 +28,7 @@ Symbiont welcomes contributions from the community! Whether you're fixing bugs, 
 
 Before contributing, ensure you have:
 
-- **Rust 1.88+** with cargo
+- **Rust 1.82+** with cargo
 - **Git** for version control
 - **Docker** for testing and development
 - **Basic knowledge** of Rust, security principles, and AI systems

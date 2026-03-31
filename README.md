@@ -9,126 +9,93 @@
 
 ---
 
-## 🚀 What is Symbiont?
+**Policy-governed agent runtime for production.**
 
-**Symbi** is a **Rust-native, zero-trust agent framework** for building autonomous, policy-aware AI agents.
-It fixes the biggest flaws in existing frameworks like LangChain and AutoGPT by focusing on:
+Symbiont is a Rust-native runtime for executing AI agents, tools, and workflows under explicit policy, identity, and audit controls.
 
-* **Security-first**: cryptographic audit trails, enforced policies, and sandboxing.
-* **Zero trust**: all inputs are treated as untrusted by default.
-* **Enterprise-grade compliance**: designed for regulated industries (HIPAA, SOC2, finance).
-
-Symbiont agents collaborate safely with humans, tools, and LLMs — without sacrificing security or performance.
+Most agent frameworks focus on orchestration. Symbiont focuses on what happens when agents need to run in real environments with real risk: untrusted tools, sensitive data, approval boundaries, audit requirements, and repeatable enforcement.
 
 ---
 
-## ⚡ Why Symbiont?
+## Why Symbiont
 
-| Feature          | Symbiont                                 | LangChain      | AutoGPT   |
-| ---------------- | ---------------------------------------- | -------------- | --------- |
-| Language         | Rust (safety, performance)               | Python         | Python    |
-| Security         | Zero-trust, cryptographic audit          | Minimal        | None      |
-| Reasoning Loop   | Typestate-enforced ORGA with policy gate | Simple chains  | Ad-hoc    |
-| Knowledge Bridge | Vector search + episodic memory          | RAG only       | None      |
-| Policy Engine    | Built-in DSL + Cedar                     | Limited        | None      |
-| Deployment       | REPL, Docker, HTTP API                   | Python scripts | CLI hacks |
-| Audit Trails     | Cryptographic logs                       | No             | No        |
+AI agents are easy to demo and hard to trust.
+
+Once an agent can call tools, access files, send messages, or invoke external services, you need more than prompts and glue code. You need:
+
+* **Policy enforcement** for what an agent may do — built-in DSL and [Cedar](https://www.cedarpolicy.com/) authorization
+* **Tool verification** so execution is not blind trust — [SchemaPin](https://github.com/ThirdKeyAI/SchemaPin) cryptographic verification of MCP tools
+* **Agent identity** so you know who is acting — [AgentPin](https://github.com/ThirdKeyAI/AgentPin) domain-anchored ES256 identity
+* **Sandboxing** for risky workloads — Docker isolation with resource limits
+* **Audit trails** for what happened and why — cryptographically tamper-evident logs
+* **Review workflows** for actions that require approval — human-in-the-loop gates in the reasoning loop
+
+Symbiont is built for that layer.
 
 ---
 
-## 🏁 Quick Start
+## Quick start
 
 ### Prerequisites
 
-* Docker (recommended) or Rust 1.88+
+* Docker (recommended) or Rust 1.82+
 * No external vector database required (LanceDB embedded; Qdrant optional for scaled deployments)
 
-### Run with Pre-Built Containers
+### Run with Docker
 
 ```bash
-# Parse an agent DSL file
-docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest dsl parse /workspace/agent.dsl
+# Start the runtime (API on :8080, HTTP input on :8081)
+docker run --rm -p 8080:8080 -p 8081:8081 ghcr.io/thirdkeyai/symbi:latest up
 
-# Run MCP Server
+# Run MCP server only
 docker run --rm -p 8080:8080 ghcr.io/thirdkeyai/symbi:latest mcp
 
-# Interactive development shell
-docker run --rm -it -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest bash
+# Parse an agent DSL file
+docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest dsl parse /workspace/agent.dsl
 ```
 
-### Build from Source
+### Build from source
 
 ```bash
-# Build dev environment
-docker build -t symbi:latest .
-docker run --rm -it -v $(pwd):/workspace symbi:latest bash
-
-# Build unified binary
 cargo build --release
+./target/release/symbi --help
 
-# Run REPL
+# Run the runtime
+cargo run -- up
+
+# Interactive REPL
 cargo run -- repl
-
-# Parse DSL & run MCP
-cargo run -- dsl parse my_agent.dsl
-cargo run -- mcp --port 8080
 ```
 
----
-
-## 🔧 Key Features
-
-* ✅ **DSL Grammar** – Define agents declaratively with built-in security policies, `memory`, `webhook`, `schedule`, and `channel` blocks.
-* ✅ **Agent Runtime** – Task scheduling, resource management, and lifecycle control.
-* 🔄 **Agentic Reasoning Loop** – Typestate-enforced Observe-Reason-Gate-Act (ORGA) cycle with multi-turn conversation management, unified inference across cloud and local SLM providers, circuit breakers, and durable journal. Five implementation phases: core loop, policy integration, human-in-the-loop, multi-agent patterns, and observability.
-* 🧠 **Knowledge-Reasoning Bridge** – Opt-in integration between the knowledge/context system and the reasoning loop. Injects relevant context before each reasoning step, exposes `recall_knowledge`/`store_knowledge` as LLM-callable tools, and persists learnings after loop completion.
-* 🧪 **Advanced Reasoning Primitives** (`orga-adaptive`) – Feature-gated tool profile filtering (glob-based include/exclude, max cap, verified-only), per-step iteration tracking with stuck-loop detection (Levenshtein similarity), deterministic context pre-fetch (URL/file/issue/PR extraction with parallel resolution and token budgets), and directory-scoped convention retrieval.
-* ⏰ **Cron Scheduling** – Persistent SQLite-backed cron engine with jitter, concurrency guards, dead-letter queues, and heartbeat pattern.
-* 🧠 **Persistent Memory** – Markdown-backed agent memory with facts, procedures, learned patterns, daily logs, and retention-based compaction.
-* 🪝 **Webhook Verification** – HMAC-SHA256 and JWT signature verification with GitHub, Stripe, and Slack presets.
-* 🛡️ **Skill Scanning** – ClawHavoc scanner with 40 rules across 10 attack categories (reverse shells, credential harvesting, process injection, privilege escalation, network exfiltration, and more). 5-level severity model (Critical/High/Medium/Warning/Info) with executable whitelisting.
-* 📈 **Metrics & Telemetry** – File and OTLP metric exporters with composite fan-out and background collection. OpenTelemetry distributed tracing spans for the reasoning loop.
-* 🔒 **HTTP Security Hardening** – Loopback-only binding, CORS allow-lists, JWT EdDSA validation, health endpoint separation.
-* 🔒 **Sandboxing** – Tier-1 Docker isolation for agent execution.
-* 🔒 **SchemaPin Security** – Cryptographic verification of tools and schemas.
-* 🔒 **AgentPin Identity** – Domain-anchored cryptographic identity for scheduled agents.
-* 🔒 **Secrets Management** – HashiCorp Vault / OpenBao integration, AES-256-GCM encrypted storage.
-* 🔑 **Per-Agent API Keys** – Argon2-hashed API key authentication with per-IP rate limiting.
-* 🧠 **Context Compaction** – Automatic context window management with tiered compaction: LLM-driven summarization (Tier 1) and truncation (Tier 4). Multi-model token counting (OpenAI, Claude, Gemini, Llama, Mistral, and more).
-* 📊 **RAG Engine** – Vector search (LanceDB embedded) with hybrid semantic + keyword retrieval. Optional Qdrant backend for scaled deployments.
-* 🧩 **MCP Integration** – Native support for Model Context Protocol tools, plus Composio SSE integration for external tool access.
-* 🤖 **AI Assistant Plugins** – First-party governance plugins for [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) and [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli) with three-tier protection: awareness logging, blocking deny lists, and Cedar policy enforcement.
-* 📡 **Optional HTTP API** – Feature-gated REST interface for external integration.
-* 📋 **Delivery Routing** – Route scheduled agent output to webhooks, Slack, email, or custom channels.
-* 📝 **AGENTS.md Support** – Bidirectional agent manifest generation and parsing for interoperability.
-* ⚡ **Performance Verified** – Benchmarked claims: policy evaluation <1ms, ECDSA P-256 verification <5ms, 10k agent scheduling with <2% CPU overhead.
+> For production deployments, review `SECURITY.md` and the [deployment guide](https://docs.symbiont.dev/getting-started) before enabling untrusted tool execution.
 
 ---
 
-## 📦 Workspace Crates
+## How it works
 
-| Crate | Description | Status |
-|-------|-------------|--------|
-| `symbi` | Unified CLI binary | Stable |
-| `symbi-runtime` | Core agent runtime | Stable |
-| `symbi-dsl` | DSL parser and evaluator | Stable |
-| `symbi-channel-adapter` | Slack/Teams/Mattermost adapters | Stable |
-| `repl-core` | REPL engine | Stable |
-| `repl-proto` | JSON-RPC protocol | Stable |
-| `repl-cli` | Interactive CLI + JSON-RPC server | Stable |
-| `repl-lsp` | Language Server Protocol | Stable |
-| `symbi-a2ui` | Admin dashboard (Lit/TypeScript) | Alpha |
+Symbiont separates agent intent from execution authority:
 
-### IDE / CLI Plugins
+1. **Agents propose** actions through the ORGA reasoning loop (Observe-Reason-Gate-Act)
+2. **The runtime evaluates** each action against policy, identity, and trust checks
+3. **Policy decides** — allowed actions execute; denied actions are blocked or routed for approval
+4. **Everything is logged** — tamper-evident audit trail for every decision
 
-| Plugin | Description | Status |
-|--------|-------------|--------|
-| [`symbi-claude-code`](https://github.com/thirdkeyai/symbi-claude-code) | Claude Code governance plugin | Stable |
-| [`symbi-gemini-cli`](https://github.com/thirdkeyai/symbi-gemini-cli) | Gemini CLI governance extension | Stable |
+This means model output is never treated as execution authority. The runtime controls what actually happens.
+
+### Example: untrusted tool blocked by policy
+
+An agent attempts to call an unverified MCP tool. The runtime:
+
+1. Checks SchemaPin verification status — tool signature is missing or invalid
+2. Evaluates Cedar policy — `forbid(action == Action::"tool_call") when { !resource.verified }`
+3. Blocks execution and logs the denial with full context
+4. Optionally routes to an operator for manual approval
+
+No code change required. The policy governs execution.
 
 ---
 
-## 📐 Symbiont DSL Example
+## DSL example
 
 ```symbiont
 metadata {
@@ -139,13 +106,13 @@ metadata {
 
 agent analyze_data(input: DataSet) -> Result {
     capabilities = ["data_analysis", "visualization"]
-    
+
     policy data_privacy {
         allow: read(input) if input.anonymized == true
         deny: store(input) if input.contains_pii == true
         audit: all_operations
     }
-    
+
     with memory = "persistent", requires = "approval" {
         if (llm_check_safety(input)) {
             result = analyze(input);
@@ -159,55 +126,90 @@ agent analyze_data(input: DataSet) -> Result {
 
 ---
 
-## 🔒 Security Model
+## Core capabilities
 
-* **Zero Trust** – all agent inputs are untrusted by default.
-* **Sandboxed Execution** – Docker-based containment for processes.
-* **Audit Logging** – Cryptographically tamper-evident logs.
-* **Secrets Control** – Vault/OpenBao backends, encrypted local storage, agent namespaces.
+| Capability | What it does |
+|-----------|-------------|
+| **Cedar policy engine** | Fine-grained authorization for agent actions, tool calls, and resource access |
+| **SchemaPin verification** | Cryptographic verification of MCP tool schemas before execution |
+| **AgentPin identity** | Domain-anchored ES256 identity for agents and scheduled tasks |
+| **ORGA reasoning loop** | Typestate-enforced Observe-Reason-Gate-Act cycle with policy gates and circuit breakers |
+| **Sandboxing** | Docker-based isolation with resource limits for untrusted workloads |
+| **Audit logging** | Tamper-evident logs with structured records for every policy decision |
+| **ClawHavoc scanning** | 40 rules across 10 attack categories for skill/tool content analysis |
+| **Secrets management** | Vault/OpenBao integration, AES-256-GCM encrypted storage, scoped per agent |
+| **Cron scheduling** | SQLite-backed scheduler with jitter, concurrency guards, and dead-letter queues |
+| **Persistent memory** | Markdown-backed agent memory with fact extraction, procedures, and compaction |
+| **RAG engine** | Hybrid semantic + keyword search via LanceDB (embedded) or Qdrant (scaled) |
+| **MCP integration** | Native Model Context Protocol support with governed tool access |
+| **Webhook verification** | HMAC-SHA256 and JWT verification with GitHub, Stripe, and Slack presets |
+| **Delivery routing** | Route agent output to webhooks, Slack, email, or custom channels |
+| **Metrics & telemetry** | OTLP export with OpenTelemetry tracing spans for the reasoning loop |
+| **HTTP security** | Loopback-only binding, CORS allow-lists, JWT EdDSA validation, per-agent API keys |
+| **AI assistant plugins** | Governance plugins for [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) and [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli) |
+
+Performance: policy evaluation <1ms, ECDSA P-256 verification <5ms, 10k agent scheduling with <2% CPU overhead. See [benchmarks](crates/runtime/benches/performance_claims.rs) and [threshold tests](crates/runtime/tests/performance_claims.rs).
 
 ---
 
-## 📚 Documentation
+## Security model
+
+Symbiont is designed around a simple principle: **model output should never be trusted as execution authority.**
+
+Actions flow through runtime controls:
+
+* **Zero trust** — all agent inputs are untrusted by default
+* **Policy checks** — Cedar authorization before every tool call and resource access
+* **Tool verification** — SchemaPin cryptographic verification of tool schemas
+* **Sandbox boundaries** — Docker isolation for untrusted execution
+* **Operator approval** — human-in-the-loop gates for sensitive actions
+* **Secrets control** — Vault/OpenBao backends, encrypted local storage, agent namespaces
+* **Audit logging** — cryptographically tamper-evident records of every decision
+
+If you are executing untrusted code or risky tools, do not rely on a weak local execution model as your only boundary. See [`SECURITY.md`](SECURITY.md) and the [security model docs](https://docs.symbiont.dev/security-model).
+
+---
+
+## Workspace
+
+| Crate | Description |
+|-------|-------------|
+| `symbi` | Unified CLI binary |
+| `symbi-runtime` | Core agent runtime and execution engine |
+| `symbi-dsl` | DSL parser and evaluator |
+| `symbi-channel-adapter` | Slack/Teams/Mattermost adapters |
+| `repl-core` / `repl-proto` / `repl-cli` | Interactive REPL and JSON-RPC server |
+| `repl-lsp` | Language Server Protocol support |
+| `symbi-a2ui` | Admin dashboard (Lit/TypeScript, alpha) |
+
+Governance plugins: [`symbi-claude-code`](https://github.com/thirdkeyai/symbi-claude-code) | [`symbi-gemini-cli`](https://github.com/thirdkeyai/symbi-gemini-cli)
+
+---
+
+## Documentation
 
 * [Getting Started](https://docs.symbiont.dev/getting-started)
-* [DSL Guide](https://docs.symbiont.dev/dsl-guide)
+* [Security Model](https://docs.symbiont.dev/security-model)
 * [Runtime Architecture](https://docs.symbiont.dev/runtime-architecture)
 * [Reasoning Loop Guide](https://docs.symbiont.dev/reasoning-loop)
-* [Advanced Reasoning Primitives (orga-adaptive)](https://docs.symbiont.dev/orga-adaptive)
-* [Security Model](https://docs.symbiont.dev/security-model)
+* [DSL Guide](https://docs.symbiont.dev/dsl-guide)
 * [API Reference](https://docs.symbiont.dev/api-reference)
+* [Advanced Reasoning Primitives](https://docs.symbiont.dev/orga-adaptive)
+
+If you are evaluating Symbiont for production, start with the security model and getting started docs.
 
 ---
 
-## 🎯 Use Cases
+## License
 
-* **Development & Automation**
-
-  * Secure code generation & refactoring.
-  * AI agent deployment with enforced policies.
-  * Knowledge management with semantic search.
-
-* **Enterprise & Regulated Industries**
-
-  * Healthcare (HIPAA-compliant processing).
-  * Finance (audit-ready workflows).
-  * Government (classified context handling).
-  * Legal (confidential document analysis).
-
----
-
-## 📄 License
-
-* **Community Edition**: Apache 2.0 License
-* **Enterprise Edition**: Commercial license required
+* **Community Edition** (Apache 2.0): Core runtime, DSL, ORGA reasoning loop, Cedar policy engine, SchemaPin/AgentPin verification, Docker sandboxing, persistent memory, cron scheduling, MCP integration, RAG (LanceDB), audit logging, webhook verification, ClawHavoc skill scanning, and all CLI/REPL tooling.
+* **Enterprise Edition** (commercial license): Multi-tier sandboxing (gVisor, Firecracker, E2B), cryptographic audit trails with compliance exports (HIPAA, SOX, PCI-DSS), AI-powered tool review and threat detection, encrypted multi-agent collaboration, real-time monitoring dashboards, and dedicated support. See [`enterprise/README.md`](enterprise/README.md) for details.
 
 Contact [ThirdKey](https://thirdkey.ai) for enterprise licensing.
 
 ---
 
-*Symbiont enables secure collaboration between AI agents and humans through intelligent policy enforcement, cryptographic verification, and comprehensive audit trails.*
-
+*Same agent. Secure runtime.*
 
 <div align="right">
   <img src="https://raw.githubusercontent.com/ThirdKeyAI/Symbiont/main/symbi-trans.png" alt="Symbi Logo" width="120">

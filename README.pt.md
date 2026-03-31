@@ -38,7 +38,7 @@ Agentes Symbiont colaboram com segurança com humanos, ferramentas e LLMs — se
 
 ### Pré-requisitos
 
-* Docker (recomendado) ou Rust 1.88+
+* Docker (recomendado) ou Rust 1.82+
 * Nenhum banco de dados vetorial externo necessário (LanceDB embutido; Qdrant opcional para implantações em escala)
 
 ### Executar com Contêineres Pré-construídos

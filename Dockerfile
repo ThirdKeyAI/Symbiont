@@ -100,7 +100,7 @@ ENV HOME=/var/lib/symbi
 # Set working directory for operations (symbi auto-discovers symbi.toml from CWD)
 WORKDIR /var/lib/symbi
 
-# Expose ports: 8080 (gRPC), 8081 (HTTP API/webhooks)
+# Expose ports: 8080 (Runtime API / MCP), 8081 (HTTP Input / webhooks)
 EXPOSE 8080 8081
 
 # Health check: verify HTTP port 8081 is listening (no curl/wget in image)
