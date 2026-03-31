@@ -1,55 +1,53 @@
+---
+nav_exclude: true
+---
+
 # Documentacion de Symbiont
 
-Framework de agentes nativo de IA para construir agentes autonomos y conscientes de politicas con programacion de tareas, adaptadores de canal e identidad criptografica — construido en Rust.
+Runtime de agentes gobernado por politicas para produccion. Ejecute agentes de IA y herramientas bajo controles explicitos de politicas, identidad y auditoria.
 
+## Que es Symbiont?
+
+Symbiont es un runtime nativo en Rust para ejecutar agentes de IA y herramientas bajo controles explicitos de politicas, identidad y auditoria.
+
+La mayoria de los frameworks de agentes se centran en la orquestacion. Symbiont se centra en lo que sucede cuando los agentes necesitan ejecutarse en entornos reales con riesgo real: herramientas no confiables, datos sensibles, limites de aprobacion, requisitos de auditoria y aplicacion repetible.
+
+### Como funciona
+
+Symbiont separa la intencion del agente de la autoridad de ejecucion:
+
+1. **Los agentes proponen** acciones a traves del bucle de razonamiento (Observe-Reason-Gate-Act)
+2. **El runtime evalua** cada accion contra verificaciones de politica, identidad y confianza
+3. **La politica decide** — las acciones permitidas se ejecutan; las denegadas se bloquean o se derivan para aprobacion
+4. **Todo se registra** — rastro de auditoria a prueba de manipulacion para cada decision
+
+La salida del modelo nunca se trata como autoridad de ejecucion. El runtime controla lo que realmente sucede.
+
+### Capacidades principales
+
+| Capacidad | Que hace |
+|-----------|-------------|
+| **Motor de politicas** | Autorizacion granular con [Cedar](https://www.cedarpolicy.com/) para acciones de agentes, llamadas a herramientas y acceso a recursos |
+| **Verificacion de herramientas** | Verificacion criptografica [SchemaPin](https://schemapin.org) de esquemas de herramientas MCP antes de la ejecucion |
+| **Identidad de agentes** | Identidad ES256 anclada al dominio con [AgentPin](https://agentpin.org) para agentes y tareas programadas |
+| **Bucle de razonamiento** | Ciclo Observe-Reason-Gate-Act con aplicacion de typestate, compuertas de politicas y circuit breakers |
+| **Sandboxing** | Aislamiento basado en Docker con limites de recursos para cargas de trabajo no confiables |
+| **Registro de auditoria** | Registros a prueba de manipulacion con registros estructurados para cada decision de politica |
+| **Gestion de secretos** | Integracion con Vault/OpenBao, almacenamiento cifrado AES-256-GCM, con alcance por agente |
+| **Integracion MCP** | Soporte nativo de Model Context Protocol con acceso gobernado a herramientas |
+
+Capacidades adicionales: escaneo de amenazas para contenido de herramientas/habilidades, programacion cron, memoria persistente de agentes, busqueda RAG hibrida (LanceDB/Qdrant), verificacion de webhooks, enrutamiento de entregas, telemetria OTLP, endurecimiento de seguridad HTTP, adaptadores de canal (Slack/Teams/Mattermost), y plugins de gobernanza para [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) y [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli).
 
 ---
 
-## ¿Que es Symbiont?
+## Inicio rapido
 
-Symbiont es un framework de agentes nativo de IA para construir agentes autonomos y conscientes de politicas que colaboran de forma segura con humanos, otros agentes y modelos de lenguaje grandes. Proporciona una pila de produccion completa — desde un DSL declarativo y motor de programacion hasta adaptadores de canal multiplataforma e identidad criptografica verificable — todo construido en Rust para rendimiento y seguridad.
+### Instalacion
 
-### Caracteristicas Principales
-
-- **🛡️ Diseño Centrado en Seguridad**: Arquitectura de confianza cero con sandboxing multinivel, aplicacion de politicas y rastros de auditoria criptograficos
-- **📋 DSL Declarativo**: Lenguaje diseñado para definir agentes, politicas, programaciones e integraciones de canal con parseo tree-sitter
-- **📅 Programacion de Produccion**: Ejecucion de tareas basada en cron con aislamiento de sesion, enrutamiento de entregas, colas de mensajes muertos y soporte de jitter
-- **💬 Adaptadores de Canal**: Conecta agentes a Slack, Microsoft Teams y Mattermost con verificacion de webhook y mapeo de identidad
-- **🌐 Modulo de Entrada HTTP**: Servidor webhook para integraciones externas con autenticacion Bearer/JWT, limitacion de velocidad y CORS
-- **🔑 Identidad AgentPin**: Verificacion criptografica de identidad de agentes via ES256 JWTs anclados a endpoints well-known
-- **🔐 Gestion de Secretos**: Integracion con HashiCorp Vault con backends de archivo cifrado y llavero del sistema operativo
-- **🧠 Contexto y Conocimiento**: Sistemas de conocimiento mejorados con RAG con busqueda vectorial (LanceDB embebido por defecto, Qdrant opcional) y embeddings locales opcionales
-- **🔗 Integracion MCP**: Cliente del Protocolo de Contexto de Modelo con verificacion criptografica de herramientas SchemaPin
-- **⚡ SDKs Multi-Lenguaje**: SDKs de JavaScript y Python para acceso completo a la API incluyendo programacion, canales y funciones empresariales
-- **🔄 Bucle de Razonamiento Agentico**: Ciclo Observe-Reason-Gate-Act (ORGA) con typestates, compuertas de politicas, circuit breakers, diario durable y puente de conocimiento
-- **🧪 Razonamiento Avanzado** (`orga-adaptive`): Filtrado de perfiles de herramientas, deteccion de bucles atascados, pre-carga determinista de contexto y convenciones con alcance de directorio
-- **📜 Motor de Politicas Cedar**: Integracion de lenguaje de autorizacion formal para control de acceso granular
-- **🏗️ Alto Rendimiento**: Runtime nativo en Rust optimizado para cargas de trabajo de produccion con ejecucion asincrona completa
-- **🤖 Plugins para Asistentes de IA**: Plugins de gobernanza de primera mano para [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) y [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli) con aplicacion de politicas Cedar, verificacion SchemaPin y rastros de auditoria
-
-### Inicializacion de Proyecto (`symbi init`)
-
-Scaffolding interactivo de proyectos con plantillas basadas en perfiles. Elige entre perfiles minimal, assistant, dev-agent o multi-agent. Modo de verificacion SchemaPin y niveles de sandbox configurables. Incluye un catalogo de agentes integrado para importar agentes gobernados preconstruidos. Funciona de forma no interactiva para pipelines CI/CD con `--no-interact`.
-
-### Ejecucion de Agente Individual (`symbi run`)
-
-Ejecuta cualquier agente directamente desde la CLI sin iniciar el runtime completo:
-
+**Script de instalacion (macOS / Linux):**
 ```bash
-symbi run recon --input '{"target": "10.0.1.5"}'
+curl -fsSL https://symbiont.dev/install.sh | bash
 ```
-
-Carga el DSL del agente, configura el bucle de razonamiento ORGA con inferencia en la nube, ejecuta, imprime los resultados y sale. Resuelve nombres de agentes desde el directorio `agents/` automaticamente.
-
-### Gobernanza de Comunicacion Inter-Agente
-
-Todos los builtins inter-agente (`ask`, `delegate`, `send_to`, `parallel`, `race`) se enrutan a traves del CommunicationBus con evaluacion de politicas. El `CommunicationPolicyGate` aplica reglas de estilo Cedar para llamadas inter-agente — controlando que agentes pueden comunicarse, con evaluacion de reglas basada en prioridad y denegacion estricta ante violaciones de politica. Los mensajes se firman criptograficamente, se cifran y se auditan.
-
----
-
-## Primeros Pasos
-
-### Instalacion Rapida
 
 **Homebrew (macOS):**
 ```bash
@@ -57,17 +55,9 @@ brew tap thirdkeyai/tap
 brew install symbi
 ```
 
-**Script de instalacion (macOS / Linux):**
-```bash
-curl -fsSL https://raw.githubusercontent.com/thirdkeyai/symbiont/main/scripts/install.sh | bash
-```
-
-Tambien puedes descargar binarios preconstruidos desde [GitHub Releases](https://github.com/thirdkeyai/symbiont/releases). Consulta la [Guia de Primeros Pasos](/getting-started) para opciones de Docker e instalacion desde fuente.
-
 **Docker:**
 ```bash
-docker pull ghcr.io/thirdkeyai/symbi:latest
-docker run --rm symbi:latest --version
+docker run --rm -p 8080:8080 -p 8081:8081 ghcr.io/thirdkeyai/symbi:latest up
 ```
 
 **Desde fuente:**
@@ -77,81 +67,71 @@ cd symbiont
 cargo build --release
 ```
 
-### Tu Primer Agente
+Los binarios precompilados tambien estan disponibles en [GitHub Releases](https://github.com/thirdkeyai/symbiont/releases). Consulte la [Guia de inicio](/getting-started) para mas detalles.
 
-```rust
-metadata {
-    version = "1.0.0"
-    author = "developer"
-    description = "Simple analysis agent"
-}
+### Su primer agente
 
-agent analyze_data(input: DataSet) -> Result {
-    capabilities = ["data_analysis"]
-
-    policy secure_analysis {
-        allow: read(input) if input.anonymized == true
-        deny: store(input) if input.contains_pii == true
-        audit: all_operations with signature
+```symbiont
+agent secure_analyst(input: DataSet) -> Result {
+    policy access_control {
+        allow: read(input) if input.verified == true
+        deny: send_email without approval
+        audit: all_operations
     }
 
-    with memory = "ephemeral", privacy = "high" {
-        if (validate_input(input)) {
-            result = process_data(input);
-            audit_log("analysis_completed", result.metadata);
-            return result;
-        } else {
-            return reject("Invalid input data");
-        }
+    with memory = "persistent", requires = "approval" {
+        result = analyze(input);
+        return result;
     }
 }
 ```
 
+Consulte la [guia DSL](/dsl-guide) para la gramatica completa incluyendo bloques `metadata`, `schedule`, `webhook` y `channel`.
+
+### Scaffolding de proyecto
+
+```bash
+symbi init        # Configuracion interactiva de proyecto con plantillas de perfil
+symbi run agent   # Ejecutar un solo agente sin iniciar el runtime completo
+symbi up          # Iniciar el runtime completo con auto-configuracion
+```
+
 ---
 
-## Vision General de la Arquitectura
+## Arquitectura
 
 ```mermaid
 graph TB
-    A[Governance and Policy Layer] --> B[Core Rust Engine]
-    B --> C[Agent Framework]
-    B --> D[Tree-sitter DSL Engine]
-    B --> E[Multi-Tier Sandboxing]
-    E --> F[Docker - Low Risk]
-    E --> G[gVisor - Medium/High Risk]
-    B --> I[Cryptographic Audit Trail]
+    A[Policy Engine — Cedar] --> B[Core Runtime]
+    B --> C[Reasoning Loop — ORGA]
+    B --> D[DSL Parser]
+    B --> E[Sandbox — Docker]
+    B --> I[Audit Trail]
 
-    subgraph "Scheduling and Execution"
+    subgraph "Scheduling"
         S[Cron Scheduler]
         H[Session Isolation]
         R[Delivery Router]
     end
 
-    subgraph "Channel Adapters"
+    subgraph "Channels"
         SL[Slack]
         TM[Teams]
         MM[Mattermost]
     end
 
-    subgraph "Context and Knowledge"
+    subgraph "Knowledge"
         J[Context Manager]
-        K[Vector Database]
+        K[Vector Search]
         L[RAG Engine]
-        MD[Markdown Memory]
+        MD[Agent Memory]
     end
 
-    subgraph "Secure Integrations"
+    subgraph "Trust Stack"
         M[MCP Client]
-        N[SchemaPin Verification]
-        O[Policy Engine]
-        P[AgentPin Identity]
-        SK[Skill Scanner]
-    end
-
-    subgraph "Observability"
-        MET[Metrics Collector]
-        FE[File Exporter]
-        OT[OTLP Exporter]
+        N[SchemaPin]
+        O[AgentPin]
+        SK[Threat Scanner]
     end
 
     C --> S
@@ -162,111 +142,74 @@ graph TB
     R --> MM
     C --> J
     C --> M
-    C --> SK
     J --> K
     J --> L
     J --> MD
     M --> N
-    M --> O
-    C --> P
-    C --> MET
-    MET --> FE
-    MET --> OT
+    C --> O
+    C --> SK
 ```
 
 ---
 
-## Casos de Uso
+## Modelo de seguridad
 
-### Desarrollo e Investigacion
-- Generacion segura de codigo y pruebas automatizadas
-- Experimentos de colaboracion multi-agente
-- Desarrollo de sistemas de IA conscientes del contexto
+Symbiont esta diseñado en torno a un principio simple: **la salida del modelo nunca debe ser confiada como autoridad de ejecucion.**
 
-### Aplicaciones Criticas de Privacidad
-- Procesamiento de datos de salud con controles de privacidad
-- Automatizacion de servicios financieros con capacidades de auditoria
-- Sistemas gubernamentales y de defensa con caracteristicas de seguridad
+Las acciones fluyen a traves de controles del runtime:
 
----
+- **Confianza cero** — todas las entradas de agentes son no confiables por defecto
+- **Verificaciones de politica** — autorizacion Cedar antes de cada llamada a herramienta y acceso a recursos
+- **Verificacion de herramientas** — verificacion criptografica SchemaPin de esquemas de herramientas
+- **Limites de sandbox** — aislamiento Docker para ejecucion no confiable
+- **Aprobacion del operador** — compuertas de revision humana para acciones sensibles
+- **Control de secretos** — backends Vault/OpenBao, almacenamiento local cifrado, namespaces de agentes
+- **Registro de auditoria** — registros criptograficamente a prueba de manipulacion de cada decision
 
-## Estado del Proyecto
-
-### v1.9.0 Estable
-
-Symbiont v1.9.0 es la ultima version estable, que ofrece un framework completo de agentes de IA con capacidades de nivel de produccion:
-
-- **Integracion ToolClad**: Contratos de herramientas declarativos con carga de manifiestos, validacion de argumentos, backends HTTP/MCP proxy, inyeccion de secretos y ejecutores de sesion/navegador
-- **CLI `symbi tools`**: Aplicacion de alcance, generacion de politicas Cedar y vigilancia de recarga en caliente para manifiestos ToolClad
-- **Endurecimiento de produccion**: Canales limitados, sondas de salud, TTL de secretos, recarga de politicas Cedar, exportacion de auditoria y limitacion de velocidad
-- **Correcciones de seguridad**: Mitigacion de vectores DoS criticos, endurecimiento de validacion JWT, prevencion de fugas de variables de entorno y mejoras en el guard del sandbox
-- **Propagacion W3C Traceparent**: Propagacion de contexto de traza distribuida OpenTelemetry a traves de los limites de agentes
-
-- **Bucle de Razonamiento Agentico**: Ciclo ORGA con typestates, conversacion multi-turno, inferencia en la nube y SLM, circuit breakers, diario durable y puente de conocimiento
-- **Primitivas de Razonamiento Avanzado** (`orga-adaptive`): Filtrado de perfiles de herramientas, deteccion de bucles atascados por paso, pre-carga determinista de contexto y convenciones con alcance de directorio
-- **Motor de Politicas Cedar**: Autorizacion formal via integracion del lenguaje de politicas Cedar (feature `cedar`)
-- **Inferencia LLM en la Nube**: Proveedor de inferencia en la nube compatible con OpenRouter (feature `cloud-llm`)
-- **Modo Agente Autonomo**: Una sola linea para agentes nativos de la nube con LLM + herramientas Composio (feature `standalone-agent`)
-- **Backend Vectorial LanceDB Embebido**: Busqueda vectorial sin configuracion — LanceDB por defecto, Qdrant opcional via feature flag `vector-qdrant`
-- **Pipeline de Compactacion de Contexto**: Compactacion por niveles con resumenes por LLM y conteo de tokens multi-modelo (OpenAI, Claude, Gemini, Llama, Mistral y mas)
-- **Escaner ClawHavoc**: 40 reglas de deteccion en 10 categorias de ataque con modelo de severidad de 5 niveles y lista blanca de ejecutables
-- **Integracion Composio MCP**: Conexion SSE con feature gate al servidor MCP de Composio para acceso a herramientas externas
-- **Memoria Persistente**: Memoria de agente respaldada en Markdown con hechos, procedimientos, patrones aprendidos y compactacion basada en retencion
-- **Verificacion de Webhook**: Verificacion HMAC-SHA256 y JWT con presets para GitHub, Stripe, Slack y personalizados
-- **Endurecimiento de Seguridad HTTP**: Enlace solo a loopback, listas de permitidos CORS, validacion JWT EdDSA, separacion de endpoint de salud
-- **Metricas y Telemetria**: Exportadores de archivos y OTLP con fan-out compuesto, trazado distribuido OpenTelemetry
-- **Motor de Programacion**: Ejecucion basada en cron con aislamiento de sesion, enrutamiento de entregas, colas de mensajes muertos y jitter
-- **Adaptadores de Canal**: Slack (comunidad), Microsoft Teams y Mattermost (enterprise) con firma HMAC
-- **Identidad AgentPin**: Identidad criptografica de agente via ES256 JWTs anclados a endpoints well-known
-- **Gestion de Secretos**: Backends de HashiCorp Vault, archivo cifrado y llavero del sistema operativo
-- **SDKs de JavaScript y Python**: Clientes API completos cubriendo programacion, canales, webhooks, memoria, habilidades y metricas
-
-### 🔮 Hoja de Ruta v1.7.0
-- ~~Gobernanza de comunicacion inter-agente~~ ✅ Entregado
-- ~~Inicializacion de proyecto (`symbi init`)~~ ✅ Entregado
-- Integracion de agentes externos y soporte del protocolo A2A
-- Soporte RAG multi-modal (imagenes, audio, datos estructurados)
-- Adaptadores de canal adicionales (Discord, Matrix)
+Consulte la guia del [Modelo de seguridad](/security-model) para mas detalles.
 
 ---
 
-## Comunidad
+## Guias
 
-- **Documentacion**: Guias completas y referencias de API
-  - [Referencia de API](api-reference.md)
-  - [Guia del Bucle de Razonamiento](reasoning-loop.md)
-  - [Razonamiento Avanzado (orga-adaptive)](orga-adaptive.md)
-  - [Guia de Programacion](scheduling.md)
-  - [Modulo de Entrada HTTP](http-input.md)
-  - [Guia DSL](dsl-guide.md)
-  - [Modelo de Seguridad](security-model.md)
-  - [Arquitectura del Runtime](runtime-architecture.md)
+- [Inicio](/getting-started) — Instalacion, configuracion, primer agente
+- [Modelo de seguridad](/security-model) — Arquitectura de confianza cero, aplicacion de politicas
+- [Arquitectura del runtime](/runtime-architecture) — Internos del runtime y modelo de ejecucion
+- [Bucle de razonamiento](/reasoning-loop) — Ciclo ORGA, compuertas de politicas, circuit breakers
+- [Guia DSL](/dsl-guide) — Referencia del lenguaje de definicion de agentes
+- [Referencia de API](/api-reference) — Endpoints HTTP API y configuracion
+- [Programacion](/scheduling) — Motor cron, enrutamiento de entregas, colas de mensajes muertos
+- [Entrada HTTP](/http-input) — Servidor de webhooks, autenticacion, limitacion de velocidad
+
+---
+
+## Comunidad y recursos
+
 - **Paquetes**: [crates.io/crates/symbi](https://crates.io/crates/symbi) | [npm symbiont-sdk-js](https://www.npmjs.com/package/symbiont-sdk-js) | [PyPI symbiont-sdk](https://pypi.org/project/symbiont-sdk/)
 - **Plugins**: [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) | [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli)
 - **Issues**: [GitHub Issues](https://github.com/thirdkeyai/symbiont/issues)
-- **Discusiones**: [GitHub Discussions](https://github.com/thirdkeyai/symbiont/discussions)
-- **Licencia**: Software de codigo abierto por ThirdKey
+- **Licencia**: Apache 2.0 (Community Edition)
 
 ---
 
-## Proximos Pasos
+## Proximos pasos
 
 <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
   <div class="card">
-    <h3>🚀 Comenzar</h3>
-    <p>Sigue nuestra guia de inicio para configurar tu primer entorno Symbiont.</p>
-    <a href="/getting-started" class="btn btn-outline">Guia de Inicio Rapido</a>
+    <h3>Comenzar</h3>
+    <p>Instale Symbiont y ejecute su primer agente gobernado.</p>
+    <a href="/getting-started" class="btn btn-outline">Guia de inicio rapido</a>
   </div>
 
   <div class="card">
-    <h3>📖 Aprender el DSL</h3>
-    <p>Domina el DSL de Symbiont para construir agentes conscientes de politicas.</p>
-    <a href="/dsl-guide" class="btn btn-outline">Documentacion DSL</a>
+    <h3>Modelo de seguridad</h3>
+    <p>Comprenda los limites de confianza y la aplicacion de politicas.</p>
+    <a href="/security-model" class="btn btn-outline">Guia de seguridad</a>
   </div>
 
   <div class="card">
-    <h3>🏗️ Arquitectura</h3>
-    <p>Comprende el sistema de tiempo de ejecucion y el modelo de seguridad.</p>
-    <a href="/runtime-architecture" class="btn btn-outline">Guia de Arquitectura</a>
+    <h3>Referencia DSL</h3>
+    <p>Aprenda el lenguaje de definicion de agentes.</p>
+    <a href="/dsl-guide" class="btn btn-outline">Guia DSL</a>
   </div>
 </div>

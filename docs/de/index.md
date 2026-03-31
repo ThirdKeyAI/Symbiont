@@ -1,151 +1,137 @@
+---
+nav_exclude: true
+---
+
 # Symbiont Dokumentation
 
-KI-natives Agent-Framework fuer den Aufbau autonomer, richtlinienbasierter Agenten mit Scheduling, Channel-Adaptern und kryptographischer Identitaet -- entwickelt in Rust.
-
-
----
+Richtliniengesteuertes Agenten-Runtime fuer Produktion. Fuehren Sie KI-Agenten und Tools unter expliziten Richtlinien-, Identitaets- und Audit-Kontrollen aus.
 
 ## Was ist Symbiont?
 
-Symbiont ist ein KI-natives Agent-Framework fuer den Aufbau autonomer, richtlinienbasierter Agenten, die sicher mit Menschen, anderen Agenten und grossen Sprachmodellen zusammenarbeiten. Es bietet einen vollstaendigen Produktionsstack -- von einer deklarativen DSL und einer Scheduling-Engine bis hin zu Multiplattform-Channel-Adaptern und kryptographischer Identitaetsverifikation -- alles in Rust entwickelt fuer Leistung und Sicherheit.
+Symbiont ist ein Rust-natives Runtime zur Ausfuehrung von KI-Agenten und Tools unter expliziten Richtlinien-, Identitaets- und Audit-Kontrollen.
 
-### Hauptmerkmale
+Die meisten Agenten-Frameworks konzentrieren sich auf Orchestrierung. Symbiont konzentriert sich darauf, was passiert, wenn Agenten in realen Umgebungen mit echtem Risiko laufen muessen: nicht vertrauenswuerdige Tools, sensible Daten, Genehmigungsgrenzen, Audit-Anforderungen und wiederholbare Durchsetzung.
 
-- **🛡️ Sicherheitsorientiertes Design**: Zero-Trust-Architektur mit mehrstufiger Sandbox, Richtliniendurchsetzung und kryptographischen Audit-Spuren
-- **📋 Deklarative DSL**: Zweckbestimmte Sprache zur Definition von Agenten, Richtlinien, Zeitplaenen und Channel-Integrationen mit tree-sitter-Parsing
-- **📅 Produktions-Scheduling**: Cron-basierte Aufgabenausfuehrung mit Sitzungsisolierung, Zustellungsrouting, Dead-Letter-Warteschlangen und Jitter-Unterstuetzung
-- **💬 Channel-Adapter**: Agenten mit Slack, Microsoft Teams und Mattermost verbinden -- mit Webhook-Verifizierung und Identitaetszuordnung
-- **🌐 HTTP-Eingabemodul**: Webhook-Server fuer externe Integrationen mit Bearer/JWT-Authentifizierung, Rate Limiting und CORS
-- **🔑 AgentPin-Identitaet**: Kryptographische Agent-Identitaetsverifikation ueber ES256 JWTs, verankert an Well-Known-Endpunkten
-- **🔐 Geheimnismanagement**: HashiCorp Vault-Integration mit verschluesseltem Datei- und OS-Keychain-Backend
-- **🧠 Kontext und Wissen**: RAG-verstaerkte Wissenssysteme mit Vektorsuche (LanceDB eingebettet als Standard, Qdrant optional) und optionalen lokalen Embeddings
-- **🔗 MCP-Integration**: Model Context Protocol Client mit kryptographischer SchemaPin-Tool-Verifikation
-- **⚡ Multi-Language SDKs**: JavaScript- und Python-SDKs fuer vollstaendigen API-Zugriff einschliesslich Scheduling, Channels und Enterprise-Funktionen
-- **🔄 Agentische Reasoning-Schleife**: Typestate-erzwungener Observe-Reason-Gate-Act (ORGA)-Zyklus mit Richtlinien-Gates, Circuit Breakern, dauerhaftem Journal und Wissensbruecke
-- **🧪 Erweitertes Reasoning** (`orga-adaptive`): Tool-Profilfilterung, Stuck-Loop-Erkennung, deterministischer Kontext-Pre-Fetch und verzeichnisspezifische Konventionen
-- **📜 Cedar Policy Engine**: Integration der formalen Autorisierungssprache fuer feingranulare Zugriffskontrolle
-- **🏗️ Hohe Leistung**: Rust-native Laufzeitumgebung, optimiert fuer Produktionsworkloads mit durchgehender asynchroner Ausfuehrung
-- **🤖 KI-Assistenten-Plugins**: First-Party-Governance-Plugins fuer [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) und [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli) mit Cedar-Richtliniendurchsetzung, SchemaPin-Verifikation und Audit-Spuren
+### Funktionsweise
 
-### Projektinitialisierung (`symbi init`)
+Symbiont trennt die Absicht des Agenten von der Ausfuehrungsberechtigung:
 
-Interaktives Projekt-Scaffolding mit profilbasierten Vorlagen. Waehlen Sie zwischen minimal, assistant, dev-agent oder multi-agent Profilen. Konfigurierbarer SchemaPin-Verifikationsmodus und Sandbox-Stufen. Enthaelt einen integrierten Agent-Katalog zum Importieren vorgefertigter, verwalteter Agenten. Funktioniert nicht-interaktiv fuer CI/CD-Pipelines mit `--no-interact`.
+1. **Agenten schlagen vor** — Aktionen werden ueber die Reasoning-Schleife (Observe-Reason-Gate-Act) vorgeschlagen
+2. **Das Runtime bewertet** — jede Aktion wird gegen Richtlinien-, Identitaets- und Vertrauenspruefungen evaluiert
+3. **Die Richtlinie entscheidet** — erlaubte Aktionen werden ausgefuehrt; abgelehnte werden blockiert oder zur Genehmigung weitergeleitet
+4. **Alles wird protokolliert** — manipulationssicherer Audit-Trail fuer jede Entscheidung
 
-### Einzelne Agent-Ausfuehrung (`symbi run`)
+Modellausgaben werden niemals als Ausfuehrungsberechtigung behandelt. Das Runtime kontrolliert, was tatsaechlich geschieht.
 
-Fuehren Sie einen beliebigen Agenten direkt ueber die CLI aus, ohne die vollstaendige Laufzeitumgebung zu starten:
+### Kernfaehigkeiten
 
-```bash
-symbi run recon --input '{"target": "10.0.1.5"}'
-```
+| Faehigkeit | Beschreibung |
+|-----------|-------------|
+| **Richtlinien-Engine** | Feingranulare [Cedar](https://www.cedarpolicy.com/)-Autorisierung fuer Agentenaktionen, Tool-Aufrufe und Ressourcenzugriff |
+| **Tool-Verifikation** | [SchemaPin](https://schemapin.org) kryptographische Verifikation von MCP-Tool-Schemas vor der Ausfuehrung |
+| **Agenten-Identitaet** | [AgentPin](https://agentpin.org) domainverankerte ES256-Identitaet fuer Agenten und geplante Aufgaben |
+| **Reasoning-Schleife** | Typestate-erzwungener Observe-Reason-Gate-Act-Zyklus mit Richtlinien-Gates und Circuit Breakern |
+| **Sandboxing** | Docker-basierte Isolation mit Ressourcenlimits fuer nicht vertrauenswuerdige Workloads |
+| **Audit-Protokollierung** | Manipulationssichere Protokolle mit strukturierten Eintraegen fuer jede Richtlinienentscheidung |
+| **Geheimnismanagement** | Vault/OpenBao-Integration, AES-256-GCM-verschluesselter Speicher, pro Agent isoliert |
+| **MCP-Integration** | Nativer Model Context Protocol-Support mit gesteuertem Tool-Zugriff |
 
-Laedt die Agenten-DSL, richtet die ORGA-Reasoning-Schleife mit Cloud-Inferenz ein, fuehrt aus, gibt die Ergebnisse aus und beendet sich. Loest Agentennamen automatisch aus dem `agents/`-Verzeichnis auf.
-
-### Inter-Agent-Kommunikations-Governance
-
-Alle Inter-Agent-Builtins (`ask`, `delegate`, `send_to`, `parallel`, `race`) werden ueber den CommunicationBus mit Richtlinienbewertung geleitet. Das `CommunicationPolicyGate` erzwingt Cedar-Stil-Regeln fuer Inter-Agent-Aufrufe -- kontrolliert, welche Agenten kommunizieren duerfen, mit prioritaetsbasierter Regelbewertung und hartem Deny bei Richtlinienverletzungen. Nachrichten werden kryptographisch signiert, verschluesselt und auditiert.
+Weitere Faehigkeiten: Bedrohungsscan fuer Tool-/Skill-Inhalte, Cron-Scheduling, persistenter Agenten-Speicher, hybride RAG-Suche (LanceDB/Qdrant), Webhook-Verifikation, Zustellungsrouting, OTLP-Telemetrie, HTTP-Sicherheitshaertung, Channel-Adapter (Slack/Teams/Mattermost) sowie Governance-Plugins fuer [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) und [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli).
 
 ---
 
-## Erste Schritte
+## Schnellstart
 
-### Schnellinstallation
+### Installation
 
+**Installationsskript (macOS / Linux):**
 ```bash
-# Repository klonen
+curl -fsSL https://symbiont.dev/install.sh | bash
+```
+
+**Homebrew (macOS):**
+```bash
+brew tap thirdkeyai/tap
+brew install symbi
+```
+
+**Docker:**
+```bash
+docker run --rm -p 8080:8080 -p 8081:8081 ghcr.io/thirdkeyai/symbi:latest up
+```
+
+**Aus dem Quellcode:**
+```bash
 git clone https://github.com/thirdkeyai/symbiont.git
 cd symbiont
-
-# Einheitlichen symbi-Container erstellen
-docker build -t symbi:latest .
-
-# Oder vorgefertigten Container verwenden
-docker pull ghcr.io/thirdkeyai/symbi:latest
-
-# System testen
-cargo test
-
-# Einheitliche CLI testen
-docker run --rm symbi:latest --version
-docker run --rm -v $(pwd):/workspace symbi:latest dsl parse --help
-docker run --rm symbi:latest mcp --help
+cargo build --release
 ```
+
+Vorkompilierte Binaerdateien sind auch ueber [GitHub Releases](https://github.com/thirdkeyai/symbiont/releases) verfuegbar. Weitere Details finden Sie im [Einstiegsleitfaden](/getting-started).
 
 ### Ihr erster Agent
 
-```rust
-metadata {
-    version = "1.0.0"
-    author = "developer"
-    description = "Simple analysis agent"
-}
-
-agent analyze_data(input: DataSet) -> Result {
-    capabilities = ["data_analysis"]
-
-    policy secure_analysis {
-        allow: read(input) if input.anonymized == true
-        deny: store(input) if input.contains_pii == true
-        audit: all_operations with signature
+```symbiont
+agent secure_analyst(input: DataSet) -> Result {
+    policy access_control {
+        allow: read(input) if input.verified == true
+        deny: send_email without approval
+        audit: all_operations
     }
 
-    with memory = "ephemeral", privacy = "high" {
-        if (validate_input(input)) {
-            result = process_data(input);
-            audit_log("analysis_completed", result.metadata);
-            return result;
-        } else {
-            return reject("Invalid input data");
-        }
+    with memory = "persistent", requires = "approval" {
+        result = analyze(input);
+        return result;
     }
 }
 ```
 
+Die vollstaendige Grammatik einschliesslich `metadata`-, `schedule`-, `webhook`- und `channel`-Bloecke finden Sie im [DSL-Leitfaden](/dsl-guide).
+
+### Projekt-Scaffolding
+
+```bash
+symbi init        # Interaktives Projekt-Setup mit Profilvorlagen
+symbi run agent   # Einzelnen Agenten ausfuehren ohne das volle Runtime zu starten
+symbi up          # Volles Runtime mit Auto-Konfiguration starten
+```
+
 ---
 
-## Architektur-Uebersicht
+## Architektur
 
 ```mermaid
 graph TB
-    A[Governance- und Richtlinien-Schicht] --> B[Kern-Rust-Engine]
-    B --> C[Agent-Framework]
-    B --> D[Tree-sitter DSL-Engine]
-    B --> E[Multi-Tier-Sandbox]
-    E --> F[Docker - Niedriges Risiko]
-    E --> G[gVisor - Mittleres/Hohes Risiko]
-    B --> I[Kryptographische Audit-Spur]
+    A[Policy Engine — Cedar] --> B[Core Runtime]
+    B --> C[Reasoning Loop — ORGA]
+    B --> D[DSL Parser]
+    B --> E[Sandbox — Docker]
+    B --> I[Audit Trail]
 
-    subgraph "Scheduling und Ausfuehrung"
-        S[Cron-Scheduler]
-        H[Sitzungsisolierung]
-        R[Zustellungsrouter]
+    subgraph "Scheduling"
+        S[Cron Scheduler]
+        H[Session Isolation]
+        R[Delivery Router]
     end
 
-    subgraph "Channel-Adapter"
+    subgraph "Channels"
         SL[Slack]
         TM[Teams]
         MM[Mattermost]
     end
 
-    subgraph "Kontext und Wissen"
-        J[Kontext-Manager]
-        K[Vektor-Datenbank]
-        L[RAG-Engine]
-        MD[Markdown-Speicher]
+    subgraph "Knowledge"
+        J[Context Manager]
+        K[Vector Search]
+        L[RAG Engine]
+        MD[Agent Memory]
     end
 
-    subgraph "Sichere Integrationen"
-        M[MCP-Client]
-        N[SchemaPin-Verifikation]
-        O[Richtlinien-Engine]
-        P[AgentPin-Identitaet]
-        SK[Skill-Scanner]
-    end
-
-    subgraph "Beobachtbarkeit"
-        MET[Metriken-Sammler]
-        FE[Datei-Exporter]
-        OT[OTLP-Exporter]
+    subgraph "Trust Stack"
+        M[MCP Client]
+        N[SchemaPin]
+        O[AgentPin]
+        SK[Threat Scanner]
     end
 
     C --> S
@@ -156,82 +142,53 @@ graph TB
     R --> MM
     C --> J
     C --> M
-    C --> SK
     J --> K
     J --> L
     J --> MD
     M --> N
-    M --> O
-    C --> P
-    C --> MET
-    MET --> FE
-    MET --> OT
+    C --> O
+    C --> SK
 ```
 
 ---
 
-## Anwendungsfaelle
+## Sicherheitsmodell
 
-### Entwicklung und Forschung
-- Sichere Code-Generierung und automatisierte Tests
-- Multi-Agent-Kollaborationsexperimente
-- Kontextbewusste KI-Systementwicklung
+Symbiont ist um ein einfaches Prinzip herum konzipiert: **Modellausgaben sollten niemals als Ausfuehrungsberechtigung vertraut werden.**
 
-### Datenschutzkritische Anwendungen
-- Gesundheitsdatenverarbeitung mit Datenschutzkontrollen
-- Finanzdienstleistungsautomatisierung mit Audit-Funktionen
-- Regierungs- und Verteidigungssysteme mit Sicherheitsfeatures
+Aktionen durchlaufen Runtime-Kontrollen:
 
----
+- **Zero Trust** — alle Agenteneingaben sind standardmaessig nicht vertrauenswuerdig
+- **Richtlinienpruefungen** — Cedar-Autorisierung vor jedem Tool-Aufruf und Ressourcenzugriff
+- **Tool-Verifikation** — SchemaPin kryptographische Verifikation von Tool-Schemas
+- **Sandbox-Grenzen** — Docker-Isolation fuer nicht vertrauenswuerdige Ausfuehrung
+- **Operator-Genehmigung** — menschliche Ueberpruefungs-Gates fuer sensible Aktionen
+- **Geheimnis-Kontrolle** — Vault/OpenBao-Backends, verschluesselter lokaler Speicher, Agenten-Namespaces
+- **Audit-Protokollierung** — kryptographisch manipulationssichere Eintraege fuer jede Entscheidung
 
-## Projektstatus
-
-### v1.9.0 Stabil
-
-Symbiont v1.9.0 ist die neueste stabile Version und bietet ein vollstaendiges KI-Agent-Framework mit produktionsreifen Funktionen:
-
-- **ToolClad-Integration**: Deklarative Tool-Vertraege mit Manifest-Laden, Argument-Validierung, HTTP/MCP-Proxy-Backends, Secrets-Injection und Session-/Browser-Executors
-- **`symbi tools`-CLI**: Scope-Durchsetzung, Cedar-Policy-Generierung und Hot-Reload-Dateiueberwachung fuer ToolClad-Manifeste
-- **Produktionshaertung**: Begrenzte Kanaele, Health-Probes, Secrets-TTL, Cedar-Policy-Reload, Audit-Export und Rate-Limiting
-- **Sicherheitskorrekturen**: Kritische DoS-Vektor-Mitigierung, JWT-Validierungshaertung, Umgebungsvariablen-Leak-Praevention und Sandbox-Guard-Verbesserungen
-- **W3C-Traceparent-Propagierung**: OpenTelemetry Distributed-Trace-Kontext-Propagierung ueber Agentengrenzen hinweg
-- **Agentische Reasoning-Schleife**: Typestate-erzwungener ORGA-Zyklus mit Multi-Turn-Konversation, Cloud- und SLM-Inferenz, Circuit Breakern, dauerhaftem Journal und Wissensbruecke
-- **Erweiterte Reasoning-Primitiven** (`orga-adaptive`): Tool-Profilfilterung, schrittweise Stuck-Loop-Erkennung, deterministischer Kontext-Pre-Fetch und verzeichnisspezifische Konventionen
-- **Cedar Policy Engine**: Formale Autorisierung ueber Cedar-Richtliniensprachen-Integration (`cedar` Feature)
-- **Cloud-LLM-Inferenz**: OpenRouter-kompatible Cloud-Inferenz (`cloud-llm` Feature)
-- **Standalone Agent-Modus**: Einzeiler fuer Cloud-native Agenten mit LLM + Composio-Tools (`standalone-agent` Feature)
-- **LanceDB Eingebettetes Vektor-Backend**: Konfigurationsfreie Vektorsuche -- LanceDB als Standard, Qdrant optional ueber `vector-qdrant` Feature Flag
-- **Kontext-Kompaktierungspipeline**: Gestufte Kompaktierung mit LLM-Zusammenfassung und Multi-Modell-Token-Zaehlung (OpenAI, Claude, Gemini, Llama, Mistral und mehr)
-- **ClawHavoc-Scanner**: 40 Erkennungsregeln in 10 Angriffskategorien mit 5-stufigem Schweregrad-Modell und ausfuehrbarer Whitelisting
-- **Composio MCP-Integration**: Feature-gated SSE-basierte Verbindung zum Composio MCP-Server fuer externen Tool-Zugriff
-- **Persistenter Speicher**: Markdown-basierter Agent-Speicher mit Fakten, Prozeduren, gelernten Mustern und aufbewahrungsbasierter Kompaktierung
-- **Webhook-Verifizierung**: HMAC-SHA256- und JWT-Verifizierung mit GitHub-, Stripe-, Slack- und benutzerdefinierten Presets
-- **HTTP-Sicherheitshaertung**: Loopback-only-Bindung, CORS-Allowlists, JWT EdDSA-Validierung, Health-Endpunkt-Trennung
-- **Metriken und Telemetrie**: Datei- und OTLP-Exporter mit Composite-Fan-Out, OpenTelemetry Distributed Tracing
-- **Scheduling-Engine**: Cron-basierte Ausfuehrung mit Sitzungsisolierung, Zustellungsrouting, Dead-Letter-Warteschlangen und Jitter
-- **Channel-Adapter**: Slack (Community), Microsoft Teams und Mattermost (Enterprise) mit HMAC-Signierung
-- **AgentPin-Identitaet**: Kryptographische Agent-Identitaet ueber ES256 JWTs, verankert an Well-Known-Endpunkten
-- **Geheimnismanagement**: HashiCorp Vault, verschluesselte Datei- und OS-Keychain-Backends
-- **JavaScript- und Python-SDKs**: Vollstaendige API-Clients fuer Scheduling, Channels, Webhooks, Speicher, Skills und Metriken
+Weitere Details finden Sie im Leitfaden zum [Sicherheitsmodell](/security-model).
 
 ---
 
-## Community
+## Leitfaeden
 
-- **Dokumentation**: Umfassende Leitfaeden und API-Referenzen
-  - [API-Referenz](api-reference.md)
-  - [Reasoning-Loop-Leitfaden](reasoning-loop.md)
-  - [Erweitertes Reasoning (orga-adaptive)](orga-adaptive.md)
-  - [Scheduling-Leitfaden](scheduling.md)
-  - [HTTP-Eingabemodul](http-input.md)
-  - [DSL-Leitfaden](dsl-guide.md)
-  - [Sicherheitsmodell](security-model.md)
-  - [Laufzeit-Architektur](runtime-architecture.md)
+- [Einstieg](/getting-started) — Installation, Konfiguration, erster Agent
+- [Sicherheitsmodell](/security-model) — Zero-Trust-Architektur, Richtliniendurchsetzung
+- [Runtime-Architektur](/runtime-architecture) — Runtime-Interna und Ausfuehrungsmodell
+- [Reasoning-Schleife](/reasoning-loop) — ORGA-Zyklus, Richtlinien-Gates, Circuit Breaker
+- [DSL-Leitfaden](/dsl-guide) — Referenz der Agenten-Definitionssprache
+- [API-Referenz](/api-reference) — HTTP-API-Endpunkte und Konfiguration
+- [Scheduling](/scheduling) — Cron-Engine, Zustellungsrouting, Dead-Letter-Warteschlangen
+- [HTTP-Eingabe](/http-input) — Webhook-Server, Authentifizierung, Rate Limiting
+
+---
+
+## Community und Ressourcen
+
 - **Pakete**: [crates.io/crates/symbi](https://crates.io/crates/symbi) | [npm symbiont-sdk-js](https://www.npmjs.com/package/symbiont-sdk-js) | [PyPI symbiont-sdk](https://pypi.org/project/symbiont-sdk/)
 - **Plugins**: [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) | [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli)
 - **Issues**: [GitHub Issues](https://github.com/thirdkeyai/symbiont/issues)
-- **Diskussionen**: [GitHub Discussions](https://github.com/thirdkeyai/symbiont/discussions)
-- **Lizenz**: Open Source Software von ThirdKey
+- **Lizenz**: Apache 2.0 (Community Edition)
 
 ---
 
@@ -239,20 +196,20 @@ Symbiont v1.9.0 ist die neueste stabile Version und bietet ein vollstaendiges KI
 
 <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
   <div class="card">
-    <h3>🚀 Beginnen</h3>
-    <p>Folgen Sie unserem Einstiegsleitfaden, um Ihre erste Symbiont-Umgebung einzurichten.</p>
+    <h3>Loslegen</h3>
+    <p>Installieren Sie Symbiont und fuehren Sie Ihren ersten gesteuerten Agenten aus.</p>
     <a href="/getting-started" class="btn btn-outline">Schnellstart-Leitfaden</a>
   </div>
 
   <div class="card">
-    <h3>📖 DSL lernen</h3>
-    <p>Meistern Sie die Symbiont DSL fuer den Aufbau richtlinienbasierter Agenten.</p>
-    <a href="/dsl-guide" class="btn btn-outline">DSL-Dokumentation</a>
+    <h3>Sicherheitsmodell</h3>
+    <p>Verstehen Sie die Vertrauensgrenzen und Richtliniendurchsetzung.</p>
+    <a href="/security-model" class="btn btn-outline">Sicherheitsleitfaden</a>
   </div>
 
   <div class="card">
-    <h3>🏗️ Architektur</h3>
-    <p>Verstehen Sie das Laufzeitsystem und Sicherheitsmodell.</p>
-    <a href="/runtime-architecture" class="btn btn-outline">Architektur-Leitfaden</a>
+    <h3>DSL-Referenz</h3>
+    <p>Lernen Sie die Agenten-Definitionssprache.</p>
+    <a href="/dsl-guide" class="btn btn-outline">DSL-Leitfaden</a>
   </div>
 </div>
