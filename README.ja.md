@@ -9,85 +9,93 @@
 
 ---
 
-## 🚀 Symbiontとは？
+**本番環境向けポリシー制御エージェントランタイム。**
 
-**Symbi** は自律的でポリシー対応の AI エージェントを構築するための **Rust ネイティブ、ゼロトラストエージェントフレームワーク**です。
-LangChain や AutoGPT などの既存フレームワークの最大の欠陥を、以下に焦点を当てることで修正します：
+Symbiont は、明示的なポリシー、アイデンティティ、監査制御の下で AI エージェント、ツール、ワークフローを実行するための Rust ネイティブランタイムです。
 
-* **セキュリティファースト**：暗号化監査証跡、強制ポリシー、サンドボックス化。
-* **ゼロトラスト**：すべての入力はデフォルトで信頼できないものとして扱われます。
-* **エンタープライズグレードコンプライアンス**：規制業界（HIPAA、SOC2、金融）向けに設計。
-
-Symbiont エージェントは人間、ツール、LLM と安全に協働します — セキュリティやパフォーマンスを犠牲にすることなく。
+多くのエージェントフレームワークはオーケストレーションに注力しています。Symbiont は、エージェントが実際のリスクを伴う実環境で動作する場面に注力しています：信頼されていないツール、機密データ、承認境界、監査要件、再現可能な適用。
 
 ---
 
-## ⚡ なぜ Symbiont？
+## なぜ Symbiont か
 
-| 機能         | Symbiont                          | LangChain      | AutoGPT   |
-| ------------ | --------------------------------- | -------------- | --------- |
-| 言語         | Rust（安全性、パフォーマンス）    | Python         | Python    |
-| セキュリティ | ゼロトラスト、暗号化監査          | 最小限         | なし      |
-| ポリシーエンジン | 組み込み DSL                  | 限定的         | なし      |
-| デプロイメント | REPL、Docker、HTTP API         | Python スクリプト | CLI ハック |
-| 監査証跡     | 暗号化ログ                        | なし           | なし      |
+AI エージェントはデモは簡単ですが、信頼を得るのは難しいものです。
+
+エージェントがツールの呼び出し、ファイルへのアクセス、メッセージの送信、外部サービスの呼び出しを行えるようになると、プロンプトとグルーコードだけでは不十分です。必要なのは：
+
+* **ポリシー適用** — エージェントに許可される操作の制御 — 組み込み DSL と [Cedar](https://www.cedarpolicy.com/) 認可
+* **ツール検証** — 盲目的な信頼に頼らない実行 — [SchemaPin](https://github.com/ThirdKeyAI/SchemaPin) による MCP ツールの暗号化検証
+* **エージェントアイデンティティ** — 誰が操作しているかの把握 — [AgentPin](https://github.com/ThirdKeyAI/AgentPin) ドメイン固定 ES256 アイデンティティ
+* **サンドボックス化** — リスクの高いワークロードの隔離 — リソース制限付き Docker 隔離
+* **監査証跡** — 何が起こり、なぜ起こったかの記録 — 暗号化的に改ざん防止されたログ
+* **レビューワークフロー** — 承認が必要なアクションへの対応 — 推論ループ内の人間による承認ゲート
+
+Symbiont はそのレイヤーのために構築されています。
 
 ---
 
-## 🏁 クイックスタート
+## クイックスタート
 
 ### 前提条件
 
 * Docker（推奨）または Rust 1.82+
 * 外部ベクターデータベース不要（LanceDB 組み込み済み。スケールデプロイメントには Qdrant もオプションで利用可能）
 
-### ビルド済みコンテナで実行
+### Docker で実行
 
 ```bash
-# エージェント DSL ファイルを解析
-docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest dsl parse /workspace/agent.dsl
+# ランタイムを起動（API: :8080、HTTP 入力: :8081）
+docker run --rm -p 8080:8080 -p 8081:8081 ghcr.io/thirdkeyai/symbi:latest up
 
-# MCP Server を実行
+# MCP サーバーのみ実行
 docker run --rm -p 8080:8080 ghcr.io/thirdkeyai/symbi:latest mcp
 
-# インタラクティブ開発シェル
-docker run --rm -it -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest bash
+# エージェント DSL ファイルを解析
+docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest dsl parse /workspace/agent.dsl
 ```
 
 ### ソースからビルド
 
 ```bash
-# 開発環境をビルド
-docker build -t symbi:latest .
-docker run --rm -it -v $(pwd):/workspace symbi:latest bash
-
-# 統合バイナリをビルド
 cargo build --release
+./target/release/symbi --help
 
-# REPL を実行
+# ランタイムを実行
+cargo run -- up
+
+# インタラクティブ REPL
 cargo run -- repl
-
-# DSL を解析して MCP を実行
-cargo run -- dsl parse my_agent.dsl
-cargo run -- mcp --port 8080
 ```
 
----
-
-## 🔧 主要機能
-
-* ✅ **DSL 文法** – 組み込みセキュリティポリシーでエージェントを宣言的に定義。
-* ✅ **エージェントランタイム** – タスクスケジューリング、リソース管理、ライフサイクル制御。
-* 🔒 **サンドボックス化** – エージェント実行のための Tier-1 Docker 隔離。
-* 🔒 **SchemaPin セキュリティ** – ツールとスキーマの暗号化検証。
-* 🔒 **シークレット管理** – HashiCorp Vault / OpenBao 統合、AES-256-GCM 暗号化ストレージ。
-* 📊 **RAG エンジン** – ハイブリッドセマンティック + キーワード検索によるベクター検索（LanceDB 組み込み）。スケールデプロイメント向けに Qdrant バックエンドもオプションで対応。
-* 🧩 **MCP 統合** – モデルコンテキストプロトコルツールのネイティブサポート。
-* 📡 **オプション HTTP API** – 外部統合のための機能ゲート REST インターフェース。
+> 本番デプロイメントの場合は、信頼されていないツール実行を有効にする前に `SECURITY.md` と[デプロイメントガイド](https://docs.symbiont.dev/getting-started)を確認してください。
 
 ---
 
-## 📐 Symbiont DSL 例
+## 仕組み
+
+Symbiont はエージェントの意図と実行権限を分離します：
+
+1. **エージェントが提案** — ORGA 推論ループ（Observe-Reason-Gate-Act）を通じてアクションを提案
+2. **ランタイムが評価** — 各アクションをポリシー、アイデンティティ、信頼チェックに照らして評価
+3. **ポリシーが決定** — 許可されたアクションは実行され、拒否されたアクションはブロックまたは承認にルーティング
+4. **すべてが記録** — すべての決定に対する改ざん防止監査証跡
+
+これにより、モデル出力が実行権限として扱われることはありません。ランタイムが実際に何が起こるかを制御します。
+
+### 例：信頼されていないツールがポリシーによりブロックされる
+
+エージェントが未検証の MCP ツールを呼び出そうとします。ランタイムは：
+
+1. SchemaPin 検証ステータスを確認 — ツール署名が存在しないか無効
+2. Cedar ポリシーを評価 — `forbid(action == Action::"tool_call") when { !resource.verified }`
+3. 実行をブロックし、完全なコンテキストとともに拒否をログに記録
+4. オプションで、手動承認のためにオペレーターにルーティング
+
+コード変更は不要です。ポリシーが実行を制御します。
+
+---
+
+## DSL 例
 
 ```symbiont
 metadata {
@@ -98,13 +106,13 @@ metadata {
 
 agent analyze_data(input: DataSet) -> Result {
     capabilities = ["data_analysis", "visualization"]
-    
+
     policy data_privacy {
         allow: read(input) if input.anonymized == true
         deny: store(input) if input.contains_pii == true
         audit: all_operations
     }
-    
+
     with memory = "persistent", requires = "approval" {
         if (llm_check_safety(input)) {
             result = analyze(input);
@@ -118,53 +126,90 @@ agent analyze_data(input: DataSet) -> Result {
 
 ---
 
-## 🔒 セキュリティモデル
+## コア機能
 
-* **ゼロトラスト** – すべてのエージェント入力はデフォルトで信頼できません。
-* **サンドボックス実行** – プロセスの Docker ベース封じ込め。
-* **監査ログ** – 暗号化的に改ざん防止されたログ。
-* **シークレット制御** – Vault/OpenBao バックエンド、暗号化ローカルストレージ、エージェント名前空間。
+| 機能 | 説明 |
+|-----------|-------------|
+| **Cedar ポリシーエンジン** | エージェントアクション、ツール呼び出し、リソースアクセスに対するきめ細かな認可 |
+| **SchemaPin 検証** | 実行前の MCP ツールスキーマの暗号化検証 |
+| **AgentPin アイデンティティ** | エージェントおよびスケジュールタスク向けのドメイン固定 ES256 アイデンティティ |
+| **ORGA 推論ループ** | ポリシーゲートとサーキットブレーカーを備えた型状態強制の Observe-Reason-Gate-Act サイクル |
+| **サンドボックス化** | 信頼されていないワークロード向けのリソース制限付き Docker ベース隔離 |
+| **監査ログ** | すべてのポリシー決定に対する構造化レコード付き改ざん防止ログ |
+| **ClawHavoc スキャン** | 10 の攻撃カテゴリにわたる 40 のルールによるスキル/ツールコンテンツ分析 |
+| **シークレット管理** | Vault/OpenBao 統合、AES-256-GCM 暗号化ストレージ、エージェントごとのスコープ |
+| **Cron スケジューリング** | ジッター、同時実行ガード、デッドレターキュー付き SQLite バックドスケジューラー |
+| **永続メモリ** | ファクト抽出、手順、コンパクション付き Markdown バックドエージェントメモリ |
+| **RAG エンジン** | LanceDB（組み込み）または Qdrant（スケール）によるハイブリッドセマンティック + キーワード検索 |
+| **MCP 統合** | ガバナンス付きツールアクセスを備えたネイティブ Model Context Protocol サポート |
+| **Webhook 検証** | GitHub、Stripe、Slack プリセット付き HMAC-SHA256 および JWT 検証 |
+| **配信ルーティング** | エージェント出力を Webhook、Slack、メール、カスタムチャネルにルーティング |
+| **メトリクスとテレメトリ** | 推論ループ向け OpenTelemetry トレーシングスパン付き OTLP エクスポート |
+| **HTTP セキュリティ** | ループバック限定バインド、CORS 許可リスト、JWT EdDSA 検証、エージェントごとの API キー |
+| **AI アシスタントプラグイン** | [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) および [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli) 向けガバナンスプラグイン |
+
+パフォーマンス：ポリシー評価 <1ms、ECDSA P-256 検証 <5ms、10k エージェントスケジューリングで CPU オーバーヘッド <2%。[ベンチマーク](crates/runtime/benches/performance_claims.rs)および[閾値テスト](crates/runtime/tests/performance_claims.rs)を参照。
 
 ---
 
-## 📚 ドキュメント
+## セキュリティモデル
+
+Symbiont はシンプルな原則に基づいて設計されています：**モデル出力は実行権限として信頼されるべきではない。**
+
+アクションはランタイム制御を通過します：
+
+* **ゼロトラスト** — すべてのエージェント入力はデフォルトで信頼されない
+* **ポリシーチェック** — すべてのツール呼び出しとリソースアクセスの前に Cedar 認可
+* **ツール検証** — SchemaPin によるツールスキーマの暗号化検証
+* **サンドボックス境界** — 信頼されていない実行のための Docker 隔離
+* **オペレーター承認** — 機密アクションに対する人間による承認ゲート
+* **シークレット制御** — Vault/OpenBao バックエンド、暗号化ローカルストレージ、エージェント名前空間
+* **監査ログ** — すべての決定の暗号化的改ざん防止レコード
+
+信頼されていないコードやリスクの高いツールを実行する場合、脆弱なローカル実行モデルだけを境界として頼るべきではありません。[`SECURITY.md`](SECURITY.md) と[セキュリティモデルドキュメント](https://docs.symbiont.dev/security-model)を参照してください。
+
+---
+
+## ワークスペース
+
+| クレート | 説明 |
+|-------|-------------|
+| `symbi` | 統合 CLI バイナリ |
+| `symbi-runtime` | コアエージェントランタイムおよび実行エンジン |
+| `symbi-dsl` | DSL パーサーおよびエバリュエーター |
+| `symbi-channel-adapter` | Slack/Teams/Mattermost アダプター |
+| `repl-core` / `repl-proto` / `repl-cli` | インタラクティブ REPL および JSON-RPC サーバー |
+| `repl-lsp` | Language Server Protocol サポート |
+| `symbi-a2ui` | 管理ダッシュボード（Lit/TypeScript、アルファ版） |
+
+ガバナンスプラグイン: [`symbi-claude-code`](https://github.com/thirdkeyai/symbi-claude-code) | [`symbi-gemini-cli`](https://github.com/thirdkeyai/symbi-gemini-cli)
+
+---
+
+## ドキュメント
 
 * [はじめに](https://docs.symbiont.dev/getting-started)
-* [DSL ガイド](https://docs.symbiont.dev/dsl-guide)
-* [ランタイムアーキテクチャ](https://docs.symbiont.dev/runtime-architecture)
 * [セキュリティモデル](https://docs.symbiont.dev/security-model)
+* [ランタイムアーキテクチャ](https://docs.symbiont.dev/runtime-architecture)
+* [推論ループガイド](https://docs.symbiont.dev/reasoning-loop)
+* [DSL ガイド](https://docs.symbiont.dev/dsl-guide)
 * [API リファレンス](https://docs.symbiont.dev/api-reference)
+* [高度な推論プリミティブ](https://docs.symbiont.dev/orga-adaptive)
+
+本番環境での Symbiont の導入を検討している場合は、セキュリティモデルとはじめにドキュメントから始めてください。
 
 ---
 
-## 🎯 使用例
+## ライセンス
 
-* **開発と自動化**
-
-  * 安全なコード生成とリファクタリング。
-  * 強制ポリシーによる AI エージェントデプロイメント。
-  * セマンティック検索による知識管理。
-
-* **エンタープライズと規制業界**
-
-  * ヘルスケア（HIPAA 準拠処理）。
-  * 金融（監査対応ワークフロー）。
-  * 政府（機密コンテキスト処理）。
-  * 法務（機密文書分析）。
-
----
-
-## 📄 ライセンス
-
-* **Community エディション**：Apache 2.0 ライセンス
-* **Enterprise エディション**：商用ライセンスが必要
+* **Community エディション**（Apache 2.0）：コアランタイム、DSL、ORGA 推論ループ、Cedar ポリシーエンジン、SchemaPin/AgentPin 検証、Docker サンドボックス化、永続メモリ、Cron スケジューリング、MCP 統合、RAG（LanceDB）、監査ログ、Webhook 検証、ClawHavoc スキルスキャン、すべての CLI/REPL ツール。
+* **Enterprise エディション**（商用ライセンス）：マルチティアサンドボックス化（gVisor、Firecracker、E2B）、コンプライアンスエクスポート付き暗号化監査証跡（HIPAA、SOX、PCI-DSS）、AI 駆動ツールレビューおよび脅威検出、暗号化マルチエージェント協調、リアルタイム監視ダッシュボード、専用サポート。詳細は [`enterprise/README.md`](enterprise/README.md) を参照。
 
 エンタープライズライセンスについては [ThirdKey](https://thirdkey.ai) にお問い合わせください。
 
 ---
 
-*Symbiont は、インテリジェントなポリシー適用、暗号化検証、包括的な監査証跡を通じて、AI エージェントと人間の安全な協働を可能にします。*
-
+*同じエージェント。安全なランタイム。*
 
 <div align="right">
   <img src="symbi-trans.png" alt="Symbi ロゴ" width="120">

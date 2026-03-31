@@ -9,85 +9,93 @@
 
 ---
 
-## 🚀 ¿Qué es Symbiont?
+**Runtime de agentes gobernado por políticas para producción.**
 
-**Symbi** es un **framework de agentes nativo de Rust con confianza cero** para construir agentes de IA autónomos y conscientes de políticas.
-Soluciona las mayores fallas de los frameworks existentes como LangChain y AutoGPT al enfocarse en:
+Symbiont es un runtime nativo de Rust para ejecutar agentes de IA, herramientas y flujos de trabajo bajo controles explícitos de políticas, identidad y auditoría.
 
-* **Seguridad primero**: rastros de auditoría criptográficos, políticas aplicadas y sandboxing.
-* **Confianza cero**: todas las entradas se tratan como no confiables por defecto.
-* **Cumplimiento de nivel empresarial**: diseñado para industrias reguladas (HIPAA, SOC2, finanzas).
-
-Los agentes Symbiont colaboran de forma segura con humanos, herramientas y LLMs — sin sacrificar seguridad o rendimiento.
+La mayoría de los frameworks de agentes se centran en la orquestación. Symbiont se centra en lo que sucede cuando los agentes necesitan ejecutarse en entornos reales con riesgo real: herramientas no confiables, datos sensibles, límites de aprobación, requisitos de auditoría y aplicación repetible de reglas.
 
 ---
 
-## ⚡ ¿Por qué Symbiont?
+## Por qué Symbiont
 
-| Característica | Symbiont                            | LangChain      | AutoGPT   |
-| -------------- | ----------------------------------- | -------------- | --------- |
-| Lenguaje       | Rust (seguridad, rendimiento)      | Python         | Python    |
-| Seguridad      | Confianza cero, auditoría cripto    | Mínima         | Ninguna   |
-| Motor Políticas| DSL integrado                       | Limitado       | Ninguno   |
-| Despliegue     | REPL, Docker, HTTP API             | Scripts Python | Hacks CLI |
-| Rastros Auditoría | Logs criptográficos              | No             | No        |
+Los agentes de IA son fáciles de demostrar y difíciles de confiar.
+
+Una vez que un agente puede llamar herramientas, acceder a archivos, enviar mensajes o invocar servicios externos, necesitas más que prompts y código improvisado. Necesitas:
+
+* **Aplicación de políticas** para lo que un agente puede hacer — DSL integrado y autorización [Cedar](https://www.cedarpolicy.com/)
+* **Verificación de herramientas** para que la ejecución no sea confianza ciega — verificación criptográfica de herramientas MCP con [SchemaPin](https://github.com/ThirdKeyAI/SchemaPin)
+* **Identidad de agentes** para saber quién está actuando — identidad ES256 anclada al dominio con [AgentPin](https://github.com/ThirdKeyAI/AgentPin)
+* **Sandboxing** para cargas de trabajo riesgosas — aislamiento Docker con límites de recursos
+* **Rastros de auditoría** de lo que sucedió y por qué — logs criptográficamente resistentes a manipulación
+* **Flujos de revisión** para acciones que requieren aprobación — puertas de supervisión humana en el ciclo de razonamiento
+
+Symbiont está construido para esa capa.
 
 ---
 
-## 🏁 Inicio Rápido
+## Inicio rápido
 
 ### Prerrequisitos
 
 * Docker (recomendado) o Rust 1.82+
 * No se requiere base de datos vectorial externa (LanceDB integrado; Qdrant opcional para despliegues a escala)
 
-### Ejecutar con Contenedores Pre-construidos
+### Ejecutar con Docker
 
 ```bash
-# Parsear archivo DSL de agente
-docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest dsl parse /workspace/agent.dsl
+# Iniciar el runtime (API en :8080, entrada HTTP en :8081)
+docker run --rm -p 8080:8080 -p 8081:8081 ghcr.io/thirdkeyai/symbi:latest up
 
-# Ejecutar MCP Server
+# Ejecutar solo el servidor MCP
 docker run --rm -p 8080:8080 ghcr.io/thirdkeyai/symbi:latest mcp
 
-# Shell de desarrollo interactivo
-docker run --rm -it -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest bash
+# Parsear un archivo DSL de agente
+docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest dsl parse /workspace/agent.dsl
 ```
 
-### Construir desde Código Fuente
+### Construir desde código fuente
 
 ```bash
-# Construir entorno de desarrollo
-docker build -t symbi:latest .
-docker run --rm -it -v $(pwd):/workspace symbi:latest bash
-
-# Construir binario unificado
 cargo build --release
+./target/release/symbi --help
 
-# Ejecutar REPL
+# Ejecutar el runtime
+cargo run -- up
+
+# REPL interactivo
 cargo run -- repl
-
-# Parsear DSL y ejecutar MCP
-cargo run -- dsl parse my_agent.dsl
-cargo run -- mcp --port 8080
 ```
 
----
-
-## 🔧 Características Clave
-
-* ✅ **Gramática DSL** – Define agentes declarativamente con políticas de seguridad integradas.
-* ✅ **Runtime de Agentes** – Programación de tareas, gestión de recursos y control del ciclo de vida.
-* 🔒 **Sandboxing** – Aislamiento Docker Tier-1 para ejecución de agentes.
-* 🔒 **Seguridad SchemaPin** – Verificación criptográfica de herramientas y esquemas.
-* 🔒 **Gestión de Secretos** – Integración HashiCorp Vault / OpenBao, almacenamiento cifrado AES-256-GCM.
-* 📊 **Motor RAG** – Búsqueda vectorial (LanceDB integrado) con recuperación híbrida semántica + palabra clave. Backend Qdrant opcional para despliegues a escala.
-* 🧩 **Integración MCP** – Soporte nativo para herramientas del Protocolo de Contexto de Modelo.
-* 📡 **API HTTP Opcional** – Interfaz REST controlada por características para integración externa.
+> Para despliegues en producción, revisa `SECURITY.md` y la [guía de despliegue](https://docs.symbiont.dev/getting-started) antes de habilitar la ejecución de herramientas no confiables.
 
 ---
 
-## 📐 Ejemplo de DSL Symbiont
+## Cómo funciona
+
+Symbiont separa la intención del agente de la autoridad de ejecución:
+
+1. **Los agentes proponen** acciones a través del ciclo de razonamiento ORGA (Observe-Reason-Gate-Act)
+2. **El runtime evalúa** cada acción contra controles de políticas, identidad y confianza
+3. **La política decide** — las acciones permitidas se ejecutan; las denegadas se bloquean o se envían para aprobación
+4. **Todo queda registrado** — rastro de auditoría resistente a manipulación para cada decisión
+
+Esto significa que la salida del modelo nunca se trata como autoridad de ejecución. El runtime controla lo que realmente sucede.
+
+### Ejemplo: herramienta no confiable bloqueada por política
+
+Un agente intenta llamar a una herramienta MCP no verificada. El runtime:
+
+1. Verifica el estado de verificación SchemaPin — la firma de la herramienta falta o es inválida
+2. Evalúa la política Cedar — `forbid(action == Action::"tool_call") when { !resource.verified }`
+3. Bloquea la ejecución y registra la denegación con contexto completo
+4. Opcionalmente envía a un operador para aprobación manual
+
+No se requiere cambio de código. La política gobierna la ejecución.
+
+---
+
+## Ejemplo de DSL
 
 ```symbiont
 metadata {
@@ -98,13 +106,13 @@ metadata {
 
 agent analyze_data(input: DataSet) -> Result {
     capabilities = ["data_analysis", "visualization"]
-    
+
     policy data_privacy {
         allow: read(input) if input.anonymized == true
         deny: store(input) if input.contains_pii == true
         audit: all_operations
     }
-    
+
     with memory = "persistent", requires = "approval" {
         if (llm_check_safety(input)) {
             result = analyze(input);
@@ -118,54 +126,91 @@ agent analyze_data(input: DataSet) -> Result {
 
 ---
 
-## 🔒 Modelo de Seguridad
+## Capacidades principales
 
-* **Confianza Cero** – todas las entradas de agentes son no confiables por defecto.
-* **Ejecución Sandboxed** – contención basada en Docker para procesos.
-* **Registro de Auditoría** – logs criptográficamente a prueba de manipulación.
-* **Control de Secretos** – backends Vault/OpenBao, almacenamiento local cifrado, namespaces de agentes.
+| Capacidad | Qué hace |
+|-----------|----------|
+| **Cedar policy engine** | Autorización granular para acciones de agentes, llamadas a herramientas y acceso a recursos |
+| **Verificación SchemaPin** | Verificación criptográfica de esquemas de herramientas MCP antes de la ejecución |
+| **Identidad AgentPin** | Identidad ES256 anclada al dominio para agentes y tareas programadas |
+| **Ciclo de razonamiento ORGA** | Ciclo Observe-Reason-Gate-Act con estado tipificado, puertas de política y circuit breakers |
+| **Sandboxing** | Aislamiento basado en Docker con límites de recursos para cargas de trabajo no confiables |
+| **Registro de auditoría** | Logs resistentes a manipulación con registros estructurados para cada decisión de política |
+| **Escaneo ClawHavoc** | 40 reglas en 10 categorías de ataque para análisis de contenido de skills/herramientas |
+| **Gestión de secretos** | Integración Vault/OpenBao, almacenamiento cifrado AES-256-GCM, con alcance por agente |
+| **Programación cron** | Programador respaldado por SQLite con jitter, guardas de concurrencia y colas de mensajes fallidos |
+| **Memoria persistente** | Memoria de agente basada en Markdown con extracción de hechos, procedimientos y compactación |
+| **Motor RAG** | Búsqueda híbrida semántica + palabra clave vía LanceDB (integrado) o Qdrant (escalado) |
+| **Integración MCP** | Soporte nativo del Model Context Protocol con acceso gobernado a herramientas |
+| **Verificación de webhooks** | Verificación HMAC-SHA256 y JWT con presets para GitHub, Stripe y Slack |
+| **Enrutamiento de entregas** | Envía la salida del agente a webhooks, Slack, email o canales personalizados |
+| **Métricas y telemetría** | Exportación OTLP con spans de trazado OpenTelemetry para el ciclo de razonamiento |
+| **Seguridad HTTP** | Enlace solo a loopback, listas de permitidos CORS, validación JWT EdDSA, claves API por agente |
+| **Plugins para asistentes IA** | Plugins de gobernanza para [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) y [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli) |
+
+Rendimiento: evaluación de políticas <1ms, verificación ECDSA P-256 <5ms, programación de 10k agentes con <2% de uso de CPU. Ver [benchmarks](crates/runtime/benches/performance_claims.rs) y [pruebas de umbral](crates/runtime/tests/performance_claims.rs).
 
 ---
 
-## 📚 Documentación
+## Modelo de seguridad
 
-* [Primeros Pasos](https://docs.symbiont.dev/getting-started)
+Symbiont está diseñado en torno a un principio simple: **la salida del modelo nunca debe tratarse como autoridad de ejecución.**
+
+Las acciones fluyen a través de controles del runtime:
+
+* **Confianza cero** — todas las entradas de agentes son no confiables por defecto
+* **Verificación de políticas** — autorización Cedar antes de cada llamada a herramienta y acceso a recursos
+* **Verificación de herramientas** — verificación criptográfica SchemaPin de esquemas de herramientas
+* **Límites de sandbox** — aislamiento Docker para ejecución no confiable
+* **Aprobación del operador** — puertas de supervisión humana para acciones sensibles
+* **Control de secretos** — backends Vault/OpenBao, almacenamiento local cifrado, namespaces de agentes
+* **Registro de auditoría** — registros criptográficamente resistentes a manipulación de cada decisión
+
+Si estás ejecutando código no confiable o herramientas riesgosas, no dependas de un modelo de ejecución local débil como tu única barrera. Consulta [`SECURITY.md`](SECURITY.md) y la [documentación del modelo de seguridad](https://docs.symbiont.dev/security-model).
+
+---
+
+## Workspace
+
+| Crate | Descripción |
+|-------|-------------|
+| `symbi` | Binario CLI unificado |
+| `symbi-runtime` | Runtime principal de agentes y motor de ejecución |
+| `symbi-dsl` | Parser y evaluador del DSL |
+| `symbi-channel-adapter` | Adaptadores para Slack/Teams/Mattermost |
+| `repl-core` / `repl-proto` / `repl-cli` | REPL interactivo y servidor JSON-RPC |
+| `repl-lsp` | Soporte del Language Server Protocol |
+| `symbi-a2ui` | Panel de administración (Lit/TypeScript, alpha) |
+
+Plugins de gobernanza: [`symbi-claude-code`](https://github.com/thirdkeyai/symbi-claude-code) | [`symbi-gemini-cli`](https://github.com/thirdkeyai/symbi-gemini-cli)
+
+---
+
+## Documentación
+
+* [Primeros pasos](https://docs.symbiont.dev/getting-started)
+* [Modelo de seguridad](https://docs.symbiont.dev/security-model)
+* [Arquitectura del runtime](https://docs.symbiont.dev/runtime-architecture)
+* [Guía del ciclo de razonamiento](https://docs.symbiont.dev/reasoning-loop)
 * [Guía del DSL](https://docs.symbiont.dev/dsl-guide)
-* [Arquitectura del Runtime](https://docs.symbiont.dev/runtime-architecture)
-* [Modelo de Seguridad](https://docs.symbiont.dev/security-model)
 * [Referencia de la API](https://docs.symbiont.dev/api-reference)
+* [Primitivas avanzadas de razonamiento](https://docs.symbiont.dev/orga-adaptive)
+
+Si estás evaluando Symbiont para producción, comienza con la documentación del modelo de seguridad y primeros pasos.
 
 ---
 
-## 🎯 Casos de Uso
+## Licencia
 
-* **Desarrollo y Automatización**
-
-  * Generación y refactorización segura de código.
-  * Despliegue de agentes IA con políticas aplicadas.
-  * Gestión de conocimiento con búsqueda semántica.
-
-* **Empresas e Industrias Reguladas**
-
-  * Salud (procesamiento conforme con HIPAA).
-  * Finanzas (flujos de trabajo listos para auditoría).
-  * Gobierno (manejo de contexto clasificado).
-  * Legal (análisis confidencial de documentos).
-
----
-
-## 📄 Licencia
-
-* **Edición Community**: Licencia Apache 2.0
-* **Edición Enterprise**: Licencia comercial requerida
+* **Community Edition** (Apache 2.0): Runtime principal, DSL, ciclo de razonamiento ORGA, Cedar policy engine, verificación SchemaPin/AgentPin, sandboxing Docker, memoria persistente, programación cron, integración MCP, RAG (LanceDB), registro de auditoría, verificación de webhooks, escaneo ClawHavoc de skills, y todas las herramientas CLI/REPL.
+* **Enterprise Edition** (licencia comercial): Sandboxing multi-nivel (gVisor, Firecracker, E2B), rastros de auditoría criptográficos con exportaciones de cumplimiento (HIPAA, SOX, PCI-DSS), revisión de herramientas y detección de amenazas con IA, colaboración multi-agente cifrada, paneles de monitoreo en tiempo real y soporte dedicado. Consulta [`enterprise/README.md`](enterprise/README.md) para más detalles.
 
 Contacta a [ThirdKey](https://thirdkey.ai) para licenciamiento empresarial.
 
 ---
 
-*Symbiont permite colaboración segura entre agentes IA y humanos a través de aplicación inteligente de políticas, verificación criptográfica y rastros de auditoría integrales.*
-
+*El mismo agente. Runtime seguro.*
 
 <div align="right">
-  <img src="symbi-trans.png" alt="Logo Symbi" width="120">
+  <img src="symbi-trans.png" alt="Logo de Symbi" width="120">
 </div>
