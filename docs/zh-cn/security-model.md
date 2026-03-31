@@ -113,31 +113,6 @@ gvisor_security:
 
 > **企业功能**：企业版中提供具有硬件虚拟化（Firecracker）的高级隔离，可满足最高安全要求。
 
-### 风险评估算法
-
-> **计划功能** — 此 API 属于安全路线图的一部分，尚未在当前版本中提供。
-
-```rust
-pub struct RiskAssessment {
-    data_sensitivity: f32,      // 0.0 = public, 1.0 = top secret
-    code_trust_level: f32,      // 0.0 = untrusted, 1.0 = verified
-    network_access: bool,       // Requires external network
-    filesystem_access: bool,    // Requires filesystem write
-    external_apis: bool,        // Uses external services
-}
-
-pub fn calculate_risk_score(assessment: RiskAssessment) -> f32 {
-    let base_score = assessment.data_sensitivity * 0.4
-        + (1.0 - assessment.code_trust_level) * 0.3;
-
-    let access_penalty = if assessment.network_access { 0.1 } else { 0.0 }
-        + if assessment.filesystem_access { 0.1 } else { 0.0 }
-        + if assessment.external_apis { 0.1 } else { 0.0 };
-
-    (base_score + access_penalty).min(1.0)
-}
-```
-
 ---
 
 ## 策略引擎

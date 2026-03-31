@@ -193,27 +193,6 @@ El runtime implementa dos niveles de seguridad basados en el riesgo de la operac
 
 > **Nota**: Niveles adicionales de aislamiento están disponibles en las ediciones Enterprise para requisitos máximos de seguridad.
 
-### Evaluación de Riesgos
-
-El sistema determina automáticamente el nivel de seguridad apropiado:
-
-```rust
-pub fn assess_security_tier(agent_config: &AgentConfig) -> SecurityTier {
-    let risk_factors = RiskAssessment {
-        data_sensitivity: assess_data_sensitivity(&agent_config.inputs),
-        code_trust_level: assess_code_trust(&agent_config.source),
-        network_access: agent_config.requires_network,
-        file_system_access: agent_config.requires_filesystem,
-        external_integrations: !agent_config.external_apis.is_empty(),
-    };
-    
-    match calculate_risk_score(risk_factors) {
-        score if score < 0.5 => SecurityTier::Tier1,
-        _ => SecurityTier::Tier2,
-    }
-}
-```
-
 ---
 
 ## Sistema de Comunicación

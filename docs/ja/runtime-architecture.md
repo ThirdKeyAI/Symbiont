@@ -193,27 +193,6 @@ pub struct ResourceLimits {
 
 > **注意**: エンタープライズエディションでは最大セキュリティ要件向けの追加分離層が利用可能。
 
-### リスク評価
-
-システムは適切なセキュリティ層を自動決定:
-
-```rust
-pub fn assess_security_tier(agent_config: &AgentConfig) -> SecurityTier {
-    let risk_factors = RiskAssessment {
-        data_sensitivity: assess_data_sensitivity(&agent_config.inputs),
-        code_trust_level: assess_code_trust(&agent_config.source),
-        network_access: agent_config.requires_network,
-        file_system_access: agent_config.requires_filesystem,
-        external_integrations: !agent_config.external_apis.is_empty(),
-    };
-    
-    match calculate_risk_score(risk_factors) {
-        score if score < 0.5 => SecurityTier::Tier1,
-        _ => SecurityTier::Tier2,
-    }
-}
-```
-
 ---
 
 ## 通信システム

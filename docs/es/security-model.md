@@ -113,31 +113,6 @@ gvisor_security:
 
 > **Caracteristica Enterprise**: El aislamiento avanzado con virtualizacion de hardware (Firecracker) esta disponible en las ediciones Enterprise para los requisitos de seguridad maxima.
 
-### Algoritmo de Evaluacion de Riesgo
-
-> **Caracteristica planificada** — Esta API es parte de la hoja de ruta de seguridad y aun no esta disponible en la version actual.
-
-```rust
-pub struct RiskAssessment {
-    data_sensitivity: f32,      // 0.0 = public, 1.0 = top secret
-    code_trust_level: f32,      // 0.0 = untrusted, 1.0 = verified
-    network_access: bool,       // Requires external network
-    filesystem_access: bool,    // Requires filesystem write
-    external_apis: bool,        // Uses external services
-}
-
-pub fn calculate_risk_score(assessment: RiskAssessment) -> f32 {
-    let base_score = assessment.data_sensitivity * 0.4
-        + (1.0 - assessment.code_trust_level) * 0.3;
-
-    let access_penalty = if assessment.network_access { 0.1 } else { 0.0 }
-        + if assessment.filesystem_access { 0.1 } else { 0.0 }
-        + if assessment.external_apis { 0.1 } else { 0.0 };
-
-    (base_score + access_penalty).min(1.0)
-}
-```
-
 ---
 
 ## Motor de Politicas

@@ -111,31 +111,6 @@ gvisor_security:
 
 > **Enterprise Feature**: Advanced isolation with hardware virtualization (Firecracker) is available in Enterprise editions for maximum security requirements.
 
-### Risk Assessment Algorithm
-
-> **Planned feature** — This API is part of the security roadmap and not yet available in the current release.
-
-```rust
-pub struct RiskAssessment {
-    data_sensitivity: f32,      // 0.0 = public, 1.0 = top secret
-    code_trust_level: f32,      // 0.0 = untrusted, 1.0 = verified
-    network_access: bool,       // Requires external network
-    filesystem_access: bool,    // Requires filesystem write
-    external_apis: bool,        // Uses external services
-}
-
-pub fn calculate_risk_score(assessment: RiskAssessment) -> f32 {
-    let base_score = assessment.data_sensitivity * 0.4
-        + (1.0 - assessment.code_trust_level) * 0.3;
-
-    let access_penalty = if assessment.network_access { 0.1 } else { 0.0 }
-        + if assessment.filesystem_access { 0.1 } else { 0.0 }
-        + if assessment.external_apis { 0.1 } else { 0.0 };
-
-    (base_score + access_penalty).min(1.0)
-}
-```
-
 ---
 
 ## Policy Engine

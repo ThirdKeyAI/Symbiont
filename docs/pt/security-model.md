@@ -113,31 +113,6 @@ gvisor_security:
 
 > **Recurso Enterprise**: Isolamento avançado com virtualização de hardware (Firecracker) está disponível nas edições Enterprise para requisitos máximos de segurança.
 
-### Algoritmo de Avaliação de Risco
-
-> **Recurso planejado** — Esta API é parte do roteiro de segurança e ainda não está disponível na versão atual.
-
-```rust
-pub struct RiskAssessment {
-    data_sensitivity: f32,      // 0.0 = public, 1.0 = top secret
-    code_trust_level: f32,      // 0.0 = untrusted, 1.0 = verified
-    network_access: bool,       // Requires external network
-    filesystem_access: bool,    // Requires filesystem write
-    external_apis: bool,        // Uses external services
-}
-
-pub fn calculate_risk_score(assessment: RiskAssessment) -> f32 {
-    let base_score = assessment.data_sensitivity * 0.4
-        + (1.0 - assessment.code_trust_level) * 0.3;
-
-    let access_penalty = if assessment.network_access { 0.1 } else { 0.0 }
-        + if assessment.filesystem_access { 0.1 } else { 0.0 }
-        + if assessment.external_apis { 0.1 } else { 0.0 };
-
-    (base_score + access_penalty).min(1.0)
-}
-```
-
 ---
 
 ## Motor de Políticas

@@ -178,27 +178,6 @@ Die Laufzeit implementiert zwei Sicherheitsstufen basierend auf dem Operationsri
 
 > **Hinweis**: Zusätzliche Isolationsstufen sind in Enterprise-Editionen für maximale Sicherheitsanforderungen verfügbar.
 
-### Risikobewertung
-
-Das System bestimmt automatisch die angemessene Sicherheitsstufe:
-
-```rust
-pub fn assess_security_tier(agent_config: &AgentConfig) -> SecurityTier {
-    let risk_factors = RiskAssessment {
-        data_sensitivity: assess_data_sensitivity(&agent_config.inputs),
-        code_trust_level: assess_code_trust(&agent_config.source),
-        network_access: agent_config.requires_network,
-        file_system_access: agent_config.requires_filesystem,
-        external_integrations: !agent_config.external_apis.is_empty(),
-    };
-    
-    match calculate_risk_score(risk_factors) {
-        score if score < 0.5 => SecurityTier::Tier1,
-        _ => SecurityTier::Tier2,
-    }
-}
-```
-
 ---
 
 ## Kommunikationssystem
