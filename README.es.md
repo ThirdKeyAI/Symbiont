@@ -203,8 +203,7 @@ Si estás evaluando Symbiont para producción, comienza con la documentación de
 ## Licencia
 
 * **Community Edition** (Apache 2.0): Runtime principal, DSL, ciclo de razonamiento ORGA, Cedar policy engine, verificación SchemaPin/AgentPin, sandboxing Docker, memoria persistente, programación cron, integración MCP, RAG (LanceDB), registro de auditoría, verificación de webhooks, escaneo ClawHavoc de skills, y todas las herramientas CLI/REPL.
-* **Enterprise Edition** (licencia comercial): Sandboxing multi-nivel (gVisor, Firecracker, E2B), rastros de auditoría criptográficos con exportaciones de cumplimiento (HIPAA, SOX, PCI-DSS), revisión de herramientas y detección de amenazas con IA, colaboración multi-agente cifrada, paneles de monitoreo en tiempo real y soporte dedicado. Consulta [`enterprise/README.md`](enterprise/README.md) para más detalles.
-
+* **Enterprise Edition** (licencia comercial): Sandboxing multi-nivel (gVisor, Firecracker, E2B), rastros de auditoría criptográficos con exportaciones de cumplimiento (HIPAA, SOX, PCI-DSS), revisión de herramientas y detección de amenazas con IA, colaboración multi-agente cifrada, paneles de monitoreo en tiempo real y soporte dedicado.
 Contacta a [ThirdKey](https://thirdkey.ai) para licenciamiento empresarial.
 
 ---

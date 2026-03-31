@@ -203,7 +203,7 @@ Symbiont はシンプルな原則に基づいて設計されています：**モ
 ## ライセンス
 
 * **Community エディション**（Apache 2.0）：コアランタイム、DSL、ORGA 推論ループ、Cedar ポリシーエンジン、SchemaPin/AgentPin 検証、Docker サンドボックス化、永続メモリ、Cron スケジューリング、MCP 統合、RAG（LanceDB）、監査ログ、Webhook 検証、ClawHavoc スキルスキャン、すべての CLI/REPL ツール。
-* **Enterprise エディション**（商用ライセンス）：マルチティアサンドボックス化（gVisor、Firecracker、E2B）、コンプライアンスエクスポート付き暗号化監査証跡（HIPAA、SOX、PCI-DSS）、AI 駆動ツールレビューおよび脅威検出、暗号化マルチエージェント協調、リアルタイム監視ダッシュボード、専用サポート。詳細は [`enterprise/README.md`](enterprise/README.md) を参照。
+* **Enterprise エディション**（商用ライセンス）：マルチティアサンドボックス化（gVisor、Firecracker、E2B）、コンプライアンスエクスポート付き暗号化監査証跡（HIPAA、SOX、PCI-DSS）、AI 駆動ツールレビューおよび脅威検出、暗号化マルチエージェント協調、リアルタイム監視ダッシュボード、専用サポート。
 
 エンタープライズライセンスについては [ThirdKey](https://thirdkey.ai) にお問い合わせください。
 

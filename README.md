@@ -203,8 +203,7 @@ If you are evaluating Symbiont for production, start with the security model and
 ## License
 
 * **Community Edition** (Apache 2.0): Core runtime, DSL, ORGA reasoning loop, Cedar policy engine, SchemaPin/AgentPin verification, Docker sandboxing, persistent memory, cron scheduling, MCP integration, RAG (LanceDB), audit logging, webhook verification, ClawHavoc skill scanning, and all CLI/REPL tooling.
-* **Enterprise Edition** (commercial license): Multi-tier sandboxing (gVisor, Firecracker, E2B), cryptographic audit trails with compliance exports (HIPAA, SOX, PCI-DSS), AI-powered tool review and threat detection, encrypted multi-agent collaboration, real-time monitoring dashboards, and dedicated support. See [`enterprise/README.md`](enterprise/README.md) for details.
-
+* **Enterprise Edition** (commercial license): Multi-tier sandboxing (gVisor, Firecracker, E2B), cryptographic audit trails with compliance exports (HIPAA, SOX, PCI-DSS), AI-powered tool review and threat detection, encrypted multi-agent collaboration, real-time monitoring dashboards, and dedicated support.
 Contact [ThirdKey](https://thirdkey.ai) for enterprise licensing.
 
 ---

@@ -203,7 +203,7 @@ Symbiont 围绕一个简单原则设计：**模型输出永远不应被信任为
 ## 许可证
 
 * **社区版**（Apache 2.0）：核心运行时、DSL、ORGA 推理循环、Cedar 策略引擎、SchemaPin/AgentPin 验证、Docker 沙箱、持久化记忆、Cron 调度、MCP 集成、RAG（LanceDB）、审计日志、Webhook 验证、ClawHavoc skill 扫描，以及所有 CLI/REPL 工具。
-* **企业版**（商业许可证）：多层沙箱（gVisor、Firecracker、E2B）、带合规导出的密码学审计追踪（HIPAA、SOX、PCI-DSS）、AI 驱动的工具审查与威胁检测、加密多智能体协作、实时监控仪表板和专属支持。详见 [`enterprise/README.md`](enterprise/README.md)。
+* **企业版**（商业许可证）：多层沙箱（gVisor、Firecracker、E2B）、带合规导出的密码学审计追踪（HIPAA、SOX、PCI-DSS）、AI 驱动的工具审查与威胁检测、加密多智能体协作、实时监控仪表板和专属支持。
 
 联系 [ThirdKey](https://thirdkey.ai) 获取企业许可。
 
