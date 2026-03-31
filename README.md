@@ -10,8 +10,9 @@
 ---
 
 **Policy-governed agent runtime for production.**
+*Same agent. Secure runtime.*
 
-Symbiont is a Rust-native runtime for executing AI agents, tools, and workflows under explicit policy, identity, and audit controls.
+Symbiont is a Rust-native runtime for executing AI agents and tools under explicit policy, identity, and audit controls.
 
 Most agent frameworks focus on orchestration. Symbiont focuses on what happens when agents need to run in real environments with real risk: untrusted tools, sensitive data, approval boundaries, audit requirements, and repeatable enforcement.
 
@@ -28,7 +29,7 @@ Once an agent can call tools, access files, send messages, or invoke external se
 * **Agent identity** so you know who is acting — [AgentPin](https://github.com/ThirdKeyAI/AgentPin) domain-anchored ES256 identity
 * **Sandboxing** for risky workloads — Docker isolation with resource limits
 * **Audit trails** for what happened and why — cryptographically tamper-evident logs
-* **Review workflows** for actions that require approval — human-in-the-loop gates in the reasoning loop
+* **Approval gates** for sensitive actions — human review before execution when policy requires it
 
 Symbiont is built for that layer.
 
@@ -39,7 +40,6 @@ Symbiont is built for that layer.
 ### Prerequisites
 
 * Docker (recommended) or Rust 1.82+
-* No external vector database required (LanceDB embedded; Qdrant optional for scaled deployments)
 
 ### Run with Docker
 
@@ -75,12 +75,12 @@ cargo run -- repl
 
 Symbiont separates agent intent from execution authority:
 
-1. **Agents propose** actions through the ORGA reasoning loop (Observe-Reason-Gate-Act)
+1. **Agents propose** actions through the reasoning loop (Observe-Reason-Gate-Act)
 2. **The runtime evaluates** each action against policy, identity, and trust checks
 3. **Policy decides** — allowed actions execute; denied actions are blocked or routed for approval
 4. **Everything is logged** — tamper-evident audit trail for every decision
 
-This means model output is never treated as execution authority. The runtime controls what actually happens.
+Model output is never treated as execution authority. The runtime controls what actually happens.
 
 ### Example: untrusted tool blocked by policy
 
@@ -98,31 +98,21 @@ No code change required. The policy governs execution.
 ## DSL example
 
 ```symbiont
-metadata {
-    version = "1.0.0"
-    author = "Your Name"
-    description = "Data analysis agent"
-}
-
-agent analyze_data(input: DataSet) -> Result {
-    capabilities = ["data_analysis", "visualization"]
-
-    policy data_privacy {
-        allow: read(input) if input.anonymized == true
-        deny: store(input) if input.contains_pii == true
+agent secure_analyst(input: DataSet) -> Result {
+    policy access_control {
+        allow: read(input) if input.verified == true
+        deny: send_email without approval
         audit: all_operations
     }
 
     with memory = "persistent", requires = "approval" {
-        if (llm_check_safety(input)) {
-            result = analyze(input);
-            return result;
-        } else {
-            return reject("Safety check failed");
-        }
+        result = analyze(input);
+        return result;
     }
 }
 ```
+
+See the [DSL guide](https://docs.symbiont.dev/dsl-guide) for the full grammar including `metadata`, `schedule`, `webhook`, and `channel` blocks.
 
 ---
 
@@ -130,25 +120,18 @@ agent analyze_data(input: DataSet) -> Result {
 
 | Capability | What it does |
 |-----------|-------------|
-| **Cedar policy engine** | Fine-grained authorization for agent actions, tool calls, and resource access |
-| **SchemaPin verification** | Cryptographic verification of MCP tool schemas before execution |
-| **AgentPin identity** | Domain-anchored ES256 identity for agents and scheduled tasks |
-| **ORGA reasoning loop** | Typestate-enforced Observe-Reason-Gate-Act cycle with policy gates and circuit breakers |
+| **Policy engine** | Fine-grained [Cedar](https://www.cedarpolicy.com/) authorization for agent actions, tool calls, and resource access |
+| **Tool verification** | [SchemaPin](https://github.com/ThirdKeyAI/SchemaPin) cryptographic verification of MCP tool schemas before execution |
+| **Agent identity** | [AgentPin](https://github.com/ThirdKeyAI/AgentPin) domain-anchored ES256 identity for agents and scheduled tasks |
+| **Reasoning loop** | Typestate-enforced Observe-Reason-Gate-Act cycle with policy gates and circuit breakers |
 | **Sandboxing** | Docker-based isolation with resource limits for untrusted workloads |
 | **Audit logging** | Tamper-evident logs with structured records for every policy decision |
-| **ClawHavoc scanning** | 40 rules across 10 attack categories for skill/tool content analysis |
 | **Secrets management** | Vault/OpenBao integration, AES-256-GCM encrypted storage, scoped per agent |
-| **Cron scheduling** | SQLite-backed scheduler with jitter, concurrency guards, and dead-letter queues |
-| **Persistent memory** | Markdown-backed agent memory with fact extraction, procedures, and compaction |
-| **RAG engine** | Hybrid semantic + keyword search via LanceDB (embedded) or Qdrant (scaled) |
 | **MCP integration** | Native Model Context Protocol support with governed tool access |
-| **Webhook verification** | HMAC-SHA256 and JWT verification with GitHub, Stripe, and Slack presets |
-| **Delivery routing** | Route agent output to webhooks, Slack, email, or custom channels |
-| **Metrics & telemetry** | OTLP export with OpenTelemetry tracing spans for the reasoning loop |
-| **HTTP security** | Loopback-only binding, CORS allow-lists, JWT EdDSA validation, per-agent API keys |
-| **AI assistant plugins** | Governance plugins for [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) and [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli) |
 
-Performance: policy evaluation <1ms, ECDSA P-256 verification <5ms, 10k agent scheduling with <2% CPU overhead. See [benchmarks](crates/runtime/benches/performance_claims.rs) and [threshold tests](crates/runtime/tests/performance_claims.rs).
+Additional capabilities: threat scanning for tool/skill content (40 rules, 10 attack categories), cron scheduling, persistent agent memory, hybrid RAG search (LanceDB/Qdrant), webhook verification, delivery routing, OTLP telemetry, HTTP security hardening, and governance plugins for [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) and [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli). See the [full documentation](https://docs.symbiont.dev) for details.
+
+Representative benchmarks are available in the [benchmark harness](crates/runtime/benches/performance_claims.rs) and [threshold tests](crates/runtime/tests/performance_claims.rs).
 
 ---
 
@@ -162,7 +145,7 @@ Actions flow through runtime controls:
 * **Policy checks** — Cedar authorization before every tool call and resource access
 * **Tool verification** — SchemaPin cryptographic verification of tool schemas
 * **Sandbox boundaries** — Docker isolation for untrusted execution
-* **Operator approval** — human-in-the-loop gates for sensitive actions
+* **Operator approval** — human review gates for sensitive actions
 * **Secrets control** — Vault/OpenBao backends, encrypted local storage, agent namespaces
 * **Audit logging** — cryptographically tamper-evident records of every decision
 
@@ -194,7 +177,6 @@ Governance plugins: [`symbi-claude-code`](https://github.com/thirdkeyai/symbi-cl
 * [Reasoning Loop Guide](https://docs.symbiont.dev/reasoning-loop)
 * [DSL Guide](https://docs.symbiont.dev/dsl-guide)
 * [API Reference](https://docs.symbiont.dev/api-reference)
-* [Advanced Reasoning Primitives](https://docs.symbiont.dev/orga-adaptive)
 
 If you are evaluating Symbiont for production, start with the security model and getting started docs.
 
@@ -202,13 +184,12 @@ If you are evaluating Symbiont for production, start with the security model and
 
 ## License
 
-* **Community Edition** (Apache 2.0): Core runtime, DSL, ORGA reasoning loop, Cedar policy engine, SchemaPin/AgentPin verification, Docker sandboxing, persistent memory, cron scheduling, MCP integration, RAG (LanceDB), audit logging, webhook verification, ClawHavoc skill scanning, and all CLI/REPL tooling.
-* **Enterprise Edition** (commercial license): Multi-tier sandboxing (gVisor, Firecracker, E2B), cryptographic audit trails with compliance exports (HIPAA, SOX, PCI-DSS), AI-powered tool review and threat detection, encrypted multi-agent collaboration, real-time monitoring dashboards, and dedicated support.
+* **Community Edition** (Apache 2.0): Core runtime, DSL, policy engine, tool verification, sandboxing, agent memory, scheduling, MCP integration, RAG, audit logging, and all CLI/REPL tooling.
+* **Enterprise Edition** (commercial): Advanced sandbox backends, compliance audit exports, AI-powered tool review, encrypted multi-agent collaboration, monitoring dashboards, and dedicated support.
+
 Contact [ThirdKey](https://thirdkey.ai) for enterprise licensing.
 
 ---
-
-*Same agent. Secure runtime.*
 
 <div align="right">
   <img src="https://raw.githubusercontent.com/ThirdKeyAI/Symbiont/main/symbi-trans.png" alt="Symbi Logo" width="120">

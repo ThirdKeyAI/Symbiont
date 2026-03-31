@@ -10,8 +10,9 @@
 ---
 
 **Runtime de agentes gobernado por políticas para producción.**
+*El mismo agente. Runtime seguro.*
 
-Symbiont es un runtime nativo de Rust para ejecutar agentes de IA, herramientas y flujos de trabajo bajo controles explícitos de políticas, identidad y auditoría.
+Symbiont es un runtime nativo de Rust para ejecutar agentes de IA y herramientas bajo controles explícitos de políticas, identidad y auditoría.
 
 La mayoría de los frameworks de agentes se centran en la orquestación. Symbiont se centra en lo que sucede cuando los agentes necesitan ejecutarse en entornos reales con riesgo real: herramientas no confiables, datos sensibles, límites de aprobación, requisitos de auditoría y aplicación repetible de reglas.
 
@@ -28,7 +29,7 @@ Una vez que un agente puede llamar herramientas, acceder a archivos, enviar mens
 * **Identidad de agentes** para saber quién está actuando — identidad ES256 anclada al dominio con [AgentPin](https://github.com/ThirdKeyAI/AgentPin)
 * **Sandboxing** para cargas de trabajo riesgosas — aislamiento Docker con límites de recursos
 * **Rastros de auditoría** de lo que sucedió y por qué — logs criptográficamente resistentes a manipulación
-* **Flujos de revisión** para acciones que requieren aprobación — puertas de supervisión humana en el ciclo de razonamiento
+* **Puertas de aprobación** para acciones sensibles — revisión humana antes de la ejecución cuando la política lo requiere
 
 Symbiont está construido para esa capa.
 
@@ -39,7 +40,6 @@ Symbiont está construido para esa capa.
 ### Prerrequisitos
 
 * Docker (recomendado) o Rust 1.82+
-* No se requiere base de datos vectorial externa (LanceDB integrado; Qdrant opcional para despliegues a escala)
 
 ### Ejecutar con Docker
 
@@ -75,12 +75,12 @@ cargo run -- repl
 
 Symbiont separa la intención del agente de la autoridad de ejecución:
 
-1. **Los agentes proponen** acciones a través del ciclo de razonamiento ORGA (Observe-Reason-Gate-Act)
+1. **Los agentes proponen** acciones a través del ciclo de razonamiento (Observe-Reason-Gate-Act)
 2. **El runtime evalúa** cada acción contra controles de políticas, identidad y confianza
 3. **La política decide** — las acciones permitidas se ejecutan; las denegadas se bloquean o se envían para aprobación
 4. **Todo queda registrado** — rastro de auditoría resistente a manipulación para cada decisión
 
-Esto significa que la salida del modelo nunca se trata como autoridad de ejecución. El runtime controla lo que realmente sucede.
+La salida del modelo nunca se trata como autoridad de ejecución. El runtime controla lo que realmente sucede.
 
 ### Ejemplo: herramienta no confiable bloqueada por política
 
@@ -98,31 +98,21 @@ No se requiere cambio de código. La política gobierna la ejecución.
 ## Ejemplo de DSL
 
 ```symbiont
-metadata {
-    version = "1.0.0"
-    author = "Your Name"
-    description = "Data analysis agent"
-}
-
-agent analyze_data(input: DataSet) -> Result {
-    capabilities = ["data_analysis", "visualization"]
-
-    policy data_privacy {
-        allow: read(input) if input.anonymized == true
-        deny: store(input) if input.contains_pii == true
+agent secure_analyst(input: DataSet) -> Result {
+    policy access_control {
+        allow: read(input) if input.verified == true
+        deny: send_email without approval
         audit: all_operations
     }
 
     with memory = "persistent", requires = "approval" {
-        if (llm_check_safety(input)) {
-            result = analyze(input);
-            return result;
-        } else {
-            return reject("Safety check failed");
-        }
+        result = analyze(input);
+        return result;
     }
 }
 ```
+
+Consulta la [guía del DSL](https://docs.symbiont.dev/dsl-guide) para la gramática completa incluyendo bloques `metadata`, `schedule`, `webhook` y `channel`.
 
 ---
 
@@ -130,25 +120,18 @@ agent analyze_data(input: DataSet) -> Result {
 
 | Capacidad | Qué hace |
 |-----------|----------|
-| **Cedar policy engine** | Autorización granular para acciones de agentes, llamadas a herramientas y acceso a recursos |
-| **Verificación SchemaPin** | Verificación criptográfica de esquemas de herramientas MCP antes de la ejecución |
-| **Identidad AgentPin** | Identidad ES256 anclada al dominio para agentes y tareas programadas |
-| **Ciclo de razonamiento ORGA** | Ciclo Observe-Reason-Gate-Act con estado tipificado, puertas de política y circuit breakers |
+| **Motor de políticas** | Autorización granular [Cedar](https://www.cedarpolicy.com/) para acciones de agentes, llamadas a herramientas y acceso a recursos |
+| **Verificación de herramientas** | Verificación criptográfica [SchemaPin](https://github.com/ThirdKeyAI/SchemaPin) de esquemas de herramientas MCP antes de la ejecución |
+| **Identidad de agentes** | Identidad ES256 anclada al dominio [AgentPin](https://github.com/ThirdKeyAI/AgentPin) para agentes y tareas programadas |
+| **Ciclo de razonamiento** | Ciclo Observe-Reason-Gate-Act con estado tipificado, puertas de política y circuit breakers |
 | **Sandboxing** | Aislamiento basado en Docker con límites de recursos para cargas de trabajo no confiables |
 | **Registro de auditoría** | Logs resistentes a manipulación con registros estructurados para cada decisión de política |
-| **Escaneo ClawHavoc** | 40 reglas en 10 categorías de ataque para análisis de contenido de skills/herramientas |
 | **Gestión de secretos** | Integración Vault/OpenBao, almacenamiento cifrado AES-256-GCM, con alcance por agente |
-| **Programación cron** | Programador respaldado por SQLite con jitter, guardas de concurrencia y colas de mensajes fallidos |
-| **Memoria persistente** | Memoria de agente basada en Markdown con extracción de hechos, procedimientos y compactación |
-| **Motor RAG** | Búsqueda híbrida semántica + palabra clave vía LanceDB (integrado) o Qdrant (escalado) |
 | **Integración MCP** | Soporte nativo del Model Context Protocol con acceso gobernado a herramientas |
-| **Verificación de webhooks** | Verificación HMAC-SHA256 y JWT con presets para GitHub, Stripe y Slack |
-| **Enrutamiento de entregas** | Envía la salida del agente a webhooks, Slack, email o canales personalizados |
-| **Métricas y telemetría** | Exportación OTLP con spans de trazado OpenTelemetry para el ciclo de razonamiento |
-| **Seguridad HTTP** | Enlace solo a loopback, listas de permitidos CORS, validación JWT EdDSA, claves API por agente |
-| **Plugins para asistentes IA** | Plugins de gobernanza para [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) y [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli) |
 
-Rendimiento: evaluación de políticas <1ms, verificación ECDSA P-256 <5ms, programación de 10k agentes con <2% de uso de CPU. Ver [benchmarks](crates/runtime/benches/performance_claims.rs) y [pruebas de umbral](crates/runtime/tests/performance_claims.rs).
+Capacidades adicionales: escaneo de amenazas para contenido de herramientas/skills (40 reglas, 10 categorías de ataque), programación cron, memoria persistente de agentes, búsqueda RAG híbrida (LanceDB/Qdrant), verificación de webhooks, enrutamiento de entregas, telemetría OTLP, hardening de seguridad HTTP, y plugins de gobernanza para [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) y [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli). Consulta la [documentación completa](https://docs.symbiont.dev) para más detalles.
+
+Los benchmarks representativos están disponibles en el [harness de benchmarks](crates/runtime/benches/performance_claims.rs) y las [pruebas de umbral](crates/runtime/tests/performance_claims.rs).
 
 ---
 
@@ -162,7 +145,7 @@ Las acciones fluyen a través de controles del runtime:
 * **Verificación de políticas** — autorización Cedar antes de cada llamada a herramienta y acceso a recursos
 * **Verificación de herramientas** — verificación criptográfica SchemaPin de esquemas de herramientas
 * **Límites de sandbox** — aislamiento Docker para ejecución no confiable
-* **Aprobación del operador** — puertas de supervisión humana para acciones sensibles
+* **Aprobación del operador** — puertas de revisión humana para acciones sensibles
 * **Control de secretos** — backends Vault/OpenBao, almacenamiento local cifrado, namespaces de agentes
 * **Registro de auditoría** — registros criptográficamente resistentes a manipulación de cada decisión
 
@@ -194,7 +177,6 @@ Plugins de gobernanza: [`symbi-claude-code`](https://github.com/thirdkeyai/symbi
 * [Guía del ciclo de razonamiento](https://docs.symbiont.dev/reasoning-loop)
 * [Guía del DSL](https://docs.symbiont.dev/dsl-guide)
 * [Referencia de la API](https://docs.symbiont.dev/api-reference)
-* [Primitivas avanzadas de razonamiento](https://docs.symbiont.dev/orga-adaptive)
 
 Si estás evaluando Symbiont para producción, comienza con la documentación del modelo de seguridad y primeros pasos.
 
@@ -202,13 +184,12 @@ Si estás evaluando Symbiont para producción, comienza con la documentación de
 
 ## Licencia
 
-* **Community Edition** (Apache 2.0): Runtime principal, DSL, ciclo de razonamiento ORGA, Cedar policy engine, verificación SchemaPin/AgentPin, sandboxing Docker, memoria persistente, programación cron, integración MCP, RAG (LanceDB), registro de auditoría, verificación de webhooks, escaneo ClawHavoc de skills, y todas las herramientas CLI/REPL.
-* **Enterprise Edition** (licencia comercial): Sandboxing multi-nivel (gVisor, Firecracker, E2B), rastros de auditoría criptográficos con exportaciones de cumplimiento (HIPAA, SOX, PCI-DSS), revisión de herramientas y detección de amenazas con IA, colaboración multi-agente cifrada, paneles de monitoreo en tiempo real y soporte dedicado.
+* **Community Edition** (Apache 2.0): Runtime principal, DSL, motor de políticas, verificación de herramientas, sandboxing, memoria de agentes, programación, integración MCP, RAG, registro de auditoría, y todas las herramientas CLI/REPL.
+* **Enterprise Edition** (comercial): Backends de sandbox avanzados, exportaciones de auditoría de cumplimiento, revisión de herramientas con IA, colaboración multi-agente cifrada, paneles de monitoreo y soporte dedicado.
+
 Contacta a [ThirdKey](https://thirdkey.ai) para licenciamiento empresarial.
 
 ---
-
-*El mismo agente. Runtime seguro.*
 
 <div align="right">
   <img src="symbi-trans.png" alt="Logo de Symbi" width="120">
