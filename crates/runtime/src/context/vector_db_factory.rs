@@ -11,9 +11,9 @@ use crate::context::types::ContextError;
 use crate::context::vector_db::NoOpVectorDatabase;
 #[cfg(feature = "vector-lancedb")]
 use crate::context::vector_db_lance::{LanceDbBackend, LanceDbConfig};
-use crate::context::vector_db_trait::VectorDb;
 #[cfg(feature = "vector-lancedb")]
 use crate::context::vector_db_trait::DistanceMetric;
+use crate::context::vector_db_trait::VectorDb;
 
 /// Backend selection config.
 #[derive(Debug, Clone)]

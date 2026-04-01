@@ -4,9 +4,9 @@
 
 use std::sync::Arc;
 use symbi_runtime::context::types::{KnowledgeId, KnowledgeItem, KnowledgeSource, KnowledgeType};
-use symbi_runtime::context::{create_vector_backend, VectorBackendConfig, VectorDb};
 #[cfg(feature = "vector-lancedb")]
 use symbi_runtime::context::LanceDbConfig;
+use symbi_runtime::context::{create_vector_backend, VectorBackendConfig, VectorDb};
 use symbi_runtime::types::AgentId;
 #[cfg(feature = "vector-lancedb")]
 use tempfile::TempDir;
