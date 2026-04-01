@@ -1,11 +1,14 @@
 //! Integration tests for vector backends.
 //!
-//! Tests both LanceDB (always) and Qdrant (when feature enabled + server available).
+//! Tests LanceDB (when feature enabled) and Qdrant (when feature enabled + server available).
 
 use std::sync::Arc;
 use symbi_runtime::context::types::{KnowledgeId, KnowledgeItem, KnowledgeSource, KnowledgeType};
-use symbi_runtime::context::{create_vector_backend, LanceDbConfig, VectorBackendConfig, VectorDb};
+use symbi_runtime::context::{create_vector_backend, VectorBackendConfig, VectorDb};
+#[cfg(feature = "vector-lancedb")]
+use symbi_runtime::context::LanceDbConfig;
 use symbi_runtime::types::AgentId;
+#[cfg(feature = "vector-lancedb")]
 use tempfile::TempDir;
 
 fn make_test_item(content: &str) -> KnowledgeItem {
@@ -49,6 +52,7 @@ async fn run_store_and_search_suite(backend: Arc<dyn VectorDb>) {
     assert!(backend.health_check().await.unwrap());
 }
 
+#[cfg(feature = "vector-lancedb")]
 #[tokio::test]
 async fn test_lancedb_backend_integration() {
     let tmp = TempDir::new().unwrap();

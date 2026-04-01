@@ -48,6 +48,7 @@ pub mod token_counter;
 pub mod types;
 pub mod vector_db;
 pub mod vector_db_factory;
+#[cfg(feature = "vector-lancedb")]
 pub mod vector_db_lance;
 pub mod vector_db_trait;
 
@@ -83,6 +84,7 @@ pub use token_counter::{
     TokenCounter,
 };
 pub use vector_db_factory::{create_vector_backend, resolve_vector_config, VectorBackendConfig};
+#[cfg(feature = "vector-lancedb")]
 pub use vector_db_lance::{LanceDbBackend, LanceDbConfig};
 pub use vector_db_trait::{DistanceMetric, VectorDb};
 

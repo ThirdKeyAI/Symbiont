@@ -3,17 +3,22 @@
 //! Resolves which vector backend to use from env vars / config,
 //! then constructs and returns `Arc<dyn VectorDb>`.
 
+#[cfg(feature = "vector-lancedb")]
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::context::types::ContextError;
 use crate::context::vector_db::NoOpVectorDatabase;
+#[cfg(feature = "vector-lancedb")]
 use crate::context::vector_db_lance::{LanceDbBackend, LanceDbConfig};
-use crate::context::vector_db_trait::{DistanceMetric, VectorDb};
+use crate::context::vector_db_trait::VectorDb;
+#[cfg(feature = "vector-lancedb")]
+use crate::context::vector_db_trait::DistanceMetric;
 
 /// Backend selection config.
 #[derive(Debug, Clone)]
 pub enum VectorBackendConfig {
+    #[cfg(feature = "vector-lancedb")]
     LanceDb(LanceDbConfig),
     #[cfg(feature = "vector-qdrant")]
     Qdrant(crate::context::vector_db::QdrantConfig),
@@ -22,7 +27,14 @@ pub enum VectorBackendConfig {
 
 impl Default for VectorBackendConfig {
     fn default() -> Self {
-        Self::LanceDb(LanceDbConfig::default())
+        #[cfg(feature = "vector-lancedb")]
+        {
+            Self::LanceDb(LanceDbConfig::default())
+        }
+        #[cfg(not(feature = "vector-lancedb"))]
+        {
+            Self::NoOp
+        }
     }
 }
 
@@ -31,6 +43,7 @@ pub async fn create_vector_backend(
     config: VectorBackendConfig,
 ) -> Result<Arc<dyn VectorDb>, ContextError> {
     match config {
+        #[cfg(feature = "vector-lancedb")]
         VectorBackendConfig::LanceDb(cfg) => {
             let backend = LanceDbBackend::new(cfg).await?;
             Ok(Arc::new(backend))
@@ -61,17 +74,15 @@ pub fn resolve_vector_config() -> VectorBackendConfig {
     let backend =
         std::env::var("SYMBIONT_VECTOR_BACKEND").unwrap_or_else(|_| "lancedb".to_string());
 
-    let dimension: usize = std::env::var("SYMBIONT_VECTOR_DIMENSION")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(384);
-
-    let collection = std::env::var("SYMBIONT_VECTOR_COLLECTION")
-        .unwrap_or_else(|_| "symbiont_context".to_string());
-
     match backend.to_lowercase().as_str() {
         #[cfg(feature = "vector-qdrant")]
         "qdrant" => {
+            let dimension: usize = std::env::var("SYMBIONT_VECTOR_DIMENSION")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(384);
+            let collection = std::env::var("SYMBIONT_VECTOR_COLLECTION")
+                .unwrap_or_else(|_| "symbiont_context".to_string());
             let host =
                 std::env::var("SYMBIONT_VECTOR_HOST").unwrap_or_else(|_| "localhost".to_string());
             let port = std::env::var("SYMBIONT_VECTOR_PORT").unwrap_or_else(|_| "6333".to_string());
@@ -85,7 +96,14 @@ pub fn resolve_vector_config() -> VectorBackendConfig {
             })
         }
         "noop" | "none" => VectorBackendConfig::NoOp,
+        #[cfg(feature = "vector-lancedb")]
         _ => {
+            let dimension: usize = std::env::var("SYMBIONT_VECTOR_DIMENSION")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(384);
+            let collection = std::env::var("SYMBIONT_VECTOR_COLLECTION")
+                .unwrap_or_else(|_| "symbiont_context".to_string());
             let path = std::env::var("SYMBIONT_VECTOR_DATA_PATH")
                 .unwrap_or_else(|_| "./data/vector_db".to_string());
             VectorBackendConfig::LanceDb(LanceDbConfig {
@@ -95,6 +113,8 @@ pub fn resolve_vector_config() -> VectorBackendConfig {
                 distance_metric: DistanceMetric::Cosine,
             })
         }
+        #[cfg(not(feature = "vector-lancedb"))]
+        _ => VectorBackendConfig::NoOp,
     }
 }
 
@@ -102,6 +122,7 @@ pub fn resolve_vector_config() -> VectorBackendConfig {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "vector-lancedb")]
     #[test]
     fn test_resolve_defaults_to_lancedb() {
         std::env::remove_var("SYMBIONT_VECTOR_BACKEND");
@@ -109,6 +130,7 @@ mod tests {
         assert!(matches!(config, VectorBackendConfig::LanceDb(_)));
     }
 
+    #[cfg(feature = "vector-lancedb")]
     #[test]
     fn test_resolve_lancedb_explicit() {
         std::env::set_var("SYMBIONT_VECTOR_BACKEND", "lancedb");
@@ -117,6 +139,7 @@ mod tests {
         std::env::remove_var("SYMBIONT_VECTOR_BACKEND");
     }
 
+    #[cfg(feature = "vector-lancedb")]
     #[test]
     fn test_resolve_custom_data_path() {
         std::env::set_var("SYMBIONT_VECTOR_BACKEND", "lancedb");
@@ -133,6 +156,7 @@ mod tests {
         std::env::remove_var("SYMBIONT_VECTOR_DATA_PATH");
     }
 
+    #[cfg(feature = "vector-lancedb")]
     #[tokio::test]
     async fn test_create_lance_backend() {
         let tmp = tempfile::TempDir::new().unwrap();

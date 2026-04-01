@@ -1,6 +1,6 @@
 [package]
 name = "symbi-runtime"
-version = "1.9.0"
+version = "1.9.1"
 edition = "2021"
 authors = ["Jascha Wanger / ThirdKey.ai"]
 description = "Agent Runtime System for the Symbi platform"
@@ -22,7 +22,7 @@ path = "examples/full_system.rs"
 name = "symbi-mcp"
 path = "src/bin/symbiont_mcp.rs"
 [dependencies]
-symbi-dsl = { path = "../dsl", version = "1.9.0" }
+symbi-dsl = { path = "../dsl", version = "1.9.1" }
 tokio = { version = "1.0", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -45,10 +45,10 @@ dirs = "5.0"
 futures = "0.3"
 bytes = { version = "1.0", features = ["serde"] }
 tempfile = "3.0"
-# Vector backends
-lancedb = "0.26"
-arrow-array = "57"
-arrow-schema = "57"
+# Vector backends (all optional)
+lancedb = { version = "0.26", optional = true }
+arrow-array = { version = "57", optional = true }
+arrow-schema = { version = "57", optional = true }
 qdrant-client = { version = ">=1.14.0, <1.16.0", optional = true }
 flate2 = "1.0"
 candle-core = { version = "0.9.1", optional = true }
@@ -120,7 +120,7 @@ filetime = "0.2"
 
 [features]
 default = ["keychain", "vector-lancedb"]
-vector-lancedb = []
+vector-lancedb = ["dep:lancedb", "dep:arrow-array", "dep:arrow-schema"]
 vector-qdrant = ["dep:qdrant-client"]
 embedding-models = ["candle-core", "candle-nn", "candle-transformers", "tokenizers", "hf-hub"]
 http-api = ["axum", "tower", "tower-http", "tokio-tungstenite", "governor", "utoipa", "utoipa-swagger-ui"]

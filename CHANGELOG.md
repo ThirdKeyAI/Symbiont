@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-04-01
+
+### Changed
+- **LanceDB is now an optional build feature**: The `lancedb`, `arrow-array`, and `arrow-schema` dependencies are gated behind the `vector-lancedb` feature flag. LanceDB remains in the default feature set so existing builds are unaffected. Build without vector backends using `--no-default-features` for lighter binaries.
+
+### Fixed
+- **README restructured**: Tighter positioning as "policy-governed agent runtime", trimmed capabilities table, simplified DSL example, softened benchmark claims, clarified Community/Enterprise editions
+- **Documentation alignment**: Docs index, SECURITY.md support matrix, Dockerfile port comments, and all translations updated to match
+- **Version consistency**: Fixed Rust version mismatch (1.88 → 1.82) across all docs and READMEs
+- **Dead link**: Removed enterprise/README.md reference from public READMEs
+- **Speculative docs**: Removed planned Risk Assessment Algorithm sections from security-model and runtime-architecture docs
+
 ## [1.9.0] - 2026-03-29
 
 ### Added
