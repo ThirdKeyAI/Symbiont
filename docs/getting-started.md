@@ -374,7 +374,9 @@ cd crates/runtime && cargo run --example rag_example
 cd crates/runtime && cargo run --example context_example
 ```
 
-> **Enterprise option:** For teams that need a dedicated vector database, Qdrant is available as an optional feature-gated backend. Set `SYMBIONT_VECTOR_BACKEND=qdrant` and `QDRANT_URL` to use it.
+> **Minimal build:** LanceDB is included by default but can be excluded for lighter binaries: `cargo build --no-default-features`. The runtime gracefully falls back to a no-op vector backend.
+>
+> **Scaled deployments:** Qdrant is available as an optional backend. Build with `--features vector-qdrant` and set `SYMBIONT_VECTOR_BACKEND=qdrant`.
 
 **Context Management Features:**
 - **Multi-Modal Search**: Keyword, temporal, similarity, and hybrid search modes
