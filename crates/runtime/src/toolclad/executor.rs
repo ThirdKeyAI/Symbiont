@@ -748,8 +748,7 @@ fn evaluate_condition(when: &str, args: &HashMap<String, String>) -> bool {
 
 /// Reject URLs targeting private/internal IP ranges to prevent SSRF.
 fn reject_ssrf_url(url: &str) -> Result<(), String> {
-    let parsed =
-        url::Url::parse(url).map_err(|e| format!("Invalid URL '{}': {}", url, e))?;
+    let parsed = url::Url::parse(url).map_err(|e| format!("Invalid URL '{}': {}", url, e))?;
 
     // Only allow http/https
     if !matches!(parsed.scheme(), "http" | "https") {

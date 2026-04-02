@@ -165,10 +165,7 @@ impl OpaClient {
                         .cloned()
                         .unwrap_or(serde_json::json!(false)))
                 } else {
-                    tracing::warn!(
-                        "OPA returned HTTP {}: denying by default",
-                        resp.status()
-                    );
+                    tracing::warn!("OPA returned HTTP {}: denying by default", resp.status());
                     Ok(serde_json::json!(false))
                 }
             }

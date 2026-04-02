@@ -141,9 +141,14 @@ impl SchemaPinClient for NativeSchemaPinClient {
 
         // Attempt to extract an embedded signature from the schema JSON.
         // Schemas signed by SchemaPin contain a top-level `signature` field.
-        let embedded_signature: Option<String> = serde_json::from_slice::<serde_json::Value>(&schema_data)
-            .ok()
-            .and_then(|v| v.get("signature").and_then(|s| s.as_str()).map(String::from));
+        let embedded_signature: Option<String> =
+            serde_json::from_slice::<serde_json::Value>(&schema_data)
+                .ok()
+                .and_then(|v| {
+                    v.get("signature")
+                        .and_then(|s| s.as_str())
+                        .map(String::from)
+                });
 
         if let Some(ref sig) = embedded_signature {
             // Verify the embedded signature against the schema content and fetched public key
@@ -155,14 +160,17 @@ impl SchemaPinClient for NativeSchemaPinClient {
             if let Some(obj) = schema_value.as_object_mut() {
                 obj.remove("signature");
             }
-            let canonical_payload = serde_json::to_vec(&schema_value)
-                .map_err(|e| SchemaPinError::IoError {
+            let canonical_payload =
+                serde_json::to_vec(&schema_value).map_err(|e| SchemaPinError::IoError {
                     reason: format!("Failed to serialize canonical schema: {}", e),
                 })?;
 
             match verify_signature(&public_key_pem, &canonical_payload, sig) {
                 Ok(true) => {
-                    tracing::info!("Schema signature verified successfully for {}", args.schema_path);
+                    tracing::info!(
+                        "Schema signature verified successfully for {}",
+                        args.schema_path
+                    );
                     Ok(VerificationResult {
                         success: true,
                         message: "Schema signature verified successfully using native Rust implementation".to_string(),
@@ -179,10 +187,14 @@ impl SchemaPinClient for NativeSchemaPinClient {
                     })
                 }
                 Ok(false) => {
-                    tracing::warn!("Schema signature verification failed: signature invalid for {}", args.schema_path);
+                    tracing::warn!(
+                        "Schema signature verification failed: signature invalid for {}",
+                        args.schema_path
+                    );
                     Ok(VerificationResult {
                         success: false,
-                        message: "Schema signature verification failed: signature is invalid".to_string(),
+                        message: "Schema signature verification failed: signature is invalid"
+                            .to_string(),
                         schema_hash: Some(schema_hash),
                         public_key_url: Some(args.public_key_url.clone()),
                         signature: Some(SignatureInfo {
@@ -196,7 +208,11 @@ impl SchemaPinClient for NativeSchemaPinClient {
                     })
                 }
                 Err(e) => {
-                    tracing::warn!("Schema signature verification error for {}: {}", args.schema_path, e);
+                    tracing::warn!(
+                        "Schema signature verification error for {}: {}",
+                        args.schema_path,
+                        e
+                    );
                     Ok(VerificationResult {
                         success: false,
                         message: format!("Schema signature verification error: {}", e),
