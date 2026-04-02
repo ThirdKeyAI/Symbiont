@@ -8,9 +8,9 @@ use std::path::Path;
 
 use super::manifest::ArgDef;
 
-/// Shell metacharacters that are always rejected.
+/// Shell metacharacters and control characters that are always rejected.
 const INJECTION_CHARS: &[char] = &[
-    ';', '|', '&', '$', '`', '(', ')', '{', '}', '[', ']', '<', '>', '!',
+    ';', '|', '&', '$', '`', '(', ')', '{', '}', '[', ']', '<', '>', '!', '\n', '\r', '\0',
 ];
 
 /// Validate an argument value against its definition.
@@ -196,7 +196,16 @@ fn validate_path(value: &str) -> Result<String, String> {
     if value.contains("..") {
         return Err("Path traversal (..) is not allowed".to_string());
     }
-    Ok(value.to_string())
+    // Canonicalize to resolve symlinks and prevent path traversal via symlink
+    let path = Path::new(value);
+    if path.exists() {
+        let canonical = path
+            .canonicalize()
+            .map_err(|e| format!("Failed to resolve path '{}': {}", value, e))?;
+        Ok(canonical.to_string_lossy().to_string())
+    } else {
+        Ok(value.to_string())
+    }
 }
 
 fn validate_ip_address(value: &str) -> Result<String, String> {
@@ -256,13 +265,15 @@ fn validate_msf_options(_def: &ArgDef, value: &str) -> Result<String, String> {
 }
 
 /// Validate a credential file path: must be a valid path that exists on disk.
+/// Canonicalizes the path to resolve symlinks.
 fn validate_credential_file(_def: &ArgDef, value: &str) -> Result<String, String> {
-    validate_path(value)?;
-    let path = Path::new(value);
+    let validated = validate_path(value)?;
+    let path = Path::new(&validated);
     if !path.exists() {
         return Err(format!("Credential file '{}' does not exist", value));
     }
-    Ok(value.to_string())
+    // Return the canonicalized path from validate_path
+    Ok(validated)
 }
 
 /// Validate a duration: integer with optional suffix (s/m/h) or bare seconds.

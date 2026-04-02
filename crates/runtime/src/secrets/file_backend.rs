@@ -280,8 +280,20 @@ impl FileSecretStore {
         Ok(secrets)
     }
 
+    /// Maximum size for secrets files (1 MB). Prevents DoS via oversized input.
+    const MAX_SECRETS_FILE_SIZE: usize = 1_048_576;
+
     /// Parse YAML format secrets
     fn parse_yaml_secrets(&self, data: &str) -> Result<HashMap<String, String>, SecretError> {
+        if data.len() > Self::MAX_SECRETS_FILE_SIZE {
+            return Err(SecretError::ParseError {
+                message: format!(
+                    "Secrets file exceeds maximum size ({} bytes > {} byte limit)",
+                    data.len(),
+                    Self::MAX_SECRETS_FILE_SIZE
+                ),
+            });
+        }
         let value: serde_yaml::Value =
             serde_yaml::from_str(data).map_err(|e| SecretError::ParseError {
                 message: format!("Failed to parse YAML: {}", e),
@@ -313,6 +325,15 @@ impl FileSecretStore {
 
     /// Parse TOML format secrets
     fn parse_toml_secrets(&self, data: &str) -> Result<HashMap<String, String>, SecretError> {
+        if data.len() > Self::MAX_SECRETS_FILE_SIZE {
+            return Err(SecretError::ParseError {
+                message: format!(
+                    "Secrets file exceeds maximum size ({} bytes > {} byte limit)",
+                    data.len(),
+                    Self::MAX_SECRETS_FILE_SIZE
+                ),
+            });
+        }
         let value: toml::Value = toml::from_str(data).map_err(|e| SecretError::ParseError {
             message: format!("Failed to parse TOML: {}", e),
         })?;

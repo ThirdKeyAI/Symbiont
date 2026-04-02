@@ -42,16 +42,29 @@ impl DiscoveryCache {
         })
     }
 
-    /// Get a cached discovery document for the given domain, if it exists and hasn't expired
+    /// Get a cached discovery document for the given domain, if it exists and hasn't expired.
+    /// Opens the file directly (no exists() check) to avoid TOCTOU races.
     pub fn get(&self, domain: &str) -> Option<DiscoveryDocument> {
         let path = self.cache_file_path(domain);
-        if !path.exists() {
-            return None;
-        }
 
-        let file = File::open(&path).ok()?;
+        // Open directly — handles ENOENT without a separate exists() check
+        let file = match File::open(&path) {
+            Ok(f) => f,
+            Err(e) => {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    tracing::warn!("Failed to open AgentPin cache file: {}", e);
+                }
+                return None;
+            }
+        };
         let reader = BufReader::new(file);
-        let entry: CachedEntry = serde_json::from_reader(reader).ok()?;
+        let entry: CachedEntry = match serde_json::from_reader(reader) {
+            Ok(e) => e,
+            Err(e) => {
+                tracing::warn!("Failed to parse AgentPin cache entry: {}", e);
+                return None;
+            }
+        };
 
         // Check TTL
         let now = SystemTime::now()
@@ -60,8 +73,12 @@ impl DiscoveryCache {
             .as_secs();
 
         if now.saturating_sub(entry.cached_at) > self.ttl.as_secs() {
-            // Expired - remove the stale file (best effort)
-            let _ = fs::remove_file(&path);
+            // Expired — remove and ignore ENOENT (another thread may have removed it)
+            if let Err(e) = fs::remove_file(&path) {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    tracing::warn!("Failed to remove stale AgentPin cache: {}", e);
+                }
+            }
             return None;
         }
 
@@ -102,15 +119,17 @@ impl DiscoveryCache {
         Ok(())
     }
 
-    /// Remove a cached entry for a domain
+    /// Remove a cached entry for a domain.
+    /// Removes directly without exists() check to avoid TOCTOU.
     pub fn invalidate(&self, domain: &str) -> Result<(), AgentPinError> {
         let path = self.cache_file_path(domain);
-        if path.exists() {
-            fs::remove_file(&path).map_err(|e| AgentPinError::IoError {
+        match fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(AgentPinError::IoError {
                 reason: format!("Failed to remove cache entry: {}", e),
-            })?;
+            }),
         }
-        Ok(())
     }
 
     /// Clear all cached entries

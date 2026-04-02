@@ -196,7 +196,10 @@ impl SignatureVerifier for JwtVerifier {
         } else {
             // SECURITY: audience validation is disabled — any valid JWT signed
             // with this key will be accepted regardless of the `aud` claim.
-            // Configure an audience value to prevent cross-service token reuse.
+            tracing::warn!(
+                "JWT audience validation is disabled — configure an audience value \
+                 to prevent cross-service token reuse"
+            );
             validation.validate_aud = false;
         }
 

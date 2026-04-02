@@ -12,6 +12,7 @@ use thiserror::Error;
 use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
 
+
 /// Controls whether audit failures block secret operations
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -203,14 +204,13 @@ impl SecretAuditSink for JsonFileAuditSink {
             })?;
 
         // Open the file in append mode (create if it doesn't exist)
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.file_path)
-            .await
-            .map_err(|e| AuditError::IoError {
-                message: format!("Failed to open audit log file: {}", e),
-            })?;
+        let mut opts = OpenOptions::new();
+        opts.create(true).append(true);
+        #[cfg(unix)]
+        opts.mode(0o600); // Owner-only read/write
+        let mut file = opts.open(&self.file_path).await.map_err(|e| AuditError::IoError {
+            message: format!("Failed to open audit log file: {}", e),
+        })?;
 
         // Write the JSON line followed by a newline
         file.write_all(json_line.as_bytes())

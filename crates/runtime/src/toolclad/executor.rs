@@ -176,14 +176,17 @@ impl ToolCladExecutor {
         // Build command from template (shell backend)
         let command = build_command(manifest, &validated)?;
 
-        // Execute with timeout
+        // Execute with timeout — use direct argv to prevent shell injection
         let _timeout = Duration::from_secs(manifest.tool.timeout_seconds);
         let start = std::time::Instant::now();
-        let output = std::process::Command::new("sh")
-            .arg("-c")
-            .arg(&command)
+        let argv = split_command_to_argv(&command)?;
+        let (program, args) = argv
+            .split_first()
+            .ok_or_else(|| "Empty command after template interpolation".to_string())?;
+        let output = std::process::Command::new(program)
+            .args(args)
             .output()
-            .map_err(|e| format!("Failed to execute '{}': {}", command, e))?;
+            .map_err(|e| format!("Failed to execute '{}': {}", program, e))?;
 
         let duration_ms = start.elapsed().as_millis() as u64;
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -266,6 +269,9 @@ impl ToolCladExecutor {
         let url = interpolate(&http.url, validated);
         let url = super::template_vars::inject_secrets(&url)
             .map_err(|e| format!("URL secret error: {}", e))?;
+
+        // SSRF protection: block private/internal IP ranges
+        reject_ssrf_url(&url)?;
 
         // Interpolate headers with secrets
         let mut headers = Vec::new();
@@ -738,6 +744,92 @@ fn evaluate_condition(when: &str, args: &HashMap<String, String>) -> bool {
     }
 
     false
+}
+
+/// Reject URLs targeting private/internal IP ranges to prevent SSRF.
+fn reject_ssrf_url(url: &str) -> Result<(), String> {
+    let parsed =
+        url::Url::parse(url).map_err(|e| format!("Invalid URL '{}': {}", url, e))?;
+
+    // Only allow http/https
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(format!(
+            "SSRF: only http/https schemes allowed, got '{}'",
+            parsed.scheme()
+        ));
+    }
+
+    if let Some(host) = parsed.host_str() {
+        // Block localhost variants
+        if host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]" {
+            return Err("SSRF: cannot access localhost".to_string());
+        }
+
+        // Block cloud metadata endpoints
+        if host == "169.254.169.254" || host == "metadata.google.internal" {
+            return Err("SSRF: cannot access cloud metadata endpoint".to_string());
+        }
+
+        // Block private IP ranges
+        if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+            let is_private = match ip {
+                std::net::IpAddr::V4(v4) => {
+                    v4.is_loopback()
+                        || v4.is_private()
+                        || v4.is_link_local()
+                        || v4.is_broadcast()
+                        || v4.is_unspecified()
+                }
+                std::net::IpAddr::V6(v6) => v6.is_loopback() || v6.is_unspecified(),
+            };
+            if is_private {
+                return Err(format!("SSRF: cannot access private IP range {}", ip));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Split a command string into argv (program + arguments).
+///
+/// Handles single and double quoting so that arguments containing spaces
+/// are preserved as a single element. Does NOT invoke a shell — this
+/// prevents shell metacharacter injection.
+fn split_command_to_argv(command: &str) -> Result<Vec<String>, String> {
+    let mut argv = Vec::new();
+    let mut current = String::new();
+    let mut chars = command.chars().peekable();
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+
+    while let Some(c) = chars.next() {
+        match c {
+            '\'' if !in_double_quote => in_single_quote = !in_single_quote,
+            '"' if !in_single_quote => in_double_quote = !in_double_quote,
+            '\\' if !in_single_quote => {
+                if let Some(next) = chars.next() {
+                    current.push(next);
+                }
+            }
+            ' ' | '\t' if !in_single_quote && !in_double_quote => {
+                if !current.is_empty() {
+                    argv.push(std::mem::take(&mut current));
+                }
+            }
+            _ => current.push(c),
+        }
+    }
+    if !current.is_empty() {
+        argv.push(current);
+    }
+    if in_single_quote || in_double_quote {
+        return Err("Unterminated quote in command template".to_string());
+    }
+    if argv.is_empty() {
+        return Err("Empty command after template interpolation".to_string());
+    }
+    Ok(argv)
 }
 
 /// Interpolate {placeholder} references in a string.

@@ -49,6 +49,13 @@ impl VaultSecretStore {
 
         // Configure TLS settings
         if config.tls.skip_verify {
+            if std::env::var("SYMBIONT_ENV").unwrap_or_default() == "production" {
+                return Err(SecretError::ConfigurationError {
+                    message: "TLS verification cannot be disabled in production (SYMBIONT_ENV=production). \
+                              Remove tls.skip_verify or set SYMBIONT_ENV to a non-production value."
+                        .into(),
+                });
+            }
             tracing::warn!(
                 "Vault TLS verification is disabled — connections are vulnerable to MitM attacks"
             );

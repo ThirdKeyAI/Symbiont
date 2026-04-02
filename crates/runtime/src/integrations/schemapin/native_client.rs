@@ -4,7 +4,7 @@
 
 use async_trait::async_trait;
 use chrono::Utc;
-use schemapin::crypto::{calculate_key_id, generate_key_pair, sign_data};
+use schemapin::crypto::{calculate_key_id, generate_key_pair, sign_data, verify_signature};
 use sha2::Digest;
 
 use super::types::{
@@ -132,32 +132,103 @@ impl SchemaPinClient for NativeSchemaPinClient {
             reason: format!("Failed to calculate key ID: {}", e),
         })?;
 
-        // For basic verification, we assume the schema data itself is what we verify
-        // In a real implementation, you might need to extract signature from the schema
-        // and verify it against the schema content
+        // Calculate schema hash for the response regardless of outcome
+        let schema_hash = {
+            let mut hasher = sha2::Sha256::new();
+            hasher.update(&schema_data);
+            hex::encode(hasher.finalize())
+        };
 
-        // Since we don't have a signature in the args, we'll return a successful verification
-        // In practice, this would need to be modified based on how signatures are embedded
-        // in the schema or provided separately
+        // Attempt to extract an embedded signature from the schema JSON.
+        // Schemas signed by SchemaPin contain a top-level `signature` field.
+        let embedded_signature: Option<String> = serde_json::from_slice::<serde_json::Value>(&schema_data)
+            .ok()
+            .and_then(|v| v.get("signature").and_then(|s| s.as_str()).map(String::from));
 
-        Ok(VerificationResult {
-            success: true,
-            message: "Schema verification completed using native Rust implementation".to_string(),
-            schema_hash: Some({
-                let mut hasher = sha2::Sha256::new();
-                hasher.update(&schema_data);
-                hex::encode(hasher.finalize())
-            }),
-            public_key_url: Some(args.public_key_url.clone()),
-            signature: Some(SignatureInfo {
-                algorithm: "ECDSA_P256".to_string(),
-                signature: "native_verification".to_string(),
-                key_fingerprint: Some(key_id),
-                valid: true,
-            }),
-            metadata: None,
-            timestamp: Some(Utc::now().to_rfc3339()),
-        })
+        if let Some(ref sig) = embedded_signature {
+            // Verify the embedded signature against the schema content and fetched public key
+            // Strip the signature field to get the canonical payload that was signed
+            let mut schema_value: serde_json::Value = serde_json::from_slice(&schema_data)
+                .map_err(|e| SchemaPinError::IoError {
+                    reason: format!("Failed to parse schema JSON: {}", e),
+                })?;
+            if let Some(obj) = schema_value.as_object_mut() {
+                obj.remove("signature");
+            }
+            let canonical_payload = serde_json::to_vec(&schema_value)
+                .map_err(|e| SchemaPinError::IoError {
+                    reason: format!("Failed to serialize canonical schema: {}", e),
+                })?;
+
+            match verify_signature(&public_key_pem, &canonical_payload, sig) {
+                Ok(true) => {
+                    tracing::info!("Schema signature verified successfully for {}", args.schema_path);
+                    Ok(VerificationResult {
+                        success: true,
+                        message: "Schema signature verified successfully using native Rust implementation".to_string(),
+                        schema_hash: Some(schema_hash),
+                        public_key_url: Some(args.public_key_url.clone()),
+                        signature: Some(SignatureInfo {
+                            algorithm: "ECDSA_P256".to_string(),
+                            signature: sig.clone(),
+                            key_fingerprint: Some(key_id),
+                            valid: true,
+                        }),
+                        metadata: None,
+                        timestamp: Some(Utc::now().to_rfc3339()),
+                    })
+                }
+                Ok(false) => {
+                    tracing::warn!("Schema signature verification failed: signature invalid for {}", args.schema_path);
+                    Ok(VerificationResult {
+                        success: false,
+                        message: "Schema signature verification failed: signature is invalid".to_string(),
+                        schema_hash: Some(schema_hash),
+                        public_key_url: Some(args.public_key_url.clone()),
+                        signature: Some(SignatureInfo {
+                            algorithm: "ECDSA_P256".to_string(),
+                            signature: sig.clone(),
+                            key_fingerprint: Some(key_id),
+                            valid: false,
+                        }),
+                        metadata: None,
+                        timestamp: Some(Utc::now().to_rfc3339()),
+                    })
+                }
+                Err(e) => {
+                    tracing::warn!("Schema signature verification error for {}: {}", args.schema_path, e);
+                    Ok(VerificationResult {
+                        success: false,
+                        message: format!("Schema signature verification error: {}", e),
+                        schema_hash: Some(schema_hash),
+                        public_key_url: Some(args.public_key_url.clone()),
+                        signature: Some(SignatureInfo {
+                            algorithm: "ECDSA_P256".to_string(),
+                            signature: sig.clone(),
+                            key_fingerprint: Some(key_id),
+                            valid: false,
+                        }),
+                        metadata: None,
+                        timestamp: Some(Utc::now().to_rfc3339()),
+                    })
+                }
+            }
+        } else {
+            // No signature provided — fail verification (fail-closed)
+            tracing::warn!(
+                "Schema verification failed for {}: no signature provided for verification",
+                args.schema_path
+            );
+            Ok(VerificationResult {
+                success: false,
+                message: "No signature provided for verification".to_string(),
+                schema_hash: Some(schema_hash),
+                public_key_url: Some(args.public_key_url.clone()),
+                signature: None,
+                metadata: None,
+                timestamp: Some(Utc::now().to_rfc3339()),
+            })
+        }
     }
 
     async fn sign_schema(&self, args: SignArgs) -> Result<SigningResult, SchemaPinError> {

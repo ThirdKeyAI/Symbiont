@@ -9,7 +9,7 @@ use aes_gcm::{
 };
 use argon2::{
     password_hash::{rand_core::RngCore, PasswordHasher, SaltString},
-    Argon2,
+    Argon2, Params,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde::{Deserialize, Serialize};
@@ -165,8 +165,16 @@ impl Aes256GcmCrypto {
                 message: e.to_string(),
             })?;
 
-        // Derive key using Argon2
-        let argon2 = Argon2::default();
+        // Derive key using Argon2id with explicit parameters:
+        // - 19 MiB memory cost (OWASP minimum recommendation)
+        // - 2 iterations
+        // - 1 degree of parallelism
+        let params = Params::new(19 * 1024, 2, 1, Some(32)).map_err(|e| {
+            CryptoError::KeyDerivationFailed {
+                message: format!("Invalid Argon2 parameters: {}", e),
+            }
+        })?;
+        let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
         let password_hash = argon2
             .hash_password(password.as_bytes(), &salt_string)
             .map_err(|e| CryptoError::KeyDerivationFailed {
@@ -241,8 +249,13 @@ impl Aes256GcmCrypto {
                 message: e.to_string(),
             })?;
 
-        // Derive key using the same parameters
-        let argon2 = Argon2::default();
+        // Derive key using the same Argon2id parameters as encryption
+        let params = Params::new(19 * 1024, 2, 1, Some(32)).map_err(|e| {
+            CryptoError::KeyDerivationFailed {
+                message: format!("Invalid Argon2 parameters: {}", e),
+            }
+        })?;
+        let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
         let password_hash = argon2
             .hash_password(password.as_bytes(), &salt_string)
             .map_err(|e| CryptoError::KeyDerivationFailed {

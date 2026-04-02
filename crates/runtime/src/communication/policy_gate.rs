@@ -54,7 +54,7 @@ impl Default for CommunicationPolicyGate {
     fn default() -> Self {
         Self {
             rules: Vec::new(),
-            default_allow: true,
+            default_allow: false,
         }
     }
 }
@@ -64,12 +64,15 @@ impl CommunicationPolicyGate {
         rules.sort_by(|a, b| b.priority.cmp(&a.priority));
         Self {
             rules,
-            default_allow: true,
+            default_allow: false,
         }
     }
 
     pub fn permissive() -> Self {
-        Self::default()
+        Self {
+            rules: Vec::new(),
+            default_allow: true,
+        }
     }
 
     pub fn deny_by_default(rules: Vec<CommunicationPolicyRule>) -> Self {
@@ -152,7 +155,9 @@ mod tests {
         let allowed = AgentId::new();
         let recipient = AgentId::new();
 
-        let gate = CommunicationPolicyGate::new(vec![CommunicationPolicyRule {
+        // Use permissive gate so unmatched requests are allowed
+        let mut gate = CommunicationPolicyGate::permissive();
+        gate.rules = vec![CommunicationPolicyRule {
             id: "r1".into(),
             name: "block-sender".into(),
             condition: CommunicationCondition::SenderIs(blocked),
@@ -160,7 +165,7 @@ mod tests {
                 reason: "blocked".into(),
             },
             priority: 10,
-        }]);
+        }];
 
         let blocked_req = make_request(blocked, recipient);
         assert!(gate.evaluate(&blocked_req).is_err());
@@ -203,7 +208,9 @@ mod tests {
         let recipient = AgentId::new();
         let other_recipient = AgentId::new();
 
-        let gate = CommunicationPolicyGate::new(vec![CommunicationPolicyRule {
+        // Use permissive gate so unmatched requests fall through to allow
+        let mut gate = CommunicationPolicyGate::permissive();
+        gate.rules = vec![CommunicationPolicyRule {
             id: "r1".into(),
             name: "all-match".into(),
             condition: CommunicationCondition::All(vec![
@@ -214,7 +221,7 @@ mod tests {
                 reason: "both match".into(),
             },
             priority: 10,
-        }]);
+        }];
 
         // Both conditions match -> deny
         let req = make_request(sender, recipient);
@@ -232,7 +239,9 @@ mod tests {
         let agent_c = AgentId::new();
         let recipient = AgentId::new();
 
-        let gate = CommunicationPolicyGate::new(vec![CommunicationPolicyRule {
+        // Use permissive gate so unmatched requests fall through to allow
+        let mut gate = CommunicationPolicyGate::permissive();
+        gate.rules = vec![CommunicationPolicyRule {
             id: "r1".into(),
             name: "any-match".into(),
             condition: CommunicationCondition::Any(vec![
@@ -243,13 +252,13 @@ mod tests {
                 reason: "either match".into(),
             },
             priority: 10,
-        }]);
+        }];
 
         // agent_a matches
         assert!(gate.evaluate(&make_request(agent_a, recipient)).is_err());
         // agent_b matches
         assert!(gate.evaluate(&make_request(agent_b, recipient)).is_err());
-        // agent_c doesn't match -> default allow
+        // agent_c doesn't match -> default allow (permissive gate)
         assert!(gate.evaluate(&make_request(agent_c, recipient)).is_ok());
     }
 }

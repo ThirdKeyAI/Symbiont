@@ -272,20 +272,21 @@ impl DefaultCommunicationBus {
                     }
                 }
 
-                // Add to message tracker
-                message_tracker
-                    .write()
-                    .insert(message_id, MessageTracker::new(message.clone()));
+                // Acquire all locks once in consistent order to prevent deadlocks:
+                // message_tracker → message_queues → dead_letter_queue
+                let mut tracker_map = message_tracker.write();
+                let mut queues = message_queues.write();
+
+                tracker_map.insert(message_id, MessageTracker::new(message.clone()));
 
                 // Try to deliver the message
-                let mut queues = message_queues.write();
                 if let Some(recipient_id) = recipient {
                     if let Some(queue) = queues.get_mut(&recipient_id) {
                         if queue.can_accept_message(config) {
                             queue.add_message(message);
 
                             // Update delivery status
-                            if let Some(tracker) = message_tracker.write().get_mut(&message_id) {
+                            if let Some(tracker) = tracker_map.get_mut(&message_id) {
                                 tracker.status = DeliveryStatus::Delivered;
                                 tracker.delivered_at = Some(SystemTime::now());
                             }
@@ -301,7 +302,7 @@ impl DefaultCommunicationBus {
                                 .write()
                                 .add_message(message, DeadLetterReason::QueueFull);
 
-                            if let Some(tracker) = message_tracker.write().get_mut(&message_id) {
+                            if let Some(tracker) = tracker_map.get_mut(&message_id) {
                                 tracker.status = DeliveryStatus::Failed;
                                 tracker.failure_reason = Some("Queue full".to_string());
                             }
@@ -318,7 +319,7 @@ impl DefaultCommunicationBus {
                             .write()
                             .add_message(message, DeadLetterReason::AgentNotFound);
 
-                        if let Some(tracker) = message_tracker.write().get_mut(&message_id) {
+                        if let Some(tracker) = tracker_map.get_mut(&message_id) {
                             tracker.status = DeliveryStatus::Failed;
                             tracker.failure_reason = Some("Agent not registered".to_string());
                         }

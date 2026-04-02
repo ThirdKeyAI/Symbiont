@@ -127,6 +127,8 @@ impl ApiKeyStore {
     /// the legacy O(n) scan for backward compatibility (with a deprecation
     /// warning).
     pub fn validate_key(&self, raw_key: &str) -> Option<ValidatedKey> {
+        // Argon2::default() is correct for verification — verify_password()
+        // extracts parameters from the stored PHC hash string automatically.
         let argon2 = Argon2::default();
 
         // Try the new keyid.secret format: split on the FIRST dot
@@ -191,10 +193,14 @@ impl ApiKeyStore {
         None
     }
 
-    /// Hash a raw API key with Argon2 (utility for key provisioning).
+    /// Hash a raw API key with Argon2id (utility for key provisioning).
+    /// Uses Argon2id with 19 MiB memory, 2 iterations, 1 thread (OWASP recommendation).
     pub fn hash_key(raw_key: &str) -> Result<String, String> {
         let salt = SaltString::generate(&mut rand::thread_rng());
-        let argon2 = Argon2::default();
+        let params = argon2::Params::new(19 * 1024, 2, 1, None)
+            .map_err(|e| format!("Invalid Argon2 parameters: {}", e))?;
+        let argon2 =
+            Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
         let hash = argon2
             .hash_password(raw_key.as_bytes(), &salt)
             .map_err(|e| format!("Failed to hash key: {}", e))?;

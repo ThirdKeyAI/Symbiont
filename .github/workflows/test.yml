@@ -24,6 +24,13 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --workspace -- -D warnings
       - run: cargo test --workspace
+      # Feature combination tests — verify minimal and no-default builds compile
+      - name: Test minimal build (no default features)
+        run: cargo check -p symbi-runtime --no-default-features
+      - name: Test without vector backends
+        run: cargo test -p symbi-runtime --no-default-features --features keychain
+      - name: Test with all features
+        run: cargo check -p symbi-runtime --all-features
 
   fuzz:
     runs-on: ubuntu-latest

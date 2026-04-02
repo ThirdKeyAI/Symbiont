@@ -118,16 +118,26 @@ impl PolicyEngine for OpaPolicyEngine {
     }
 }
 
-/// Simple OPA client implementation
+/// OPA policy engine client.
+///
+/// Queries an Open Policy Agent server via its REST API.
+/// Falls back to deny-by-default if the server is unreachable.
 #[derive(Clone)]
 struct OpaClient {
     base_url: String,
+    client: reqwest::Client,
 }
 
 impl OpaClient {
     fn new() -> Self {
+        let base_url = std::env::var("SYMBIONT_OPA_URL")
+            .unwrap_or_else(|_| "http://localhost:8181".to_string());
         Self {
-            base_url: "http://localhost:8181".to_string(),
+            base_url,
+            client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(5))
+                .build()
+                .unwrap_or_default(),
         }
     }
 
@@ -136,18 +146,42 @@ impl OpaClient {
         query: String,
         input: serde_json::Value,
     ) -> Result<serde_json::Value, PolicyError> {
-        // For now, this is a mock implementation
-        // In a real implementation, this would make HTTP requests to OPA
-        let _query_url = format!("{}/v1/data/{}", self.base_url, query.replace("data.", ""));
-        let _input = input;
+        let query_path = query.replace("data.", "");
+        let query_url = format!("{}/v1/data/{}", self.base_url, query_path);
+        let body = serde_json::json!({ "input": input });
 
-        // Mock response - in production this would use reqwest or similar
-        // to make actual HTTP calls to OPA
-        let mock_result = serde_json::json!({
-            "result": true
-        });
-
-        Ok(mock_result)
+        match self.client.post(&query_url).json(&body).send().await {
+            Ok(resp) => {
+                if resp.status().is_success() {
+                    let result: serde_json::Value = resp.json().await.map_err(|e| {
+                        PolicyError::EvaluationFailed(format!(
+                            "Failed to parse OPA response: {}",
+                            e
+                        ))
+                    })?;
+                    // OPA wraps results under "result" key
+                    Ok(result
+                        .get("result")
+                        .cloned()
+                        .unwrap_or(serde_json::json!(false)))
+                } else {
+                    tracing::warn!(
+                        "OPA returned HTTP {}: denying by default",
+                        resp.status()
+                    );
+                    Ok(serde_json::json!(false))
+                }
+            }
+            Err(e) => {
+                // Fail-closed: deny if OPA is unreachable
+                tracing::warn!(
+                    "OPA unreachable at {}: {}. Denying by default (fail-closed)",
+                    self.base_url,
+                    e
+                );
+                Ok(serde_json::json!(false))
+            }
+        }
     }
 }
 
@@ -282,7 +316,7 @@ impl DefaultPolicyEnforcementPoint {
         let enabled = data
             .get("enabled")
             .and_then(|v| v.as_bool())
-            .unwrap_or(true);
+            .unwrap_or(false); // fail-closed: policies must be explicitly enabled
 
         let priority = data
             .get("priority")

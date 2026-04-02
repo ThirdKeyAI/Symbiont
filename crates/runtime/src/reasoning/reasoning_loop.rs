@@ -152,7 +152,7 @@ impl ReasoningLoopRunnerBuilder<Arc<dyn InferenceProvider>, Arc<dyn ActionExecut
             executor: self.executor,
             policy_gate: self
                 .policy_gate
-                .unwrap_or_else(|| Arc::new(DefaultPolicyGate::permissive())),
+                .unwrap_or_else(|| Arc::new(DefaultPolicyGate::new())),
             context_manager: self
                 .context_manager
                 .unwrap_or_else(|| Arc::new(DefaultContextManager::default())),
