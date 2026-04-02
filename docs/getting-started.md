@@ -477,6 +477,18 @@ export SYMBI_RUNTIME_MODE=development
 export MCP_SERVER_URLS="http://localhost:8080"
 ```
 
+### Tool Contracts (ToolClad)
+
+Define governed tool contracts in the `tools/` directory:
+
+```bash
+symbi tools init my_tool          # create a starter manifest
+symbi tools validate              # validate all manifests
+symbi tools test my_tool --arg target=10.0.1.5   # dry-run with args
+```
+
+See the [ToolClad guide](/toolclad) for the full manifest format, execution modes, and scope enforcement.
+
 ### Runtime Configuration
 
 Create a `symbi.toml` configuration file:

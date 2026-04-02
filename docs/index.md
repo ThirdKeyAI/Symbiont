@@ -173,6 +173,7 @@ See the [Security Model](/security-model) guide for full details.
 - [Runtime Architecture](/runtime-architecture) — Runtime internals and execution model
 - [Reasoning Loop](/reasoning-loop) — ORGA cycle, policy gates, circuit breakers
 - [DSL Guide](/dsl-guide) — Agent definition language reference
+- [ToolClad](/toolclad) — Declarative tool contracts, argument validation, scope enforcement
 - [API Reference](/api-reference) — HTTP API endpoints and configuration
 - [Scheduling](/scheduling) — Cron engine, delivery routing, dead-letter queues
 - [HTTP Input](/http-input) — Webhook server, auth, rate limiting

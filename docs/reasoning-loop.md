@@ -293,7 +293,7 @@ The `KnowledgeAwareExecutor` intercepts two special tools:
   { "subject": "Earth", "predicate": "has", "object": "one moon", "confidence": 0.95 }
   ```
 
-All other tool calls are delegated to the inner executor unchanged.
+All other tool calls are delegated to the inner executor unchanged. This includes [ToolClad](/toolclad) tools, which are validated against their manifest contracts before execution.
 
 **After loop completion:**
 If `auto_persist` is enabled, the bridge extracts assistant responses and stores them as working memory for future conversations.

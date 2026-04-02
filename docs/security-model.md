@@ -484,9 +484,16 @@ impl ComplianceFramework {
 
 ---
 
-## Tool Security with SchemaPin
+## Tool Security
 
-### Tool Verification Process
+Symbiont provides two complementary layers for tool security:
+
+- **SchemaPin** — cryptographic verification of MCP tool schemas (identity and integrity)
+- **[ToolClad](/toolclad)** — declarative tool contracts with argument validation, scope enforcement, injection prevention, and Cedar policy generation
+
+ToolClad governs *how* tools execute (input validation, scope boundaries, evidence capture). SchemaPin governs *whether* to trust a tool's identity (signature verification, key pinning).
+
+### SchemaPin Verification Process
 
 External tools are verified using cryptographic signatures:
 
