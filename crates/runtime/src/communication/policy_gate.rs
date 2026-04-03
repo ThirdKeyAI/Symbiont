@@ -43,20 +43,11 @@ pub struct CommunicationPolicyRule {
 
 /// Policy gate that evaluates rules for inter-agent communication.
 /// Rules evaluated in priority order (highest first). First matching rule wins.
-/// Default is Allow (backward compatible).
-#[derive(Debug, Clone)]
+/// Default is deny (fail-closed). Use `permissive()` to opt into allow-by-default.
+#[derive(Debug, Clone, Default)]
 pub struct CommunicationPolicyGate {
     rules: Vec<CommunicationPolicyRule>,
     default_allow: bool,
-}
-
-impl Default for CommunicationPolicyGate {
-    fn default() -> Self {
-        Self {
-            rules: Vec::new(),
-            default_allow: false,
-        }
-    }
 }
 
 impl CommunicationPolicyGate {

@@ -25,6 +25,7 @@ pub enum VectorBackendConfig {
     NoOp,
 }
 
+#[allow(clippy::derivable_impls)] // Conditional default based on feature flags
 impl Default for VectorBackendConfig {
     fn default() -> Self {
         #[cfg(feature = "vector-lancedb")]
