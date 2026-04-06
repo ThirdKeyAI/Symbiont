@@ -503,10 +503,7 @@ impl SkillScanner {
                     .to_string();
 
                 // Check file size before reading
-                let file_size = entry_path
-                    .metadata()
-                    .map(|m| m.len())
-                    .unwrap_or(0);
+                let file_size = entry_path.metadata().map(|m| m.len()).unwrap_or(0);
 
                 if file_size > self.limits.max_file_size {
                     skipped += 1;
