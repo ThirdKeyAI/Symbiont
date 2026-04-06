@@ -14,6 +14,40 @@ pub enum ScanRule {
     AllowedExecutablesOnly(Vec<String>),
 }
 
+/// Resource limits for skill scanning to prevent runaway resource consumption.
+#[derive(Debug, Clone)]
+pub struct ScanLimits {
+    /// Maximum file size to read in bytes (default: 1 MiB).
+    pub max_file_size: u64,
+    /// Maximum number of files to scan (default: 1000).
+    pub max_files: usize,
+    /// Maximum directory recursion depth (default: 20).
+    pub max_depth: usize,
+}
+
+impl Default for ScanLimits {
+    fn default() -> Self {
+        Self {
+            max_file_size: 1024 * 1024, // 1 MiB
+            max_files: 1000,
+            max_depth: 20,
+        }
+    }
+}
+
+/// Progress information emitted during a scan.
+#[derive(Debug, Clone)]
+pub struct ScanProgress {
+    /// File currently being scanned (relative path).
+    pub file: String,
+    /// Number of files scanned so far.
+    pub scanned: usize,
+    /// Total number of files discovered.
+    pub total: usize,
+    /// Number of files skipped (too large, depth exceeded, etc.).
+    pub skipped: usize,
+}
+
 /// Severity of a scan finding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ScanSeverity {
@@ -57,6 +91,7 @@ pub struct ScanResult {
 pub struct SkillScanner {
     deny_patterns: Vec<(String, Regex, ScanSeverity, String)>,
     allowed_executables: Option<Vec<String>>,
+    limits: ScanLimits,
 }
 
 /// Default ClawHavoc defense rules.
@@ -315,6 +350,11 @@ fn default_rules() -> Vec<(String, String, ScanSeverity, String)> {
 impl SkillScanner {
     /// Create a scanner with default ClawHavoc defense rules.
     pub fn new() -> Self {
+        Self::with_limits(ScanLimits::default())
+    }
+
+    /// Create a scanner with default rules and custom resource limits.
+    pub fn with_limits(limits: ScanLimits) -> Self {
         let compiled = default_rules()
             .into_iter()
             .filter_map(|(name, pattern, severity, msg)| {
@@ -327,6 +367,7 @@ impl SkillScanner {
         Self {
             deny_patterns: compiled,
             allowed_executables: None,
+            limits,
         }
     }
 
@@ -425,16 +466,78 @@ impl SkillScanner {
 
     /// Scan all files in a skill directory.
     pub fn scan_skill(&self, skill_dir: &Path) -> ScanResult {
+        self.scan_skill_with_progress(skill_dir, |_| {})
+    }
+
+    /// Scan all files in a skill directory, reporting progress via callback.
+    pub fn scan_skill_with_progress<F>(&self, skill_dir: &Path, on_progress: F) -> ScanResult
+    where
+        F: Fn(&ScanProgress),
+    {
         let mut all_findings = Vec::new();
 
-        if let Ok(entries) = walk_dir_sorted(skill_dir) {
+        if let Ok(entries) = walk_dir_sorted(skill_dir, self.limits.max_depth) {
+            let total = entries.len().min(self.limits.max_files);
+            let mut scanned = 0usize;
+            let mut skipped = 0usize;
+
             for entry_path in entries {
+                if scanned >= self.limits.max_files {
+                    all_findings.push(ScanFinding {
+                        rule: "scan-limit:max-files".into(),
+                        severity: ScanSeverity::Warning,
+                        message: format!(
+                            "Scan stopped after {} files (limit reached)",
+                            self.limits.max_files
+                        ),
+                        line: None,
+                        file: skill_dir.display().to_string(),
+                    });
+                    break;
+                }
+
+                let relative = entry_path
+                    .strip_prefix(skill_dir)
+                    .unwrap_or(&entry_path)
+                    .to_string_lossy()
+                    .to_string();
+
+                // Check file size before reading
+                let file_size = entry_path
+                    .metadata()
+                    .map(|m| m.len())
+                    .unwrap_or(0);
+
+                if file_size > self.limits.max_file_size {
+                    skipped += 1;
+                    all_findings.push(ScanFinding {
+                        rule: "scan-limit:file-size".into(),
+                        severity: ScanSeverity::Info,
+                        message: format!(
+                            "Skipped: file size {} bytes exceeds limit of {} bytes",
+                            file_size, self.limits.max_file_size
+                        ),
+                        line: None,
+                        file: relative.clone(),
+                    });
+                    on_progress(&ScanProgress {
+                        file: relative,
+                        scanned,
+                        total,
+                        skipped,
+                    });
+                    continue;
+                }
+
+                scanned += 1;
+                on_progress(&ScanProgress {
+                    file: relative.clone(),
+                    scanned,
+                    total,
+                    skipped,
+                });
+
                 if let Ok(content) = std::fs::read_to_string(&entry_path) {
-                    let relative = entry_path
-                        .strip_prefix(skill_dir)
-                        .unwrap_or(&entry_path)
-                        .to_string_lossy()
-                        .to_string();
                     let findings = self.scan_content(&content, &relative);
                     all_findings.extend(findings);
                 }
@@ -459,22 +562,27 @@ impl Default for SkillScanner {
 }
 
 /// Recursively walk a directory and return sorted file paths.
-fn walk_dir_sorted(dir: &Path) -> std::io::Result<Vec<std::path::PathBuf>> {
+fn walk_dir_sorted(dir: &Path, max_depth: usize) -> std::io::Result<Vec<std::path::PathBuf>> {
     let mut files = Vec::new();
-    walk_dir_recursive(dir, &mut files)?;
+    walk_dir_recursive(dir, &mut files, 0, max_depth)?;
     files.sort();
     Ok(files)
 }
 
-fn walk_dir_recursive(dir: &Path, files: &mut Vec<std::path::PathBuf>) -> std::io::Result<()> {
-    if !dir.is_dir() {
+fn walk_dir_recursive(
+    dir: &Path,
+    files: &mut Vec<std::path::PathBuf>,
+    depth: usize,
+    max_depth: usize,
+) -> std::io::Result<()> {
+    if !dir.is_dir() || depth > max_depth {
         return Ok(());
     }
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
         if path.is_dir() {
-            walk_dir_recursive(&path, files)?;
+            walk_dir_recursive(&path, files, depth + 1, max_depth)?;
         } else if path.is_file() {
             // Skip binary files and signature files
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");

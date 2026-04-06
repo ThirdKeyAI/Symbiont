@@ -1,4 +1,5 @@
 use clap::ArgMatches;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use symbi_runtime::skills::{SkillLoader, SkillScanner, SkillsConfig};
 
@@ -79,10 +80,28 @@ async fn cmd_scan(matches: &ArgMatches) {
     }
 
     let scanner = SkillScanner::new();
-    let result = scanner.scan_skill(&dir);
+    let start = std::time::Instant::now();
+
+    let result = scanner.scan_skill_with_progress(&dir, |progress| {
+        // Overwrite the current line with progress status
+        eprint!(
+            "\r\x1b[K  Scanning [{}/{}] {}",
+            progress.scanned, progress.total, progress.file,
+        );
+        let _ = std::io::stderr().flush();
+    });
+
+    // Clear the progress line
+    eprint!("\r\x1b[K");
+    let _ = std::io::stderr().flush();
+
+    let elapsed = start.elapsed();
 
     if result.findings.is_empty() {
-        println!("No findings. Skill passed all security checks.");
+        println!(
+            "No findings. Skill passed all security checks. ({:.1}s)",
+            elapsed.as_secs_f64()
+        );
         return;
     }
 
@@ -109,9 +128,10 @@ async fn cmd_scan(matches: &ArgMatches) {
     }
 
     println!(
-        "\n{} finding(s). {}",
+        "\n{} finding(s). {} ({:.1}s)",
         result.findings.len(),
-        if result.passed { "PASSED" } else { "FAILED" }
+        if result.passed { "PASSED" } else { "FAILED" },
+        elapsed.as_secs_f64(),
     );
 
     if !result.passed {
