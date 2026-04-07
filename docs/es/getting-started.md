@@ -19,7 +19,6 @@ Antes de comenzar con Symbi, asegurate de tener lo siguiente instalado:
 
 ### Dependencias Opcionales
 
-- **SchemaPin Go CLI** (para verificacion de herramientas)
 - **[symbi-claude-code](https://github.com/thirdkeyai/symbi-claude-code)** (plugin de gobernanza para Claude Code)
 - **[symbi-gemini-cli](https://github.com/thirdkeyai/symbi-gemini-cli)** (extension de gobernanza para Gemini CLI)
 

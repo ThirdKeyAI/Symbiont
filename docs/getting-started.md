@@ -19,7 +19,6 @@ Before getting started with Symbi, ensure you have the following installed:
 
 ### Optional Dependencies
 
-- **SchemaPin Go CLI** (for tool verification)
 - **[symbi-claude-code](https://github.com/thirdkeyai/symbi-claude-code)** (Claude Code governance plugin)
 - **[symbi-gemini-cli](https://github.com/thirdkeyai/symbi-gemini-cli)** (Gemini CLI governance extension)
 

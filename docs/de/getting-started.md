@@ -17,10 +17,6 @@ Bevor Sie mit Symbi beginnen, stellen Sie sicher, dass Sie Folgendes installiert
 - **Rust 1.82+** (wenn Sie lokal kompilieren)
 - **Git** (zum Klonen des Repositories)
 
-### Optionale Abhaengigkeiten
-
-- **SchemaPin Go CLI** (fuer Tool-Verifizierung)
-
 > **Hinweis:** Vektorsuche ist integriert. Symbi wird mit [LanceDB](https://lancedb.com/) als eingebetteter Vektordatenbank ausgeliefert -- kein externer Dienst erforderlich.
 
 ---

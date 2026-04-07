@@ -21,6 +21,11 @@ path = "examples/full_system.rs"
 [[bin]]
 name = "symbi-mcp"
 path = "src/bin/symbiont_mcp.rs"
+
+[[bin]]
+name = "symbi-eval"
+path = "src/bin/symbi_eval.rs"
+required-features = ["cloud-llm"]
 [dependencies]
 symbi-dsl = { path = "../dsl", version = "1.9.1" }
 tokio = { version = "1.0", features = ["full"] }
