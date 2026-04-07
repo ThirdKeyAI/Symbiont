@@ -206,8 +206,7 @@ impl ActionExecutor for MockToolExecutor {
                             arguments: arguments.clone(),
                             response: response.clone(),
                         });
-                        observations
-                            .push(Observation::tool_result(call_id.clone(), response));
+                        observations.push(Observation::tool_result(call_id.clone(), response));
                         circuit_breakers.record_success(name).await;
                     }
                     None => {
