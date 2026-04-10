@@ -26,6 +26,7 @@ Once an agent can call tools, access files, send messages, or invoke external se
 
 * **Policy enforcement** for what an agent may do — built-in DSL and [Cedar](https://www.cedarpolicy.com/) authorization
 * **Tool verification** so execution is not blind trust — [SchemaPin](https://github.com/ThirdKeyAI/SchemaPin) cryptographic verification of MCP tools
+* **Tool contracts** for how tools execute — [ToolClad](https://github.com/ThirdKeyAI/ToolClad) declarative input validation, scope enforcement, and injection prevention
 * **Agent identity** so you know who is acting — [AgentPin](https://github.com/ThirdKeyAI/AgentPin) domain-anchored ES256 identity
 * **Sandboxing** for risky workloads — Docker isolation with resource limits
 * **Audit trails** for what happened and why — cryptographically tamper-evident logs
@@ -122,6 +123,7 @@ See the [DSL guide](https://docs.symbiont.dev/dsl-guide) for the full grammar in
 |-----------|-------------|
 | **Policy engine** | Fine-grained [Cedar](https://www.cedarpolicy.com/) authorization for agent actions, tool calls, and resource access |
 | **Tool verification** | [SchemaPin](https://github.com/ThirdKeyAI/SchemaPin) cryptographic verification of MCP tool schemas before execution |
+| **Tool contracts** | [ToolClad](https://github.com/ThirdKeyAI/ToolClad) declarative contracts with argument validation, scope enforcement, and Cedar policy generation |
 | **Agent identity** | [AgentPin](https://github.com/ThirdKeyAI/AgentPin) domain-anchored ES256 identity for agents and scheduled tasks |
 | **Reasoning loop** | Typestate-enforced Observe-Reason-Gate-Act cycle with policy gates and circuit breakers |
 | **Sandboxing** | Docker-based isolation with resource limits for untrusted workloads |
@@ -179,6 +181,17 @@ Governance plugins: [`symbi-claude-code`](https://github.com/thirdkeyai/symbi-cl
 * [API Reference](https://docs.symbiont.dev/api-reference)
 
 If you are evaluating Symbiont for production, start with the security model and getting started docs.
+
+---
+
+## SDKs
+
+Official client SDKs for integrating with the Symbiont runtime from your application:
+
+| Language | Package | Repository |
+|----------|---------|------------|
+| **JavaScript/TypeScript** | [symbiont-sdk-js](https://www.npmjs.com/package/symbiont-sdk-js) | [GitHub](https://github.com/ThirdKeyAI/symbiont-sdk-js) |
+| **Python** | [symbiont-sdk](https://pypi.org/project/symbiont-sdk/) | [GitHub](https://github.com/ThirdKeyAI/symbiont-sdk-python) |
 
 ---
 

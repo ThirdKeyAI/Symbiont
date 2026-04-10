@@ -26,6 +26,7 @@ AI 智能体易于演示，却难以信任。
 
 * **策略执行** 控制智能体可以做什么 — 内置 DSL 和 [Cedar](https://www.cedarpolicy.com/) 授权
 * **工具验证** 使执行不再是盲目信任 — [SchemaPin](https://github.com/ThirdKeyAI/SchemaPin) 对 MCP 工具的密码学验证
+* **工具契约** 规范工具的执行方式 — [ToolClad](https://github.com/ThirdKeyAI/ToolClad) 声明式参数校验、作用域强制和注入防护
 * **智能体身份** 使你了解谁在执行操作 — [AgentPin](https://github.com/ThirdKeyAI/AgentPin) 域锚定 ES256 身份
 * **沙箱隔离** 用于高风险工作负载 — 带资源限制的 Docker 隔离
 * **审计追踪** 记录发生了什么以及原因 — 密码学防篡改日志
@@ -122,6 +123,7 @@ agent secure_analyst(input: DataSet) -> Result {
 |-----------|-------------|
 | **策略引擎** | 对智能体操作、工具调用和资源访问的细粒度 [Cedar](https://www.cedarpolicy.com/) 授权 |
 | **工具验证** | 执行前使用 [SchemaPin](https://github.com/ThirdKeyAI/SchemaPin) 对 MCP 工具 schema 进行密码学验证 |
+| **工具契约** | [ToolClad](https://github.com/ThirdKeyAI/ToolClad) 声明式契约，提供参数校验、作用域强制和 Cedar 策略生成 |
 | **智能体身份** | [AgentPin](https://github.com/ThirdKeyAI/AgentPin) 面向智能体和计划任务的域锚定 ES256 身份 |
 | **推理循环** | 类型状态强制的 Observe-Reason-Gate-Act 循环，带策略门和熔断器 |
 | **沙箱隔离** | 基于 Docker 的隔离，带资源限制，用于不可信工作负载 |
@@ -179,6 +181,17 @@ Symbiont 围绕一个简单原则设计：**模型输出永远不应被信任为
 * [API 参考](https://docs.symbiont.dev/api-reference)
 
 如果你正在评估 Symbiont 用于生产环境，请从安全模型和入门指南文档开始。
+
+---
+
+## SDK
+
+用于从应用程序集成 Symbiont 运行时的官方客户端 SDK：
+
+| 语言 | 包 | 代码仓库 |
+|------|-----|----------|
+| **JavaScript/TypeScript** | [symbiont-sdk-js](https://www.npmjs.com/package/symbiont-sdk-js) | [GitHub](https://github.com/ThirdKeyAI/symbiont-sdk-js) |
+| **Python** | [symbiont-sdk](https://pypi.org/project/symbiont-sdk/) | [GitHub](https://github.com/ThirdKeyAI/symbiont-sdk-python) |
 
 ---
 

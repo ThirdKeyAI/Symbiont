@@ -188,6 +188,11 @@ pub struct LoopConfig {
     pub max_concurrent_tools: usize,
     /// Token budget for context window management.
     pub context_token_budget: usize,
+    /// Sampling temperature applied to inference calls. 0.0 = deterministic.
+    /// Defaults to the same value as `InferenceOptions::default()` to preserve
+    /// existing behavior for callers that don't set this explicitly.
+    #[serde(default = "default_loop_temperature")]
+    pub temperature: f32,
     /// Tool definitions available during this loop run.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_definitions: Vec<ToolDefinition>,
@@ -205,6 +210,12 @@ pub struct LoopConfig {
     pub pre_hydration: Option<crate::reasoning::pre_hydrate::PreHydrationConfig>,
 }
 
+fn default_loop_temperature() -> f32 {
+    // Match the InferenceOptions default to preserve existing behavior for
+    // callers that don't override this. Eval/test workloads should set 0.0.
+    0.3
+}
+
 impl Default for LoopConfig {
     fn default() -> Self {
         Self {
@@ -218,6 +229,7 @@ impl Default for LoopConfig {
             tool_timeout: Duration::from_secs(30),
             max_concurrent_tools: 5,
             context_token_budget: 32_000,
+            temperature: default_loop_temperature(),
             tool_definitions: Vec::new(),
             #[cfg(feature = "orga-adaptive")]
             tool_profile: None,

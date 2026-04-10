@@ -186,6 +186,7 @@ Symbiont 围绕一个简单原则设计：**模型输出永远不应被信任为
 ## 社区与资源
 
 - **包**：[crates.io/crates/symbi](https://crates.io/crates/symbi) | [npm symbiont-sdk-js](https://www.npmjs.com/package/symbiont-sdk-js) | [PyPI symbiont-sdk](https://pypi.org/project/symbiont-sdk/)
+- **SDK**：[JavaScript/TypeScript](https://github.com/ThirdKeyAI/symbiont-sdk-js) | [Python](https://github.com/ThirdKeyAI/symbiont-sdk-python)
 - **插件**：[Claude Code](https://github.com/thirdkeyai/symbi-claude-code) | [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli)
 - **问题**：[GitHub Issues](https://github.com/thirdkeyai/symbiont/issues)
 - **许可证**：Apache 2.0（社区版）

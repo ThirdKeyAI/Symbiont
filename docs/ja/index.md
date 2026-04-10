@@ -186,6 +186,7 @@ Symbiont はシンプルな原則に基づいて設計されています：**モ
 ## コミュニティとリソース
 
 - **パッケージ**: [crates.io/crates/symbi](https://crates.io/crates/symbi) | [npm symbiont-sdk-js](https://www.npmjs.com/package/symbiont-sdk-js) | [PyPI symbiont-sdk](https://pypi.org/project/symbiont-sdk/)
+- **SDK**: [JavaScript/TypeScript](https://github.com/ThirdKeyAI/symbiont-sdk-js) | [Python](https://github.com/ThirdKeyAI/symbiont-sdk-python)
 - **プラグイン**: [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) | [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli)
 - **課題**: [GitHub Issues](https://github.com/thirdkeyai/symbiont/issues)
 - **ライセンス**: Apache 2.0 (Community Edition)

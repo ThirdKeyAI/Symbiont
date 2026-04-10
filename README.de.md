@@ -26,6 +26,7 @@ Sobald ein Agent Tools aufrufen, auf Dateien zugreifen, Nachrichten senden oder 
 
 * **Richtliniendurchsetzung** fuer das, was ein Agent tun darf -- eingebaute DSL und [Cedar](https://www.cedarpolicy.com/)-Autorisierung
 * **Tool-Verifikation**, damit die Ausfuehrung kein blindes Vertrauen ist -- [SchemaPin](https://github.com/ThirdKeyAI/SchemaPin) kryptografische Verifikation von MCP-Tools
+* **Tool-Vertraege**, die regeln, wie Tools ausgefuehrt werden -- [ToolClad](https://github.com/ThirdKeyAI/ToolClad) deklarative Argumentvalidierung, Scope-Durchsetzung und Injection-Schutz
 * **Agenten-Identitaet**, damit man weiss, wer handelt -- [AgentPin](https://github.com/ThirdKeyAI/AgentPin) domaingebundene ES256-Identitaet
 * **Sandboxing** fuer riskante Workloads -- Docker-Isolation mit Ressourcenlimits
 * **Audit-Trails** fuer das, was passiert ist und warum -- kryptografisch manipulationssichere Logs
@@ -122,6 +123,7 @@ Den vollstaendigen DSL-Leitfaden mit `metadata`-, `schedule`-, `webhook`- und `c
 |-----------|-------------|
 | **Policy Engine** | Feingranulare [Cedar](https://www.cedarpolicy.com/)-Autorisierung fuer Agenten-Aktionen, Tool-Aufrufe und Ressourcenzugriff |
 | **Tool-Verifikation** | [SchemaPin](https://github.com/ThirdKeyAI/SchemaPin) kryptografische Verifikation von MCP-Tool-Schemas vor der Ausfuehrung |
+| **Tool-Vertraege** | [ToolClad](https://github.com/ThirdKeyAI/ToolClad) deklarative Vertraege mit Argumentvalidierung, Scope-Durchsetzung und Cedar-Policy-Generierung |
 | **Agenten-Identitaet** | [AgentPin](https://github.com/ThirdKeyAI/AgentPin) domaingebundene ES256-Identitaet fuer Agenten und geplante Aufgaben |
 | **Reasoning-Schleife** | Typestate-erzwungener Observe-Reason-Gate-Act-Zyklus mit Richtlinien-Gates und Circuit-Breakern |
 | **Sandboxing** | Docker-basierte Isolation mit Ressourcenlimits fuer nicht vertrauenswuerdige Workloads |
@@ -179,6 +181,17 @@ Governance-Plugins: [`symbi-claude-code`](https://github.com/thirdkeyai/symbi-cl
 * [API-Referenz](https://docs.symbiont.dev/api-reference)
 
 Wenn Sie Symbiont fuer den Produktionseinsatz evaluieren, beginnen Sie mit dem Sicherheitsmodell und der Erste-Schritte-Dokumentation.
+
+---
+
+## SDKs
+
+Offizielle Client-SDKs zur Integration der Symbiont-Laufzeitumgebung in Ihre Anwendung:
+
+| Sprache | Paket | Repository |
+|---------|-------|------------|
+| **JavaScript/TypeScript** | [symbiont-sdk-js](https://www.npmjs.com/package/symbiont-sdk-js) | [GitHub](https://github.com/ThirdKeyAI/symbiont-sdk-js) |
+| **Python** | [symbiont-sdk](https://pypi.org/project/symbiont-sdk/) | [GitHub](https://github.com/ThirdKeyAI/symbiont-sdk-python) |
 
 ---
 

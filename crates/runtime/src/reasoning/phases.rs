@@ -151,6 +151,7 @@ impl AgentLoop<Reasoning> {
                 .max_total_tokens
                 .saturating_sub(self.state.total_usage.total_tokens)
                 .min(16384),
+            temperature: self.config.temperature,
             tool_definitions: self.config.tool_definitions.clone(),
             ..Default::default()
         };

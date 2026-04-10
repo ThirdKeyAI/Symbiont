@@ -26,6 +26,7 @@ Una vez que un agente puede llamar herramientas, acceder a archivos, enviar mens
 
 * **Aplicación de políticas** para lo que un agente puede hacer — DSL integrado y autorización [Cedar](https://www.cedarpolicy.com/)
 * **Verificación de herramientas** para que la ejecución no sea confianza ciega — verificación criptográfica de herramientas MCP con [SchemaPin](https://github.com/ThirdKeyAI/SchemaPin)
+* **Contratos de herramientas** para regular cómo se ejecutan — [ToolClad](https://github.com/ThirdKeyAI/ToolClad) con validación declarativa de argumentos, aplicación de scope y prevención de inyección
 * **Identidad de agentes** para saber quién está actuando — identidad ES256 anclada al dominio con [AgentPin](https://github.com/ThirdKeyAI/AgentPin)
 * **Sandboxing** para cargas de trabajo riesgosas — aislamiento Docker con límites de recursos
 * **Rastros de auditoría** de lo que sucedió y por qué — logs criptográficamente resistentes a manipulación
@@ -122,6 +123,7 @@ Consulta la [guía del DSL](https://docs.symbiont.dev/dsl-guide) para la gramát
 |-----------|----------|
 | **Motor de políticas** | Autorización granular [Cedar](https://www.cedarpolicy.com/) para acciones de agentes, llamadas a herramientas y acceso a recursos |
 | **Verificación de herramientas** | Verificación criptográfica [SchemaPin](https://github.com/ThirdKeyAI/SchemaPin) de esquemas de herramientas MCP antes de la ejecución |
+| **Contratos de herramientas** | Contratos declarativos [ToolClad](https://github.com/ThirdKeyAI/ToolClad) con validación de argumentos, aplicación de scope y generación de políticas Cedar |
 | **Identidad de agentes** | Identidad ES256 anclada al dominio [AgentPin](https://github.com/ThirdKeyAI/AgentPin) para agentes y tareas programadas |
 | **Ciclo de razonamiento** | Ciclo Observe-Reason-Gate-Act con estado tipificado, puertas de política y circuit breakers |
 | **Sandboxing** | Aislamiento basado en Docker con límites de recursos para cargas de trabajo no confiables |
@@ -179,6 +181,17 @@ Plugins de gobernanza: [`symbi-claude-code`](https://github.com/thirdkeyai/symbi
 * [Referencia de la API](https://docs.symbiont.dev/api-reference)
 
 Si estás evaluando Symbiont para producción, comienza con la documentación del modelo de seguridad y primeros pasos.
+
+---
+
+## SDKs
+
+SDKs oficiales para integrar el runtime de Symbiont desde tu aplicación:
+
+| Lenguaje | Paquete | Repositorio |
+|----------|---------|-------------|
+| **JavaScript/TypeScript** | [symbiont-sdk-js](https://www.npmjs.com/package/symbiont-sdk-js) | [GitHub](https://github.com/ThirdKeyAI/symbiont-sdk-js) |
+| **Python** | [symbiont-sdk](https://pypi.org/project/symbiont-sdk/) | [GitHub](https://github.com/ThirdKeyAI/symbiont-sdk-python) |
 
 ---
 
