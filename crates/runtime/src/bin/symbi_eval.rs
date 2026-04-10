@@ -339,10 +339,7 @@ impl RealSandbox {
             Some(p) => p,
             None => return SandboxCallResult::err("fs_write requires 'path'"),
         };
-        let content = args
-            .get("content")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
         let path = match self.resolve(rel) {
             Ok(p) => p,
             Err(e) => return SandboxCallResult::err(&e),
@@ -353,11 +350,7 @@ impl RealSandbox {
             }
         }
         match std::fs::write(&path, content) {
-            Ok(()) => SandboxCallResult::ok(format!(
-                "wrote {} bytes to {}",
-                content.len(),
-                rel
-            )),
+            Ok(()) => SandboxCallResult::ok(format!("wrote {} bytes to {}", content.len(), rel)),
             Err(e) => SandboxCallResult::err(&format!("write failed: {}", e)),
         }
     }
@@ -436,10 +429,18 @@ struct SandboxCallResult {
 
 impl SandboxCallResult {
     fn ok(content: String) -> Self {
-        Self { ok: true, content, error: String::new() }
+        Self {
+            ok: true,
+            content,
+            error: String::new(),
+        }
     }
     fn err(msg: &str) -> Self {
-        Self { ok: false, content: String::new(), error: msg.to_string() }
+        Self {
+            ok: false,
+            content: String::new(),
+            error: msg.to_string(),
+        }
     }
     fn into_observation_content(self) -> String {
         if self.ok {
@@ -488,11 +489,7 @@ impl HybridToolExecutor {
     /// Execute a single tool call. Returns `Ok(content)` on success (mock
     /// or sandbox) or a non-empty string describing the error. Every call
     /// is recorded regardless of outcome.
-    async fn execute_one(
-        &self,
-        tool_name: &str,
-        arguments_raw: &str,
-    ) -> String {
+    async fn execute_one(&self, tool_name: &str, arguments_raw: &str) -> String {
         let tool = match self.lookup(tool_name) {
             Some(t) => t,
             None => {
@@ -649,15 +646,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Build the per-task sandbox if the task declares any non-mock tool.
     // Stays None for the common mock-only case (zero overhead).
-    let sandbox: Option<Arc<RealSandbox>> = if task
-        .tools
-        .iter()
-        .any(|t| t.kind != "mock")
-    {
+    let sandbox: Option<Arc<RealSandbox>> = if task.tools.iter().any(|t| t.kind != "mock") {
         let cfg = task.sandbox.clone().unwrap_or_default();
-        let sb = RealSandbox::new(&cfg).map_err(|e| {
-            format!("failed to create sandbox scratch dir: {}", e)
-        })?;
+        let sb = RealSandbox::new(&cfg)
+            .map_err(|e| format!("failed to create sandbox scratch dir: {}", e))?;
         let sb = Arc::new(sb);
         let setup_log = sb.run_setup(&cfg).await;
         for line in &setup_log {
