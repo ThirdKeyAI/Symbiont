@@ -12,6 +12,7 @@ O módulo de Entrada HTTP consiste em:
 - **Controle de Resposta**: Formatação de resposta configurável e códigos de status
 - **Recursos de Segurança**: Suporte CORS, limites de tamanho de requisição e registro de auditoria
 - **Gerenciamento de Concorrência**: Limitação de taxa de requisições integrada e controle de concorrência
+- **Invocação de LLM com ToolClad**: Quando o agente alvo não está ativamente em execução no barramento de comunicação do runtime, o webhook pode invocar o agente sob demanda através de um provedor de LLM configurado, usando um loop de chamada de ferramentas no estilo ORGA apoiado por manifestos ToolClad
 
 O módulo é compilado condicionalmente com a flag de recurso `http-input` e integra-se perfeitamente com o runtime de agentes Symbiont.
 
@@ -233,15 +234,80 @@ curl -X POST http://localhost:8081/webhook \
 
 ### Resposta Esperada
 
-O servidor retorna uma resposta JSON com a saída do agente:
+O formato da resposta depende de como o agente foi invocado.
+
+**Dispatch do runtime** -- o agente alvo está `Running` no barramento de comunicação e a mensagem foi entregue para processamento assíncrono:
 
 ```json
 {
   "status": "execution_started",
   "agent_id": "webhook_handler",
+  "message_id": "01H...",
+  "latency_ms": 3,
   "timestamp": "2024-01-15T10:30:00Z"
 }
 ```
+
+**Invocação de LLM** -- o agente não está em execução e foi executado sob demanda através do provedor de LLM configurado (veja [Invocação de LLM com Ferramentas ToolClad](#invocação-de-llm-com-ferramentas-toolclad) abaixo). A resposta inclui o texto final e um resumo de quaisquer chamadas de ferramentas que foram executadas:
+
+```json
+{
+  "status": "completed",
+  "agent_id": "webhook_handler",
+  "response": "Scanned target and found 3 open ports …",
+  "tool_runs": [
+    {
+      "tool": "nmap_scan",
+      "input": {"target": "example.com"},
+      "output_preview": "{\"scan_id\": \"…\", \"ports\": [ … ]}"
+    }
+  ],
+  "model": "claude-sonnet-4-20250514",
+  "provider": "Anthropic",
+  "latency_ms": 4821,
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
+## Invocação de LLM com Ferramentas ToolClad
+
+Quando o runtime está anexado mas o agente roteado **não está no estado `Running`**, o manipulador de webhook recorre a um caminho de invocação de LLM sob demanda. Isso é útil para agentes que executam por requisição em vez de como listeners de longa duração.
+
+### Como funciona
+
+1. O manipulador de webhook chama `scheduler.get_agent_status()` para verificar se o agente está ativamente em execução. Mensagens para agentes não em execução não são despachadas através do barramento de comunicação, já que `send_message` as descartaria silenciosamente.
+2. Se o agente não está em execução, o manipulador constrói um system prompt a partir de quaisquer arquivos `.dsl` encontrados no diretório `agents/`, anexa um `system_prompt` opcional fornecido pelo chamador (com limite de tamanho e registrado), e constrói uma mensagem de usuário a partir do payload da requisição.
+3. Manifestos ToolClad no diretório `tools/` são carregados e expostos ao LLM como ferramentas de function-calling. Tipos customizados de `toolclad.toml` são aplicados.
+4. O manipulador executa um loop de chamada de ferramentas **ORGA** (Observe-Reason-Gate-Act), até 15 iterações:
+   - O LLM propõe zero ou mais chamadas `tool_use`.
+   - Cada chamada de ferramenta é validada pelo ToolClad e executada em um pool de threads bloqueante com um **timeout de 120 segundos por ferramenta**.
+   - Pares `(tool_name, input)` duplicados dentro de uma única iteração são deduplicados para evitar execução redundante de ferramentas não idempotentes.
+   - Resultados de ferramentas são realimentados ao LLM como mensagens `tool_result`.
+   - O loop termina quando o LLM produz uma resposta de texto final ou o limite de iterações é atingido.
+5. A resposta final, a lista de execuções de ferramentas e metadados de provedor/modelo são retornados ao chamador.
+
+### Detecção automática de provedor
+
+O cliente LLM é inicializado a partir de variáveis de ambiente na inicialização do servidor. O primeiro provedor cuja chave de API está definida vence, nesta ordem:
+
+| Variável de ambiente | Provedor | Override de modelo | Override de URL base |
+|----------------------|----------|--------------------|----------------------|
+| `OPENROUTER_API_KEY` | OpenRouter | `OPENROUTER_MODEL` (padrão: `anthropic/claude-sonnet-4`) | `OPENROUTER_BASE_URL` |
+| `OPENAI_API_KEY` | OpenAI | `CHAT_MODEL` (padrão: `gpt-4o`) | `OPENAI_BASE_URL` |
+| `ANTHROPIC_API_KEY` | Anthropic | `ANTHROPIC_MODEL` (padrão: `claude-sonnet-4-20250514`) | `ANTHROPIC_BASE_URL` |
+
+Se nenhuma chave de API estiver definida, o caminho de invocação de LLM é desabilitado e requisições para agentes não em execução retornam um erro.
+
+### Campos de entrada
+
+O corpo JSON do webhook é interpretado da seguinte forma quando o caminho de LLM é tomado:
+
+- `prompt` ou `message` -- usado como a mensagem de usuário. Se nenhum estiver presente, o payload inteiro é formatado e passado como a descrição da tarefa.
+- `system_prompt` -- system prompt opcional fornecido pelo chamador, anexado ao system prompt derivado do DSL. Limitado a 4096 bytes e registrado. Trate como uma superfície de prompt-injection: sempre aplique autenticação ao expor este endpoint a chamadores não confiáveis.
+
+### Formato normalizado de chamada de ferramentas
+
+O cliente LLM normaliza o function calling do OpenAI/OpenRouter para o mesmo formato de bloco de conteúdo usado pela API de Messages da Anthropic. Independentemente do provedor, cada bloco de conteúdo de resposta é `{"type": "text", "text": "..."}` ou `{"type": "tool_use", "id": "...", "name": "...", "input": {...}}`, e `stop_reason` é `"end_turn"` ou `"tool_use"`.
 
 ## Padrões de Integração
 
@@ -302,7 +368,19 @@ Quando `audit_enabled` é true, o módulo registra informações estruturadas so
 
 ```log
 INFO HTTP Input: Received request with 5 headers
-INFO Would invoke agent webhook_handler with input data
+INFO Agent webhook_handler is running, dispatching via communication bus
+INFO Runtime execution dispatched for agent webhook_handler: message_id=… latency=3ms
+```
+
+Quando o caminho de invocação de LLM é usado, linhas adicionais rastreiam o loop ORGA:
+
+```log
+INFO Agent webhook_handler is not running, using LLM invocation path
+INFO Invoking LLM for agent webhook_handler: provider=Anthropic model=… tools=4 …
+INFO ORGA ACT: executing tool 'nmap_scan' (id=…) for agent webhook_handler
+INFO Tool 'nmap_scan' executed successfully
+INFO ORGA loop iteration 1 for agent webhook_handler: executed 1 tool(s), continuing
+INFO LLM invocation completed for agent webhook_handler: latency=4821ms tool_runs=1 response_len=…
 ```
 
 ### Integração de Métricas
@@ -329,4 +407,6 @@ O módulo integra-se com o sistema de métricas do runtime Symbiont para fornece
 - [Guia de Introdução](getting-started.md)
 - [Guia DSL](dsl-guide.md)
 - [Referência da API](api-reference.md)
+- [Loop de Raciocínio (ORGA)](reasoning-loop.md)
+- [Contratos de Ferramentas ToolClad](toolclad.md)
 - [Documentação do Runtime de Agentes](../crates/runtime/README.md)

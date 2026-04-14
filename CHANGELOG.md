@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-04-13
+
+### Added
+- **HTTP Input LLM invocation with ToolClad**: When the target agent is not `Running` on the communication bus, the webhook handler now falls back to an on-demand LLM invocation path that runs an ORGA-style tool-calling loop against ToolClad manifests. Tools execute on a blocking thread pool with a 120-second per-tool timeout. Duplicate `(tool, input)` pairs within a single iteration are deduplicated. Provider auto-detected from `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY`.
+- **Normalized LLM tool-calling client**: `LlmClient::chat_with_tools` returns a unified content-block shape across Anthropic (native `tool_use`) and OpenAI/OpenRouter (function calling normalized to the same format).
+- **Webhook response metadata**: LLM-invoked responses include `response`, `tool_runs`, `model`, `provider`, `latency_ms`, and `status: completed`.
+
+### Fixed
+- **HTTP Input: agent state check before communication bus dispatch**: `invoke_agent` now verifies the target agent is in the `Running` state via `scheduler.get_agent_status()` before sending a message. Previously `send_message` returned `Ok` for unregistered agents and delivery failed silently, producing a false `"execution_started"` response.
+- **HTTP Input: UTF-8 safe string truncation**: Tool output previews and caller-supplied `system_prompt` values are truncated on UTF-8 character boundaries to prevent panics on multi-byte output.
+- **HTTP Input: system_prompt length cap**: Caller-supplied `system_prompt` is now capped at 4096 bytes and logged; remains a prompt-injection surface when exposed to untrusted callers.
+
 ## [1.9.1] - 2026-04-01
 
 ### Changed

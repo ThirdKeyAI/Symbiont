@@ -12,6 +12,7 @@ HTTP 输入模块包含：
 - **响应控制**：可配置的响应格式和状态码
 - **安全功能**：CORS 支持、请求大小限制和审计日志记录
 - **并发管理**：内置请求速率限制和并发控制
+- **使用 ToolClad 的 LLM 调用**：当目标智能体未在运行时通信总线上活跃运行时，webhook 可通过已配置的 LLM 提供商按需调用智能体，使用由 ToolClad 清单支撑的 ORGA 风格工具调用循环
 
 该模块通过 `http-input` 功能标志进行条件编译，并与 Symbiont 智能体运行时无缝集成。
 
@@ -233,15 +234,80 @@ curl -X POST http://localhost:8081/webhook \
 
 ### 预期响应
 
-服务器返回包含智能体输出的 JSON 响应：
+响应的形式取决于智能体的调用方式。
+
+**运行时派发** — 目标智能体在通信总线上处于 `Running` 状态，消息已交由异步处理：
 
 ```json
 {
   "status": "execution_started",
   "agent_id": "webhook_handler",
+  "message_id": "01H...",
+  "latency_ms": 3,
   "timestamp": "2024-01-15T10:30:00Z"
 }
 ```
+
+**LLM 调用** — 智能体未在运行，通过已配置的 LLM 提供商按需执行（请参阅下文的[使用 ToolClad 工具的 LLM 调用](#使用-toolclad-工具的-llm-调用)）。响应包含最终文本以及已执行工具调用的摘要：
+
+```json
+{
+  "status": "completed",
+  "agent_id": "webhook_handler",
+  "response": "Scanned target and found 3 open ports …",
+  "tool_runs": [
+    {
+      "tool": "nmap_scan",
+      "input": {"target": "example.com"},
+      "output_preview": "{\"scan_id\": \"…\", \"ports\": [ … ]}"
+    }
+  ],
+  "model": "claude-sonnet-4-20250514",
+  "provider": "Anthropic",
+  "latency_ms": 4821,
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
+## 使用 ToolClad 工具的 LLM 调用
+
+当运行时已附加但路由到的智能体**未处于 `Running` 状态**时，webhook 处理程序会转入按需 LLM 调用路径。这对于按请求执行而非长时间监听的智能体非常有用。
+
+### 工作原理
+
+1. webhook 处理程序调用 `scheduler.get_agent_status()` 以验证智能体是否处于活跃运行状态。发往未运行智能体的消息不会通过通信总线派发，因为 `send_message` 会静默丢弃这些消息。
+2. 如果智能体未运行，处理程序会根据 `agents/` 目录下的任何 `.dsl` 文件构建系统提示，追加调用方可选提供的 `system_prompt`（会被长度限制并记录日志），并根据请求负载构造用户消息。
+3. `tools/` 目录下的 ToolClad 清单被加载并作为函数调用工具暴露给 LLM。`toolclad.toml` 中的自定义类型会被应用。
+4. 处理程序运行 **ORGA**（Observe-Reason-Gate-Act）工具调用循环，最多 15 轮迭代：
+   - LLM 提出零个或多个 `tool_use` 调用。
+   - 每个工具调用由 ToolClad 校验，并在阻塞线程池上执行，**单个工具超时时间为 120 秒**。
+   - 单轮迭代内重复的 `(tool_name, input)` 组合会被去重，以避免非幂等工具的冗余执行。
+   - 工具结果以 `tool_result` 消息形式反馈给 LLM。
+   - 当 LLM 产生最终文本响应或达到迭代上限时，循环终止。
+5. 最终响应、已执行工具运行列表以及提供商/模型元数据会返回给调用方。
+
+### 提供商自动检测
+
+LLM 客户端在服务器启动时根据环境变量初始化。按以下顺序，第一个设置了 API 密钥的提供商生效：
+
+| 环境变量 | 提供商 | 模型覆盖 | Base URL 覆盖 |
+|---------|----------|----------------|-------------------|
+| `OPENROUTER_API_KEY` | OpenRouter | `OPENROUTER_MODEL`（默认：`anthropic/claude-sonnet-4`） | `OPENROUTER_BASE_URL` |
+| `OPENAI_API_KEY` | OpenAI | `CHAT_MODEL`（默认：`gpt-4o`） | `OPENAI_BASE_URL` |
+| `ANTHROPIC_API_KEY` | Anthropic | `ANTHROPIC_MODEL`（默认：`claude-sonnet-4-20250514`） | `ANTHROPIC_BASE_URL` |
+
+如果未设置任何 API 密钥，LLM 调用路径会被禁用，针对未运行智能体的请求将返回错误。
+
+### 输入字段
+
+当采用 LLM 路径时，webhook 的 JSON 主体按如下方式解释：
+
+- `prompt` 或 `message` — 用作用户消息。如果两者都不存在，整个负载会被美化打印并作为任务描述传入。
+- `system_prompt` — 调用方可选提供的系统提示，追加到由 DSL 派生的系统提示之后。上限为 4096 字节并会被记录日志。将其视为提示注入的攻击面：当此端点暴露给不受信任的调用方时，务必强制执行身份验证。
+
+### 规范化的工具调用格式
+
+LLM 客户端将 OpenAI/OpenRouter 的函数调用规范化为与 Anthropic Messages API 相同的内容块形式。无论使用哪个提供商，每个响应内容块要么是 `{"type": "text", "text": "..."}`，要么是 `{"type": "tool_use", "id": "...", "name": "...", "input": {...}}`，且 `stop_reason` 为 `"end_turn"` 或 `"tool_use"`。
 
 ## 集成模式
 
@@ -302,7 +368,19 @@ HTTP 输入模块提供全面的错误处理：
 
 ```log
 INFO HTTP Input: Received request with 5 headers
-INFO Would invoke agent webhook_handler with input data
+INFO Agent webhook_handler is running, dispatching via communication bus
+INFO Runtime execution dispatched for agent webhook_handler: message_id=… latency=3ms
+```
+
+当使用 LLM 调用路径时，会有额外的日志行追踪 ORGA 循环：
+
+```log
+INFO Agent webhook_handler is not running, using LLM invocation path
+INFO Invoking LLM for agent webhook_handler: provider=Anthropic model=… tools=4 …
+INFO ORGA ACT: executing tool 'nmap_scan' (id=…) for agent webhook_handler
+INFO Tool 'nmap_scan' executed successfully
+INFO ORGA loop iteration 1 for agent webhook_handler: executed 1 tool(s), continuing
+INFO LLM invocation completed for agent webhook_handler: latency=4821ms tool_runs=1 response_len=…
 ```
 
 ### 指标集成
@@ -329,4 +407,6 @@ INFO Would invoke agent webhook_handler with input data
 - [入门指南](getting-started.md)
 - [DSL 指南](dsl-guide.md)
 - [API 参考](api-reference.md)
+- [推理循环 (ORGA)](reasoning-loop.md)
+- [ToolClad 工具契约](toolclad.md)
 - [智能体运行时文档](../crates/runtime/README.md)

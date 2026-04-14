@@ -121,6 +121,243 @@ impl LlmClient {
         }
     }
 
+    /// Send a chat completion with tool definitions. Returns a normalized response:
+    /// `{ "content": [...], "stop_reason": "end_turn"|"tool_use" }`
+    /// Content blocks are `{"type":"text","text":"..."}` or
+    /// `{"type":"tool_use","id":"...","name":"...","input":{...}}`
+    ///
+    /// Works with Anthropic (native tool_use), OpenAI/OpenRouter (function calling
+    /// converted to the same normalized format).
+    pub async fn chat_with_tools(
+        &self,
+        system: &str,
+        messages: &[serde_json::Value],
+        tools: &[serde_json::Value],
+    ) -> Result<serde_json::Value, RuntimeError> {
+        match self.provider {
+            LlmProvider::Anthropic => {
+                self.anthropic_completion_with_tools(system, messages, tools)
+                    .await
+            }
+            _ => {
+                self.openai_completion_with_tools(system, messages, tools)
+                    .await
+            }
+        }
+    }
+
+    /// Convert Anthropic-format tool definitions to OpenAI function-calling format.
+    fn tools_to_openai_functions(tools: &[serde_json::Value]) -> Vec<serde_json::Value> {
+        tools
+            .iter()
+            .map(|t| {
+                serde_json::json!({
+                    "type": "function",
+                    "function": {
+                        "name": t.get("name").and_then(|n| n.as_str()).unwrap_or("unknown"),
+                        "description": t.get("description").and_then(|d| d.as_str()).unwrap_or(""),
+                        "parameters": t.get("input_schema").cloned().unwrap_or(serde_json::json!({"type": "object", "properties": {}}))
+                    }
+                })
+            })
+            .collect()
+    }
+
+    /// Convert OpenAI messages format to include system message
+    fn build_openai_messages(
+        system: &str,
+        messages: &[serde_json::Value],
+    ) -> Vec<serde_json::Value> {
+        let mut result = vec![serde_json::json!({"role": "system", "content": system})];
+        for msg in messages {
+            result.push(msg.clone());
+        }
+        result
+    }
+
+    /// OpenAI/OpenRouter completion with function calling, normalized to Anthropic format
+    async fn openai_completion_with_tools(
+        &self,
+        system: &str,
+        messages: &[serde_json::Value],
+        tools: &[serde_json::Value],
+    ) -> Result<serde_json::Value, RuntimeError> {
+        let openai_messages = Self::build_openai_messages(system, messages);
+        let mut body = serde_json::json!({
+            "model": self.model,
+            "messages": openai_messages,
+            "max_tokens": 4096,
+            "temperature": 0.3
+        });
+        if !tools.is_empty() {
+            body["tools"] = serde_json::Value::Array(Self::tools_to_openai_functions(tools));
+        }
+
+        let response = self
+            .client
+            .post(format!("{}/chat/completions", self.base_url))
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| RuntimeError::Internal(format!("LLM request failed: {}", e)))?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(RuntimeError::Internal(format!(
+                "LLM API error ({}): {}",
+                status, error_text
+            )));
+        }
+
+        let resp: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| RuntimeError::Internal(format!("Failed to parse response: {}", e)))?;
+
+        if let Some(usage) = resp.get("usage") {
+            tracing::info!(
+                "LLM usage: provider={} model={} prompt_tokens={} completion_tokens={}",
+                self.provider,
+                self.model,
+                usage
+                    .get("prompt_tokens")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0),
+                usage
+                    .get("completion_tokens")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0),
+            );
+        }
+
+        // Normalize OpenAI response to Anthropic-like format
+        let choice = resp
+            .get("choices")
+            .and_then(|c| c.get(0))
+            .ok_or_else(|| RuntimeError::Internal("No choices in response".to_string()))?;
+
+        let finish_reason = choice
+            .get("finish_reason")
+            .and_then(|f| f.as_str())
+            .unwrap_or("stop");
+
+        let message = choice
+            .get("message")
+            .ok_or_else(|| RuntimeError::Internal("No message in choice".to_string()))?;
+
+        let mut content_blocks = Vec::new();
+
+        // Add text content if present
+        if let Some(text) = message.get("content").and_then(|c| c.as_str()) {
+            if !text.is_empty() {
+                content_blocks.push(serde_json::json!({"type": "text", "text": text}));
+            }
+        }
+
+        // Convert function/tool calls to Anthropic tool_use format
+        if let Some(tool_calls) = message.get("tool_calls").and_then(|t| t.as_array()) {
+            for tc in tool_calls {
+                let id = tc.get("id").and_then(|i| i.as_str()).unwrap_or("unknown");
+                let func = tc.get("function").unwrap_or(tc);
+                let name = func
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("unknown");
+                let args_str = func
+                    .get("arguments")
+                    .and_then(|a| a.as_str())
+                    .unwrap_or("{}");
+                let args: serde_json::Value =
+                    serde_json::from_str(args_str).unwrap_or(serde_json::json!({}));
+                content_blocks.push(serde_json::json!({
+                    "type": "tool_use",
+                    "id": id,
+                    "name": name,
+                    "input": args
+                }));
+            }
+        }
+
+        let stop_reason = if finish_reason == "tool_calls" || finish_reason == "function_call" {
+            "tool_use"
+        } else {
+            "end_turn"
+        };
+
+        Ok(serde_json::json!({
+            "content": content_blocks,
+            "stop_reason": stop_reason
+        }))
+    }
+
+    /// Anthropic Messages API with tool definitions
+    async fn anthropic_completion_with_tools(
+        &self,
+        system: &str,
+        messages: &[serde_json::Value],
+        tools: &[serde_json::Value],
+    ) -> Result<serde_json::Value, RuntimeError> {
+        let mut body = serde_json::json!({
+            "model": self.model,
+            "max_tokens": 4096,
+            "system": system,
+            "messages": messages
+        });
+        if !tools.is_empty() {
+            body["tools"] = serde_json::Value::Array(tools.to_vec());
+        }
+
+        let response = self
+            .client
+            .post(format!("{}/messages", self.base_url))
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", "2023-06-01")
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| RuntimeError::Internal(format!("Anthropic request failed: {}", e)))?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(RuntimeError::Internal(format!(
+                "Anthropic API error ({}): {}",
+                status, error_text
+            )));
+        }
+
+        let resp_json: serde_json::Value = response.json().await.map_err(|e| {
+            RuntimeError::Internal(format!("Failed to parse Anthropic response: {}", e))
+        })?;
+
+        if let Some(usage) = resp_json.get("usage") {
+            tracing::info!(
+                "LLM usage: provider=Anthropic model={} input_tokens={} output_tokens={}",
+                self.model,
+                usage
+                    .get("input_tokens")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0),
+                usage
+                    .get("output_tokens")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0),
+            );
+        }
+
+        Ok(resp_json)
+    }
+
     /// OpenAI-compatible chat completion (works for OpenRouter and OpenAI)
     async fn openai_completion(&self, system: &str, user: &str) -> Result<String, RuntimeError> {
         let body = serde_json::json!({
@@ -278,5 +515,52 @@ mod tests {
 
         let client = LlmClient::from_env();
         assert!(client.is_none());
+    }
+
+    #[test]
+    fn test_tools_to_openai_functions() {
+        let tools = vec![serde_json::json!({
+            "name": "nmap_scan",
+            "description": "Run an nmap scan",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "target": { "type": "string" }
+                },
+                "required": ["target"]
+            }
+        })];
+
+        let funcs = LlmClient::tools_to_openai_functions(&tools);
+        assert_eq!(funcs.len(), 1);
+        let f = &funcs[0];
+        assert_eq!(f["type"], "function");
+        assert_eq!(f["function"]["name"], "nmap_scan");
+        assert_eq!(f["function"]["description"], "Run an nmap scan");
+        assert_eq!(f["function"]["parameters"]["type"], "object");
+        assert!(f["function"]["parameters"]["properties"]["target"].is_object());
+    }
+
+    #[test]
+    fn test_tools_to_openai_functions_missing_fields() {
+        let tools = vec![serde_json::json!({})];
+        let funcs = LlmClient::tools_to_openai_functions(&tools);
+        assert_eq!(funcs.len(), 1);
+        assert_eq!(funcs[0]["function"]["name"], "unknown");
+        assert_eq!(funcs[0]["function"]["description"], "");
+    }
+
+    #[test]
+    fn test_build_openai_messages() {
+        let messages = vec![
+            serde_json::json!({"role": "user", "content": "hello"}),
+            serde_json::json!({"role": "assistant", "content": "hi"}),
+        ];
+        let result = LlmClient::build_openai_messages("system prompt", &messages);
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0]["role"], "system");
+        assert_eq!(result[0]["content"], "system prompt");
+        assert_eq!(result[1]["role"], "user");
+        assert_eq!(result[2]["role"], "assistant");
     }
 }

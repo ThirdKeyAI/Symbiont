@@ -12,6 +12,7 @@ HTTP 入力モジュールは以下で構成されています：
 - **レスポンス制御**: 設定可能なレスポンスフォーマットとステータスコード
 - **セキュリティ機能**: CORS サポート、リクエストサイズ制限、監査ログ
 - **並行性管理**: 組み込みリクエストレート制限と並行性制御
+- **ToolClad による LLM 呼び出し**: 対象エージェントがランタイム通信バス上でアクティブに実行されていない場合、webhook は設定済みの LLM プロバイダーを介して、ToolClad マニフェストに基づく ORGA スタイルのツール呼び出しループを用いてエージェントをオンデマンドで起動できます
 
 このモジュールは `http-input` 機能フラグで条件付きコンパイルされ、Symbiont エージェントランタイムとシームレスに統合されます。
 
@@ -233,15 +234,80 @@ curl -X POST http://localhost:8081/webhook \
 
 ### 予期されるレスポンス
 
-サーバーはエージェントの出力を含む JSON レスポンスを返します：
+レスポンスの形式はエージェントがどのように呼び出されたかによって異なります。
+
+**ランタイムディスパッチ** — 対象エージェントが通信バス上で `Running` 状態にあり、メッセージが非同期処理のために引き渡された場合：
 
 ```json
 {
   "status": "execution_started",
   "agent_id": "webhook_handler",
+  "message_id": "01H...",
+  "latency_ms": 3,
   "timestamp": "2024-01-15T10:30:00Z"
 }
 ```
+
+**LLM 呼び出し** — エージェントが実行されておらず、設定済みの LLM プロバイダーを介してオンデマンドで実行された場合（後述の[ToolClad ツールによる LLM 呼び出し](#toolclad-ツールによる-llm-呼び出し)を参照）。レスポンスには最終テキストと、実行されたツール呼び出しの要約が含まれます：
+
+```json
+{
+  "status": "completed",
+  "agent_id": "webhook_handler",
+  "response": "Scanned target and found 3 open ports …",
+  "tool_runs": [
+    {
+      "tool": "nmap_scan",
+      "input": {"target": "example.com"},
+      "output_preview": "{\"scan_id\": \"…\", \"ports\": [ … ]}"
+    }
+  ],
+  "model": "claude-sonnet-4-20250514",
+  "provider": "Anthropic",
+  "latency_ms": 4821,
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
+## ToolClad ツールによる LLM 呼び出し
+
+ランタイムが接続されていても、ルーティングされたエージェントが **`Running` 状態にない** 場合、webhook ハンドラーはオンデマンドの LLM 呼び出しパスにフォールスルーします。これは、長時間稼働するリスナーとしてではなく、リクエストごとに実行されるエージェントに有用です。
+
+### 仕組み
+
+1. webhook ハンドラーは `scheduler.get_agent_status()` を呼び出してエージェントがアクティブに実行されているかを確認します。`send_message` は黙ってドロップするため、実行されていないエージェントへのメッセージは通信バス経由でディスパッチされません。
+2. エージェントが実行されていない場合、ハンドラーは `agents/` ディレクトリ内の `.dsl` ファイルからシステムプロンプトを構築し、呼び出し元が任意で指定した `system_prompt`（長さ上限あり・ログ記録あり）を追加し、リクエストペイロードからユーザーメッセージを作成します。
+3. `tools/` ディレクトリ内の ToolClad マニフェストがロードされ、関数呼び出しツールとして LLM に公開されます。`toolclad.toml` のカスタム型が適用されます。
+4. ハンドラーは最大 15 回の反復で **ORGA**（Observe-Reason-Gate-Act）ツール呼び出しループを実行します：
+   - LLM がゼロ個以上の `tool_use` 呼び出しを提案します。
+   - 各ツール呼び出しは ToolClad によって検証され、**ツールあたり 120 秒のタイムアウト**を伴うブロッキングスレッドプール上で実行されます。
+   - 単一の反復内での重複する `(tool_name, input)` ペアは、非冪等なツールの冗長な実行を避けるために重複排除されます。
+   - ツール結果は `tool_result` メッセージとして LLM にフィードバックされます。
+   - LLM が最終テキスト応答を生成するか、反復上限に達するとループは終了します。
+5. 最終応答、実行されたツール実行のリスト、プロバイダー/モデルのメタデータが呼び出し元に返されます。
+
+### プロバイダーの自動検出
+
+LLM クライアントはサーバー起動時に環境変数から初期化されます。API キーが設定されている最初のプロバイダーが次の順序で採用されます：
+
+| 環境変数 | プロバイダー | モデルのオーバーライド | ベース URL のオーバーライド |
+|---------|----------|----------------|-------------------|
+| `OPENROUTER_API_KEY` | OpenRouter | `OPENROUTER_MODEL`（デフォルト: `anthropic/claude-sonnet-4`） | `OPENROUTER_BASE_URL` |
+| `OPENAI_API_KEY` | OpenAI | `CHAT_MODEL`（デフォルト: `gpt-4o`） | `OPENAI_BASE_URL` |
+| `ANTHROPIC_API_KEY` | Anthropic | `ANTHROPIC_MODEL`（デフォルト: `claude-sonnet-4-20250514`） | `ANTHROPIC_BASE_URL` |
+
+API キーが設定されていない場合、LLM 呼び出しパスは無効となり、実行されていないエージェントへのリクエストはエラーを返します。
+
+### 入力フィールド
+
+LLM パスが採用されるとき、webhook の JSON ボディは以下のように解釈されます：
+
+- `prompt` または `message` — ユーザーメッセージとして使用されます。どちらも存在しない場合、ペイロード全体が pretty-print されてタスク記述として渡されます。
+- `system_prompt` — DSL から派生したシステムプロンプトに追加される、呼び出し元が任意で指定するシステムプロンプト。4096 バイトに上限が設定され、ログに記録されます。プロンプトインジェクションの面として扱うこと：信頼できない呼び出し元にこのエンドポイントを公開する場合は必ず認証を強制してください。
+
+### 正規化されたツール呼び出し形式
+
+LLM クライアントは OpenAI/OpenRouter の関数呼び出しを、Anthropic Messages API が使用するのと同じコンテンツブロック形式に正規化します。プロバイダーに関係なく、各レスポンスのコンテンツブロックは `{"type": "text", "text": "..."}` または `{"type": "tool_use", "id": "...", "name": "...", "input": {...}}` のいずれかであり、`stop_reason` は `"end_turn"` または `"tool_use"` です。
 
 ## 統合パターン
 
@@ -302,7 +368,19 @@ HTTP 入力モジュールは包括的なエラーハンドリングを提供し
 
 ```log
 INFO HTTP Input: Received request with 5 headers
-INFO Would invoke agent webhook_handler with input data
+INFO Agent webhook_handler is running, dispatching via communication bus
+INFO Runtime execution dispatched for agent webhook_handler: message_id=… latency=3ms
+```
+
+LLM 呼び出しパスが使用されるとき、ORGA ループをトレースする追加の行が出力されます：
+
+```log
+INFO Agent webhook_handler is not running, using LLM invocation path
+INFO Invoking LLM for agent webhook_handler: provider=Anthropic model=… tools=4 …
+INFO ORGA ACT: executing tool 'nmap_scan' (id=…) for agent webhook_handler
+INFO Tool 'nmap_scan' executed successfully
+INFO ORGA loop iteration 1 for agent webhook_handler: executed 1 tool(s), continuing
+INFO LLM invocation completed for agent webhook_handler: latency=4821ms tool_runs=1 response_len=…
 ```
 
 ### メトリクス統合
@@ -329,4 +407,6 @@ INFO Would invoke agent webhook_handler with input data
 - [はじめてのガイド](getting-started.md)
 - [DSL ガイド](dsl-guide.md)
 - [API リファレンス](api-reference.md)
+- [推論ループ (ORGA)](reasoning-loop.md)
+- [ToolClad ツールコントラクト](toolclad.md)
 - [エージェントランタイムドキュメント](../crates/runtime/README.md)

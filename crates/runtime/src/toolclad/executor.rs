@@ -108,13 +108,18 @@ impl ToolCladExecutor {
         false
     }
 
+    /// Get tool definitions (convenience method that doesn't require importing ActionExecutor).
+    pub fn get_tool_definitions(&self) -> Vec<crate::reasoning::inference::ToolDefinition> {
+        self.tool_defs.clone()
+    }
+
     /// Number of loaded manifests.
     pub fn count(&self) -> usize {
         self.manifests.len()
     }
 
     /// Execute a single tool call against a manifest.
-    fn execute_tool(&self, name: &str, args_json: &str) -> Result<serde_json::Value, String> {
+    pub fn execute_tool(&self, name: &str, args_json: &str) -> Result<serde_json::Value, String> {
         let manifest = self
             .manifests
             .get(name)

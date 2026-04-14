@@ -12,6 +12,7 @@ The HTTP Input module consists of:
 - **Response Control**: Configurable response formatting and status codes
 - **Security Features**: CORS support, request size limits, and audit logging
 - **Concurrency Management**: Built-in request rate limiting and concurrency control
+- **LLM Invocation with ToolClad**: When the target agent is not actively running on the runtime communication bus, the webhook can invoke the agent on-demand via a configured LLM provider, using an ORGA-style tool-calling loop backed by ToolClad manifests
 
 The module is conditionally compiled with the `http-input` feature flag and integrates seamlessly with the Symbiont agent runtime.
 
@@ -233,15 +234,80 @@ curl -X POST http://localhost:8081/webhook \
 
 ### Expected Response
 
-The server returns a JSON response with the agent's output:
+The response shape depends on how the agent was invoked.
+
+**Runtime dispatch** — the target agent is `Running` on the communication bus and the message was handed off for asynchronous processing:
 
 ```json
 {
   "status": "execution_started",
   "agent_id": "webhook_handler",
+  "message_id": "01H...",
+  "latency_ms": 3,
   "timestamp": "2024-01-15T10:30:00Z"
 }
 ```
+
+**LLM invocation** — the agent is not running and was executed on-demand via the configured LLM provider (see [LLM Invocation with ToolClad Tools](#llm-invocation-with-toolclad-tools) below). The response includes the final text and a summary of any tool calls that were executed:
+
+```json
+{
+  "status": "completed",
+  "agent_id": "webhook_handler",
+  "response": "Scanned target and found 3 open ports …",
+  "tool_runs": [
+    {
+      "tool": "nmap_scan",
+      "input": {"target": "example.com"},
+      "output_preview": "{\"scan_id\": \"…\", \"ports\": [ … ]}"
+    }
+  ],
+  "model": "claude-sonnet-4-20250514",
+  "provider": "Anthropic",
+  "latency_ms": 4821,
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
+## LLM Invocation with ToolClad Tools
+
+When the runtime is attached but the routed agent is **not in the `Running` state**, the webhook handler falls through to an on-demand LLM invocation path. This is useful for agents that execute per-request rather than as long-running listeners.
+
+### How it works
+
+1. The webhook handler calls `scheduler.get_agent_status()` to verify the agent is actively running. Messages to non-running agents are not dispatched via the communication bus, since `send_message` would silently drop them.
+2. If the agent is not running, the handler builds a system prompt from any `.dsl` files found in the `agents/` directory, appends an optional caller-supplied `system_prompt` (length-capped and logged), and constructs a user message from the request payload.
+3. ToolClad manifests in the `tools/` directory are loaded and exposed to the LLM as function-calling tools. Custom types from `toolclad.toml` are applied.
+4. The handler runs an **ORGA** (Observe-Reason-Gate-Act) tool-calling loop, up to 15 iterations:
+   - The LLM proposes zero or more `tool_use` calls.
+   - Each tool call is validated by ToolClad and executed on a blocking thread pool with a **120-second per-tool timeout**.
+   - Duplicate `(tool_name, input)` pairs within a single iteration are deduplicated to avoid redundant execution of non-idempotent tools.
+   - Tool results are fed back to the LLM as `tool_result` messages.
+   - The loop terminates when the LLM produces a final text response or the iteration cap is reached.
+5. The final response, the list of executed tool runs, and provider/model metadata are returned to the caller.
+
+### Provider auto-detection
+
+The LLM client is initialized from environment variables at server start. The first provider whose API key is set wins, in this order:
+
+| Env var | Provider | Model override | Base URL override |
+|---------|----------|----------------|-------------------|
+| `OPENROUTER_API_KEY` | OpenRouter | `OPENROUTER_MODEL` (default: `anthropic/claude-sonnet-4`) | `OPENROUTER_BASE_URL` |
+| `OPENAI_API_KEY` | OpenAI | `CHAT_MODEL` (default: `gpt-4o`) | `OPENAI_BASE_URL` |
+| `ANTHROPIC_API_KEY` | Anthropic | `ANTHROPIC_MODEL` (default: `claude-sonnet-4-20250514`) | `ANTHROPIC_BASE_URL` |
+
+If no API key is set, the LLM invocation path is disabled and requests for non-running agents return an error.
+
+### Input fields
+
+The webhook JSON body is interpreted as follows when the LLM path is taken:
+
+- `prompt` or `message` — used as the user message. If neither is present, the whole payload is pretty-printed and passed as the task description.
+- `system_prompt` — optional caller-supplied system prompt appended to the DSL-derived system prompt. Capped at 4096 bytes and logged. Treat as a prompt-injection surface: always enforce authentication when exposing this endpoint to untrusted callers.
+
+### Normalized tool-call format
+
+The LLM client normalizes OpenAI/OpenRouter function calling into the same content-block shape used by the Anthropic Messages API. Regardless of provider, each response content block is either `{"type": "text", "text": "..."}` or `{"type": "tool_use", "id": "...", "name": "...", "input": {...}}`, and `stop_reason` is `"end_turn"` or `"tool_use"`.
 
 ## Integration Patterns
 
@@ -302,7 +368,19 @@ When `audit_enabled` is true, the module logs structured information about all r
 
 ```log
 INFO HTTP Input: Received request with 5 headers
-INFO Would invoke agent webhook_handler with input data
+INFO Agent webhook_handler is running, dispatching via communication bus
+INFO Runtime execution dispatched for agent webhook_handler: message_id=… latency=3ms
+```
+
+When the LLM invocation path is used, additional lines trace the ORGA loop:
+
+```log
+INFO Agent webhook_handler is not running, using LLM invocation path
+INFO Invoking LLM for agent webhook_handler: provider=Anthropic model=… tools=4 …
+INFO ORGA ACT: executing tool 'nmap_scan' (id=…) for agent webhook_handler
+INFO Tool 'nmap_scan' executed successfully
+INFO ORGA loop iteration 1 for agent webhook_handler: executed 1 tool(s), continuing
+INFO LLM invocation completed for agent webhook_handler: latency=4821ms tool_runs=1 response_len=…
 ```
 
 ### Metrics Integration
@@ -329,4 +407,6 @@ The module integrates with the Symbiont runtime's metrics system to provide:
 - [Getting Started Guide](getting-started.md)
 - [DSL Guide](dsl-guide.md)
 - [API Reference](api-reference.md)
+- [Reasoning Loop (ORGA)](reasoning-loop.md)
+- [ToolClad Tool Contracts](toolclad.md)
 - [Agent Runtime Documentation](../crates/runtime/README.md)
