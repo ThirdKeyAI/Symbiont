@@ -251,22 +251,28 @@ jobs:
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
           echo "version=${TAG#v}" >> $GITHUB_OUTPUT
 
+      # Use actions/checkout to clone the tap repo — this configures the
+      # credential helper from the PAT properly, avoiding the
+      # "password authentication not supported" failure mode that can
+      # hit manually-constructed https://x-access-token: URLs.
+      - name: Checkout homebrew-tap
+        uses: actions/checkout@v4
+        with:
+          repository: thirdkeyai/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
       - name: Update Homebrew formula
-        env:
-          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        working-directory: homebrew-tap
         run: |
           VERSION="${{ steps.version.outputs.version }}"
 
-          # Extract SHA256 values
-          DARWIN_ARM64=$(grep "aarch64-apple-darwin" artifacts/checksums.txt | awk '{print $1}')
-          LINUX_ARM64=$(grep "aarch64-unknown-linux-gnu" artifacts/checksums.txt | awk '{print $1}')
-          LINUX_AMD64=$(grep "x86_64-unknown-linux-gnu" artifacts/checksums.txt | awk '{print $1}')
+          # Extract SHA256 values from the release artifacts
+          DARWIN_ARM64=$(grep "aarch64-apple-darwin" ../artifacts/checksums.txt | awk '{print $1}')
+          LINUX_ARM64=$(grep "aarch64-unknown-linux-gnu" ../artifacts/checksums.txt | awk '{print $1}')
+          LINUX_AMD64=$(grep "x86_64-unknown-linux-gnu" ../artifacts/checksums.txt | awk '{print $1}')
 
-          # Clone tap repo
-          git clone https://x-access-token:${GH_TOKEN}@github.com/thirdkeyai/homebrew-tap.git
-          cd homebrew-tap
-
-          # Update version and checksums
+          # Update version and placeholder checksums (first-time publish)
           sed -i "s/version \".*\"/version \"${VERSION}\"/" Formula/symbi.rb
           sed -i "s/PLACEHOLDER_ARM64_SHA256/${DARWIN_ARM64}/" Formula/symbi.rb
           sed -i "s/PLACEHOLDER_LINUX_ARM64_SHA256/${LINUX_ARM64}/" Formula/symbi.rb
@@ -280,5 +286,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Formula/symbi.rb
+
+          # Skip when the formula is already at this version (re-run idempotent)
+          if git diff --cached --quiet; then
+            echo "No changes to Formula/symbi.rb — tap is already at ${VERSION}"
+            exit 0
+          fi
+
           git commit -m "Update symbi to ${VERSION}"
           git push

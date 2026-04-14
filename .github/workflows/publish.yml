@@ -66,9 +66,14 @@ jobs:
             echo "$output"
             echo "::endgroup::"
 
-            # Check if publish succeeded or crate was already uploaded
-            if echo "$output" | grep -q "already uploaded"; then
-              echo "✓ $crate v$version already uploaded, skipping"
+            # Check if publish succeeded or crate was already uploaded.
+            # crates.io returns varying messages for already-published versions:
+            #   - "already uploaded"               (older cargo)
+            #   - "already exists on crates.io"    (current cargo)
+            # Both are non-fatal for a release workflow — the desired state is
+            # reached either way.
+            if echo "$output" | grep -qE "already uploaded|already exists on crates\.io"; then
+              echo "✓ $crate v$version already published, skipping"
               return 0
             elif echo "$output" | grep -qE "Published|Uploading.*to registry"; then
               echo "✓ Published $crate v$version"
