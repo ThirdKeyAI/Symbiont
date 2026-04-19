@@ -9,12 +9,15 @@ cargo-fuzz = true
 
 [dependencies]
 arbitrary = { version = "1", features = ["derive"] }
+bytes = "1"
 futures = "0.3"
 hex = "0.4"
 hmac = "0.12"
 libfuzzer-sys = "0.4"
 sha2 = "0.10"
 tempfile = "3.0"
+tokio = { version = "1", features = ["rt", "macros"] }
+uuid = { version = "1", features = ["v4", "serde"] }
 symbi-channel-adapter = { path = "../../crates/channel-adapter", package = "symbi-channel-adapter", default-features = false, features = ["slack", "mattermost"] }
 symbi-runtime = { path = "../../crates/runtime", package = "symbi-runtime", default-features = false, features = ["composio", "http-api", "http-input"] }
 repl-core = { path = "../../crates/repl-core", package = "repl-core" }
@@ -147,6 +150,34 @@ bench = false
 [[bin]]
 name = "policy_evaluation"
 path = "fuzz_targets/policy_evaluation.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "messaging_request_json"
+path = "fuzz_targets/messaging_request_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "comm_policy_evaluate"
+path = "fuzz_targets/comm_policy_evaluate.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "remote_envelope"
+path = "fuzz_targets/remote_envelope.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "secure_message_pipeline"
+path = "fuzz_targets/secure_message_pipeline.rs"
 test = false
 doc = false
 bench = false

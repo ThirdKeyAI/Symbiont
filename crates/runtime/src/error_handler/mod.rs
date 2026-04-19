@@ -442,6 +442,7 @@ impl DefaultErrorHandler {
             RuntimeError::Sandbox(_) => ErrorType::SecurityViolation,
             RuntimeError::Audit(_) => ErrorType::SystemError,
             RuntimeError::Internal(_) => ErrorType::SystemError,
+            RuntimeError::Authentication(_) => ErrorType::SecurityViolation,
         }
     }
 

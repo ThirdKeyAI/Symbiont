@@ -45,8 +45,22 @@ impl MarkdownMemoryStore {
     }
 
     /// Get the directory for a specific agent.
+    ///
+    /// `AgentId::to_string()` always renders as a hyphenated UUID today, so
+    /// no traversal is possible. We still enforce the invariant explicitly
+    /// here as defence-in-depth in case the `AgentId` formatter ever
+    /// changes or a custom `Display` impl is introduced.
     fn agent_dir(&self, agent_id: AgentId) -> PathBuf {
-        self.root_dir.join(agent_id.to_string())
+        let id = agent_id.to_string();
+        debug_assert!(
+            !id.contains('/')
+                && !id.contains('\\')
+                && !id.contains("..")
+                && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'),
+            "AgentId::to_string() produced unexpected characters: {:?}",
+            id
+        );
+        self.root_dir.join(id)
     }
 
     /// Get the path to the agent's memory.md file.

@@ -15,7 +15,7 @@ mod tests {
     use super::*;
 
     fn create_test_evaluator() -> DslEvaluator {
-        let runtime_bridge = Arc::new(RuntimeBridge::new());
+        let runtime_bridge = Arc::new(RuntimeBridge::new_permissive_for_dev());
         DslEvaluator::new(runtime_bridge)
     }
 

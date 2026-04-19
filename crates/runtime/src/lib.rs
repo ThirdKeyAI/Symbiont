@@ -12,6 +12,7 @@ pub mod integrations;
 pub mod lifecycle;
 pub mod logging;
 pub mod metrics;
+pub mod net_guard;
 pub mod models;
 pub mod rag;
 pub mod reasoning;
@@ -166,6 +167,12 @@ pub struct AgentRuntime {
     /// Created once at runtime startup and reused for all internal messages
     /// so audit trails can consistently attribute system actions.
     pub system_agent_id: AgentId,
+    /// Optional AgentPin verifier, constructed when
+    /// `RuntimeConfig.agentpin.enabled == true`. When present, the HTTP
+    /// ingress paths (inter-agent messaging, heartbeat, push-event) and
+    /// the cron scheduler require a valid AgentPin JWT whose `sub`/agent
+    /// claims cover the acting agent.
+    pub agentpin_verifier: Option<Arc<dyn integrations::AgentPinVerifier>>,
     #[cfg(feature = "cron")]
     cron_scheduler: Option<Arc<scheduler::cron_scheduler::CronScheduler>>,
     config: Arc<RwLock<RuntimeConfig>>,
@@ -269,6 +276,36 @@ impl AgentRuntime {
             None
         };
 
+        // Initialize AgentPin verifier if enabled in config. Failing to
+        // build the verifier is NOT fail-open: we return the error so the
+        // operator sees the misconfiguration at startup rather than
+        // silently running without identity checks.
+        let agentpin_verifier: Option<Arc<dyn integrations::AgentPinVerifier>> = {
+            let cfg = config.read().await;
+            match cfg.agentpin.as_ref() {
+                Some(ap_cfg) if ap_cfg.enabled => {
+                    let verifier = integrations::DefaultAgentPinVerifier::new(ap_cfg.clone())
+                        .map_err(|e| {
+                            RuntimeError::Internal(format!(
+                                "Failed to construct AgentPin verifier: {}",
+                                e
+                            ))
+                        })?;
+                    tracing::info!(
+                        "AgentPin verifier enabled (discovery_mode={:?}, audience={:?})",
+                        ap_cfg.discovery_mode,
+                        ap_cfg.audience
+                    );
+                    Some(Arc::new(verifier) as Arc<dyn integrations::AgentPinVerifier>)
+                }
+                Some(_) => {
+                    tracing::info!("AgentPin configured but disabled; identity checks skipped");
+                    None
+                }
+                None => None,
+            }
+        };
+
         Ok(Self {
             scheduler,
             lifecycle,
@@ -279,6 +316,7 @@ impl AgentRuntime {
             model_logger,
             model_catalog,
             system_agent_id: AgentId::new(),
+            agentpin_verifier,
             #[cfg(feature = "cron")]
             cron_scheduler: None,
             config,
@@ -305,6 +343,57 @@ impl AgentRuntime {
     /// Update the runtime configuration
     pub async fn update_config(&self, config: RuntimeConfig) -> Result<(), RuntimeError> {
         *self.config.write().await = config;
+        Ok(())
+    }
+
+    /// Verify that `jwt` is a valid AgentPin credential covering `agent_id`.
+    ///
+    /// Returns `Ok(())` when no AgentPin verifier is configured on this
+    /// runtime. When a verifier IS configured, `jwt` must be present and
+    /// its `sub` must equal the target agent's UUID string. Used by
+    /// heartbeat, push-event, and any other per-agent ingress path.
+    pub async fn verify_agentpin_for_agent(
+        &self,
+        jwt: Option<&str>,
+        agent_id: AgentId,
+    ) -> Result<(), RuntimeError> {
+        let Some(verifier) = self.agentpin_verifier.as_ref() else {
+            if jwt.is_some() {
+                tracing::warn!(
+                    "AgentPin JWT supplied but verifier is disabled on this runtime"
+                );
+            }
+            return Ok(());
+        };
+        let jwt = jwt.ok_or_else(|| {
+            RuntimeError::Authentication(
+                "AgentPin verification is enabled; agentpin_jwt is required".to_string(),
+            )
+        })?;
+        let result = verifier
+            .verify_credential(jwt)
+            .await
+            .map_err(|e| RuntimeError::Authentication(format!("AgentPin: {}", e)))?;
+        if !result.valid {
+            return Err(RuntimeError::Authentication(format!(
+                "AgentPin credential invalid: {}",
+                result
+                    .error_message
+                    .unwrap_or_else(|| "no reason".to_string())
+            )));
+        }
+        let expected = agent_id.0.to_string();
+        let sub_matches = result
+            .agent_id
+            .as_deref()
+            .map(|sub| sub == expected)
+            .unwrap_or(false);
+        if !sub_matches {
+            return Err(RuntimeError::Authentication(format!(
+                "AgentPin JWT does not cover agent {}: sub={:?}",
+                expected, result.agent_id
+            )));
+        }
         Ok(())
     }
 
@@ -362,6 +451,10 @@ pub struct RuntimeConfig {
     pub logging: logging::LoggingConfig,
     pub slm: Option<config::Slm>,
     pub routing: Option<routing::RoutingConfig>,
+    /// Optional AgentPin configuration. When `enabled = true`, every
+    /// inter-agent messaging / heartbeat / cron-trigger path requires a
+    /// valid AgentPin JWT whose `sub` covers the acting agent.
+    pub agentpin: Option<crate::integrations::AgentPinConfig>,
 }
 
 /// Implementation of RuntimeApiProvider for AgentRuntime
@@ -1306,6 +1399,10 @@ impl RuntimeApiProvider for AgentRuntime {
         agent_id: AgentId,
         heartbeat: api::types::HeartbeatRequest,
     ) -> Result<(), RuntimeError> {
+        // AP-4: gate external heartbeats on AgentPin when enabled.
+        self.verify_agentpin_for_agent(heartbeat.agentpin_jwt.as_deref(), agent_id)
+            .await?;
+
         let ext_agents = self.scheduler.external_agents();
         let mut entry = ext_agents.get_mut(&agent_id).ok_or_else(|| {
             RuntimeError::Internal(format!("Agent {} is not an external agent", agent_id))
@@ -1329,6 +1426,10 @@ impl RuntimeApiProvider for AgentRuntime {
         agent_id: AgentId,
         event: api::types::PushEventRequest,
     ) -> Result<(), RuntimeError> {
+        // AP-4: gate external agent events on AgentPin when enabled.
+        self.verify_agentpin_for_agent(event.agentpin_jwt.as_deref(), agent_id)
+            .await?;
+
         let ext_agents = self.scheduler.external_agents();
         let mut entry = ext_agents.get_mut(&agent_id).ok_or_else(|| {
             RuntimeError::Internal(format!("Agent {} is not an external agent", agent_id))
@@ -1345,5 +1446,170 @@ impl RuntimeApiProvider for AgentRuntime {
 
     async fn check_unreachable_agents(&self) {
         self.scheduler.check_unreachable_agents();
+    }
+
+    async fn send_agent_message(
+        &self,
+        recipient: crate::types::AgentId,
+        request: api::types::SendMessageRequest,
+    ) -> Result<api::types::SendMessageResponse, crate::types::RuntimeError> {
+        // AgentPin identity check (AP-1): reuse the shared helper so
+        // every per-agent ingress path (messaging, heartbeat, push_event)
+        // enforces the same rule.
+        self.verify_agentpin_for_agent(request.agentpin_jwt.as_deref(), request.sender)
+            .await?;
+
+        // Trust-boundary note (H-5 / M-1):
+        // The `request` arrives from an HTTP caller (potentially another
+        // runtime via RemoteCommunicationBus). We deliberately build a fresh
+        // SecureMessage here via `create_internal_message` so it is signed
+        // by THIS bus's Ed25519 key. The local bus then rejects any message
+        // whose signature doesn't verify against its own key (see
+        // DefaultCommunicationBus::verify_message_signature), which means
+        // untrusted wire bytes — including SignatureAlgorithm::None or
+        // EncryptionAlgorithm::None from a remote shim — can never survive
+        // ingress without being re-wrapped here.
+        //
+        // Clamp TTL: bound by the bus's configured `message_ttl` so a caller
+        // cannot pin queued messages beyond operator intent, and by a hard
+        // safety cap so a misconfigured config can't allow forever-TTLs.
+        const MAX_TTL_SECS: u64 = 24 * 3600;
+        const DEFAULT_TTL_SECS: u64 = 300;
+        let requested_secs = request.ttl_seconds.unwrap_or(DEFAULT_TTL_SECS);
+        let configured_secs = self.config.read().await.communication.message_ttl.as_secs();
+        let ttl_secs = requested_secs
+            .min(configured_secs)
+            .clamp(1, MAX_TTL_SECS);
+        let ttl = std::time::Duration::from_secs(ttl_secs);
+
+        // Decide message type: topic = publish, otherwise direct
+        if let Some(ref topic) = request.topic {
+            let msg = self.communication.create_internal_message(
+                request.sender,
+                recipient,
+                bytes::Bytes::from(request.payload.into_bytes()),
+                crate::types::communication::MessageType::Publish(topic.clone()),
+                ttl,
+            );
+            let message_id = msg.id;
+            self.communication
+                .publish(topic.clone(), msg)
+                .await
+                .map_err(crate::types::RuntimeError::Communication)?;
+            Ok(api::types::SendMessageResponse {
+                message_id: message_id.0.to_string(),
+                status: "pending".to_string(),
+            })
+        } else {
+            let msg = self.communication.create_internal_message(
+                request.sender,
+                recipient,
+                bytes::Bytes::from(request.payload.into_bytes()),
+                crate::types::communication::MessageType::Direct(recipient),
+                ttl,
+            );
+            let message_id = self
+                .communication
+                .send_message(msg)
+                .await
+                .map_err(crate::types::RuntimeError::Communication)?;
+            Ok(api::types::SendMessageResponse {
+                message_id: message_id.0.to_string(),
+                status: "pending".to_string(),
+            })
+        }
+    }
+
+    async fn receive_agent_messages(
+        &self,
+        agent_id: crate::types::AgentId,
+    ) -> Result<api::types::ReceiveMessagesResponse, crate::types::RuntimeError> {
+        let messages = self
+            .communication
+            .receive_messages(agent_id)
+            .await
+            .map_err(crate::types::RuntimeError::Communication)?;
+
+        let envelopes = messages
+            .into_iter()
+            .map(|m| {
+                let timestamp_secs = m
+                    .timestamp
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d: std::time::Duration| d.as_secs())
+                    .unwrap_or(0);
+                let ttl_seconds = m.ttl.as_secs();
+                let (message_type, topic) = match &m.message_type {
+                    crate::types::communication::MessageType::Direct(_) => {
+                        ("direct".to_string(), None)
+                    }
+                    crate::types::communication::MessageType::Publish(t) => {
+                        ("publish".to_string(), Some(t.clone()))
+                    }
+                    crate::types::communication::MessageType::Subscribe(t) => {
+                        ("subscribe".to_string(), Some(t.clone()))
+                    }
+                    crate::types::communication::MessageType::Broadcast => {
+                        ("broadcast".to_string(), None)
+                    }
+                    crate::types::communication::MessageType::Request(_) => {
+                        ("request".to_string(), None)
+                    }
+                    crate::types::communication::MessageType::Response(_) => {
+                        ("response".to_string(), None)
+                    }
+                };
+                // Payload is encrypted in-flight; for HTTP API return decrypted UTF-8 bytes.
+                // The bus uses AES-256-GCM internally — the HTTP layer treats the payload
+                // as opaque bytes that the receiver should decrypt if needed. For the
+                // default bus (in-process), encryption is symmetric so callers see the
+                // raw bytes they put in.
+                let payload = String::from_utf8_lossy(&m.payload.data).to_string();
+                api::types::MessageEnvelope {
+                    message_id: m.id.0.to_string(),
+                    sender: m.sender,
+                    recipient: m.recipient,
+                    topic,
+                    payload,
+                    message_type,
+                    timestamp_secs,
+                    ttl_seconds,
+                }
+            })
+            .collect();
+
+        Ok(api::types::ReceiveMessagesResponse {
+            messages: envelopes,
+        })
+    }
+
+    async fn get_message_status(
+        &self,
+        message_id: &str,
+    ) -> Result<api::types::MessageStatusResponse, crate::types::RuntimeError> {
+        let uuid = uuid::Uuid::parse_str(message_id).map_err(|_| {
+            crate::types::RuntimeError::Communication(
+                crate::types::CommunicationError::InvalidFormat(format!(
+                    "Invalid message ID: {}",
+                    message_id
+                )),
+            )
+        })?;
+        let mid = crate::types::MessageId(uuid);
+        let status = self
+            .communication
+            .get_delivery_status(mid)
+            .await
+            .map_err(crate::types::RuntimeError::Communication)?;
+        let status_str = match status {
+            crate::communication::DeliveryStatus::Pending => "pending",
+            crate::communication::DeliveryStatus::Delivered => "delivered",
+            crate::communication::DeliveryStatus::Failed => "failed",
+            crate::communication::DeliveryStatus::Expired => "expired",
+        };
+        Ok(api::types::MessageStatusResponse {
+            message_id: message_id.to_string(),
+            status: status_str.to_string(),
+        })
     }
 }

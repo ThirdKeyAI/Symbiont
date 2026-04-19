@@ -179,12 +179,15 @@ fuzz_target!(|input: Input| {
             let token = clamp(token, 4096, "invalid.jwt.token");
             let issuer = issuer.map(|s| clamp(s, 128, "issuer"));
 
-            let verifier = JwtVerifier::new_hmac(
+            let verifier = match JwtVerifier::new_hmac(
                 secret.as_bytes().to_vec(),
                 header_name.clone(),
                 issuer,
                 None,
-            );
+            ) {
+                Ok(v) => v,
+                Err(_) => return,
+            };
 
             let headers = vec![(header_name, token)];
 

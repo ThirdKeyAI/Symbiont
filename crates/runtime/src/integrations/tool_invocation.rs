@@ -64,6 +64,40 @@ pub enum EnforcementPolicy {
     Disabled,
 }
 
+impl EnforcementPolicy {
+    /// Fail-fast production guard (SP-1). When `SYMBIONT_ENV=production`
+    /// and the policy is `Disabled` or `Development`, return `Err` so the
+    /// operator must explicitly opt in via
+    /// `SYMBIONT_ALLOW_TOOL_ENFORCEMENT_BYPASS=1`. Mirrors the SandboxTier
+    /// guard pattern — production must not silently accept unverified
+    /// tools.
+    pub fn enforce_production_guard(&self) -> Result<(), String> {
+        if matches!(self, EnforcementPolicy::Strict | EnforcementPolicy::Permissive) {
+            return Ok(());
+        }
+        let env = std::env::var("SYMBIONT_ENV").unwrap_or_default();
+        if !env.eq_ignore_ascii_case("production") {
+            return Ok(());
+        }
+        let allow = std::env::var("SYMBIONT_ALLOW_TOOL_ENFORCEMENT_BYPASS")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+        if allow {
+            tracing::error!(
+                "Tool invocation enforcement set to {:?} in production via \
+                 SYMBIONT_ALLOW_TOOL_ENFORCEMENT_BYPASS=1 — unsigned tools may run",
+                self
+            );
+            return Ok(());
+        }
+        Err(format!(
+            "SECURITY: EnforcementPolicy::{:?} is not permitted in production; \
+             set SYMBIONT_ALLOW_TOOL_ENFORCEMENT_BYPASS=1 to override (not recommended)",
+            self
+        ))
+    }
+}
+
 /// Configuration for tool invocation enforcement
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InvocationEnforcementConfig {
@@ -274,6 +308,14 @@ impl DefaultToolInvocationEnforcer {
 
     /// Check verification status and determine if tool should be allowed
     fn check_verification_status(&self, tool: &McpTool) -> EnforcementDecision {
+        // SP-1 production guard: even if an operator misconfigures the
+        // enforcer with Disabled/Development in production, refuse to
+        // short-circuit verification unless they've explicitly opted in
+        // via SYMBIONT_ALLOW_TOOL_ENFORCEMENT_BYPASS=1.
+        if let Err(reason) = self.config.policy.enforce_production_guard() {
+            return EnforcementDecision::Block { reason };
+        }
+
         match &self.config.policy {
             EnforcementPolicy::Disabled => EnforcementDecision::Allow,
             EnforcementPolicy::Development => {

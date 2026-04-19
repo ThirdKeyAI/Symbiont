@@ -341,7 +341,9 @@ async fn auth_middleware(
                 // Require exp claim; do not enforce audience/issuer
                 validation.set_required_spec_claims(&["exp"]);
                 validation.validate_aud = false;
-                validation.leeway = 30; // 30s clock skew tolerance
+                // 5 s clock-skew tolerance. Larger windows widen the
+                // replay surface for captured tokens; 30 s was excessive.
+                validation.leeway = 5;
 
                 match jsonwebtoken::decode::<JwtClaims>(token, decoding_key, &validation) {
                     Ok(_token_data) => {

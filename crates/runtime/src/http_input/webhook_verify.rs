@@ -26,6 +26,11 @@ pub enum VerifyError {
     /// The computed signature did not match the provided signature.
     #[error("verification failed: {0}")]
     VerificationFailed(String),
+
+    /// The verifier was constructed with invalid or unsafe configuration
+    /// (e.g. missing audience under strict mode).
+    #[error("configuration error: {0}")]
+    Configuration(String),
 }
 
 /// Trait for verifying webhook request signatures.
@@ -133,6 +138,12 @@ pub struct JwtVerifier {
 impl JwtVerifier {
     /// Create a JWT verifier using HMAC-SHA256 symmetric signing.
     ///
+    /// If `SYMBIONT_REQUIRE_JWT_AUDIENCE=1` is set in the environment,
+    /// constructing a verifier with `audience = None` returns `Err`;
+    /// otherwise a loud warning is emitted at construction time (in
+    /// addition to per-request warnings from `verify_jwt`). Prefer
+    /// [`Self::new_hmac_with_audience`] in new code.
+    ///
     /// # Arguments
     /// * `secret` — the shared HMAC secret
     /// * `header_name` — HTTP header carrying the JWT (e.g. `"Authorization"`)
@@ -143,12 +154,53 @@ impl JwtVerifier {
         header_name: String,
         required_issuer: Option<String>,
         audience: Option<String>,
+    ) -> Result<Self, VerifyError> {
+        let strict = std::env::var("SYMBIONT_REQUIRE_JWT_AUDIENCE")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+        match (&audience, strict) {
+            (None, true) => Err(VerifyError::Configuration(
+                "SYMBIONT_REQUIRE_JWT_AUDIENCE=1 but no audience was configured; \
+                 refusing to construct a JWT verifier that would accept any aud claim"
+                    .to_string(),
+            )),
+            (None, false) => {
+                tracing::error!(
+                    "JwtVerifier configured without audience — any JWT signed with \
+                     this key will be accepted regardless of aud. Set an audience \
+                     or use new_hmac_with_audience; enable SYMBIONT_REQUIRE_JWT_AUDIENCE=1 \
+                     to refuse this configuration at startup."
+                );
+                Ok(Self {
+                    secret,
+                    header_name,
+                    required_issuer,
+                    audience,
+                })
+            }
+            (Some(_), _) => Ok(Self {
+                secret,
+                header_name,
+                required_issuer,
+                audience,
+            }),
+        }
+    }
+
+    /// Strict constructor: an audience is required, matching the M-2
+    /// recommendation that HMAC JWT verifiers never accept tokens without
+    /// validating the intended recipient.
+    pub fn new_hmac_with_audience(
+        secret: Vec<u8>,
+        header_name: String,
+        required_issuer: Option<String>,
+        audience: String,
     ) -> Self {
         Self {
             secret,
             header_name,
             required_issuer,
-            audience,
+            audience: Some(audience),
         }
     }
 
@@ -401,7 +453,8 @@ mod tests {
             "Authorization".to_string(),
             Some("test-issuer".to_string()),
             None,
-        );
+        )
+        .expect("test verifier construction");
 
         let headers = vec![("Authorization".to_string(), format!("Bearer {}", token))];
         assert!(verifier.verify(&headers, b"").await.is_ok());
@@ -436,7 +489,8 @@ mod tests {
             "Authorization".to_string(),
             Some("test-issuer".to_string()),
             None,
-        );
+        )
+        .expect("test verifier construction");
 
         let headers = vec![("Authorization".to_string(), format!("Bearer {}", token))];
         let result = verifier.verify(&headers, b"").await;

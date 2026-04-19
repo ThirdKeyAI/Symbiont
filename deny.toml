@@ -33,12 +33,14 @@ exceptions = []
 multiple-versions = "warn"
 # Lint level for when a crate version requirement is '*'
 wildcards = "allow"
-# The graph links to check for, supports regex
-deny = []
-# Certain crates/versions that will be skipped when doing duplicate detection.
+# Fail the build if any of these known-bad transitive versions ever come back
+# via a dep bump. lz4_flex 0.11.5 / 0.12.0 were yanked under RUSTSEC-2026-0041;
+# we bumped past them and want to stay there.
+deny = [
+    { name = "lz4_flex", version = "=0.11.5" },
+    { name = "lz4_flex", version = "=0.12.0" },
+]
 skip = []
-# Similarly to `skip` allows you to skip certain crates from being checked. Unlike `skip`,
-# `skip-tree` skips the crate and all of its dependencies entirely.
 skip-tree = []
 
 [advisories]
@@ -46,19 +48,18 @@ skip-tree = []
 db-path = "~/.cargo/advisory-db"
 # The url(s) of the advisory databases to use
 db-urls = ["https://github.com/rustsec/advisory-db"]
-# The lint level for security vulnerabilities
-vulnerability = "deny"
-# The lint level for unmaintained crates
-unmaintained = "warn"
-# The lint level for crates that have been yanked from their source registry
-yanked = "warn"
-# The lint level for crates with security notices. Note that as of
-# 2019-12-17 there are no security notice advisories in
-# https://github.com/rustsec/advisory-db
-notice = "warn"
-# A list of advisory IDs to ignore. Note that ignored advisories will still
-# output a note when they are encountered.
-ignore = []
+# Ignored advisories are still reported as an info line but don't fail CI.
+# Each entry must carry a justification + a revisit trigger in a comment.
+ignore = [
+    # RSA Marvin Attack — timing side-channel on PKCS#1 v1.5 decryption.
+    # Pulled in transitively via `vaultrs` (secret-store backend). Upstream
+    # `rsa` crate has no fixed release yet; tracking
+    # https://rustsec.org/advisories/RUSTSEC-2023-0071 .
+    # Exposure only materialises when the operator configures Vault auth
+    # paths that decrypt RSA-PKCS1v1.5 ciphertexts; default deployments do
+    # not. Revisit when `rsa` cuts a fixed release.
+    "RUSTSEC-2023-0071",
+]
 
 [sources]
 # Lint level for what to happen when a crate from a crate registry that is

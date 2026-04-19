@@ -31,10 +31,12 @@ use super::types::{
     CreateScheduleRequest, CreateScheduleResponse, DeleteAgentResponse, DeleteChannelResponse,
     DeleteScheduleResponse, ErrorResponse, ExecuteAgentRequest, ExecuteAgentResponse,
     GetAgentHistoryResponse, HealthResponse, HeartbeatRequest, IdentityMappingEntry,
-    NextRunsResponse, PushEventRequest, RegisterChannelRequest, RegisterChannelResponse,
-    ResourceUsage, ScheduleActionResponse, ScheduleDetail, ScheduleHistoryResponse,
-    ScheduleRunEntry, ScheduleSummary, SchedulerHealthResponse, UpdateAgentRequest,
-    UpdateAgentResponse, UpdateChannelRequest, UpdateScheduleRequest, WorkflowExecutionRequest,
+    MessageEnvelope, MessageStatusResponse, NextRunsResponse, PushEventRequest,
+    ReceiveMessagesResponse, RegisterChannelRequest, RegisterChannelResponse, ResourceUsage,
+    ScheduleActionResponse, ScheduleDetail, ScheduleHistoryResponse, ScheduleRunEntry,
+    ScheduleSummary, SchedulerHealthResponse, SendMessageRequest, SendMessageResponse,
+    UpdateAgentRequest, UpdateAgentResponse, UpdateChannelRequest, UpdateScheduleRequest,
+    WorkflowExecutionRequest,
 };
 
 #[cfg(feature = "http-api")]
@@ -82,6 +84,9 @@ use crate::types::RuntimeError;
         super::routes::get_channel_audit,
         super::routes::agent_heartbeat,
         super::routes::agent_push_event,
+        super::routes::send_agent_message,
+        super::routes::receive_agent_messages,
+        super::routes::get_message_status,
         health_check,
         liveness_check,
         readiness_check
@@ -128,7 +133,12 @@ use crate::types::RuntimeError;
             HeartbeatRequest,
             PushEventRequest,
             AgentEvent,
-            AgentEventType
+            AgentEventType,
+            SendMessageRequest,
+            SendMessageResponse,
+            ReceiveMessagesResponse,
+            MessageEnvelope,
+            MessageStatusResponse
         )
     ),
     tags(
@@ -328,13 +338,30 @@ impl HttpApiServer {
                 add_channel_mapping, agent_heartbeat, agent_push_event, create_agent,
                 create_schedule, delete_agent, delete_channel, delete_schedule, execute_agent,
                 execute_workflow, get_agent_history, get_agent_status, get_channel,
-                get_channel_audit, get_channel_health, get_metrics, get_schedule,
-                get_schedule_history, get_schedule_next_runs, get_scheduler_health, list_agents,
-                list_channel_mappings, list_channels, list_schedules, pause_schedule,
-                register_channel, remove_channel_mapping, resume_schedule, start_channel,
-                stop_channel, trigger_schedule, update_agent, update_channel, update_schedule,
+                get_channel_audit, get_channel_health, get_message_status, get_metrics,
+                get_schedule, get_schedule_history, get_schedule_next_runs, get_scheduler_health,
+                list_agents, list_channel_mappings, list_channels, list_schedules, pause_schedule,
+                receive_agent_messages, register_channel, remove_channel_mapping, resume_schedule,
+                send_agent_message, start_channel, stop_channel, trigger_schedule, update_agent,
+                update_channel, update_schedule,
             };
+            use axum::extract::DefaultBodyLimit;
             use axum::middleware;
+
+            /// Maximum accepted inter-agent message body (256 KiB). Messaging
+            /// routes are kept small on purpose — large payloads belong in
+            /// a storage tier, not inline in the bus.
+            const MESSAGE_BODY_LIMIT: usize = 256 * 1024;
+
+            // Messaging routes with a tight body-size limit to prevent
+            // memory exhaustion via oversized JSON bodies.
+            let messaging_router = Router::new()
+                .route(
+                    "/api/v1/agents/:id/messages",
+                    get(receive_agent_messages).post(send_agent_message),
+                )
+                .route("/api/v1/messages/:id/status", get(get_message_status))
+                .layer(DefaultBodyLimit::max(MESSAGE_BODY_LIMIT));
 
             // Agent routes that require authentication
             let agent_router = Router::new()
@@ -345,6 +372,7 @@ impl HttpApiServer {
                 .route("/api/v1/agents/:id/history", get(get_agent_history))
                 .route("/api/v1/agents/:id/heartbeat", post(agent_heartbeat))
                 .route("/api/v1/agents/:id/events", post(agent_push_event))
+                .merge(messaging_router)
                 .layer(middleware::from_fn(auth_middleware))
                 .with_state(provider.clone());
 

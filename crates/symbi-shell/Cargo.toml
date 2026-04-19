@@ -1,0 +1,42 @@
+[package]
+name = "symbi-shell"
+version = "1.10.0"
+edition = "2021"
+authors = ["Jascha Wanger / ThirdKey.ai"]
+description = "Interactive agent orchestration shell for the Symbi platform"
+license = "Apache-2.0"
+repository = "https://github.com/thirdkeyai/symbiont"
+keywords = ["tui", "shell", "agents", "orchestration", "symbiont"]
+categories = ["command-line-utilities", "development-tools"]
+
+[[bin]]
+name = "symbi-shell"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0"
+crossterm = "0.28"
+ratatui = "0.29"
+tokio = { version = "1.0", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+dsl = { path = "../dsl", version = "1.10.0", package = "symbi-dsl" }
+tree-sitter = "0.20"
+repl-core = { path = "../repl-core", version = "1.10.0" }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+symbi-runtime = { path = "../runtime", version = "1.10.0", features = ["http-input", "cloud-llm"] }
+pulldown-cmark = "0.12"
+throbber-widgets-tui = "0.8"
+toml = "0.8"
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+reqwest = { version = "0.12", features = ["json"] }
+aes-gcm = "0.10"
+sha2 = "0.10"
+base64 = "0.22"
+
+[dev-dependencies]
+tempfile = "3"
+serial_test = "3"

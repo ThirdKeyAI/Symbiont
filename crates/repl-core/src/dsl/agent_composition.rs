@@ -144,13 +144,32 @@ pub async fn builtin_send_to(args: &[DslValue], ctx: &ReasoningBuiltinContext) -
     )
     .await;
 
-    // Fire-and-forget: spawn a background task
+    // Fire-and-forget: spawn a background task. Errors are logged so an
+    // auditor can trace failed deliveries without the DSL caller needing
+    // to await completion.
     let registry = registry.clone();
     let provider = provider.clone();
     tokio::spawn(async move {
-        let _ = registry
+        match registry
             .ask_agent(&agent_name, &message, provider.as_ref())
-            .await;
+            .await
+        {
+            Ok(_) => {
+                tracing::debug!(
+                    agent = %agent_name,
+                    sender = %sender_id,
+                    "send_to: background ask_agent succeeded",
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    agent = %agent_name,
+                    sender = %sender_id,
+                    error = %e,
+                    "send_to: background ask_agent failed",
+                );
+            }
+        }
     });
 
     Ok(DslValue::Null)
@@ -495,9 +514,35 @@ fn parse_ask_args(args: &[DslValue]) -> Result<(String, String)> {
     }
 }
 
+/// Maximum number of tasks accepted by `parallel()` / `race()`.
+///
+/// Each task spawns a tokio task and issues a policy-gated inter-agent
+/// message, so an unbounded list is both a cheap local DoS (fork-bomb of
+/// tasks) and an amplification vector into the inference provider. The
+/// limit can be widened via `SYMBIONT_MAX_PARALLEL_TASKS` for operators
+/// that genuinely need it.
+const DEFAULT_MAX_PARALLEL_TASKS: usize = 32;
+
+fn max_parallel_tasks() -> usize {
+    std::env::var("SYMBIONT_MAX_PARALLEL_TASKS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(DEFAULT_MAX_PARALLEL_TASKS)
+}
+
 fn parse_parallel_args(args: &[DslValue]) -> Result<Vec<(String, String)>> {
+    let cap = max_parallel_tasks();
     match args {
         [DslValue::List(items)] => {
+            if items.len() > cap {
+                return Err(ReplError::Execution(format!(
+                    "parallel/race: too many tasks ({} > {}); raise SYMBIONT_MAX_PARALLEL_TASKS \
+                     if intentional",
+                    items.len(),
+                    cap
+                )));
+            }
             let mut tasks = Vec::new();
             for item in items {
                 match item {
@@ -654,5 +699,54 @@ mod tests {
     fn test_parse_parallel_args_invalid_item() {
         let args = vec![DslValue::List(vec![DslValue::String("not a map".into())])];
         assert!(parse_parallel_args(&args).is_err());
+    }
+
+    /// Serialise env-var-dependent tests behind a single process-wide lock
+    /// so parallel cargo-test execution doesn't race on the global env.
+    fn env_test_lock() -> std::sync::MutexGuard<'static, ()> {
+        use std::sync::{Mutex, OnceLock};
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+    }
+
+    #[test]
+    fn test_parse_parallel_args_rejects_oversize_list() {
+        let _g = env_test_lock();
+        // Ensure env override doesn't leak in from another test run.
+        std::env::remove_var("SYMBIONT_MAX_PARALLEL_TASKS");
+        let mut items = Vec::new();
+        for i in 0..(DEFAULT_MAX_PARALLEL_TASKS + 1) {
+            let mut map = HashMap::new();
+            map.insert("agent".into(), DslValue::String(format!("a{}", i)));
+            map.insert("message".into(), DslValue::String("hi".into()));
+            items.push(DslValue::Map(map));
+        }
+        let args = vec![DslValue::List(items)];
+        let err = parse_parallel_args(&args).unwrap_err();
+        let msg = format!("{}", err);
+        assert!(
+            msg.contains("too many tasks"),
+            "expected fan-out cap error, got: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn test_parse_parallel_args_env_override_allows_larger_list() {
+        let _g = env_test_lock();
+        std::env::set_var("SYMBIONT_MAX_PARALLEL_TASKS", "64");
+        let mut items = Vec::new();
+        for i in 0..40 {
+            let mut map = HashMap::new();
+            map.insert("agent".into(), DslValue::String(format!("a{}", i)));
+            map.insert("message".into(), DslValue::String("hi".into()));
+            items.push(DslValue::Map(map));
+        }
+        let args = vec![DslValue::List(items)];
+        let res = parse_parallel_args(&args);
+        std::env::remove_var("SYMBIONT_MAX_PARALLEL_TASKS");
+        assert!(res.is_ok(), "override must widen the cap");
     }
 }

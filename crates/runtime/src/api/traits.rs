@@ -15,9 +15,10 @@ use super::types::{
     ChannelAuditResponse, ChannelDetail, ChannelHealthResponse, ChannelSummary, CreateAgentRequest,
     CreateAgentResponse, CreateScheduleRequest, CreateScheduleResponse, DeleteAgentResponse,
     DeleteChannelResponse, DeleteScheduleResponse, ExecuteAgentRequest, ExecuteAgentResponse,
-    GetAgentHistoryResponse, HeartbeatRequest, IdentityMappingEntry, NextRunsResponse,
-    PushEventRequest, RegisterChannelRequest, RegisterChannelResponse, ScheduleActionResponse,
-    ScheduleDetail, ScheduleHistoryResponse, ScheduleSummary, SchedulerHealthResponse,
+    GetAgentHistoryResponse, HeartbeatRequest, IdentityMappingEntry, MessageStatusResponse,
+    NextRunsResponse, PushEventRequest, ReceiveMessagesResponse, RegisterChannelRequest,
+    RegisterChannelResponse, ScheduleActionResponse, ScheduleDetail, ScheduleHistoryResponse,
+    ScheduleSummary, SchedulerHealthResponse, SendMessageRequest, SendMessageResponse,
     UpdateAgentRequest, UpdateAgentResponse, UpdateChannelRequest, UpdateScheduleRequest,
     WorkflowExecutionRequest,
 };
@@ -219,4 +220,29 @@ pub trait RuntimeApiProvider: Send + Sync {
 
     /// Check external agents for unreachable status. Default: no-op.
     async fn check_unreachable_agents(&self) {}
+
+    // ── Inter-agent messaging ────────────────────────────────────────
+
+    /// Send a message to an agent through the communication bus.
+    ///
+    /// The target agent may be local (in this runtime instance) or the
+    /// request may be routed via this runtime on behalf of a caller.
+    /// Returns the message ID and current delivery status.
+    async fn send_agent_message(
+        &self,
+        recipient: AgentId,
+        request: SendMessageRequest,
+    ) -> Result<SendMessageResponse, RuntimeError>;
+
+    /// Receive (and consume) all pending messages for an agent.
+    async fn receive_agent_messages(
+        &self,
+        agent_id: AgentId,
+    ) -> Result<ReceiveMessagesResponse, RuntimeError>;
+
+    /// Get the current delivery status of a specific message.
+    async fn get_message_status(
+        &self,
+        message_id: &str,
+    ) -> Result<MessageStatusResponse, RuntimeError>;
 }

@@ -388,6 +388,34 @@ impl DslEvaluator {
         Arc::clone(&self.monitor)
     }
 
+    /// Return the names of all registered synchronous built-in functions.
+    pub fn builtin_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.builtins.keys().cloned().collect();
+        names.sort();
+        names
+    }
+
+    /// Return the names of all registered asynchronous built-in functions.
+    pub fn async_builtin_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.async_builtins.keys().cloned().collect();
+        names.sort();
+        names
+    }
+
+    /// Return the names of user-defined agents known to this evaluator.
+    pub fn user_defined_names(&self) -> Vec<String> {
+        // Agents are stored behind an async RwLock; we return an empty vec when
+        // the lock cannot be acquired without blocking.
+        if let Ok(guard) = self.agents.try_read() {
+            let mut names: Vec<String> =
+                guard.values().map(|a| a.definition.name.clone()).collect();
+            names.sort();
+            names
+        } else {
+            vec![]
+        }
+    }
+
     /// Execute a DSL program
     pub async fn execute_program(&self, program: Program) -> Result<DslValue> {
         let mut context = ExecutionContext::default();
@@ -1889,7 +1917,7 @@ mod tests {
     use crate::dsl::{lexer::Lexer, parser::Parser};
 
     async fn create_test_evaluator() -> DslEvaluator {
-        let runtime_bridge = Arc::new(RuntimeBridge::new());
+        let runtime_bridge = Arc::new(RuntimeBridge::new_permissive_for_dev());
         DslEvaluator::new(runtime_bridge)
     }
 

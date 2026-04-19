@@ -564,6 +564,7 @@ async fn main() {
                         ),
                 ),
         )
+        .subcommand(Command::new("shell").about("Interactive agent orchestration shell"))
         .get_matches();
 
     match matches.subcommand() {
@@ -625,6 +626,23 @@ async fn main() {
         }
         Some(("tools", sub_matches)) => {
             commands::tools::run(sub_matches).await;
+        }
+        Some(("shell", _)) => {
+            let exe_dir = std::env::current_exe()
+                .expect("cannot determine executable path")
+                .parent()
+                .unwrap()
+                .to_path_buf();
+            let shell_bin = exe_dir.join("symbi-shell");
+            if shell_bin.exists() {
+                let status = std::process::Command::new(&shell_bin)
+                    .status()
+                    .expect("failed to launch symbi-shell");
+                std::process::exit(status.code().unwrap_or(1));
+            } else {
+                eprintln!("symbi-shell binary not found. Build with: cargo build -p symbi-shell");
+                std::process::exit(1);
+            }
         }
         _ => {
             println!("Symbiont v{}", VERSION);

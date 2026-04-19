@@ -32,7 +32,10 @@ members = [
     "crates/repl-core",
     "crates/repl-proto",
     "crates/repl-cli",
-    "crates/repl-lsp"
+    "crates/repl-lsp",
+    "crates/symbi-shell",
+    "crates/approval-relay",
+    "tests/e2e",
 ]
 
 [workspace.package]

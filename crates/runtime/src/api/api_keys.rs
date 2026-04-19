@@ -195,8 +195,12 @@ impl ApiKeyStore {
 
     /// Hash a raw API key with Argon2id (utility for key provisioning).
     /// Uses Argon2id with 19 MiB memory, 2 iterations, 1 thread (OWASP recommendation).
+    ///
+    /// Salt is generated from `OsRng` to match the rest of the runtime's
+    /// security-critical RNG usage and to eliminate any chance of seed
+    /// recovery turning into an offline brute-force target.
     pub fn hash_key(raw_key: &str) -> Result<String, String> {
-        let salt = SaltString::generate(&mut rand::thread_rng());
+        let salt = SaltString::generate(&mut rand::rngs::OsRng);
         let params = argon2::Params::new(19 * 1024, 2, 1, None)
             .map_err(|e| format!("Invalid Argon2 parameters: {}", e))?;
         let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);

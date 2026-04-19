@@ -172,6 +172,17 @@ pub struct ModelLogger {
     encryption_key: String,
 }
 
+impl std::fmt::Debug for ModelLogger {
+    /// Redact the encryption key from any Debug output so `{:?}` or `dbg!()`
+    /// cannot accidentally leak the symmetric key into logs or crash dumps.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ModelLogger")
+            .field("config", &self.config)
+            .field("encryption_key", &"<redacted>")
+            .finish_non_exhaustive()
+    }
+}
+
 impl ModelLogger {
     /// Create a new model logger with the given configuration and secret store
     pub fn new(
@@ -521,18 +532,49 @@ impl ModelLogger {
             .any(|&sensitive| key_lower.contains(sensitive))
     }
 
-    /// Write a log entry to storage
+    /// Write a log entry to storage.
+    ///
+    /// Opens the log file for append and writes one JSONL record, followed
+    /// by `sync_all` so a crash loses only the in-flight entry rather than
+    /// silently truncating the entire history. On Unix the file's
+    /// permissions are tightened to 0o600 on first write — model I/O logs
+    /// contain prompts/responses and must not be world-readable.
     async fn write_log_entry(&self, entry: &ModelLogEntry) -> Result<(), LoggingError> {
+        use tokio::io::AsyncWriteExt;
+
         // Ensure log directory exists
         if let Some(parent) = std::path::Path::new(&self.config.log_file_path).parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
 
-        // Serialize and append to log file
         let json_line = serde_json::to_string(entry)?;
         let log_line = format!("{}\n", json_line);
 
-        tokio::fs::write(&self.config.log_file_path, log_line.as_bytes()).await?;
+        let mut file = tokio::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.config.log_file_path)
+            .await?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = std::fs::Permissions::from_mode(0o600);
+            // Best-effort: narrow permissions. Don't fail the write if the
+            // FS is a shared mount that rejects chmod, just warn.
+            if let Err(e) = tokio::fs::set_permissions(&self.config.log_file_path, perms).await {
+                log::warn!(
+                    "Failed to set 0o600 permissions on model log {}: {}",
+                    self.config.log_file_path,
+                    e
+                );
+            }
+        }
+
+        file.write_all(log_line.as_bytes()).await?;
+        // fsync so a crash between write() and the OS flush doesn't lose
+        // the last entry silently.
+        file.sync_all().await?;
 
         Ok(())
     }

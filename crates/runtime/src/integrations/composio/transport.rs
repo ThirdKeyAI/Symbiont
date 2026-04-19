@@ -112,8 +112,33 @@ impl SseTransport {
             });
         }
 
-        // Composio returns SSE-formatted responses; extract JSON from data: lines
-        let body = response.text().await?;
+        // Composio returns SSE-formatted responses; extract JSON from data: lines.
+        // Cap the response body so a hostile upstream cannot OOM the runtime
+        // by streaming multi-GB bodies. 8 MiB is still orders of magnitude
+        // larger than any legitimate JSON-RPC response we'd expect here.
+        const MAX_COMPOSIO_BODY_BYTES: usize = 8 * 1024 * 1024;
+        let body = {
+            use futures::StreamExt;
+            let mut stream = response.bytes_stream();
+            let mut buf: Vec<u8> = Vec::with_capacity(8192);
+            while let Some(chunk) = stream.next().await {
+                let chunk = chunk.map_err(|e| ComposioError::TransportError {
+                    reason: format!("failed to read response body: {}", e),
+                })?;
+                if buf.len() + chunk.len() > MAX_COMPOSIO_BODY_BYTES {
+                    return Err(ComposioError::TransportError {
+                        reason: format!(
+                            "Composio response exceeded {} bytes",
+                            MAX_COMPOSIO_BODY_BYTES
+                        ),
+                    });
+                }
+                buf.extend_from_slice(&chunk);
+            }
+            String::from_utf8(buf).map_err(|e| ComposioError::TransportError {
+                reason: format!("Composio response was not valid UTF-8: {}", e),
+            })?
+        };
         let rpc_response = self.parse_sse_response(&body)?;
 
         if let Some(err) = rpc_response.error {

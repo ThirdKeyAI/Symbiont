@@ -550,6 +550,11 @@ pub struct HeartbeatRequest {
     pub metadata: Option<std::collections::HashMap<String, String>>,
     /// Optional last result summary.
     pub last_result: Option<String>,
+    /// Optional AgentPin JWT. Required when the runtime has AgentPin
+    /// verification enabled; the JWT's `sub` must match the agent in
+    /// the URL path.
+    #[serde(default)]
+    pub agentpin_jwt: Option<String>,
 }
 
 /// Push event request from an external agent.
@@ -558,6 +563,101 @@ pub struct HeartbeatRequest {
 pub struct PushEventRequest {
     pub event_type: AgentEventType,
     pub payload: serde_json::Value,
+    /// Optional AgentPin JWT. Required when the runtime has AgentPin
+    /// verification enabled; the JWT's `sub` must match the agent in
+    /// the URL path.
+    #[serde(default)]
+    pub agentpin_jwt: Option<String>,
+}
+
+// ══════════════════════════════════════════════════════════════════
+// Inter-agent messaging DTOs
+// ══════════════════════════════════════════════════════════════════
+
+/// Request to send a message to an agent.
+///
+/// The shell or another runtime instance POSTs this to
+/// `/api/v1/agents/:id/messages` to deliver a message to agent `id`.
+/// The payload is plaintext; the receiving runtime handles encryption
+/// internally when placing the message in the agent's queue.
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SendMessageRequest {
+    /// The sender agent's identifier. Use the system agent ID when
+    /// originated by an external caller without an agent context.
+    pub sender: AgentId,
+    /// Plaintext message payload.
+    pub payload: String,
+    /// Optional TTL in seconds. Defaults to 300 if omitted.
+    #[serde(default)]
+    pub ttl_seconds: Option<u64>,
+    /// Optional topic for pub/sub messages. If present, publishes
+    /// to the topic instead of direct delivery.
+    #[serde(default)]
+    pub topic: Option<String>,
+    /// Optional AgentPin JWT.
+    ///
+    /// When the receiving runtime has AgentPin verification enabled, this
+    /// is required and must verify against the runtime's configured
+    /// discovery / trust bundle, and must carry a `sub` claim covering
+    /// `sender`. When the receiving runtime has AgentPin disabled, this
+    /// field is accepted (and logged) but not enforced. See
+    /// `docs/security-model.md` for the full cross-runtime trust model.
+    #[serde(default)]
+    pub agentpin_jwt: Option<String>,
+}
+
+/// Response returned after successfully queuing a message.
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SendMessageResponse {
+    /// Unique identifier of the queued message.
+    pub message_id: String,
+    /// Current delivery status (typically "pending").
+    pub status: String,
+}
+
+/// A message envelope returned to clients polling for messages.
+///
+/// Strips the encrypted payload — clients receive plaintext and the
+/// bus-level encryption is opaque to them.
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct MessageEnvelope {
+    /// Unique message identifier.
+    pub message_id: String,
+    /// Sender agent identifier.
+    pub sender: AgentId,
+    /// Optional recipient (None for broadcast).
+    #[serde(default)]
+    pub recipient: Option<AgentId>,
+    /// Optional topic (present for pub/sub messages).
+    #[serde(default)]
+    pub topic: Option<String>,
+    /// Plaintext payload.
+    pub payload: String,
+    /// Message type: "direct", "broadcast", "publish", "subscribe", "request", "response".
+    pub message_type: String,
+    /// Unix epoch seconds when the message was created.
+    pub timestamp_secs: u64,
+    /// TTL in seconds.
+    pub ttl_seconds: u64,
+}
+
+/// Response with pending messages for an agent.
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ReceiveMessagesResponse {
+    pub messages: Vec<MessageEnvelope>,
+}
+
+/// Delivery status response for a specific message.
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct MessageStatusResponse {
+    pub message_id: String,
+    /// One of: "pending", "delivered", "failed", "expired".
+    pub status: String,
 }
 
 #[cfg(test)]

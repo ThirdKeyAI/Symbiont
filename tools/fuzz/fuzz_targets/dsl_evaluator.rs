@@ -265,7 +265,10 @@ fuzz_target!(|input: Input| {
     };
 
     // Evaluate — must never panic
-    let bridge = Arc::new(repl_core::RuntimeBridge::new());
+    // Fuzz target exercises DSL evaluator with random programs; use
+    // permissive to avoid masking parser/evaluator panics behind policy
+    // denies (policy gate has its own dedicated fuzz target).
+    let bridge = Arc::new(repl_core::RuntimeBridge::new_permissive_for_dev());
     let evaluator = DslEvaluator::new(bridge);
     let _ = block_on(evaluator.execute_program(program));
 });

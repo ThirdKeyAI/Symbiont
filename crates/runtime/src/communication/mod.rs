@@ -3,6 +3,9 @@
 //! Secure messaging system for inter-agent communication
 
 pub mod policy_gate;
+pub mod remote;
+
+pub use remote::RemoteCommunicationBus;
 
 use async_trait::async_trait;
 use parking_lot::RwLock;
@@ -509,6 +512,57 @@ impl DefaultCommunicationBus {
         }
     }
 
+    /// Verify a message's Ed25519 signature using THIS bus's verifying key.
+    ///
+    /// The wire's `signature.public_key` is **ignored on purpose** — accepting
+    /// it would let a tamperer mint a new keypair, re-sign a modified message,
+    /// and pass verification. The local bus only trusts its own key; any
+    /// cross-instance ingress must be re-wrapped (re-signed) by the HTTP
+    /// handler before being enqueued.
+    fn verify_message_signature(
+        &self,
+        message: &SecureMessage,
+    ) -> Result<(), CommunicationError> {
+        use ed25519_dalek::{Signature, Verifier};
+
+        if !matches!(message.signature.algorithm, SignatureAlgorithm::Ed25519) {
+            return Err(CommunicationError::SignatureInvalid {
+                message_id: message.id,
+                reason: format!(
+                    "unsupported signature algorithm {:?}",
+                    message.signature.algorithm
+                )
+                .into_boxed_str(),
+            });
+        }
+
+        let sig_bytes: &[u8; 64] = message
+            .signature
+            .signature
+            .as_slice()
+            .try_into()
+            .map_err(|_| CommunicationError::SignatureInvalid {
+                message_id: message.id,
+                reason: format!(
+                    "malformed signature length: expected 64, got {}",
+                    message.signature.signature.len()
+                )
+                .into_boxed_str(),
+            })?;
+        let signature = Signature::from_bytes(sig_bytes);
+        let data = [
+            message.payload.data.as_ref(),
+            message.payload.nonce.as_slice(),
+        ]
+        .concat();
+        self.verifying_key.verify(&data, &signature).map_err(|e| {
+            CommunicationError::SignatureInvalid {
+                message_id: message.id,
+                reason: format!("verification failed: {}", e).into_boxed_str(),
+            }
+        })
+    }
+
     /// Create a properly signed and encrypted message for requests
     fn create_secure_request_message(
         &self,
@@ -541,6 +595,12 @@ impl CommunicationBus for DefaultCommunicationBus {
                 max_size: self.config.max_message_size,
             });
         }
+
+        // Reject messages not signed by THIS bus. Legitimate callers
+        // construct messages via `create_internal_message` which signs with
+        // the bus key; anything else is either forged or came from a
+        // cross-instance path that failed to re-wrap before enqueueing.
+        self.verify_message_signature(&message)?;
 
         let message_id = message.id;
 
@@ -597,6 +657,20 @@ impl CommunicationBus for DefaultCommunicationBus {
         if !*self.is_running.read() {
             return Err(CommunicationError::ShuttingDown);
         }
+
+        // Match send_message: reject oversized payloads before fan-out so
+        // attackers cannot use publish() as a byte-multiplier against every
+        // subscriber's inbox.
+        if message.payload.data.len() > self.config.max_message_size {
+            return Err(CommunicationError::MessageTooLarge {
+                size: message.payload.data.len(),
+                max_size: self.config.max_message_size,
+            });
+        }
+
+        // Same invariant as send_message: only bus-signed messages can reach
+        // subscriber queues.
+        self.verify_message_signature(&message)?;
 
         self.send_event(CommunicationEvent::TopicPublished { topic, message })?;
         Ok(())
@@ -985,8 +1059,14 @@ mod tests {
 
         tokio::time::sleep(Duration::from_millis(50)).await;
 
-        // Send a message
-        let message = create_test_message(sender, recipient);
+        // Send a message — build via the bus so it's properly signed.
+        let message = bus.create_internal_message(
+            sender,
+            recipient,
+            bytes::Bytes::from_static(b"test message"),
+            MessageType::Request(crate::types::RequestId::new()),
+            Duration::from_secs(60),
+        );
         let message_id = bus.send_message(message).await.unwrap();
 
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -1022,8 +1102,14 @@ mod tests {
 
         tokio::time::sleep(Duration::from_millis(50)).await;
 
-        // Publish a message
-        let message = create_test_message(publisher, AgentId::new()); // Recipient will be overridden
+        // Publish a message (recipient overridden during fan-out).
+        let message = bus.create_internal_message(
+            publisher,
+            AgentId::new(),
+            bytes::Bytes::from_static(b"test message"),
+            MessageType::Publish(topic.clone()),
+            Duration::from_secs(60),
+        );
         bus.publish(topic, message).await.unwrap();
 
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -1052,8 +1138,15 @@ mod tests {
         bus.register_agent(sender).await.unwrap();
         bus.register_agent(recipient).await.unwrap();
 
-        // Create a message that's too large
-        let mut message = create_test_message(sender, recipient);
+        // Create a message that's too large — sign via the bus so we can
+        // reach the size check (size check runs before signature check).
+        let mut message = bus.create_internal_message(
+            sender,
+            recipient,
+            bytes::Bytes::from_static(b"placeholder"),
+            MessageType::Request(crate::types::RequestId::new()),
+            Duration::from_secs(60),
+        );
         message.payload.data = vec![0u8; 200].into(); // Larger than limit
 
         let result = bus.send_message(message).await;
@@ -1065,6 +1158,104 @@ mod tests {
         } else {
             panic!("Expected MessageTooLarge error");
         }
+    }
+
+    #[tokio::test]
+    async fn test_send_rejects_foreign_signature() {
+        // A message signed by a key that is not the bus's own key must be
+        // rejected by both send_message and publish, even if the algorithm
+        // is Ed25519 and the payload passes all other checks.
+        let bus = DefaultCommunicationBus::new(CommunicationConfig::default())
+            .await
+            .unwrap();
+        let sender = AgentId::new();
+        let recipient = AgentId::new();
+        bus.register_agent(sender).await.unwrap();
+        bus.register_agent(recipient).await.unwrap();
+
+        let foreign = create_test_message(sender, recipient);
+        let err = bus.send_message(foreign.clone()).await.unwrap_err();
+        assert!(
+            matches!(err, CommunicationError::SignatureInvalid { .. }),
+            "expected SignatureInvalid, got {:?}",
+            err
+        );
+
+        let err = bus
+            .publish("t".to_string(), foreign)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, CommunicationError::SignatureInvalid { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_cross_bus_message_requires_rewrap() {
+        // Simulate two runtimes: bus A signs a message with its own key;
+        // bus B must refuse that message and only accept it after re-wrapping.
+        let bus_a = DefaultCommunicationBus::new(CommunicationConfig::default())
+            .await
+            .unwrap();
+        let bus_b = DefaultCommunicationBus::new(CommunicationConfig::default())
+            .await
+            .unwrap();
+
+        let sender = AgentId::new();
+        let recipient = AgentId::new();
+        bus_b.register_agent(recipient).await.unwrap();
+
+        // bus_a signs.
+        let a_signed = bus_a.create_internal_message(
+            sender,
+            recipient,
+            bytes::Bytes::from_static(b"hello"),
+            MessageType::Direct(recipient),
+            Duration::from_secs(60),
+        );
+
+        // bus_b rejects — different key.
+        let err = bus_b.send_message(a_signed.clone()).await.unwrap_err();
+        assert!(
+            matches!(err, CommunicationError::SignatureInvalid { .. }),
+            "cross-bus message must be refused without re-wrap, got {:?}",
+            err
+        );
+
+        // Re-wrap via bus_b (what AgentRuntime::send_agent_message does
+        // on HTTP ingress).
+        let b_signed = bus_b.create_internal_message(
+            a_signed.sender,
+            recipient,
+            a_signed.payload.data.clone(),
+            MessageType::Direct(recipient),
+            Duration::from_secs(60),
+        );
+        bus_b
+            .send_message(b_signed)
+            .await
+            .expect("re-wrapped message must be accepted");
+    }
+
+    #[tokio::test]
+    async fn test_send_rejects_none_signature_algorithm() {
+        let bus = DefaultCommunicationBus::new(CommunicationConfig::default())
+            .await
+            .unwrap();
+        let sender = AgentId::new();
+        let recipient = AgentId::new();
+        bus.register_agent(sender).await.unwrap();
+        bus.register_agent(recipient).await.unwrap();
+
+        let mut msg = bus.create_internal_message(
+            sender,
+            recipient,
+            bytes::Bytes::from_static(b"x"),
+            MessageType::Direct(recipient),
+            Duration::from_secs(60),
+        );
+        msg.signature.algorithm = SignatureAlgorithm::None;
+        msg.signature.signature.clear();
+        let err = bus.send_message(msg).await.unwrap_err();
+        assert!(matches!(err, CommunicationError::SignatureInvalid { .. }));
     }
 
     #[tokio::test]

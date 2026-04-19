@@ -219,7 +219,7 @@ pub enum LifecycleError {
 pub enum CommunicationError {
     AgentNotRegistered { agent_id: AgentId },
     MessageTooLarge { size: usize, max_size: usize },
-    DeliveryFailed { message_id: MessageId, reason: String },
+    DeliveryFailed { message_id: Option<MessageId>, reason: String },
     EncryptionFailed { reason: String },
     TopicNotFound { topic: String },
 }

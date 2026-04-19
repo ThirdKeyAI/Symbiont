@@ -40,16 +40,61 @@ impl NativeSchemaPinClient {
 
     /// Fetch public key from URL and return PEM format.
     ///
+    /// Hardening:
+    /// - URL must pass [`crate::net_guard::reject_ssrf_url`] (no private IPs,
+    ///   loopback, link-local, or cloud-metadata hosts, no non-http(s) schemes).
+    /// - Plaintext HTTP is refused unless
+    ///   `SYMBIONT_SCHEMAPIN_ALLOW_INSECURE=1` is explicitly set — the fetched
+    ///   bytes become the trust anchor for schema signatures, so a MITM here
+    ///   silently breaks verification for every subsequent schema.
+    /// - Per-request 10 s timeout; response body capped at 64 KiB to stop a
+    ///   hostile keyserver from filling memory.
+    ///
     /// Supports two response formats:
     /// - Raw PEM: response body is the PEM-encoded public key directly
     /// - SchemaPin discovery JSON: response is a JSON object with a `public_key_pem` field
     ///   (e.g., from `/.well-known/schemapin.json`)
     async fn fetch_public_key(&self, public_key_url: &str) -> Result<String, SchemaPinError> {
-        let response = reqwest::get(public_key_url)
-            .await
+        use futures::StreamExt;
+
+        crate::net_guard::reject_ssrf_url(public_key_url).map_err(|reason| {
+            SchemaPinError::IoError {
+                reason: format!(
+                    "Refusing to fetch public key from {}: {}",
+                    public_key_url, reason
+                ),
+            }
+        })?;
+
+        let allow_insecure = std::env::var("SYMBIONT_SCHEMAPIN_ALLOW_INSECURE")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+        if public_key_url.starts_with("http://") && !allow_insecure {
+            return Err(SchemaPinError::IoError {
+                reason: format!(
+                    "Refusing plaintext HTTP for public key fetch ({}); set \
+                     SYMBIONT_SCHEMAPIN_ALLOW_INSECURE=1 only for local testing",
+                    public_key_url
+                ),
+            });
+        }
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .redirect(reqwest::redirect::Policy::limited(3))
+            .build()
             .map_err(|e| SchemaPinError::IoError {
-                reason: format!("Failed to fetch public key from {}: {}", public_key_url, e),
+                reason: format!("Failed to build HTTP client: {}", e),
             })?;
+
+        let response =
+            client
+                .get(public_key_url)
+                .send()
+                .await
+                .map_err(|e| SchemaPinError::IoError {
+                    reason: format!("Failed to fetch public key from {}: {}", public_key_url, e),
+                })?;
 
         if !response.status().is_success() {
             return Err(SchemaPinError::IoError {
@@ -57,8 +102,29 @@ impl NativeSchemaPinClient {
             });
         }
 
-        let body = response.text().await.map_err(|e| SchemaPinError::IoError {
-            reason: format!("Failed to read public key response: {}", e),
+        // Stream the body with a hard cap so we can't be DoS'd by a huge
+        // response. 64 KiB is two orders of magnitude larger than any
+        // realistic PEM or JSON-wrapped key.
+        const MAX_KEY_BODY_BYTES: usize = 64 * 1024;
+        let mut stream = response.bytes_stream();
+        let mut buf: Vec<u8> = Vec::with_capacity(4096);
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| SchemaPinError::IoError {
+                reason: format!("Failed to read public key response: {}", e),
+            })?;
+            if buf.len() + chunk.len() > MAX_KEY_BODY_BYTES {
+                return Err(SchemaPinError::IoError {
+                    reason: format!(
+                        "Public key response from {} exceeded {} bytes",
+                        public_key_url, MAX_KEY_BODY_BYTES
+                    ),
+                });
+            }
+            buf.extend_from_slice(&chunk);
+        }
+
+        let body = String::from_utf8(buf).map_err(|e| SchemaPinError::IoError {
+            reason: format!("Public key response was not valid UTF-8: {}", e),
         })?;
 
         // If the response looks like JSON, extract the public_key_pem field
@@ -435,6 +501,58 @@ mod tests {
 
         let version = client.get_version().await.unwrap();
         assert!(version.contains("schemapin-native"));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_public_key_rejects_ssrf_targets() {
+        // Ensure the insecure-override is clear so the http:// + SSRF-guard
+        // combination is in effect.
+        std::env::remove_var("SYMBIONT_SCHEMAPIN_ALLOW_INSECURE");
+        let client = NativeSchemaPinClient::new();
+        for url in [
+            "http://169.254.169.254/latest/meta-data/",
+            "http://127.0.0.1:8080/pub",
+            "http://10.1.2.3/key",
+            "file:///etc/passwd",
+        ] {
+            let err = client
+                .fetch_public_key(url)
+                .await
+                .expect_err(&format!("{} must be refused", url));
+            match err {
+                SchemaPinError::IoError { reason } => {
+                    assert!(
+                        reason.contains("Refusing"),
+                        "wrong message for {}: {}",
+                        url,
+                        reason
+                    );
+                }
+                other => panic!("unexpected error for {}: {:?}", url, other),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_fetch_public_key_rejects_plaintext_http() {
+        // Public non-loopback HTTP URL passes the SSRF guard but must be
+        // refused by the TLS guard unless the insecure override is set.
+        std::env::remove_var("SYMBIONT_SCHEMAPIN_ALLOW_INSECURE");
+        let client = NativeSchemaPinClient::new();
+        let err = client
+            .fetch_public_key("http://example.com/pub")
+            .await
+            .expect_err("plaintext must be refused");
+        match err {
+            SchemaPinError::IoError { reason } => {
+                assert!(
+                    reason.contains("Refusing plaintext HTTP"),
+                    "wrong message: {}",
+                    reason
+                );
+            }
+            other => panic!("unexpected error: {:?}", other),
+        }
     }
 
     #[tokio::test]

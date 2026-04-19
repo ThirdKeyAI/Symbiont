@@ -453,6 +453,23 @@ Examples:
         &self.evaluator
     }
 
+    /// Return completion items as (label, kind) pairs for use by shell completers.
+    pub async fn completion_items(&self) -> Vec<(String, String)> {
+        let mut items: Vec<(String, String)> = Vec::new();
+
+        // Add built-in functions
+        for name in self.evaluator.builtin_names() {
+            items.push((name, "fn".to_string()));
+        }
+
+        // Add user-defined functions and agents from the evaluator environment
+        for name in self.evaluator.user_defined_names() {
+            items.push((name, "agent".to_string()));
+        }
+
+        items
+    }
+
     /// Show monitoring statistics
     async fn show_monitor_stats(&self) -> Result<Option<String>> {
         let stats = self.evaluator.monitor().get_stats();
@@ -560,7 +577,7 @@ mod tests {
     use crate::runtime_bridge::RuntimeBridge;
 
     async fn create_test_engine() -> ReplEngine {
-        let runtime_bridge = Arc::new(RuntimeBridge::new());
+        let runtime_bridge = Arc::new(RuntimeBridge::new_permissive_for_dev());
         ReplEngine::new(runtime_bridge)
     }
 

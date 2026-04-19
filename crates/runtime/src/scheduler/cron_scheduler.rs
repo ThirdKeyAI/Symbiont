@@ -98,6 +98,12 @@ pub struct CronScheduler {
     per_job_active: Arc<RwLock<HashMap<CronJobId, usize>>>,
     /// Observable metrics snapshot (updated each tick).
     metrics: Arc<RwLock<CronMetrics>>,
+    /// Optional AgentPin verifier. When present, every cron-triggered
+    /// run verifies `job.agentpin_jwt` before invoking the agent scheduler.
+    /// When the verifier is present but the job carries no JWT, the run
+    /// is refused so "AgentPin enabled at the scheduler" cannot be
+    /// bypassed by leaving the JWT column null.
+    agentpin_verifier: Option<Arc<dyn crate::integrations::AgentPinVerifier>>,
 }
 
 impl CronScheduler {
@@ -121,10 +127,74 @@ impl CronScheduler {
             active_runs: Arc::new(RwLock::new(0)),
             per_job_active: Arc::new(RwLock::new(HashMap::new())),
             metrics: Arc::new(RwLock::new(CronMetrics::default())),
+            agentpin_verifier: None,
         };
 
         scheduler.start_tick_loop();
         Ok(scheduler)
+    }
+
+    /// Install an AgentPin verifier. After this call, every cron run
+    /// requires `job.agentpin_jwt` to verify successfully — jobs without
+    /// a JWT are refused (see AP-3). Returns the scheduler builder-style
+    /// for chaining.
+    pub fn with_agentpin_verifier(
+        mut self,
+        verifier: Arc<dyn crate::integrations::AgentPinVerifier>,
+    ) -> Self {
+        self.agentpin_verifier = Some(verifier);
+        self
+    }
+
+    /// Verify that a job's AgentPin credential is valid before firing.
+    ///
+    /// Returns `Ok(())` when no verifier is configured. When a verifier
+    /// IS configured, both absence of `agentpin_jwt` and verification
+    /// failure produce an `IdentityVerificationFailed` error and the run
+    /// is skipped (and counted in `runs_skipped_identity`).
+    async fn verify_job_credential(
+        &self,
+        job: &CronJobDefinition,
+    ) -> Result<(), CronSchedulerError> {
+        let Some(ref verifier) = self.agentpin_verifier else {
+            return Ok(());
+        };
+        let jwt = job.agentpin_jwt.as_deref().ok_or_else(|| {
+            CronSchedulerError::IdentityVerificationFailed(
+                job.job_id,
+                "AgentPin verification is enabled but job has no agentpin_jwt".to_string(),
+            )
+        })?;
+        let result = verifier.verify_credential(jwt).await.map_err(|e| {
+            CronSchedulerError::IdentityVerificationFailed(job.job_id, e.to_string())
+        })?;
+        if !result.valid {
+            return Err(CronSchedulerError::IdentityVerificationFailed(
+                job.job_id,
+                result
+                    .error_message
+                    .unwrap_or_else(|| "invalid credential".to_string()),
+            ));
+        }
+        // The job's agent_config.id must be covered by the JWT's subject.
+        // This prevents a JWT for one agent from being reused to run a
+        // cron job that claims a different agent identity.
+        let expected = job.agent_config.id.0.to_string();
+        let sub_matches = result
+            .agent_id
+            .as_deref()
+            .map(|sub| sub == expected)
+            .unwrap_or(false);
+        if !sub_matches {
+            return Err(CronSchedulerError::IdentityVerificationFailed(
+                job.job_id,
+                format!(
+                    "JWT subject {:?} does not match job agent {}",
+                    result.agent_id, expected
+                ),
+            ));
+        }
+        Ok(())
     }
 
     /// Create a CronScheduler with an in-memory store (for tests).
@@ -143,6 +213,7 @@ impl CronScheduler {
             active_runs: Arc::new(RwLock::new(0)),
             per_job_active: Arc::new(RwLock::new(HashMap::new())),
             metrics: Arc::new(RwLock::new(CronMetrics::default())),
+            agentpin_verifier: None,
         };
         scheduler.start_tick_loop();
         Ok(scheduler)
@@ -267,6 +338,35 @@ impl CronScheduler {
             .ok_or(CronSchedulerError::NotFound(job_id))?;
         tracing::info!("Force-triggering cron job {} ({})", job_id, job.name);
 
+        // AgentPin identity check BEFORE scheduling. If verification fails we
+        // do not invoke the agent scheduler and we still persist a failed
+        // run record so the operator can see the identity-rejection in
+        // history.
+        if let Err(verify_err) = self.verify_job_credential(&job).await {
+            tracing::warn!(
+                "Refusing to trigger job {} ({}): {}",
+                job_id,
+                job.name,
+                verify_err
+            );
+            {
+                let mut m = self.metrics.write();
+                m.runs_skipped_identity = m.runs_skipped_identity.saturating_add(1);
+            }
+            let record = JobRunRecord {
+                run_id: uuid::Uuid::new_v4(),
+                job_id,
+                agent_id: job.agent_config.id,
+                started_at: Utc::now(),
+                completed_at: Some(Utc::now()),
+                status: JobRunStatus::Failed,
+                error: Some(verify_err.to_string()),
+                execution_time_ms: Some(0),
+            };
+            let _ = self.store.save_run_record(&record).await;
+            return Err(verify_err);
+        }
+
         let mut run_config = job.agent_config.clone();
         run_config.execution_mode = ExecutionMode::CronScheduled {
             cron_expression: job.cron_expression.clone(),
@@ -385,6 +485,7 @@ impl CronScheduler {
         let active_runs = self.active_runs.clone();
         let per_job_active = self.per_job_active.clone();
         let metrics = self.metrics.clone();
+        let agentpin_verifier = self.agentpin_verifier.clone();
 
         tokio::spawn(async move {
             let mut ticker = interval(tick);
@@ -467,6 +568,7 @@ impl CronScheduler {
                             let active_c = active_runs.clone();
                             let pja_c = per_job_active.clone();
                             let metrics_c = metrics.clone();
+                            let verifier_c = agentpin_verifier.clone();
 
                             *active_c.write() += 1;
                             {
@@ -475,6 +577,81 @@ impl CronScheduler {
                             }
 
                             tokio::spawn(async move {
+                                // ── AgentPin identity check ───────────
+                                // When a verifier is installed we must refuse
+                                // to invoke the agent scheduler without a
+                                // valid JWT whose `sub` covers this job's
+                                // agent. A failed check is recorded as a
+                                // skipped run with JobRunStatus::Failed so
+                                // operators see it in history.
+                                if let Some(verifier) = verifier_c.as_ref() {
+                                    let ident_err = match job.agentpin_jwt.as_deref() {
+                                        None => Some(
+                                            "AgentPin verification is enabled but \
+                                             job has no agentpin_jwt"
+                                                .to_string(),
+                                        ),
+                                        Some(jwt) => match verifier.verify_credential(jwt).await {
+                                            Ok(r) if r.valid => {
+                                                let expected =
+                                                    job.agent_config.id.0.to_string();
+                                                if r.agent_id
+                                                    .as_deref()
+                                                    .map(|s| s == expected)
+                                                    .unwrap_or(false)
+                                                {
+                                                    None
+                                                } else {
+                                                    Some(format!(
+                                                        "JWT subject {:?} does not match \
+                                                         job agent {}",
+                                                        r.agent_id, expected
+                                                    ))
+                                                }
+                                            }
+                                            Ok(r) => Some(
+                                                r.error_message
+                                                    .unwrap_or_else(|| {
+                                                        "invalid credential".to_string()
+                                                    }),
+                                            ),
+                                            Err(e) => Some(e.to_string()),
+                                        },
+                                    };
+                                    if let Some(reason) = ident_err {
+                                        tracing::warn!(
+                                            job_id = %job.job_id,
+                                            "Cron run refused by AgentPin: {}",
+                                            reason
+                                        );
+                                        let now = Utc::now();
+                                        let record = JobRunRecord {
+                                            run_id: uuid::Uuid::new_v4(),
+                                            job_id: job.job_id,
+                                            agent_id: job.agent_config.id,
+                                            started_at: now,
+                                            completed_at: Some(now),
+                                            status: JobRunStatus::Failed,
+                                            error: Some(format!("identity: {}", reason)),
+                                            execution_time_ms: Some(0),
+                                        };
+                                        let _ = store_c.save_run_record(&record).await;
+                                        {
+                                            let mut m = metrics_c.write();
+                                            m.runs_skipped_identity =
+                                                m.runs_skipped_identity.saturating_add(1);
+                                        }
+                                        *active_c.write() = active_c.read().saturating_sub(1);
+                                        {
+                                            let mut pja = pja_c.write();
+                                            if let Some(c) = pja.get_mut(&job.job_id) {
+                                                *c = c.saturating_sub(1);
+                                            }
+                                        }
+                                        return;
+                                    }
+                                }
+
                                 // ── Jitter ────────────────────────────
                                 if job.jitter_max_secs > 0 {
                                     let jitter_ms = {
@@ -692,6 +869,7 @@ mod tests {
             active_runs: Arc::new(RwLock::new(0)),
             per_job_active: Arc::new(RwLock::new(HashMap::new())),
             metrics: Arc::new(RwLock::new(CronMetrics::default())),
+            agentpin_verifier: None,
         };
         cron.start_tick_loop();
         (cron, sched)
@@ -1432,5 +1610,107 @@ mod tests {
         let health = cron.check_health().await.unwrap();
         assert!(!health.is_running);
         assert!(health.store_accessible);
+    }
+
+    // ── AP-3: AgentPin verification on cron runs ──────────────────────
+
+    #[tokio::test]
+    async fn trigger_now_refused_when_verifier_installed_without_jwt() {
+        let (cron, _sched) = make_scheduler().await;
+        let cron = cron.with_agentpin_verifier(std::sync::Arc::new(
+            crate::integrations::MockAgentPinVerifier::new_success(),
+        ));
+        let id = cron
+            .add_job(CronJobDefinition::new(
+                "needs-jwt".to_string(),
+                "0 * * * * *".to_string(),
+                "UTC".to_string(),
+                test_agent_config(),
+            ))
+            .await
+            .unwrap();
+        let err = cron.trigger_now(id).await.expect_err("must refuse");
+        assert!(
+            matches!(
+                err,
+                CronSchedulerError::IdentityVerificationFailed(_, _)
+            ),
+            "expected IdentityVerificationFailed, got {:?}",
+            err
+        );
+        let metrics = cron.metrics();
+        assert!(metrics.runs_skipped_identity >= 1);
+        cron.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn trigger_now_refused_when_verifier_rejects() {
+        let (cron, _sched) = make_scheduler().await;
+        let cron = cron.with_agentpin_verifier(std::sync::Arc::new(
+            crate::integrations::MockAgentPinVerifier::new_failure(),
+        ));
+        let mut job = CronJobDefinition::new(
+            "bad-jwt".to_string(),
+            "0 * * * * *".to_string(),
+            "UTC".to_string(),
+            test_agent_config(),
+        );
+        job.agentpin_jwt = Some("any.jwt.here".to_string());
+        let id = cron.add_job(job).await.unwrap();
+        let err = cron.trigger_now(id).await.expect_err("must refuse");
+        assert!(matches!(
+            err,
+            CronSchedulerError::IdentityVerificationFailed(_, _)
+        ));
+        cron.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn trigger_now_allowed_when_verifier_subject_matches_job_agent() {
+        let (cron, _sched) = make_scheduler().await;
+        let mut job = CronJobDefinition::new(
+            "good-jwt".to_string(),
+            "0 * * * * *".to_string(),
+            "UTC".to_string(),
+            test_agent_config(),
+        );
+        job.agentpin_jwt = Some("any.jwt.here".to_string());
+        let expected_sub = job.agent_config.id.0.to_string();
+        let cron = cron.with_agentpin_verifier(std::sync::Arc::new(
+            crate::integrations::MockAgentPinVerifier::with_identity(
+                expected_sub,
+                "test.example.com".to_string(),
+                vec![],
+            ),
+        ));
+        let id = cron.add_job(job).await.unwrap();
+        cron.trigger_now(id).await.expect("must succeed");
+        cron.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn trigger_now_refused_when_subject_does_not_match_job_agent() {
+        let (cron, _sched) = make_scheduler().await;
+        let mut job = CronJobDefinition::new(
+            "wrong-sub".to_string(),
+            "0 * * * * *".to_string(),
+            "UTC".to_string(),
+            test_agent_config(),
+        );
+        job.agentpin_jwt = Some("any.jwt.here".to_string());
+        let cron = cron.with_agentpin_verifier(std::sync::Arc::new(
+            crate::integrations::MockAgentPinVerifier::with_identity(
+                "someone-else".to_string(),
+                "test.example.com".to_string(),
+                vec![],
+            ),
+        ));
+        let id = cron.add_job(job).await.unwrap();
+        let err = cron.trigger_now(id).await.expect_err("must refuse");
+        assert!(matches!(
+            err,
+            CronSchedulerError::IdentityVerificationFailed(_, _)
+        ));
+        cron.shutdown().await;
     }
 }

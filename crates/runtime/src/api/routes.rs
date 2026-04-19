@@ -4,7 +4,7 @@
 
 #[cfg(feature = "http-api")]
 use axum::{
-    extract::{Path, State},
+    extract::{Extension, Path, State},
     http::StatusCode,
     response::Json,
 };
@@ -24,15 +24,88 @@ use super::types::{
     ChannelDetail, ChannelHealthResponse, ChannelSummary, CreateAgentRequest, CreateAgentResponse,
     CreateScheduleRequest, CreateScheduleResponse, DeleteAgentResponse, DeleteChannelResponse,
     DeleteScheduleResponse, ErrorResponse, ExecuteAgentRequest, ExecuteAgentResponse,
-    GetAgentHistoryResponse, HeartbeatRequest, IdentityMappingEntry, NextRunsResponse,
-    PushEventRequest, RegisterChannelRequest, RegisterChannelResponse, ScheduleActionResponse,
-    ScheduleDetail, ScheduleHistoryResponse, ScheduleSummary, SchedulerHealthResponse,
+    GetAgentHistoryResponse, HeartbeatRequest, IdentityMappingEntry, MessageStatusResponse,
+    NextRunsResponse, PushEventRequest, ReceiveMessagesResponse, RegisterChannelRequest,
+    RegisterChannelResponse, ScheduleActionResponse, ScheduleDetail, ScheduleHistoryResponse,
+    ScheduleSummary, SchedulerHealthResponse, SendMessageRequest, SendMessageResponse,
     UpdateAgentRequest, UpdateAgentResponse, UpdateChannelRequest, UpdateScheduleRequest,
     WorkflowExecutionRequest,
 };
 
 #[cfg(feature = "http-api")]
+use super::api_keys::ValidatedKey;
+
+#[cfg(feature = "http-api")]
 use crate::types::AgentId;
+
+/// Enforce that the authenticated key is permitted to act on `agent_id`.
+///
+/// - `Some(key)` with `agent_scope = None`: admin/unrestricted key — allowed.
+/// - `Some(key)` with `agent_scope = Some(scope)`: the agent ID must appear
+///   in the scope list (match on UUID string representation).
+/// - `None`: request was authenticated via the legacy env-token path. That
+///   path is only available to operators with access to the env var, so we
+///   treat it as admin for backward compatibility.
+#[cfg(feature = "http-api")]
+fn check_agent_access(
+    validated: Option<&ValidatedKey>,
+    agent_id: &AgentId,
+) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    match validated {
+        Some(key) => match &key.agent_scope {
+            None => Ok(()),
+            Some(scope) => {
+                let target = agent_id.0.to_string();
+                if scope.iter().any(|s| s == &target) {
+                    Ok(())
+                } else {
+                    Err((
+                        StatusCode::FORBIDDEN,
+                        Json(ErrorResponse {
+                            error: "API key is not scoped to this agent".to_string(),
+                            code: "AGENT_SCOPE_DENIED".to_string(),
+                            details: None,
+                        }),
+                    ))
+                }
+            }
+        },
+        None => Ok(()),
+    }
+}
+
+/// Reject requests that aren't made with an unscoped (admin) key.
+///
+/// Used on routes that manipulate shared infrastructure (schedules,
+/// channels, cross-agent listings, system metrics). Scoped keys are meant
+/// for per-agent data plane access (send/receive/heartbeat) and must not
+/// touch the control plane.
+#[cfg(feature = "http-api")]
+fn require_admin(
+    validated: Option<&ValidatedKey>,
+) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    match validated {
+        Some(key) if key.agent_scope.is_some() => Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                error: "Scoped API keys may not access this endpoint".to_string(),
+                code: "ADMIN_REQUIRED".to_string(),
+                details: None,
+            }),
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// Return the list of agent IDs the validated key is scoped to, if any.
+///
+/// `None` means unscoped / admin (no filtering required). `Some` lists the
+/// caller-permitted agents that list endpoints should intersect their
+/// results against.
+#[cfg(feature = "http-api")]
+fn scope_filter(validated: Option<&ValidatedKey>) -> Option<&Vec<String>> {
+    validated.and_then(|k| k.agent_scope.as_ref())
+}
 
 // ── AGENTS.md endpoint ─────────────────────────────────────────────────
 
@@ -111,8 +184,16 @@ fn strip_sensitive_sections(content: &str) -> String {
 )]
 pub async fn execute_workflow(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    validated: Option<Extension<ValidatedKey>>,
     Json(request): Json<WorkflowExecutionRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    // If the workflow targets a specific agent and the caller is scoped,
+    // enforce scope; otherwise require admin (workflow may span agents).
+    if let Some(agent_id) = request.agent_id.as_ref() {
+        check_agent_access(validated.as_ref().map(|Extension(k)| k), agent_id)?;
+    } else {
+        require_admin(validated.as_ref().map(|Extension(k)| k))?;
+    }
     match provider.execute_workflow(request).await {
         Ok(result) => Ok(Json(serde_json::to_value(result).unwrap_or_default())),
         Err(e) => Err((
@@ -143,7 +224,9 @@ pub async fn execute_workflow(
 pub async fn get_agent_status(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Path(agent_id): Path<AgentId>,
+    validated: Option<Extension<ValidatedKey>>,
 ) -> Result<Json<AgentStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
+    check_agent_access(validated.as_ref().map(|Extension(k)| k), &agent_id)?;
     match provider.get_agent_status(agent_id).await {
         Ok(status) => Ok(Json(status)),
         Err(e) => Err((
@@ -170,9 +253,18 @@ pub async fn get_agent_status(
 )]
 pub async fn list_agents(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    validated: Option<Extension<ValidatedKey>>,
 ) -> Result<Json<Vec<super::types::AgentSummary>>, (StatusCode, Json<ErrorResponse>)> {
+    let scope = scope_filter(validated.as_ref().map(|Extension(k)| k)).cloned();
     match provider.list_agents_detailed().await {
-        Ok(agents) => Ok(Json(agents)),
+        Ok(mut agents) => {
+            if let Some(scope) = scope {
+                // Intersect the caller's scope with the listing — scoped keys
+                // must not enumerate agents they don't control.
+                agents.retain(|a| scope.iter().any(|s| s == &a.id.0.to_string()));
+            }
+            Ok(Json(agents))
+        }
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -197,7 +289,9 @@ pub async fn list_agents(
 )]
 pub async fn get_metrics(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    validated: Option<Extension<ValidatedKey>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(validated.as_ref().map(|Extension(k)| k))?;
     match provider.get_metrics().await {
         Ok(metrics) => Ok(Json(metrics)),
         Err(e) => Err((
@@ -225,8 +319,10 @@ pub async fn get_metrics(
 )]
 pub async fn create_agent(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    validated: Option<Extension<ValidatedKey>>,
     Json(request): Json<CreateAgentRequest>,
 ) -> Result<Json<CreateAgentResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(validated.as_ref().map(|Extension(k)| k))?;
     match provider.create_agent(request).await {
         Ok(response) => Ok(Json(response)),
         Err(e) => Err((
@@ -258,8 +354,10 @@ pub async fn create_agent(
 pub async fn update_agent(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Path(agent_id): Path<AgentId>,
+    validated: Option<Extension<ValidatedKey>>,
     Json(request): Json<UpdateAgentRequest>,
 ) -> Result<Json<UpdateAgentResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(validated.as_ref().map(|Extension(k)| k))?;
     match provider.update_agent(agent_id, request).await {
         Ok(response) => Ok(Json(response)),
         Err(e) => Err((
@@ -290,7 +388,9 @@ pub async fn update_agent(
 pub async fn delete_agent(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Path(agent_id): Path<AgentId>,
+    validated: Option<Extension<ValidatedKey>>,
 ) -> Result<Json<DeleteAgentResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(validated.as_ref().map(|Extension(k)| k))?;
     match provider.delete_agent(agent_id).await {
         Ok(response) => Ok(Json(response)),
         Err(e) => Err((
@@ -322,8 +422,10 @@ pub async fn delete_agent(
 pub async fn execute_agent(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Path(agent_id): Path<AgentId>,
+    validated: Option<Extension<ValidatedKey>>,
     Json(request): Json<ExecuteAgentRequest>,
 ) -> Result<Json<ExecuteAgentResponse>, (StatusCode, Json<ErrorResponse>)> {
+    check_agent_access(validated.as_ref().map(|Extension(k)| k), &agent_id)?;
     match provider.execute_agent(agent_id, request).await {
         Ok(response) => Ok(Json(response)),
         Err(e) => Err((
@@ -354,7 +456,9 @@ pub async fn execute_agent(
 pub async fn get_agent_history(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Path(agent_id): Path<AgentId>,
+    validated: Option<Extension<ValidatedKey>>,
 ) -> Result<Json<GetAgentHistoryResponse>, (StatusCode, Json<ErrorResponse>)> {
+    check_agent_access(validated.as_ref().map(|Extension(k)| k), &agent_id)?;
     match provider.get_agent_history(agent_id).await {
         Ok(response) => Ok(Json(response)),
         Err(e) => Err((
@@ -383,7 +487,9 @@ pub async fn get_agent_history(
 )]
 pub async fn list_schedules(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    validated: Option<Extension<ValidatedKey>>,
 ) -> Result<Json<Vec<ScheduleSummary>>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(validated.as_ref().map(|Extension(k)| k))?;
     provider.list_schedules().await.map(Json).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -411,8 +517,10 @@ pub async fn list_schedules(
 )]
 pub async fn create_schedule(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    validated: Option<Extension<ValidatedKey>>,
     Json(request): Json<CreateScheduleRequest>,
 ) -> Result<(StatusCode, Json<CreateScheduleResponse>), (StatusCode, Json<ErrorResponse>)> {
+    require_admin(validated.as_ref().map(|Extension(k)| k))?;
     provider
         .create_schedule(request)
         .await
@@ -444,7 +552,9 @@ pub async fn create_schedule(
 pub async fn get_schedule(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Path(id): Path<String>,
+    validated: Option<Extension<ValidatedKey>>,
 ) -> Result<Json<ScheduleDetail>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(validated.as_ref().map(|Extension(k)| k))?;
     provider.get_schedule(&id).await.map(Json).map_err(|e| {
         (
             StatusCode::NOT_FOUND,
@@ -473,8 +583,10 @@ pub async fn get_schedule(
 pub async fn update_schedule(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Path(id): Path<String>,
+    validated: Option<Extension<ValidatedKey>>,
     Json(request): Json<UpdateScheduleRequest>,
 ) -> Result<Json<ScheduleDetail>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(validated.as_ref().map(|Extension(k)| k))?;
     provider
         .update_schedule(&id, request)
         .await
@@ -506,7 +618,9 @@ pub async fn update_schedule(
 pub async fn delete_schedule(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Path(id): Path<String>,
+    validated: Option<Extension<ValidatedKey>>,
 ) -> Result<Json<DeleteScheduleResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(validated.as_ref().map(|Extension(k)| k))?;
     provider.delete_schedule(&id).await.map(Json).map_err(|e| {
         (
             StatusCode::NOT_FOUND,
@@ -534,7 +648,9 @@ pub async fn delete_schedule(
 pub async fn pause_schedule(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Path(id): Path<String>,
+    validated: Option<Extension<ValidatedKey>>,
 ) -> Result<Json<ScheduleActionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(validated.as_ref().map(|Extension(k)| k))?;
     provider.pause_schedule(&id).await.map(Json).map_err(|e| {
         (
             StatusCode::NOT_FOUND,
@@ -562,7 +678,9 @@ pub async fn pause_schedule(
 pub async fn resume_schedule(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Path(id): Path<String>,
+    validated: Option<Extension<ValidatedKey>>,
 ) -> Result<Json<ScheduleActionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(validated.as_ref().map(|Extension(k)| k))?;
     provider.resume_schedule(&id).await.map(Json).map_err(|e| {
         (
             StatusCode::NOT_FOUND,
@@ -590,7 +708,9 @@ pub async fn resume_schedule(
 pub async fn trigger_schedule(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Path(id): Path<String>,
+    validated: Option<Extension<ValidatedKey>>,
 ) -> Result<Json<ScheduleActionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(validated.as_ref().map(|Extension(k)| k))?;
     provider.trigger_schedule(&id).await.map(Json).map_err(|e| {
         (
             StatusCode::NOT_FOUND,
@@ -618,7 +738,9 @@ pub async fn trigger_schedule(
 pub async fn get_schedule_history(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Path(id): Path<String>,
+    validated: Option<Extension<ValidatedKey>>,
 ) -> Result<Json<ScheduleHistoryResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(validated.as_ref().map(|Extension(k)| k))?;
     provider
         .get_schedule_history(&id, 50)
         .await
@@ -650,7 +772,9 @@ pub async fn get_schedule_history(
 pub async fn get_schedule_next_runs(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Path(id): Path<String>,
+    validated: Option<Extension<ValidatedKey>>,
 ) -> Result<Json<NextRunsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(validated.as_ref().map(|Extension(k)| k))?;
     provider
         .get_schedule_next_runs(&id, 10)
         .await
@@ -680,7 +804,9 @@ pub async fn get_schedule_next_runs(
 )]
 pub async fn get_scheduler_health(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    validated: Option<Extension<ValidatedKey>>,
 ) -> Result<Json<SchedulerHealthResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(validated.as_ref().map(|Extension(k)| k))?;
     provider
         .get_scheduler_health()
         .await
@@ -712,7 +838,9 @@ pub async fn get_scheduler_health(
 )]
 pub async fn list_channels(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    validated: Option<Extension<ValidatedKey>>,
 ) -> Result<Json<Vec<ChannelSummary>>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(validated.as_ref().map(|Extension(k)| k))?;
     provider.list_channels().await.map(Json).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -740,8 +868,10 @@ pub async fn list_channels(
 )]
 pub async fn register_channel(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    validated: Option<Extension<ValidatedKey>>,
     Json(request): Json<RegisterChannelRequest>,
 ) -> Result<(StatusCode, Json<RegisterChannelResponse>), (StatusCode, Json<ErrorResponse>)> {
+    require_admin(validated.as_ref().map(|Extension(k)| k))?;
     provider
         .register_channel(request)
         .await
@@ -773,7 +903,9 @@ pub async fn register_channel(
 pub async fn get_channel(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Path(id): Path<String>,
+    validated: Option<Extension<ValidatedKey>>,
 ) -> Result<Json<ChannelDetail>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(validated.as_ref().map(|Extension(k)| k))?;
     provider.get_channel(&id).await.map(Json).map_err(|e| {
         (
             StatusCode::NOT_FOUND,
@@ -802,8 +934,10 @@ pub async fn get_channel(
 pub async fn update_channel(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Path(id): Path<String>,
+    validated: Option<Extension<ValidatedKey>>,
     Json(request): Json<UpdateChannelRequest>,
 ) -> Result<Json<ChannelDetail>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(validated.as_ref().map(|Extension(k)| k))?;
     provider
         .update_channel(&id, request)
         .await
@@ -835,7 +969,9 @@ pub async fn update_channel(
 pub async fn delete_channel(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Path(id): Path<String>,
+    validated: Option<Extension<ValidatedKey>>,
 ) -> Result<Json<DeleteChannelResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(validated.as_ref().map(|Extension(k)| k))?;
     provider.delete_channel(&id).await.map(Json).map_err(|e| {
         (
             StatusCode::NOT_FOUND,
@@ -863,7 +999,9 @@ pub async fn delete_channel(
 pub async fn start_channel(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Path(id): Path<String>,
+    validated: Option<Extension<ValidatedKey>>,
 ) -> Result<Json<ChannelActionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(validated.as_ref().map(|Extension(k)| k))?;
     provider.start_channel(&id).await.map(Json).map_err(|e| {
         (
             StatusCode::NOT_FOUND,
@@ -891,7 +1029,9 @@ pub async fn start_channel(
 pub async fn stop_channel(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Path(id): Path<String>,
+    validated: Option<Extension<ValidatedKey>>,
 ) -> Result<Json<ChannelActionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(validated.as_ref().map(|Extension(k)| k))?;
     provider.stop_channel(&id).await.map(Json).map_err(|e| {
         (
             StatusCode::NOT_FOUND,
@@ -919,7 +1059,9 @@ pub async fn stop_channel(
 pub async fn get_channel_health(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Path(id): Path<String>,
+    validated: Option<Extension<ValidatedKey>>,
 ) -> Result<Json<ChannelHealthResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(validated.as_ref().map(|Extension(k)| k))?;
     provider
         .get_channel_health(&id)
         .await
@@ -952,7 +1094,9 @@ pub async fn get_channel_health(
 pub async fn list_channel_mappings(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Path(id): Path<String>,
+    validated: Option<Extension<ValidatedKey>>,
 ) -> Result<Json<Vec<IdentityMappingEntry>>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(validated.as_ref().map(|Extension(k)| k))?;
     provider
         .list_channel_mappings(&id)
         .await
@@ -986,8 +1130,10 @@ pub async fn list_channel_mappings(
 pub async fn add_channel_mapping(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Path(id): Path<String>,
+    validated: Option<Extension<ValidatedKey>>,
     Json(request): Json<AddIdentityMappingRequest>,
 ) -> Result<(StatusCode, Json<IdentityMappingEntry>), (StatusCode, Json<ErrorResponse>)> {
+    require_admin(validated.as_ref().map(|Extension(k)| k))?;
     provider
         .add_channel_mapping(&id, request)
         .await
@@ -1023,7 +1169,9 @@ pub async fn add_channel_mapping(
 pub async fn remove_channel_mapping(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Path((id, user_id)): Path<(String, String)>,
+    validated: Option<Extension<ValidatedKey>>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(validated.as_ref().map(|Extension(k)| k))?;
     provider
         .remove_channel_mapping(&id, &user_id)
         .await
@@ -1056,7 +1204,9 @@ pub async fn remove_channel_mapping(
 pub async fn get_channel_audit(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Path(id): Path<String>,
+    validated: Option<Extension<ValidatedKey>>,
 ) -> Result<Json<ChannelAuditResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(validated.as_ref().map(|Extension(k)| k))?;
     provider
         .get_channel_audit(&id, 50)
         .await
@@ -1093,18 +1243,29 @@ pub async fn get_channel_audit(
 pub async fn agent_heartbeat(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Path(agent_id): Path<AgentId>,
+    validated: Option<Extension<ValidatedKey>>,
     Json(request): Json<HeartbeatRequest>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    check_agent_access(validated.as_ref().map(|Extension(k)| k), &agent_id)?;
     match provider.update_agent_heartbeat(agent_id, request).await {
         Ok(()) => Ok(StatusCode::OK),
-        Err(e) => Err((
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: e.to_string(),
-                code: "HEARTBEAT_FAILED".to_string(),
-                details: None,
-            }),
-        )),
+        Err(e) => {
+            use crate::types::RuntimeError;
+            let (status, code) = match &e {
+                RuntimeError::Authentication(_) => {
+                    (StatusCode::UNAUTHORIZED, "AGENTPIN_VERIFICATION_FAILED")
+                }
+                _ => (StatusCode::NOT_FOUND, "HEARTBEAT_FAILED"),
+            };
+            Err((
+                status,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                    code: code.to_string(),
+                    details: None,
+                }),
+            ))
+        }
     }
 }
 
@@ -1126,17 +1287,240 @@ pub async fn agent_heartbeat(
 pub async fn agent_push_event(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Path(agent_id): Path<AgentId>,
+    validated: Option<Extension<ValidatedKey>>,
     Json(request): Json<PushEventRequest>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    check_agent_access(validated.as_ref().map(|Extension(k)| k), &agent_id)?;
     match provider.push_agent_event(agent_id, request).await {
         Ok(()) => Ok(StatusCode::OK),
-        Err(e) => Err((
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: e.to_string(),
-                code: "PUSH_EVENT_FAILED".to_string(),
-                details: None,
-            }),
-        )),
+        Err(e) => {
+            use crate::types::RuntimeError;
+            let (status, code) = match &e {
+                RuntimeError::Authentication(_) => {
+                    (StatusCode::UNAUTHORIZED, "AGENTPIN_VERIFICATION_FAILED")
+                }
+                _ => (StatusCode::NOT_FOUND, "PUSH_EVENT_FAILED"),
+            };
+            Err((
+                status,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                    code: code.to_string(),
+                    details: None,
+                }),
+            ))
+        }
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// Inter-agent messaging endpoints
+// ══════════════════════════════════════════════════════════════════
+
+/// Send a message to an agent through the communication bus.
+#[cfg(feature = "http-api")]
+#[utoipa::path(
+    post,
+    path = "/api/v1/agents/{id}/messages",
+    params(
+        ("id" = AgentId, Path, description = "Recipient agent identifier")
+    ),
+    request_body = SendMessageRequest,
+    responses(
+        (status = 200, description = "Message queued", body = SendMessageResponse),
+        (status = 400, description = "Invalid request", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "messages"
+)]
+pub async fn send_agent_message(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    Path(agent_id): Path<AgentId>,
+    validated: Option<Extension<ValidatedKey>>,
+    Json(request): Json<SendMessageRequest>,
+) -> Result<Json<SendMessageResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let key = validated.as_ref().map(|Extension(k)| k);
+    // The sender field is attacker-controllable JSON, so gate on the caller's
+    // authenticated identity rather than on the claimed sender.
+    check_agent_access(key, &request.sender)?;
+    match provider.send_agent_message(agent_id, request).await {
+        Ok(response) => Ok(Json(response)),
+        Err(e) => {
+            use crate::types::RuntimeError;
+            let (status, code) = match &e {
+                RuntimeError::Authentication(_) => {
+                    (StatusCode::UNAUTHORIZED, "AGENTPIN_VERIFICATION_FAILED")
+                }
+                _ => (StatusCode::INTERNAL_SERVER_ERROR, "SEND_MESSAGE_FAILED"),
+            };
+            Err((
+                status,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                    code: code.to_string(),
+                    details: None,
+                }),
+            ))
+        }
+    }
+}
+
+/// Receive (and consume) pending messages for an agent.
+#[cfg(feature = "http-api")]
+#[utoipa::path(
+    get,
+    path = "/api/v1/agents/{id}/messages",
+    params(
+        ("id" = AgentId, Path, description = "Agent identifier")
+    ),
+    responses(
+        (status = 200, description = "Pending messages", body = ReceiveMessagesResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "messages"
+)]
+pub async fn receive_agent_messages(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    Path(agent_id): Path<AgentId>,
+    validated: Option<Extension<ValidatedKey>>,
+) -> Result<Json<ReceiveMessagesResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let key = validated.as_ref().map(|Extension(k)| k);
+    // Inbox drain: only the owning agent (or an admin key) may pull messages.
+    check_agent_access(key, &agent_id)?;
+    match provider.receive_agent_messages(agent_id).await {
+        Ok(response) => Ok(Json(response)),
+        Err(e) => {
+            use crate::types::{CommunicationError, RuntimeError};
+            let (status, code) = match &e {
+                RuntimeError::Communication(CommunicationError::AgentNotRegistered { .. }) => {
+                    (StatusCode::NOT_FOUND, "AGENT_NOT_FOUND")
+                }
+                _ => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "RECEIVE_MESSAGES_FAILED",
+                ),
+            };
+            Err((
+                status,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                    code: code.to_string(),
+                    details: None,
+                }),
+            ))
+        }
+    }
+}
+
+/// Get the delivery status of a specific message.
+#[cfg(feature = "http-api")]
+#[utoipa::path(
+    get,
+    path = "/api/v1/messages/{id}/status",
+    params(
+        ("id" = String, Path, description = "Message identifier (UUID)")
+    ),
+    responses(
+        (status = 200, description = "Delivery status", body = MessageStatusResponse),
+        (status = 400, description = "Invalid message ID", body = ErrorResponse),
+        (status = 404, description = "Message not found", body = ErrorResponse)
+    ),
+    tag = "messages"
+)]
+pub async fn get_message_status(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    Path(message_id): Path<String>,
+    validated: Option<Extension<ValidatedKey>>,
+) -> Result<Json<MessageStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // The current status backend is keyed by message_id only and has no
+    // recipient/sender index, so we cannot cheaply scope-check the lookup.
+    // Scoped keys could otherwise enumerate delivery state for messages they
+    // have no claim to — require an unscoped (admin) key here.
+    if let Some(Extension(key)) = validated.as_ref() {
+        if key.agent_scope.is_some() {
+            return Err((
+                StatusCode::FORBIDDEN,
+                Json(ErrorResponse {
+                    error: "Scoped API keys may not query message status".to_string(),
+                    code: "AGENT_SCOPE_DENIED".to_string(),
+                    details: None,
+                }),
+            ));
+        }
+    }
+    match provider.get_message_status(&message_id).await {
+        Ok(response) => Ok(Json(response)),
+        Err(e) => {
+            use crate::types::{CommunicationError, RuntimeError};
+            let (status, code) = match &e {
+                RuntimeError::Communication(CommunicationError::InvalidFormat(_)) => {
+                    (StatusCode::BAD_REQUEST, "INVALID_MESSAGE_ID")
+                }
+                _ => (StatusCode::NOT_FOUND, "MESSAGE_STATUS_FAILED"),
+            };
+            Err((
+                status,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                    code: code.to_string(),
+                    details: None,
+                }),
+            ))
+        }
+    }
+}
+
+#[cfg(all(test, feature = "http-api"))]
+mod scope_tests {
+    use super::*;
+
+    fn key_with_scope(scope: Option<Vec<String>>) -> ValidatedKey {
+        ValidatedKey {
+            key_id: "test".to_string(),
+            agent_scope: scope,
+        }
+    }
+
+    #[test]
+    fn require_admin_rejects_scoped_keys() {
+        let k = key_with_scope(Some(vec!["a".into()]));
+        assert!(require_admin(Some(&k)).is_err());
+    }
+
+    #[test]
+    fn require_admin_allows_unscoped_key() {
+        let k = key_with_scope(None);
+        assert!(require_admin(Some(&k)).is_ok());
+    }
+
+    #[test]
+    fn require_admin_allows_legacy_env_token() {
+        assert!(require_admin(None).is_ok());
+    }
+
+    #[test]
+    fn check_agent_access_blocks_out_of_scope() {
+        let target = AgentId::new();
+        let k = key_with_scope(Some(vec![uuid::Uuid::new_v4().to_string()]));
+        assert!(check_agent_access(Some(&k), &target).is_err());
+    }
+
+    #[test]
+    fn check_agent_access_allows_in_scope() {
+        let target = AgentId::new();
+        let k = key_with_scope(Some(vec![target.0.to_string()]));
+        assert!(check_agent_access(Some(&k), &target).is_ok());
+    }
+
+    #[test]
+    fn scope_filter_returns_none_for_admin() {
+        let k = key_with_scope(None);
+        assert!(scope_filter(Some(&k)).is_none());
+    }
+
+    #[test]
+    fn scope_filter_returns_scope_list() {
+        let k = key_with_scope(Some(vec!["a".into(), "b".into()]));
+        assert_eq!(scope_filter(Some(&k)).unwrap().len(), 2);
     }
 }

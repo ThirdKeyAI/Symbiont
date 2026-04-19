@@ -14,7 +14,11 @@ struct ExecuteParams {
 
 pub fn run() -> Result<()> {
     let rt = Runtime::new()?;
-    let runtime_bridge = Arc::new(RuntimeBridge::new());
+    // Local-only REPL JSON-RPC server used for interactive development. Opt
+    // into permissive communication so that multi-agent DSL builtins work
+    // during dev sessions. For production multi-tenant deployments, embed
+    // the runtime with an explicit policy instead of using this binary.
+    let runtime_bridge = Arc::new(RuntimeBridge::new_permissive_for_dev());
 
     // Auto-detect inference provider from environment variables
     if let Some(provider) =

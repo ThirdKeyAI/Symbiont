@@ -40,6 +40,9 @@ pub enum RuntimeError {
 
     #[error("Internal error: {0}")]
     Internal(String),
+
+    #[error("Authentication failed: {0}")]
+    Authentication(String),
 }
 
 /// Configuration-related errors
@@ -129,9 +132,12 @@ pub enum SecurityError {
 /// Communication system errors
 #[derive(Error, Debug, Clone)]
 pub enum CommunicationError {
-    #[error("Message delivery failed for message {message_id}: {reason}")]
+    #[error("Message delivery failed for message {}: {reason}", .message_id.map(|m| m.to_string()).unwrap_or_else(|| "<unknown>".to_string()))]
     DeliveryFailed {
-        message_id: MessageId,
+        /// ID of the affected message, if known. `None` for transport-level
+        /// failures that occur before a message was assigned an ID (e.g. a
+        /// remote HTTP request that never reached the bus).
+        message_id: Option<MessageId>,
         reason: Box<str>,
     },
 
@@ -176,6 +182,12 @@ pub enum CommunicationError {
 
     #[error("Policy denied: {reason}")]
     PolicyDenied { reason: Box<str> },
+
+    #[error("Signature verification failed for message {message_id}: {reason}")]
+    SignatureInvalid {
+        message_id: MessageId,
+        reason: Box<str>,
+    },
 }
 
 /// Policy enforcement errors

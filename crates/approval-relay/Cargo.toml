@@ -1,0 +1,30 @@
+[package]
+name = "symbi-approval-relay"
+version = "0.1.0"
+edition = "2021"
+description = "Dual-channel (CLI + Slack) human approval relay for AI agent gates"
+license = "Apache-2.0"
+repository = "https://github.com/thirdkeyai/symbiont"
+
+[dependencies]
+axum = { version = "0.7", features = ["macros"] }
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+dashmap = "5"
+hex = "0.4"
+hmac = "0.12"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+subtle = "2"
+thiserror = "1"
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+tracing = "0.1"
+urlencoding = "2"
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[dev-dependencies]
+tempfile = "3"
+wiremock = "0.6"

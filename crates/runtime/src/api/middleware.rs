@@ -203,6 +203,11 @@ pub async fn auth_middleware(request: Request, next: Next) -> Result<Response, S
                         "Authenticated via API key store: key_id={}",
                         validated.key_id
                     );
+                    // Attach the validated key to request extensions so handlers
+                    // can enforce per-agent authorization (e.g. sender spoofing,
+                    // inbox theft on messaging endpoints).
+                    let mut request = request;
+                    request.extensions_mut().insert(validated);
                     Ok(next.run(request).await)
                 }
                 None => {
@@ -215,6 +220,22 @@ pub async fn auth_middleware(request: Request, next: Next) -> Result<Response, S
 
     // --- Legacy fallback: static SYMBIONT_API_TOKEN env var ---
     // Only reachable when no key store with records is configured.
+    //
+    // Operators can flip SYMBIONT_REFUSE_LEGACY_API_TOKEN=1 to refuse the
+    // legacy single-token path entirely — useful once an API key store is
+    // in place and the operator wants to ensure the env token isn't still
+    // being accepted (e.g., leaked via a container inspect or process list).
+    if env::var("SYMBIONT_REFUSE_LEGACY_API_TOKEN")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+    {
+        tracing::warn!(
+            "SYMBIONT_REFUSE_LEGACY_API_TOKEN=1; refusing authentication without a \
+             valid API key store entry"
+        );
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
     let expected_token = env::var("SYMBIONT_API_TOKEN").map_err(|_| {
         tracing::error!(
             "No API key store configured and SYMBIONT_API_TOKEN not set — \
@@ -232,7 +253,8 @@ pub async fn auth_middleware(request: Request, next: Next) -> Result<Response, S
     tracing::warn!(
         "Authenticated via legacy SYMBIONT_API_TOKEN — this is deprecated. \
          Migrate to the API key store (--api-keys-file) for per-agent keys, \
-         Argon2 hashing, and key rotation."
+         Argon2 hashing, and key rotation. Set SYMBIONT_REFUSE_LEGACY_API_TOKEN=1 \
+         once migration is complete to disable the env-var fallback."
     );
     Ok(next.run(request).await)
 }
@@ -386,7 +408,22 @@ pub async fn rate_limit_middleware(request: Request, next: Next) -> Result<Respo
     let rate_limiter = match get_rate_limiter_for_ip(client_ip) {
         Some(rl) => rl,
         None => {
-            // Fail-open: rate limiter map is at capacity, allow the request
+            // The per-IP rate-limit table is at capacity even after evicting
+            // stale entries. Default policy is fail-open (serve the request)
+            // so a floods of unique IPs don't knock legitimate traffic
+            // offline. Operators under active DDoS can flip
+            // `SYMBIONT_RATE_LIMIT_REJECT_OVERFLOW=1` to reject these with
+            // 429 instead and rely on upstream infrastructure for shedding.
+            let reject = std::env::var("SYMBIONT_RATE_LIMIT_REJECT_OVERFLOW")
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false);
+            if reject {
+                tracing::warn!(
+                    ip = %client_ip,
+                    "rate-limit table at capacity; rejecting request (SYMBIONT_RATE_LIMIT_REJECT_OVERFLOW=1)"
+                );
+                return Err(StatusCode::TOO_MANY_REQUESTS);
+            }
             return Ok(next.run(request).await);
         }
     };

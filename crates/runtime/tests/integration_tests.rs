@@ -465,7 +465,7 @@ fn test_communication_error_types() {
     // Verify DeliveryFailed error carries the message ID and reason
     let msg_id = MessageId::new();
     let err = CommunicationError::DeliveryFailed {
-        message_id: msg_id,
+        message_id: Some(msg_id),
         reason: "recipient not found".into(),
     };
     let msg = format!("{err}");

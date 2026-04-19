@@ -475,6 +475,15 @@ impl ActionExecutor for ToolCladExecutor {
 // ---- Output Parsing ----
 
 /// Parse raw tool output based on the manifest's `output.format` and `output.parser` fields.
+///
+/// Custom parsers must be explicitly enabled by the operator:
+/// - `output.parser` must start with `custom:` to request a non-builtin parser.
+/// - The substring after `custom:` must match an entry in the
+///   `SYMBIONT_TOOLCLAD_ALLOWED_PARSERS` env var (colon-separated list of
+///   absolute paths). Without this allowlist, custom parsers are refused.
+///
+/// This closes a trivial RCE: before the allowlist, any manifest could set
+/// `output.parser = "/any/path/to/binary"` and cause the runtime to exec it.
 fn parse_output(manifest: &Manifest, raw_output: &str) -> Result<serde_json::Value, String> {
     let default_parser = match manifest.output.format.as_str() {
         "json" => "builtin:json",
@@ -491,8 +500,52 @@ fn parse_output(manifest: &Manifest, raw_output: &str) -> Result<serde_json::Val
         "builtin:csv" => parse_csv(raw_output),
         "builtin:jsonl" => parse_jsonl(raw_output),
         "builtin:text" => Ok(serde_json::json!({"raw_output": raw_output})),
-        custom => run_custom_parser(custom, raw_output),
+        other => {
+            // Everything that isn't a known builtin must explicitly opt into
+            // the custom parser path and pass the allowlist check.
+            let Some(path) = other.strip_prefix("custom:") else {
+                return Err(format!(
+                    "Unknown parser '{}' — expected one of builtin:json|xml|csv|jsonl|text, \
+                     or 'custom:<path>' with <path> present in SYMBIONT_TOOLCLAD_ALLOWED_PARSERS",
+                    other
+                ));
+            };
+            let path = path.trim();
+            if !is_custom_parser_allowed(path) {
+                return Err(format!(
+                    "Custom parser '{}' is not in SYMBIONT_TOOLCLAD_ALLOWED_PARSERS — refusing to exec",
+                    path
+                ));
+            }
+            run_custom_parser(path, raw_output)
+        }
     }
+}
+
+/// Returns true iff `path` is present in the colon-separated
+/// `SYMBIONT_TOOLCLAD_ALLOWED_PARSERS` env var AND is an absolute path.
+///
+/// Relative paths are rejected: they would be resolved against the runtime's
+/// working directory, which can drift, and make path-confusion attacks easy.
+fn is_custom_parser_allowed(path: &str) -> bool {
+    if path.is_empty() {
+        return false;
+    }
+    if !std::path::Path::new(path).is_absolute() {
+        tracing::warn!(
+            "ToolClad custom parser path {:?} is not absolute; refusing",
+            path
+        );
+        return false;
+    }
+    let Ok(list) = std::env::var("SYMBIONT_TOOLCLAD_ALLOWED_PARSERS") else {
+        tracing::warn!(
+            "ToolClad manifest requested custom parser {:?} but SYMBIONT_TOOLCLAD_ALLOWED_PARSERS is unset",
+            path
+        );
+        return false;
+    };
+    list.split(':').any(|entry| entry.trim() == path)
 }
 
 /// Parse raw output as JSON.
@@ -1241,6 +1294,80 @@ type = "object"
         let rows = result.as_array().unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0]["a"], "1");
+    }
+
+    #[test]
+    fn test_parse_output_unknown_parser_rejected() {
+        // A manifest specifying an arbitrary path must NOT be exec'd.
+        let manifest: Manifest = toml::from_str(
+            r#"
+[tool]
+name = "rce"
+version = "1.0.0"
+binary = "test"
+description = "Attempts to hijack output parser"
+
+[command]
+template = "test"
+
+[output]
+format = "text"
+parser = "/bin/sh"
+
+[output.schema]
+type = "object"
+"#,
+        )
+        .unwrap();
+        let err = parse_output(&manifest, "ignored").unwrap_err();
+        assert!(
+            err.contains("Unknown parser"),
+            "expected rejection, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_parse_output_custom_parser_requires_allowlist() {
+        let manifest: Manifest = toml::from_str(
+            r#"
+[tool]
+name = "needs-allowlist"
+version = "1.0.0"
+binary = "test"
+description = "Custom parser path without allowlist entry"
+
+[command]
+template = "test"
+
+[output]
+format = "text"
+parser = "custom:/opt/parsers/json-fixer"
+
+[output.schema]
+type = "object"
+"#,
+        )
+        .unwrap();
+        // Make sure any previous test didn't leave the env var set.
+        std::env::remove_var("SYMBIONT_TOOLCLAD_ALLOWED_PARSERS");
+        let err = parse_output(&manifest, "ignored").unwrap_err();
+        assert!(
+            err.contains("not in SYMBIONT_TOOLCLAD_ALLOWED_PARSERS"),
+            "expected allowlist rejection, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_parse_output_custom_parser_relative_path_rejected() {
+        // Even with an allowlist entry, relative paths must be refused.
+        std::env::set_var(
+            "SYMBIONT_TOOLCLAD_ALLOWED_PARSERS",
+            "./parsers/my-parser",
+        );
+        assert!(!is_custom_parser_allowed("./parsers/my-parser"));
+        std::env::remove_var("SYMBIONT_TOOLCLAD_ALLOWED_PARSERS");
     }
 
     // ---- Schema Validation Tests ----

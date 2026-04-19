@@ -14,6 +14,7 @@ use symbi_runtime::communication::policy_gate::CommunicationPolicyGate;
 use symbi_runtime::communication::CommunicationBus;
 use symbi_runtime::reasoning::agent_registry::AgentRegistry;
 use symbi_runtime::reasoning::inference::InferenceProvider;
+use symbi_runtime::reasoning::policy_bridge::ReasoningPolicyGate;
 use symbi_runtime::types::{AgentId, MessageType, RequestId};
 
 /// Shared state for async reasoning builtins.
@@ -29,6 +30,12 @@ pub struct ReasoningBuiltinContext {
     pub comm_bus: Option<Arc<dyn CommunicationBus + Send + Sync>>,
     /// Communication policy gate for inter-agent authorization.
     pub comm_policy: Option<Arc<CommunicationPolicyGate>>,
+    /// Policy gate for the reasoning loop — governs tool calls and
+    /// delegations inside `reason()`. If None, `DefaultPolicyGate::new()`
+    /// is used (production-default, non-permissive). Production callers
+    /// should install [`OpaPolicyGateBridge`] or another concrete gate
+    /// instead of relying on the default.
+    pub reasoning_policy_gate: Option<Arc<dyn ReasoningPolicyGate + Send + Sync>>,
 }
 
 /// Execute the `reason` builtin: runs a full reasoning loop.
@@ -56,9 +63,20 @@ pub async fn builtin_reason(args: &[DslValue], ctx: &ReasoningBuiltinContext) ->
     use symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate;
     use symbi_runtime::reasoning::reasoning_loop::ReasoningLoopRunner;
 
+    // Prefer a caller-provided policy gate (e.g. OpaPolicyGateBridge wired
+    // from the runtime). Fall back to the non-permissive default rather
+    // than `DefaultPolicyGate::permissive()` so `reason()` no longer opts
+    // every DSL program into unrestricted tool calls regardless of how
+    // the runtime was configured.
+    let policy_gate: Arc<dyn ReasoningPolicyGate + Send + Sync> =
+        match ctx.reasoning_policy_gate.clone() {
+            Some(gate) => gate,
+            None => Arc::new(DefaultPolicyGate::new()),
+        };
+
     let runner = ReasoningLoopRunner {
         provider: Arc::clone(provider),
-        policy_gate: Arc::new(DefaultPolicyGate::permissive()),
+        policy_gate,
         executor: Arc::new(DefaultActionExecutor::default()),
         context_manager: Arc::new(DefaultContextManager::default()),
         circuit_breakers: Arc::new(CircuitBreakerRegistry::default()),
