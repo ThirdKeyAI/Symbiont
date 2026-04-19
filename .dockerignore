@@ -20,8 +20,9 @@ README*
 CHANGELOG*
 LICENSE*
 
-# Test files
-tests/
+# Test files (tests/e2e is a workspace member — its Cargo.toml must be readable)
+tests/*
+!tests/e2e/
 crates/runtime/tests/
 crates/dsl/tests/
 
