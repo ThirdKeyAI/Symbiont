@@ -80,8 +80,13 @@ impl LoadBalancer {
                 let duration = start_time.elapsed();
                 history.record_allocation(agent_id, duration);
             }
-            Err(_) => {
+            Err(e) => {
                 history.record_failure();
+                tracing::warn!(
+                    %agent_id,
+                    error = %e,
+                    "Resource allocation failed; recorded in allocation_history"
+                );
             }
         }
 
@@ -137,12 +142,13 @@ impl LoadBalancer {
         limits: &ResourceLimits,
     ) -> Result<ResourceAllocation, ResourceError> {
         let active_count = pool.allocated_agents.len();
-        // Estimate max agents from available resources (use memory as proxy)
-        let max_agents_estimate = if limits.memory_mb > 0 {
-            pool.total_memory / limits.memory_mb
-        } else {
-            pool.total_memory // Fallback: 1 agent per MB
-        };
+        // Estimate max agents from available resources (use memory as proxy).
+        // `checked_div` returns `None` when memory_mb is 0, in which case we
+        // fall back to treating the pool's total memory as the agent cap.
+        let max_agents_estimate = pool
+            .total_memory
+            .checked_div(limits.memory_mb)
+            .unwrap_or(pool.total_memory);
         let threshold = (max_agents_estimate as f64 * 0.8) as usize;
 
         if active_count >= threshold.max(1) {

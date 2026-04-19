@@ -156,14 +156,22 @@ impl CoordinatorSession {
                                 arguments,
                             } = action
                             {
-                                let _ = ws_tx
+                                if let Err(e) = ws_tx
                                     .send(ServerMessage::ToolCallStarted {
                                         request_id: bridge_request_id.clone(),
                                         call_id: call_id.clone(),
                                         tool_name: name.clone(),
                                         arguments: arguments.clone(),
                                     })
-                                    .await;
+                                    .await
+                                {
+                                    tracing::debug!(
+                                        request_id = %bridge_request_id,
+                                        call_id = %call_id,
+                                        error = %e,
+                                        "WS tool_call_started send failed — client likely disconnected"
+                                    );
+                                }
                             }
                         }
                         None
@@ -197,7 +205,13 @@ impl CoordinatorSession {
                 };
 
                 if let Some(msg) = msg {
-                    let _ = ws_tx.send(msg).await;
+                    if let Err(e) = ws_tx.send(msg).await {
+                        tracing::debug!(
+                            request_id = %bridge_request_id,
+                            error = %e,
+                            "WS policy/bridge send failed — client likely disconnected"
+                        );
+                    }
                 }
             }
         });
@@ -216,28 +230,47 @@ impl CoordinatorSession {
 
         // Wait for bridge to drain
         drop(runner);
-        let _ = bridge_handle.await;
+        if let Err(e) = bridge_handle.await {
+            tracing::warn!(
+                session_id = %self.session_id,
+                error = %e,
+                "Coordinator journal->WS bridge task joined with error"
+            );
+        }
 
         // Send final chat chunk
-        let _ = self
+        if let Err(e) = self
             .ws_tx
             .send(ServerMessage::ChatChunk {
                 request_id: request_id.clone(),
                 content: result.output.clone(),
                 done: true,
             })
-            .await;
+            .await
+        {
+            tracing::debug!(
+                request_id = %request_id,
+                error = %e,
+                "Final WS ChatChunk send failed — client likely disconnected"
+            );
+        }
 
         // Check for errors
         if let TerminationReason::Error { ref message } = result.termination_reason {
-            let _ = self
+            if let Err(e) = self
                 .ws_tx
                 .send(ServerMessage::Error {
                     request_id: Some(request_id),
                     code: "LOOP_ERROR".into(),
                     message: message.clone(),
                 })
-                .await;
+                .await
+            {
+                tracing::debug!(
+                    error = %e,
+                    "WS Error message send failed — client likely disconnected"
+                );
+            }
         }
 
         // Push assistant response into conversation for context continuity

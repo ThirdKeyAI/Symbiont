@@ -519,10 +519,7 @@ impl DefaultCommunicationBus {
     /// and pass verification. The local bus only trusts its own key; any
     /// cross-instance ingress must be re-wrapped (re-signed) by the HTTP
     /// handler before being enqueued.
-    fn verify_message_signature(
-        &self,
-        message: &SecureMessage,
-    ) -> Result<(), CommunicationError> {
+    fn verify_message_signature(&self, message: &SecureMessage) -> Result<(), CommunicationError> {
         use ed25519_dalek::{Signature, Verifier};
 
         if !matches!(message.signature.algorithm, SignatureAlgorithm::Ed25519) {
@@ -536,19 +533,20 @@ impl DefaultCommunicationBus {
             });
         }
 
-        let sig_bytes: &[u8; 64] = message
-            .signature
-            .signature
-            .as_slice()
-            .try_into()
-            .map_err(|_| CommunicationError::SignatureInvalid {
-                message_id: message.id,
-                reason: format!(
-                    "malformed signature length: expected 64, got {}",
-                    message.signature.signature.len()
-                )
-                .into_boxed_str(),
-            })?;
+        let sig_bytes: &[u8; 64] =
+            message
+                .signature
+                .signature
+                .as_slice()
+                .try_into()
+                .map_err(|_| CommunicationError::SignatureInvalid {
+                    message_id: message.id,
+                    reason: format!(
+                        "malformed signature length: expected 64, got {}",
+                        message.signature.signature.len()
+                    )
+                    .into_boxed_str(),
+                })?;
         let signature = Signature::from_bytes(sig_bytes);
         let data = [
             message.payload.data.as_ref(),
@@ -1181,10 +1179,7 @@ mod tests {
             err
         );
 
-        let err = bus
-            .publish("t".to_string(), foreign)
-            .await
-            .unwrap_err();
+        let err = bus.publish("t".to_string(), foreign).await.unwrap_err();
         assert!(matches!(err, CommunicationError::SignatureInvalid { .. }));
     }
 

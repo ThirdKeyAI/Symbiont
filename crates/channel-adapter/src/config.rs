@@ -95,6 +95,14 @@ pub struct TeamsConfig {
     pub bind_address: String,
     /// Default agent to invoke when no agent is specified.
     pub default_agent: Option<String>,
+    /// Skip JWKS signature verification on inbound Bot Framework tokens.
+    ///
+    /// **SECURITY**: when `true`, ANY JWT presented on the Teams webhook is
+    /// accepted. This is only safe for local/offline development and is
+    /// refused at runtime when `SYMBIONT_ENV=production`. Defaults to `false`
+    /// so production deployments fail closed by default.
+    #[serde(default)]
+    pub skip_jwks_verification: bool,
 }
 
 #[cfg(feature = "teams")]
@@ -109,6 +117,7 @@ impl std::fmt::Debug for TeamsConfig {
             .field("webhook_port", &self.webhook_port)
             .field("bind_address", &self.bind_address)
             .field("default_agent", &self.default_agent)
+            .field("skip_jwks_verification", &self.skip_jwks_verification)
             .finish()
     }
 }
@@ -130,6 +139,7 @@ impl Default for TeamsConfig {
             webhook_port: default_teams_webhook_port(),
             bind_address: default_bind_address(),
             default_agent: None,
+            skip_jwks_verification: false,
         }
     }
 }

@@ -49,12 +49,9 @@ async fn remote_bus_delivers_across_runtimes() {
     register(server_b.runtime.communication.as_ref(), recipient).await;
 
     // RemoteCommunicationBus targeting server B.
-    let remote_a_to_b = RemoteCommunicationBus::try_new(
-        &server_b.base_url,
-        Some(TEST_TOKEN.to_string()),
-        sender,
-    )
-    .expect("loopback bus accepted");
+    let remote_a_to_b =
+        RemoteCommunicationBus::try_new(&server_b.base_url, Some(TEST_TOKEN.to_string()), sender)
+            .expect("loopback bus accepted");
 
     // Build a message on A's local bus (properly signed by A), then hand
     // it to the remote bus — the remote bus sends over HTTP. The peer
@@ -90,7 +87,10 @@ async fn remote_bus_delivers_across_runtimes() {
     let msgs = body["messages"].as_array().expect("messages");
     assert_eq!(msgs.len(), 1, "recipient must see exactly one message");
     let got = &msgs[0];
-    assert_eq!(got["sender"].as_str(), Some(sender.0.to_string()).as_deref());
+    assert_eq!(
+        got["sender"].as_str(),
+        Some(sender.0.to_string()).as_deref()
+    );
     assert_eq!(got["payload"].as_str(), Some("hello-from-A"));
     // TTL clamped to min(request, config.message_ttl=3600)
     assert!(got["ttl_seconds"].as_u64().unwrap() <= 3600);
@@ -138,8 +138,7 @@ async fn remote_bus_round_trip_refuses_replay_of_a_signed_into_b() {
         .expect_err("B must refuse a message not signed with B's key");
     let msg = err.to_string();
     assert!(
-        msg.contains("Signature verification failed")
-            || msg.contains("signature"),
+        msg.contains("Signature verification failed") || msg.contains("signature"),
         "expected signature-related error, got: {}",
         msg
     );

@@ -195,7 +195,23 @@ pub async fn execute_workflow(
         require_admin(validated.as_ref().map(|Extension(k)| k))?;
     }
     match provider.execute_workflow(request).await {
-        Ok(result) => Ok(Json(serde_json::to_value(result).unwrap_or_default())),
+        Ok(result) => match serde_json::to_value(result) {
+            Ok(v) => Ok(Json(v)),
+            Err(e) => {
+                tracing::error!(
+                    error = %e,
+                    "Failed to serialize workflow result"
+                );
+                Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "Failed to serialize workflow result".to_string(),
+                        code: "WORKFLOW_SERIALIZATION_FAILED".to_string(),
+                        details: None,
+                    }),
+                ))
+            }
+        },
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -1395,10 +1411,7 @@ pub async fn receive_agent_messages(
                 RuntimeError::Communication(CommunicationError::AgentNotRegistered { .. }) => {
                     (StatusCode::NOT_FOUND, "AGENT_NOT_FOUND")
                 }
-                _ => (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "RECEIVE_MESSAGES_FAILED",
-                ),
+                _ => (StatusCode::INTERNAL_SERVER_ERROR, "RECEIVE_MESSAGES_FAILED"),
             };
             Err((
                 status,

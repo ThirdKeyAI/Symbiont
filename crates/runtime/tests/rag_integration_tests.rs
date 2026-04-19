@@ -678,8 +678,8 @@ async fn test_rag_error_handling_integration() {
     let result = rag_engine.process_query(request).await;
     // Note: The timeout test may not always fail due to mock implementation speed
     // In a real implementation with actual LLM calls, this would timeout
-    if result.is_err() {
-        match result.unwrap_err() {
+    if let Err(err) = result {
+        match err {
             RAGError::Timeout(_) => {
                 // Expected timeout error
             }

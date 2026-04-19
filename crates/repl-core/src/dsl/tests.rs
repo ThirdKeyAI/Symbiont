@@ -11,6 +11,7 @@ use crate::runtime_bridge::RuntimeBridge;
 use std::sync::Arc;
 
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod tests {
     use super::*;
 
@@ -27,7 +28,7 @@ mod tests {
         let tokens = lexer.tokenize().unwrap();
         assert!(!tokens.is_empty());
 
-        if let Some(first_token) = tokens.get(0) {
+        if let Some(first_token) = tokens.first() {
             assert_eq!(
                 first_token.token_type,
                 TokenType::Keyword(crate::dsl::lexer::Keyword::Agent)

@@ -45,13 +45,15 @@ impl SlackApprovalConfig {
             .bot_token
             .clone()
             .ok_or(ConfigError::MissingField { field: "bot_token" })?;
-        let signing_secret = self.signing_secret.clone().ok_or(ConfigError::MissingField {
-            field: "signing_secret",
-        })?;
-        let channel_id = self
-            .channel_id
+        let signing_secret = self
+            .signing_secret
             .clone()
-            .ok_or(ConfigError::MissingField { field: "channel_id" })?;
+            .ok_or(ConfigError::MissingField {
+                field: "signing_secret",
+            })?;
+        let channel_id = self.channel_id.clone().ok_or(ConfigError::MissingField {
+            field: "channel_id",
+        })?;
         let callback_port = self.callback_port.unwrap_or(3456);
 
         Ok(Some(ResolvedSlackConfig {

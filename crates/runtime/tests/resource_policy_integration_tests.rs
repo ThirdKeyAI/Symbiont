@@ -27,6 +27,7 @@ fn create_test_resource_config() -> ResourceManagerConfig {
             policy_path: None,
             enable_audit: true,
         },
+        ..Default::default()
     }
 }
 

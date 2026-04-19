@@ -68,6 +68,24 @@ impl TeamsAdapter {
             ));
         }
 
+        // Refuse to boot with JWKS verification disabled in production. The
+        // flag exists for local development without Azure AD connectivity and
+        // must never be live in production builds.
+        if config.skip_jwks_verification {
+            let env = std::env::var("SYMBIONT_ENV").unwrap_or_default();
+            if env.eq_ignore_ascii_case("production") {
+                return Err(ChannelAdapterError::Config(
+                    "TeamsConfig.skip_jwks_verification=true is not permitted when \
+                     SYMBIONT_ENV=production; enable JWKS verification before deploying"
+                        .to_string(),
+                ));
+            }
+            tracing::error!(
+                "TeamsConfig.skip_jwks_verification=true — inbound JWTs are NOT \
+                 cryptographically verified. Only use for local development."
+            );
+        }
+
         let api_client =
             TeamsApiClient::new(&config.tenant_id, &config.client_id, &config.client_secret)?;
 
@@ -227,8 +245,15 @@ async fn handle_teams_activity(
         }
     };
 
-    // TODO: In production, set skip_jwks_verification to false
-    if let Err(e) = auth::validate_bot_framework_token(token, &state.config.client_id, true).await {
+    // Skip-verification is driven by config (default false) and refused in production
+    // by `TeamsAdapter::new`, so reading it here fails closed on unset/default configs.
+    if let Err(e) = auth::validate_bot_framework_token(
+        token,
+        &state.config.client_id,
+        state.config.skip_jwks_verification,
+    )
+    .await
+    {
         tracing::warn!("Teams JWT validation failed: {}", e);
         return (StatusCode::UNAUTHORIZED, "invalid token".to_string());
     }

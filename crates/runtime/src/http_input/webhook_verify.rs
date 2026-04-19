@@ -138,11 +138,12 @@ pub struct JwtVerifier {
 impl JwtVerifier {
     /// Create a JWT verifier using HMAC-SHA256 symmetric signing.
     ///
-    /// If `SYMBIONT_REQUIRE_JWT_AUDIENCE=1` is set in the environment,
-    /// constructing a verifier with `audience = None` returns `Err`;
-    /// otherwise a loud warning is emitted at construction time (in
-    /// addition to per-request warnings from `verify_jwt`). Prefer
-    /// [`Self::new_hmac_with_audience`] in new code.
+    /// Audience is REQUIRED by default. Without an audience claim any JWT
+    /// signed with the same key — including tokens minted for a different
+    /// service — would be accepted, so the verifier refuses to construct.
+    /// The legacy behaviour (warn-only) can be re-enabled by setting
+    /// `SYMBIONT_ALLOW_NO_JWT_AUDIENCE=1`, which is intended for migration
+    /// windows only and logs loudly on every construction.
     ///
     /// # Arguments
     /// * `secret` — the shared HMAC secret
@@ -155,21 +156,22 @@ impl JwtVerifier {
         required_issuer: Option<String>,
         audience: Option<String>,
     ) -> Result<Self, VerifyError> {
-        let strict = std::env::var("SYMBIONT_REQUIRE_JWT_AUDIENCE")
+        // Opt-out flag for the previous warn-only behaviour.
+        let allow_no_audience = std::env::var("SYMBIONT_ALLOW_NO_JWT_AUDIENCE")
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
             .unwrap_or(false);
-        match (&audience, strict) {
-            (None, true) => Err(VerifyError::Configuration(
-                "SYMBIONT_REQUIRE_JWT_AUDIENCE=1 but no audience was configured; \
-                 refusing to construct a JWT verifier that would accept any aud claim"
+        match (&audience, allow_no_audience) {
+            (None, false) => Err(VerifyError::Configuration(
+                "JwtVerifier requires an audience to prevent cross-service token reuse; \
+                 pass Some(aud) or set SYMBIONT_ALLOW_NO_JWT_AUDIENCE=1 to opt in to \
+                 the legacy permissive behaviour (not recommended)"
                     .to_string(),
             )),
-            (None, false) => {
+            (None, true) => {
                 tracing::error!(
-                    "JwtVerifier configured without audience — any JWT signed with \
-                     this key will be accepted regardless of aud. Set an audience \
-                     or use new_hmac_with_audience; enable SYMBIONT_REQUIRE_JWT_AUDIENCE=1 \
-                     to refuse this configuration at startup."
+                    "SYMBIONT_ALLOW_NO_JWT_AUDIENCE=1: JwtVerifier constructed without \
+                     audience. Any JWT signed with this key will be accepted regardless \
+                     of aud. Remove this flag and set an audience as soon as possible."
                 );
                 Ok(Self {
                     secret,
@@ -433,11 +435,13 @@ mod tests {
         #[derive(serde::Serialize)]
         struct Claims {
             iss: String,
+            aud: String,
             exp: u64,
         }
 
         let claims = Claims {
             iss: "test-issuer".to_string(),
+            aud: "test-audience".to_string(),
             exp: now + 3600,
         };
 
@@ -448,11 +452,13 @@ mod tests {
         )
         .unwrap();
 
+        // new_hmac now requires an audience so the verifier can't be reused
+        // across services; supply one for the test.
         let verifier = JwtVerifier::new_hmac(
             secret.to_vec(),
             "Authorization".to_string(),
             Some("test-issuer".to_string()),
-            None,
+            Some("test-audience".to_string()),
         )
         .expect("test verifier construction");
 
@@ -469,11 +475,13 @@ mod tests {
         #[derive(serde::Serialize)]
         struct Claims {
             iss: String,
+            aud: String,
             exp: u64,
         }
 
         let claims = Claims {
             iss: "test-issuer".to_string(),
+            aud: "test-audience".to_string(),
             exp: 1_000_000, // long expired
         };
 
@@ -488,7 +496,7 @@ mod tests {
             secret.to_vec(),
             "Authorization".to_string(),
             Some("test-issuer".to_string()),
-            None,
+            Some("test-audience".to_string()),
         )
         .expect("test verifier construction");
 

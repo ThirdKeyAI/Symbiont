@@ -411,6 +411,7 @@ pub async fn run(matches: &ArgMatches) {
                 webhook_port: teams_port_num,
                 bind_address: "0.0.0.0".to_string(),
                 default_agent: default_agent.clone(),
+                skip_jwks_verification: false,
             };
 
             let channel_config = ChannelConfig {

@@ -55,6 +55,34 @@ impl SlackAdapter {
         handler: Arc<dyn InboundHandler>,
     ) -> Result<Self, ChannelAdapterError> {
         oauth::validate_token_format(&config.bot_token)?;
+
+        // Refuse to construct in production without a signing secret. Slack
+        // request signatures (`X-Slack-Signature`) are the only thing that
+        // proves a webhook call actually came from Slack; without the secret
+        // we would accept any forged event as genuine. The opt-out flag
+        // `SYMBIONT_SLACK_ALLOW_UNSIGNED=1` is for migration windows only.
+        if config.signing_secret.is_none() {
+            let env = std::env::var("SYMBIONT_ENV").unwrap_or_default();
+            let is_prod =
+                env.eq_ignore_ascii_case("production") || env.eq_ignore_ascii_case("prod");
+            let allow_unsigned = std::env::var("SYMBIONT_SLACK_ALLOW_UNSIGNED")
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false);
+            if is_prod && !allow_unsigned {
+                return Err(ChannelAdapterError::Config(
+                    "Slack signing_secret is required when SYMBIONT_ENV=production. \
+                     Set slack.signing_secret in the config (preferred) or set \
+                     SYMBIONT_SLACK_ALLOW_UNSIGNED=1 to opt in to accepting \
+                     unauthenticated webhooks (not recommended)."
+                        .to_string(),
+                ));
+            }
+            tracing::warn!(
+                "Slack adapter starting without signing_secret — webhook events are \
+                 NOT verified. Do not use in production."
+            );
+        }
+
         let api_client = SlackApiClient::new(&config.bot_token)?;
 
         Ok(Self {

@@ -68,14 +68,14 @@ fn intercept_help(command: &str, args: &str) -> Option<CommandResult> {
              deterministic scaffold. Any other arg is treated as a free-form \
              description the orchestrator uses to pick a profile."
         }
-        "/ask" => {
-            "/ask <agent> <message>\n  Send a message to an agent and wait for the reply."
-        }
+        "/ask" => "/ask <agent> <message>\n  Send a message to an agent and wait for the reply.",
         "/send" => {
             "/send <agent> <message>\n  Send a message to an agent without waiting for a reply."
         }
         "/run" => "/run <agent-or-workflow> [input]\n  Start or re-run an agent / workflow.",
-        "/chain" => "/chain <agent1,agent2,...> <input>\n  Pipe output of each agent into the next.",
+        "/chain" => {
+            "/chain <agent1,agent2,...> <input>\n  Pipe output of each agent into the next."
+        }
         "/debate" => {
             "/debate <agent1,agent2,...> <topic>\n  Multi-agent debate on the given topic."
         }
@@ -102,7 +102,9 @@ fn intercept_help(command: &str, args: &str) -> Option<CommandResult> {
         "/channels" => "/channels\n  List registered channel adapters (Slack, Mattermost, …).",
         "/connect" => "/connect <channel> [options]\n  Register a new channel adapter.",
         "/disconnect" => "/disconnect <channel>\n  Remove a channel adapter.",
-        "/secrets" => "/secrets [list|set|get|remove] …\n  Manage secrets available to the runtime.",
+        "/secrets" => {
+            "/secrets [list|set|get|remove] …\n  Manage secrets available to the runtime."
+        }
         "/deploy" => "/deploy [local|cloudrun|aws] [options]\n  Deploy the configured agent stack.",
         "/attach" => "/attach <url>\n  Attach this shell to a remote runtime over HTTP.",
         "/detach" => "/detach\n  Detach from the currently attached remote runtime.",
@@ -114,7 +116,9 @@ fn intercept_help(command: &str, args: &str) -> Option<CommandResult> {
         "/destroy" => "/destroy <agent>\n  Destroy the given agent and its state.",
         "/agents" => "/agents\n  List active agents.",
         "/context" => "/context\n  Show the current context window / token usage.",
-        "/compact" => "/compact [limit]\n  Compact the conversation history to fit within a budget.",
+        "/compact" => {
+            "/compact [limit]\n  Compact the conversation history to fit within a budget."
+        }
         "/model" => "/model [name]\n  Show or switch the active inference model.",
         "/cost" => "/cost\n  Show token / API-cost totals for the current session.",
         "/snapshot" => "/snapshot [name]\n  Save a session snapshot.",

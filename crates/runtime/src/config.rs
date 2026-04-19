@@ -54,8 +54,12 @@ pub struct Config {
     pub cli_executor: Option<CliExecutorConfigToml>,
 }
 
-/// API configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// API configuration.
+///
+/// `auth_token` is redacted in `Debug` output and zeroised on drop to avoid
+/// leaking bearer tokens via `tracing::debug!` of a `Config` value or via
+/// heap inspection after free.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ApiConfig {
     /// API server port
     pub port: u16,
@@ -70,8 +74,35 @@ pub struct ApiConfig {
     pub max_body_size: usize,
 }
 
-/// Database configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+impl std::fmt::Debug for ApiConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ApiConfig")
+            .field("port", &self.port)
+            .field("host", &self.host)
+            .field(
+                "auth_token",
+                &self.auth_token.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("timeout_seconds", &self.timeout_seconds)
+            .field("max_body_size", &self.max_body_size)
+            .finish()
+    }
+}
+
+impl Drop for ApiConfig {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+        if let Some(ref mut t) = self.auth_token {
+            t.zeroize();
+        }
+    }
+}
+
+/// Database configuration.
+///
+/// `url` and `redis_url` may embed credentials and are redacted in `Debug`
+/// output and zeroised on drop.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct DatabaseConfig {
     /// PostgreSQL connection URL
     #[serde(skip_serializing)]
@@ -85,6 +116,30 @@ pub struct DatabaseConfig {
     pub qdrant_collection: String,
     /// Vector dimension
     pub vector_dimension: usize,
+}
+
+impl std::fmt::Debug for DatabaseConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DatabaseConfig")
+            .field("url", &self.url.as_ref().map(|_| "[REDACTED]"))
+            .field("redis_url", &self.redis_url.as_ref().map(|_| "[REDACTED]"))
+            .field("qdrant_url", &self.qdrant_url)
+            .field("qdrant_collection", &self.qdrant_collection)
+            .field("vector_dimension", &self.vector_dimension)
+            .finish()
+    }
+}
+
+impl Drop for DatabaseConfig {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+        if let Some(ref mut u) = self.url {
+            u.zeroize();
+        }
+        if let Some(ref mut u) = self.redis_url {
+            u.zeroize();
+        }
+    }
 }
 
 /// Logging configuration
@@ -1570,7 +1625,12 @@ mod tests {
         env::set_var("API_AUTH_TOKEN", "strong_secure_token_12345");
         let config = Config::from_env().unwrap();
         assert!(config.api.auth_token.is_some());
-        assert_eq!(config.api.auth_token.unwrap(), "strong_secure_token_12345");
+        // `ApiConfig` implements `Drop` (zeroises the token), so we can't
+        // move `auth_token` out for the `unwrap()` — clone first.
+        assert_eq!(
+            config.api.auth_token.clone().unwrap(),
+            "strong_secure_token_12345"
+        );
         env::remove_var("API_AUTH_TOKEN");
     }
 

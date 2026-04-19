@@ -42,11 +42,24 @@ impl SandboxTier {
     /// misconfigured deployments have previously left the unisolated tier
     /// running on real traffic.
     pub fn enforce_production_guard(&self) -> Result<(), String> {
+        // Tiers without a runner implementation must be refused unconditionally.
+        // They are kept in the enum for API stability but cannot be executed.
+        match self {
+            SandboxTier::GVisor | SandboxTier::Firecracker => {
+                return Err(format!(
+                    "SECURITY: {:?} is declared but has no runner implementation; \
+                     use Docker or E2B until this tier ships",
+                    self
+                ));
+            }
+            _ => {}
+        }
+
         if !matches!(self, SandboxTier::None) {
             return Ok(());
         }
-        let env = std::env::var("SYMBIONT_ENV").unwrap_or_default();
-        if env.eq_ignore_ascii_case("production") {
+        let is_prod = crate::env::is_production().map_err(|e| e.to_string())?;
+        if is_prod {
             let allow = std::env::var("SYMBIONT_ALLOW_UNISOLATED")
                 .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
                 .unwrap_or(false);
@@ -177,7 +190,16 @@ mod tier_guard_tests {
     #[serial_test::serial(sandbox_tier_env)]
     fn non_none_tier_passes_guard() {
         assert!(SandboxTier::Docker.enforce_production_guard().is_ok());
-        assert!(SandboxTier::GVisor.enforce_production_guard().is_ok());
+        assert!(SandboxTier::E2B.enforce_production_guard().is_ok());
+    }
+
+    #[test]
+    #[serial_test::serial(sandbox_tier_env)]
+    fn unimplemented_tiers_are_refused() {
+        // GVisor and Firecracker variants remain in the enum for API
+        // stability but must be refused at startup until a runner exists.
+        assert!(SandboxTier::GVisor.enforce_production_guard().is_err());
+        assert!(SandboxTier::Firecracker.enforce_production_guard().is_err());
     }
 
     #[test]

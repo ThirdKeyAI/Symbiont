@@ -69,17 +69,11 @@ impl SlackApprovalRelay {
             .map_err(|e| SlackError::Http(e.to_string()))?;
 
         if resp_json["ok"].as_bool() != Some(true) {
-            let err = resp_json["error"]
-                .as_str()
-                .unwrap_or("unknown")
-                .to_string();
+            let err = resp_json["error"].as_str().unwrap_or("unknown").to_string();
             return Err(SlackError::Api(err));
         }
 
-        let ts = resp_json["ts"]
-            .as_str()
-            .unwrap_or_default()
-            .to_string();
+        let ts = resp_json["ts"].as_str().unwrap_or_default().to_string();
 
         self.audit
             .log_slack_posted(request_id, &self.config.channel_id, &ts)
@@ -115,6 +109,36 @@ impl SlackApprovalRelay {
             }
         };
 
+        let now = Utc::now();
+
+        // Refuse decisions that arrive after the request's TTL. Without this
+        // check a late button-press could retroactively approve a lapsed
+        // action. The pending entry has already been removed so the decision
+        // cannot be applied twice.
+        if now > entry.request.expires_at {
+            let expired_decision = ApprovalDecision {
+                request_id,
+                outcome: Outcome::Expired,
+                approver: Approver::Slack {
+                    user_id: user_id.to_string(),
+                    message_ts: message_ts.to_string(),
+                },
+                reason: Some("decision arrived after expires_at".to_string()),
+                decided_at: now,
+            };
+            self.audit.log_decision(&expired_decision).await;
+            self.finalize_resolution(&entry.request, Outcome::Expired, user_id, &entry.channel_ts)
+                .await;
+            let _ = entry.respond.send(expired_decision);
+            tracing::warn!(
+                %request_id,
+                expired_at = %entry.request.expires_at,
+                arrived_at = %now,
+                "Slack approval callback arrived after expiry; refused"
+            );
+            return true;
+        }
+
         let outcome = match action_id {
             "approve" => Outcome::Approve,
             _ => Outcome::Deny,
@@ -128,7 +152,7 @@ impl SlackApprovalRelay {
                 message_ts: message_ts.to_string(),
             },
             reason: None,
-            decided_at: Utc::now(),
+            decided_at: now,
         };
 
         self.audit.log_decision(&decision).await;
@@ -143,11 +167,9 @@ impl SlackApprovalRelay {
 
     /// Take the channel_ts for a pending request (used when CLI wins the race).
     pub fn take_channel_ts(&self, request_id: &Uuid) -> Option<(ApprovalRequest, String)> {
-        self.pending.remove(request_id).and_then(|(_, entry)| {
-            entry
-                .channel_ts
-                .map(|ts| (entry.request, ts))
-        })
+        self.pending
+            .remove(request_id)
+            .and_then(|(_, entry)| entry.channel_ts.map(|ts| (entry.request, ts)))
     }
 
     /// Update a Slack message to show the final resolved state.

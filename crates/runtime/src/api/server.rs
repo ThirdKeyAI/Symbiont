@@ -321,15 +321,33 @@ impl HttpApiServer {
             .route("/api/v1/health/ready", get(readiness_check))
             .with_state(self.start_time);
 
-        // Add Swagger UI only in non-production environments
-        let is_production = std::env::var("SYMBIONT_ENV")
-            .map(|v| v.eq_ignore_ascii_case("production"))
+        // Swagger UI / OpenAPI spec are OFF by default — they were previously
+        // exposed whenever SYMBIONT_ENV was unset or anything other than
+        // "production", which made every non-production deployment leak the
+        // full route inventory to unauthenticated callers. Require an
+        // explicit opt-in via `SYMBIONT_ENABLE_DOCS=1`, refuse the opt-in
+        // entirely in production, and (below) layer the routes behind the
+        // same bearer auth middleware as the rest of the API so that an
+        // accidentally-set flag in staging doesn't expose the spec.
+        let enable_docs = std::env::var("SYMBIONT_ENABLE_DOCS")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
             .unwrap_or(false);
-        if !is_production {
-            router = router.merge(
-                SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()),
+        let is_production = crate::env::is_production().unwrap_or_else(|err| {
+            tracing::error!(
+                error = %err,
+                "SYMBIONT_ENV parse failed; treating as production for guard purposes"
             );
-        }
+            true
+        });
+        let docs_enabled = if enable_docs && is_production {
+            tracing::error!(
+                "SYMBIONT_ENABLE_DOCS=1 is not permitted when SYMBIONT_ENV=production; \
+                 refusing to mount Swagger UI"
+            );
+            false
+        } else {
+            enable_docs
+        };
 
         // Add stateful routes if we have a runtime provider
         if let Some(provider) = &self.runtime_provider {
@@ -449,6 +467,25 @@ impl HttpApiServer {
                 .route("/ws/chat", get(super::ws_handler::ws_chat_handler))
                 .with_state(coordinator_state.clone());
             router = router.merge(ws_router);
+        }
+
+        // Mount Swagger UI + OpenAPI spec only if explicitly enabled and not
+        // in production. The routes go behind the bearer auth_middleware so
+        // an accidentally-set flag in staging still requires a valid token
+        // to explore the spec.
+        if docs_enabled {
+            use super::middleware::auth_middleware;
+            use axum::middleware;
+
+            let docs_router: Router = Router::new()
+                .merge(
+                    SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()),
+                )
+                .layer(middleware::from_fn(auth_middleware));
+            router = router.merge(docs_router);
+            tracing::warn!(
+                "Swagger UI mounted at /swagger-ui behind auth_middleware (SYMBIONT_ENABLE_DOCS=1)"
+            );
         }
 
         // Conditionally serve AGENTS.md at well-known paths (auth-gated, no provider state needed)

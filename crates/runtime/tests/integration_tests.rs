@@ -228,6 +228,7 @@ async fn test_basic_configurations() {
         resource_reservation_percentage: 10.0,
         monitoring_interval: Duration::from_secs(30),
         policy_enforcement_config: Default::default(),
+        ..Default::default()
     };
 
     let comm_config = CommunicationConfig {

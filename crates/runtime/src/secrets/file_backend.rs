@@ -117,6 +117,39 @@ impl FileSecretStore {
 
         // Blocking I/O with file lock — run off the async executor
         let file_content = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, SecretError> {
+            // Reject overly-permissive file modes on Unix *before* opening. A
+            // world- or group-readable secrets file (e.g. 0644) is a
+            // configuration bug we want to surface, not paper over. Symlinks
+            // are followed (`std::fs::metadata`) so the permission check
+            // reflects the target file the operator actually reads.
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let meta = std::fs::metadata(&path).map_err(|e| SecretError::IoError {
+                    message: format!("Failed to stat secrets file: {}", e),
+                })?;
+                if !meta.is_file() {
+                    return Err(SecretError::ConfigurationError {
+                        message: format!("Secrets path is not a regular file: {}", path.display()),
+                    });
+                }
+                let mode = meta.permissions().mode() & 0o777;
+                // Any permission for group or other means another user can read
+                // the encrypted (or plaintext) secrets file.
+                if mode & 0o077 != 0 {
+                    return Err(SecretError::ConfigurationError {
+                        message: format!(
+                            "Secrets file {} has insecure mode {:o}; \
+                             expected 0600 (owner read/write only). \
+                             Run: chmod 600 {}",
+                            path.display(),
+                            mode,
+                            path.display()
+                        ),
+                    });
+                }
+            }
+
             let file = std::fs::File::open(&path).map_err(|e| SecretError::IoError {
                 message: format!("Failed to open secrets file: {}", e),
             })?;

@@ -79,13 +79,14 @@ impl NativeSchemaPinClient {
             });
         }
 
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(10))
-            .redirect(reqwest::redirect::Policy::limited(3))
-            .build()
+        // Use the SSRF-safe factory: custom DNS resolver refuses to return
+        // private/loopback IPs, and redirects are disabled so a trusted
+        // origin cannot bounce us to `http://10.0.0.1/` after the lexical
+        // check above.
+        let client = crate::net_guard::build_ssrf_safe_client(std::time::Duration::from_secs(10))
             .map_err(|e| SchemaPinError::IoError {
-                reason: format!("Failed to build HTTP client: {}", e),
-            })?;
+            reason: format!("Failed to build HTTP client: {}", e),
+        })?;
 
         let response =
             client

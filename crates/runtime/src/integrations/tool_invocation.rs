@@ -72,11 +72,14 @@ impl EnforcementPolicy {
     /// guard pattern — production must not silently accept unverified
     /// tools.
     pub fn enforce_production_guard(&self) -> Result<(), String> {
-        if matches!(self, EnforcementPolicy::Strict | EnforcementPolicy::Permissive) {
+        if matches!(
+            self,
+            EnforcementPolicy::Strict | EnforcementPolicy::Permissive
+        ) {
             return Ok(());
         }
-        let env = std::env::var("SYMBIONT_ENV").unwrap_or_default();
-        if !env.eq_ignore_ascii_case("production") {
+        let is_prod = crate::env::is_production().map_err(|e| e.to_string())?;
+        if !is_prod {
             return Ok(());
         }
         let allow = std::env::var("SYMBIONT_ALLOW_TOOL_ENFORCEMENT_BYPASS")

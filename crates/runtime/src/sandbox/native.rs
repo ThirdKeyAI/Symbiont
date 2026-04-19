@@ -98,6 +98,44 @@ impl NativeConfig {
             );
         }
 
+        // Reject working directories that resolve to, or sit beneath, sensitive
+        // host roots. Since the sandbox provides no isolation, a careless
+        // working_directory of `/etc` or `/root` hands the executed code direct
+        // write access to those paths. The list is conservative — callers that
+        // legitimately need to run under one of these roots should normalise
+        // the path themselves and opt in deliberately.
+        //
+        // This check uses lexical prefixes; it is intentionally paired with
+        // the canonicalisation performed in `NativeRunner::new` which resolves
+        // symlinks before re-checking.
+        const BLOCKED_WORKDIR_ROOTS: &[&str] = &[
+            "/", // bare root — also caught by prefix loop below but explicit
+            "/boot",
+            "/etc",
+            "/lib",
+            "/lib64",
+            "/proc",
+            "/root",
+            "/sbin",
+            "/sys",
+            "/usr/bin",
+            "/usr/sbin",
+            "/var/lib/docker",
+            "/var/lib/kubelet",
+            "/var/run",
+        ];
+        let wd = self.working_directory.as_path();
+        for blocked in BLOCKED_WORKDIR_ROOTS {
+            let bp = std::path::Path::new(blocked);
+            if wd == bp || wd.starts_with(bp) {
+                anyhow::bail!(
+                    "Working directory '{}' is within blocked host path '{}'",
+                    wd.display(),
+                    blocked
+                );
+            }
+        }
+
         Ok(())
     }
 
@@ -148,14 +186,17 @@ impl NativeRunner {
              Use Docker, gVisor, Firecracker, or E2B instead."
         );
 
-        // Runtime guard: hard-block in production — no override possible
-        if let Ok(env) = std::env::var("SYMBIONT_ENV") {
-            if env.eq_ignore_ascii_case("production") {
-                anyhow::bail!(
-                    "SECURITY: Native execution is unconditionally disabled in production. \
-                     Use a proper sandbox (Docker, gVisor, Firecracker, or E2B) instead."
-                );
-            }
+        // Runtime guard: hard-block in production — no override possible.
+        // `crate::env::is_production` uses the strict parser so aliases like
+        // `prod` are also caught, and an unparseable SYMBIONT_ENV is treated
+        // as an error (we bail rather than silently fall through).
+        let is_prod = crate::env::is_production()
+            .map_err(|e| anyhow::anyhow!("SYMBIONT_ENV parse failed: {e}"))?;
+        if is_prod {
+            anyhow::bail!(
+                "SECURITY: Native execution is unconditionally disabled in production. \
+                 Use a proper sandbox (Docker or E2B) instead."
+            );
         }
 
         // Always log a prominent warning when native execution is initialized
@@ -173,7 +214,8 @@ impl NativeRunner {
         // Warn about shell executables in the allow list
         config.warn_on_shell_executables();
 
-        // Ensure working directory exists
+        // Ensure working directory exists. Create *before* canonicalising so we
+        // can create parents that don't yet exist.
         if !config.working_directory.exists() {
             tracing::info!(
                 "Creating working directory: {}",
@@ -181,6 +223,38 @@ impl NativeRunner {
             );
             std::fs::create_dir_all(&config.working_directory)?;
         }
+
+        // Canonicalise the working directory and re-validate against the
+        // lexical blocklist. This catches symlink escapes where e.g.
+        // `/var/data/agent` is a symlink to `/etc` — the lexical check in
+        // `validate()` alone would miss that.
+        let canonical = std::fs::canonicalize(&config.working_directory).map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to canonicalize working directory '{}': {}",
+                config.working_directory.display(),
+                e
+            )
+        })?;
+
+        // Re-use the same blocklist as validate() by constructing a temporary
+        // NativeConfig whose working_directory is the canonical path.
+        let canonical_check = NativeConfig {
+            working_directory: canonical.clone(),
+            ..config.clone()
+        };
+        canonical_check.validate().map_err(|e| {
+            anyhow::anyhow!(
+                "Working directory '{}' canonicalises to '{}' which fails validation: {}",
+                config.working_directory.display(),
+                canonical.display(),
+                e
+            )
+        })?;
+
+        // Swap the config's working_directory to the canonical path so
+        // subsequent operations don't re-traverse symlinks.
+        let mut config = config;
+        config.working_directory = canonical;
 
         Ok(Self { config })
     }

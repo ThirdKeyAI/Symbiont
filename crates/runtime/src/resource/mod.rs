@@ -77,6 +77,32 @@ pub struct ResourceManagerConfig {
     pub auto_scaling_enabled: bool,
     pub resource_reservation_percentage: f32,
     pub policy_enforcement_config: ResourceAccessConfig,
+    /// Action taken when an agent breaches its allocated resource limits.
+    ///
+    /// Defaults to [`ViolationAction::Throttle`] so a single noisy agent is
+    /// backed off rather than killed outright; operators who prefer fail-fast
+    /// semantics can swap in [`ViolationAction::Kill`]. `LogOnly` preserves
+    /// the pre-enforcement behaviour (emit a monitoring event, do nothing)
+    /// for debugging.
+    pub violation_action: ViolationAction,
+    /// Number of consecutive sampling intervals an agent must breach limits
+    /// before the manager escalates to [`ViolationAction::Kill`]. Only
+    /// consulted when `violation_action == Throttle`.
+    pub kill_after_sustained_violations: u32,
+}
+
+/// Action the resource manager takes when an agent exceeds its allocation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViolationAction {
+    /// Emit a `LimitViolation` monitoring event and do nothing else. Useful
+    /// for early rollouts where the operator wants visibility without the
+    /// risk of killing misbehaving-but-important agents.
+    LogOnly,
+    /// Throttle the agent (emit `ThrottleRequested`) and escalate to `Kill`
+    /// after `kill_after_sustained_violations` consecutive breaches.
+    Throttle,
+    /// Immediately emit `KillRequested` on any breach.
+    Kill,
 }
 
 impl Default for ResourceManagerConfig {
@@ -91,6 +117,8 @@ impl Default for ResourceManagerConfig {
             auto_scaling_enabled: false,
             resource_reservation_percentage: 0.1, // 10% reserved
             policy_enforcement_config: ResourceAccessConfig::default(),
+            violation_action: ViolationAction::Throttle,
+            kill_after_sustained_violations: 5,
         }
     }
 }
@@ -105,6 +133,10 @@ pub struct DefaultResourceManager {
     shutdown_notify: Arc<Notify>,
     is_running: Arc<RwLock<bool>>,
     policy_enforcement: Arc<dyn PolicyEnforcementPoint>,
+    /// Per-agent counter of consecutive sampling intervals during which
+    /// resource usage exceeded the agent's allocation. Cleared on the first
+    /// sample that comes back within limits.
+    consecutive_violations: Arc<RwLock<HashMap<AgentId, u32>>>,
 }
 
 impl DefaultResourceManager {
@@ -135,6 +167,7 @@ impl DefaultResourceManager {
             shutdown_notify,
             is_running,
             policy_enforcement,
+            consecutive_violations: Arc::new(RwLock::new(HashMap::new())),
         };
 
         // Start background tasks
@@ -181,6 +214,9 @@ impl DefaultResourceManager {
         let is_running = self.is_running.clone();
         let monitoring_interval = self.config.monitoring_interval;
         let enforcement_enabled = self.config.enforcement_enabled;
+        let violation_action = self.config.violation_action;
+        let kill_after_sustained = self.config.kill_after_sustained_violations;
+        let consecutive_violations = self.consecutive_violations.clone();
 
         tokio::spawn(async move {
             let mut interval = interval(monitoring_interval);
@@ -193,7 +229,15 @@ impl DefaultResourceManager {
                         }
 
                         if enforcement_enabled {
-                            Self::enforce_resource_limits(&usage_tracker, &allocations, &monitoring_sender).await;
+                            Self::enforce_resource_limits(
+                                &usage_tracker,
+                                &allocations,
+                                &monitoring_sender,
+                                violation_action,
+                                kill_after_sustained,
+                                &consecutive_violations,
+                            )
+                            .await;
                         }
                     }
                     _ = shutdown_notify.notified() => {
@@ -261,43 +305,148 @@ impl DefaultResourceManager {
                     violations
                 );
             }
+            MonitoringEvent::ThrottleRequested {
+                agent_id,
+                consecutive_violations,
+                violations,
+            } => {
+                // Throttle enforcement belongs in the sandbox/orchestrator
+                // layer (e.g. tightening the Docker CPU quota). At the
+                // resource-manager layer we surface the signal for observers.
+                tracing::warn!(
+                    %agent_id,
+                    consecutive_violations,
+                    ?violations,
+                    "ThrottleRequested event emitted — orchestrator should slow this agent"
+                );
+            }
+            MonitoringEvent::KillRequested {
+                agent_id,
+                violations,
+                reason,
+            } => {
+                // Same story — actual termination is the orchestrator's
+                // responsibility. Log loudly so operators see the escalation
+                // regardless of whether a consumer is listening.
+                tracing::error!(
+                    %agent_id,
+                    ?violations,
+                    reason,
+                    "KillRequested event emitted — orchestrator should terminate this agent"
+                );
+            }
         }
     }
 
-    /// Enforce resource limits
+    /// Enforce resource limits.
+    ///
+    /// For each agent with a known allocation, compares the most recent usage
+    /// sample against the allocation's ceiling and dispatches the configured
+    /// [`ViolationAction`]:
+    ///
+    /// - `LogOnly`: always emits a `LimitViolation` event for visibility.
+    /// - `Throttle`: emits `ThrottleRequested` on breach and escalates to
+    ///   `KillRequested` after `kill_after_sustained_violations` consecutive
+    ///   breaches. Sampling intervals with no breach reset the counter.
+    /// - `Kill`: emits `KillRequested` on any breach.
+    ///
+    /// The resource manager does not own the agent process handle, so actual
+    /// enforcement (sending SIGTERM, updating cgroup quotas, etc.) is the
+    /// responsibility of the orchestrator that consumes these monitoring
+    /// events. That separation keeps the manager pluggable across Docker,
+    /// E2B, and native-host backends.
     async fn enforce_resource_limits(
         usage_tracker: &Arc<RwLock<HashMap<AgentId, ResourceUsage>>>,
         allocations: &Arc<RwLock<HashMap<AgentId, ResourceAllocation>>>,
         monitoring_sender: &mpsc::UnboundedSender<MonitoringEvent>,
+        violation_action: ViolationAction,
+        kill_after_sustained: u32,
+        consecutive_violations: &Arc<RwLock<HashMap<AgentId, u32>>>,
     ) {
-        let usage_map = usage_tracker.read();
-        let allocations_map = allocations.read();
+        // Snapshot the read-locked maps; we release the locks before sending
+        // events so a slow receiver can't stall the enforcement loop.
+        let samples: Vec<(AgentId, ResourceUsage, ResourceAllocation)> = {
+            let usage_map = usage_tracker.read();
+            let allocations_map = allocations.read();
+            usage_map
+                .iter()
+                .filter_map(|(agent_id, usage)| {
+                    allocations_map
+                        .get(agent_id)
+                        .map(|alloc| (*agent_id, usage.clone(), alloc.clone()))
+                })
+                .collect()
+        };
 
-        for (agent_id, usage) in usage_map.iter() {
-            if let Some(allocation) = allocations_map.get(agent_id) {
-                // Create limits from allocation for violation checking
-                let limits = ResourceLimits {
-                    memory_mb: allocation.allocated_memory / (1024 * 1024),
-                    cpu_cores: allocation.allocated_cpu_cores,
-                    disk_io_mbps: allocation.allocated_disk_io / (1024 * 1024),
-                    network_io_mbps: allocation.allocated_network_io / (1024 * 1024),
-                    execution_timeout: Duration::from_secs(3600),
-                    idle_timeout: Duration::from_secs(300),
-                };
-                let violations = Self::check_resource_violations(usage, &limits);
+        for (agent_id, usage, allocation) in samples {
+            let limits = ResourceLimits {
+                memory_mb: allocation.allocated_memory / (1024 * 1024),
+                cpu_cores: allocation.allocated_cpu_cores,
+                disk_io_mbps: allocation.allocated_disk_io / (1024 * 1024),
+                network_io_mbps: allocation.allocated_network_io / (1024 * 1024),
+                execution_timeout: Duration::from_secs(3600),
+                idle_timeout: Duration::from_secs(300),
+            };
+            let violations = Self::check_resource_violations(&usage, &limits);
 
-                if !violations.is_empty() {
-                    tracing::warn!(
-                        "Agent {} violated resource limits: {:?}",
+            if violations.is_empty() {
+                // Agent came back within limits; reset its consecutive-violation
+                // counter so a long-quiet period doesn't linger as "almost
+                // killed".
+                consecutive_violations.write().remove(&agent_id);
+                continue;
+            }
+
+            // Bump the consecutive-violation counter under a write lock, then
+            // emit the appropriate monitoring event after releasing the lock.
+            let new_count = {
+                let mut counters = consecutive_violations.write();
+                let entry = counters.entry(agent_id).or_insert(0);
+                *entry += 1;
+                *entry
+            };
+
+            tracing::warn!(
+                %agent_id,
+                violations = ?violations,
+                consecutive = new_count,
+                action = ?violation_action,
+                "Agent violated resource limits"
+            );
+
+            // Always emit the raw violation event so dashboards keep working.
+            let _ = monitoring_sender.send(MonitoringEvent::LimitViolation {
+                agent_id,
+                violations: violations.clone(),
+            });
+
+            match violation_action {
+                ViolationAction::LogOnly => { /* nothing further */ }
+                ViolationAction::Kill => {
+                    let _ = monitoring_sender.send(MonitoringEvent::KillRequested {
                         agent_id,
-                        violations
-                    );
-
-                    // Send violation event (could trigger throttling, suspension, etc.)
-                    let _ = monitoring_sender.send(MonitoringEvent::LimitViolation {
-                        agent_id: *agent_id,
-                        violations,
+                        violations: violations.clone(),
+                        reason: "ViolationAction::Kill configured",
                     });
+                }
+                ViolationAction::Throttle => {
+                    if new_count >= kill_after_sustained {
+                        let _ = monitoring_sender.send(MonitoringEvent::KillRequested {
+                            agent_id,
+                            violations: violations.clone(),
+                            reason: "sustained limit violations exceeded threshold",
+                        });
+                        // Reset the counter so we don't emit repeated kills for
+                        // the same escalation; the orchestrator will either
+                        // act on this event or the usage will recover.
+                        consecutive_violations.write().remove(&agent_id);
+                    } else {
+                        let _ = monitoring_sender.send(MonitoringEvent::ThrottleRequested {
+                            agent_id,
+                            consecutive_violations: new_count,
+                            violations,
+                        });
+                    }
                 }
             }
         }
@@ -782,6 +931,24 @@ enum MonitoringEvent {
     LimitViolation {
         agent_id: AgentId,
         violations: Vec<ResourceViolation>,
+    },
+    /// Request the orchestrator (or sandbox backend) to throttle this agent:
+    /// reduce its CPU quota, pause it briefly, or otherwise slow it down.
+    /// The resource manager itself does not have the process handle, so
+    /// consumers of this event own the enforcement mechanism.
+    ThrottleRequested {
+        agent_id: AgentId,
+        consecutive_violations: u32,
+        violations: Vec<ResourceViolation>,
+    },
+    /// Request the orchestrator to kill this agent outright. Emitted either
+    /// immediately (`ViolationAction::Kill`) or after
+    /// `kill_after_sustained_violations` consecutive breaches under
+    /// `ViolationAction::Throttle`.
+    KillRequested {
+        agent_id: AgentId,
+        violations: Vec<ResourceViolation>,
+        reason: &'static str,
     },
 }
 

@@ -7,13 +7,14 @@ pub mod communication;
 pub mod config;
 pub mod context;
 pub mod crypto;
+pub mod env;
 pub mod error_handler;
 pub mod integrations;
 pub mod lifecycle;
 pub mod logging;
 pub mod metrics;
-pub mod net_guard;
 pub mod models;
+pub mod net_guard;
 pub mod rag;
 pub mod reasoning;
 pub mod resource;
@@ -359,9 +360,7 @@ impl AgentRuntime {
     ) -> Result<(), RuntimeError> {
         let Some(verifier) = self.agentpin_verifier.as_ref() else {
             if jwt.is_some() {
-                tracing::warn!(
-                    "AgentPin JWT supplied but verifier is disabled on this runtime"
-                );
+                tracing::warn!("AgentPin JWT supplied but verifier is disabled on this runtime");
             }
             return Ok(());
         };
@@ -1477,9 +1476,7 @@ impl RuntimeApiProvider for AgentRuntime {
         const DEFAULT_TTL_SECS: u64 = 300;
         let requested_secs = request.ttl_seconds.unwrap_or(DEFAULT_TTL_SECS);
         let configured_secs = self.config.read().await.communication.message_ttl.as_secs();
-        let ttl_secs = requested_secs
-            .min(configured_secs)
-            .clamp(1, MAX_TTL_SECS);
+        let ttl_secs = requested_secs.min(configured_secs).clamp(1, MAX_TTL_SECS);
         let ttl = std::time::Duration::from_secs(ttl_secs);
 
         // Decide message type: topic = publish, otherwise direct

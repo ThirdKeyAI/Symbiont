@@ -8,6 +8,13 @@ use std::path::PathBuf;
 use std::time::Duration;
 use tree_sitter::{Language, Node, Parser, Tree};
 
+/// Maximum AST traversal depth. The Symbi DSL produces shallow trees in
+/// practice (top-level block → attribute list → value); 256 gives generous
+/// headroom for future extensions while still bounding stack usage for any
+/// hand-crafted adversarial input. Exceeding this depth aborts the traversal
+/// and emits a `tracing::warn!`.
+const MAX_AST_DEPTH: usize = 256;
+
 /// Sandbox tier enumeration representing different isolation levels
 /// This mirrors the SandboxTier enum in the runtime crate to avoid circular dependencies
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -166,7 +173,20 @@ pub fn extract_metadata(tree: &Tree, source: &str) -> HashMap<String, String> {
     // Walk through the tree to find metadata blocks
     let _cursor = root_node.walk();
 
-    fn traverse_for_metadata(node: Node, source: &str, metadata: &mut HashMap<String, String>) {
+    fn traverse_for_metadata(
+        node: Node,
+        source: &str,
+        metadata: &mut HashMap<String, String>,
+        depth: usize,
+    ) {
+        if depth > MAX_AST_DEPTH {
+            tracing::warn!(
+                "DSL metadata traversal aborted: depth {} exceeds MAX_AST_DEPTH {}",
+                depth,
+                MAX_AST_DEPTH
+            );
+            return;
+        }
         if node.kind() == "metadata_block" {
             // Extract metadata key-value pairs
             for i in 0..node.child_count() {
@@ -188,12 +208,12 @@ pub fn extract_metadata(tree: &Tree, source: &str) -> HashMap<String, String> {
         // Recursively traverse children
         for i in 0..node.child_count() {
             if let Some(child) = node.child(i) {
-                traverse_for_metadata(child, source, metadata);
+                traverse_for_metadata(child, source, metadata, depth + 1);
             }
         }
     }
 
-    traverse_for_metadata(root_node, source, &mut metadata);
+    traverse_for_metadata(root_node, source, &mut metadata, 0);
     metadata
 }
 
@@ -206,7 +226,14 @@ pub fn extract_with_blocks(tree: &Tree, source: &str) -> Result<Vec<WithBlock>, 
         node: Node,
         source: &str,
         with_blocks: &mut Vec<WithBlock>,
+        depth: usize,
     ) -> Result<(), String> {
+        if depth > MAX_AST_DEPTH {
+            return Err(format!(
+                "DSL AST traversal depth exceeded MAX_AST_DEPTH ({})",
+                MAX_AST_DEPTH
+            ));
+        }
         if node.kind() == "with_block" {
             let mut with_block = WithBlock::new();
 
@@ -271,14 +298,14 @@ pub fn extract_with_blocks(tree: &Tree, source: &str) -> Result<Vec<WithBlock>, 
         // Recursively traverse children
         for i in 0..node.child_count() {
             if let Some(child) = node.child(i) {
-                traverse_for_with_blocks(child, source, with_blocks)?;
+                traverse_for_with_blocks(child, source, with_blocks, depth + 1)?;
             }
         }
 
         Ok(())
     }
 
-    traverse_for_with_blocks(root_node, source, &mut with_blocks)?;
+    traverse_for_with_blocks(root_node, source, &mut with_blocks, 0)?;
     Ok(with_blocks)
 }
 
@@ -337,7 +364,14 @@ pub fn extract_schedule_definitions(
         node: Node,
         source: &str,
         schedules: &mut Vec<ScheduleDefinition>,
+        depth: usize,
     ) -> Result<(), String> {
+        if depth > MAX_AST_DEPTH {
+            return Err(format!(
+                "DSL AST traversal depth exceeded MAX_AST_DEPTH ({})",
+                MAX_AST_DEPTH
+            ));
+        }
         if node.kind() == "schedule_definition" {
             // Child 0 = "schedule" keyword, Child 1 = identifier, then "{", properties, "}"
             let name_node = node
@@ -399,14 +433,14 @@ pub fn extract_schedule_definitions(
         // Recurse into children.
         for i in 0..node.child_count() {
             if let Some(child) = node.child(i) {
-                traverse_for_schedules(child, source, schedules)?;
+                traverse_for_schedules(child, source, schedules, depth + 1)?;
             }
         }
 
         Ok(())
     }
 
-    traverse_for_schedules(root_node, source, &mut schedules)?;
+    traverse_for_schedules(root_node, source, &mut schedules, 0)?;
     Ok(schedules)
 }
 
@@ -477,7 +511,14 @@ pub fn extract_memory_definitions(
         node: Node,
         source: &str,
         memories: &mut Vec<MemoryDefinition>,
+        depth: usize,
     ) -> Result<(), String> {
+        if depth > MAX_AST_DEPTH {
+            return Err(format!(
+                "DSL AST traversal depth exceeded MAX_AST_DEPTH ({})",
+                MAX_AST_DEPTH
+            ));
+        }
         if node.kind() == "memory_definition" {
             // Child 0 = "memory" keyword, Child 1 = identifier, then "{", properties, "}"
             let name_node = node
@@ -587,14 +628,14 @@ pub fn extract_memory_definitions(
         // Recurse into children.
         for i in 0..node.child_count() {
             if let Some(child) = node.child(i) {
-                traverse_for_memories(child, source, memories)?;
+                traverse_for_memories(child, source, memories, depth + 1)?;
             }
         }
 
         Ok(())
     }
 
-    traverse_for_memories(root_node, source, &mut memories)?;
+    traverse_for_memories(root_node, source, &mut memories, 0)?;
     Ok(memories)
 }
 
@@ -763,7 +804,14 @@ pub fn extract_webhook_definitions(
         node: Node,
         source: &str,
         webhooks: &mut Vec<WebhookDefinition>,
+        depth: usize,
     ) -> Result<(), String> {
+        if depth > MAX_AST_DEPTH {
+            return Err(format!(
+                "DSL AST traversal depth exceeded MAX_AST_DEPTH ({})",
+                MAX_AST_DEPTH
+            ));
+        }
         if node.kind() == "webhook_definition" {
             // Child 0 = "webhook" keyword, Child 1 = identifier, then "{", properties, "}"
             let name_node = node
@@ -832,14 +880,14 @@ pub fn extract_webhook_definitions(
         // Recurse into children.
         for i in 0..node.child_count() {
             if let Some(child) = node.child(i) {
-                traverse_for_webhooks(child, source, webhooks)?;
+                traverse_for_webhooks(child, source, webhooks, depth + 1)?;
             }
         }
 
         Ok(())
     }
 
-    traverse_for_webhooks(root_node, source, &mut webhooks)?;
+    traverse_for_webhooks(root_node, source, &mut webhooks, 0)?;
     Ok(webhooks)
 }
 
@@ -926,7 +974,14 @@ pub fn extract_channel_definitions(
         node: Node,
         source: &str,
         channels: &mut Vec<ChannelDefinition>,
+        depth: usize,
     ) -> Result<(), String> {
+        if depth > MAX_AST_DEPTH {
+            return Err(format!(
+                "DSL AST traversal depth exceeded MAX_AST_DEPTH ({})",
+                MAX_AST_DEPTH
+            ));
+        }
         if node.kind() == "channel_definition" {
             let name_node = node
                 .child(1)
@@ -1031,14 +1086,14 @@ pub fn extract_channel_definitions(
         // Recurse into children.
         for i in 0..node.child_count() {
             if let Some(child) = node.child(i) {
-                traverse_for_channels(child, source, channels)?;
+                traverse_for_channels(child, source, channels, depth + 1)?;
             }
         }
 
         Ok(())
     }
 
-    traverse_for_channels(root_node, source, &mut channels)?;
+    traverse_for_channels(root_node, source, &mut channels, 0)?;
     Ok(channels)
 }
 

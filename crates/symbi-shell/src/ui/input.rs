@@ -39,7 +39,9 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
 
         // Scroll window anchored on the selected index: the highlighted
         // candidate is always in view.
-        let selected = app.completion_index.min(app.completion_candidates.len() - 1);
+        let selected = app
+            .completion_index
+            .min(app.completion_candidates.len() - 1);
         let first_visible = if selected < visible {
             0
         } else {
@@ -66,7 +68,12 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
             .iter()
             .skip(first_visible)
             .take(visible)
-            .map(|c| c.category.as_deref().map(|s| s.chars().count() + 2).unwrap_or(0))
+            .map(|c| {
+                c.category
+                    .as_deref()
+                    .map(|s| s.chars().count() + 2)
+                    .unwrap_or(0)
+            })
             .max()
             .unwrap_or(0);
 
@@ -80,7 +87,7 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
         // Inner width (content) = popup_width - 2 (borders)
         let inner_width = popup_width.saturating_sub(2) as usize;
         let gap = 2usize; // spaces between columns
-        // Budget: name + gap + (category + gap if any) + summary
+                          // Budget: name + gap + (category + gap if any) + summary
         let summary_width = inner_width
             .saturating_sub(max_name)
             .saturating_sub(gap)

@@ -16,6 +16,11 @@ use crate::slack_relay::SlackApprovalRelay;
 
 type HmacSha256 = Hmac<Sha256>;
 
+/// Maximum allowed age (in seconds) between the Slack request timestamp and
+/// the current clock before the request is rejected. Mirrors Slack's own
+/// guidance of five minutes for replay protection.
+const MAX_TIMESTAMP_AGE_SECS: i64 = 300;
+
 /// Application state for the Axum HTTP server.
 #[derive(Clone)]
 struct AppState {
@@ -48,7 +53,12 @@ async fn handle_interaction(
 
     let body_str = String::from_utf8_lossy(&body);
 
-    if !verify_signature(state.relay.signing_secret(), timestamp, &body_str, signature) {
+    if !verify_signature(
+        state.relay.signing_secret(),
+        timestamp,
+        &body_str,
+        signature,
+    ) {
         tracing::warn!("Invalid Slack signature");
         return StatusCode::UNAUTHORIZED;
     }
@@ -99,7 +109,31 @@ async fn handle_interaction(
 }
 
 /// Verify a Slack request signature using HMAC-SHA256.
+///
+/// Rejects requests whose `X-Slack-Request-Timestamp` is more than
+/// `MAX_TIMESTAMP_AGE_SECS` seconds away from the current wall clock. Without
+/// the freshness check a captured payload could be replayed at any point in
+/// the future.
 fn verify_signature(signing_secret: &str, timestamp: &str, body: &str, expected: &str) -> bool {
+    // Reject missing or unparseable timestamps.
+    let ts: i64 = match timestamp.parse() {
+        Ok(t) => t,
+        Err(_) => {
+            tracing::warn!("Slack request has missing/invalid X-Slack-Request-Timestamp");
+            return false;
+        }
+    };
+    let now = chrono::Utc::now().timestamp();
+    if (now - ts).abs() > MAX_TIMESTAMP_AGE_SECS {
+        tracing::warn!(
+            "Slack request timestamp {} outside ±{}s window (now={})",
+            ts,
+            MAX_TIMESTAMP_AGE_SECS,
+            now
+        );
+        return false;
+    }
+
     let sig_basestring = format!("v0:{timestamp}:{body}");
 
     let mut mac = match HmacSha256::new_from_slice(signing_secret.as_bytes()) {
@@ -135,7 +169,8 @@ mod tests {
     #[test]
     fn verify_valid_signature() {
         let secret = "8f742231b10e8888abcd99yez56789d0";
-        let timestamp = "1531420618";
+        // Use the current timestamp so the freshness check passes.
+        let timestamp = chrono::Utc::now().timestamp().to_string();
         let body = "token=xyzz0WbapA4vBCDEFasx0YGkhA&team_id=T1DC2JH3J";
 
         // Compute the expected signature
@@ -145,11 +180,13 @@ mod tests {
         let result = mac.finalize();
         let expected = format!("v0={}", hex::encode(result.into_bytes()));
 
-        assert!(verify_signature(secret, timestamp, body, &expected));
+        assert!(verify_signature(secret, &timestamp, body, &expected));
     }
 
     #[test]
     fn verify_invalid_signature() {
+        // Stale timestamp "123" is also rejected by the freshness check,
+        // which is stronger than just rejecting the bad HMAC.
         assert!(!verify_signature("secret", "123", "body", "v0=wrong"));
     }
 
@@ -157,5 +194,24 @@ mod tests {
     fn verify_empty_secret() {
         // Empty secret should still work (not panic)
         assert!(!verify_signature("", "123", "body", "v0=bad"));
+    }
+
+    #[test]
+    fn verify_rejects_stale_timestamp() {
+        let secret = "8f742231b10e8888abcd99yez56789d0";
+        // Timestamp from 2018 — well outside the freshness window.
+        let stale_ts = "1531420618";
+        let body = "token=xyz";
+        let sig_basestring = format!("v0:{stale_ts}:{body}");
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(sig_basestring.as_bytes());
+        let expected = format!("v0={}", hex::encode(mac.finalize().into_bytes()));
+        // Even with a valid HMAC, the request must be rejected as stale.
+        assert!(!verify_signature(secret, stale_ts, body, &expected));
+    }
+
+    #[test]
+    fn verify_rejects_unparseable_timestamp() {
+        assert!(!verify_signature("secret", "not-a-number", "body", "v0=x"));
     }
 }

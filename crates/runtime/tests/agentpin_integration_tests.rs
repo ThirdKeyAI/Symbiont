@@ -32,10 +32,7 @@ fn replace_verifier(
 async fn agentpin_disabled_accepts_without_jwt() {
     let runtime = make_runtime().await;
     let agent = AgentId::new();
-    assert!(runtime
-        .verify_agentpin_for_agent(None, agent)
-        .await
-        .is_ok());
+    assert!(runtime.verify_agentpin_for_agent(None, agent).await.is_ok());
 }
 
 #[tokio::test]
@@ -52,10 +49,7 @@ async fn agentpin_disabled_accepts_jwt_but_logs_warning() {
 #[tokio::test]
 async fn agentpin_enabled_rejects_missing_jwt() {
     let mut runtime = make_runtime().await;
-    replace_verifier(
-        &mut runtime,
-        Arc::new(MockAgentPinVerifier::new_success()),
-    );
+    replace_verifier(&mut runtime, Arc::new(MockAgentPinVerifier::new_success()));
     let agent = AgentId::new();
     let err = runtime
         .verify_agentpin_for_agent(None, agent)
@@ -67,10 +61,7 @@ async fn agentpin_enabled_rejects_missing_jwt() {
 #[tokio::test]
 async fn agentpin_enabled_rejects_when_verifier_fails() {
     let mut runtime = make_runtime().await;
-    replace_verifier(
-        &mut runtime,
-        Arc::new(MockAgentPinVerifier::new_failure()),
-    );
+    replace_verifier(&mut runtime, Arc::new(MockAgentPinVerifier::new_failure()));
     let agent = AgentId::new();
     let err = runtime
         .verify_agentpin_for_agent(Some("any.jwt"), agent)

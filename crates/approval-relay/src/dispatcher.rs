@@ -292,6 +292,10 @@ mod tests {
 
         let content = tokio::fs::read_to_string(&audit_path).await.unwrap();
         let lines: Vec<&str> = content.lines().collect();
-        assert!(lines.len() >= 2, "Expected at least 2 audit lines, got {}", lines.len());
+        assert!(
+            lines.len() >= 2,
+            "Expected at least 2 audit lines, got {}",
+            lines.len()
+        );
     }
 }

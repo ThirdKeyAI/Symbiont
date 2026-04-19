@@ -83,6 +83,7 @@ hmac = "0.12"
 hex = "0.4"
 argon2 = "0.5"
 subtle = "2.5"
+zeroize = { version = "1.8", features = ["zeroize_derive"] }
 vaultrs = "0.7"
 sysinfo = "0.30"
 rlimit = { version = "0.10", optional = true }

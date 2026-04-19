@@ -957,7 +957,9 @@ async fn resolve_secret_reference(
             .await
             .map_err(|e| RuntimeError::Internal(format!("Secret resolution failed: {}", e)))?;
 
-        Ok(secret.value)
+        // `Secret` has a zeroising `Drop`, so we can't move `value` out.
+        // Clone the String; the original buffer is zeroised on drop.
+        Ok(secret.value.clone())
     } else {
         // Not a secret reference, return as-is
         Ok(reference.to_string())

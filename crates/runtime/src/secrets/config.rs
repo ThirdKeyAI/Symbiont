@@ -165,10 +165,86 @@ impl std::fmt::Debug for VaultAuthConfig {
     }
 }
 
+// Display must never print credential-bearing fields, so mirror the Debug
+// behaviour. Without an explicit impl, some logging crates fall back to
+// auto-generated Display via `Debug`, but some call sites format enums with
+// `{}` expecting a short human label; provide one that never leaks.
+impl std::fmt::Display for VaultAuthConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VaultAuthConfig::Token { .. } => write!(f, "VaultAuthConfig::Token(redacted)"),
+            VaultAuthConfig::AppRole { role_id, .. } => {
+                write!(f, "VaultAuthConfig::AppRole(role_id={})", role_id)
+            }
+            VaultAuthConfig::Kubernetes { role, .. } => {
+                write!(f, "VaultAuthConfig::Kubernetes(role={})", role)
+            }
+            VaultAuthConfig::Aws { region, role, .. } => {
+                write!(f, "VaultAuthConfig::Aws(region={}, role={})", region, role)
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod vault_auth_redaction_tests {
+    use super::*;
+
+    #[test]
+    fn debug_redacts_token() {
+        let cfg = VaultAuthConfig::Token {
+            token: "s.VERY_SECRET_TOKEN_1234".to_string(),
+        };
+        let rendered = format!("{:?}", cfg);
+        assert!(!rendered.contains("VERY_SECRET_TOKEN"));
+        assert!(rendered.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn debug_redacts_approle_secret_id() {
+        let cfg = VaultAuthConfig::AppRole {
+            role_id: "pub-role".to_string(),
+            secret_id: "THIS_IS_VERY_SECRET".to_string(),
+            mount_path: "approle".to_string(),
+        };
+        let rendered = format!("{:?}", cfg);
+        assert!(!rendered.contains("THIS_IS_VERY_SECRET"));
+        assert!(rendered.contains("pub-role"));
+        assert!(rendered.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn display_does_not_leak_token() {
+        let cfg = VaultAuthConfig::Token {
+            token: "s.DISPLAY_SHOULD_NOT_PRINT_THIS".to_string(),
+        };
+        let rendered = format!("{}", cfg);
+        assert!(!rendered.contains("DISPLAY_SHOULD_NOT_PRINT_THIS"));
+    }
+
+    #[test]
+    fn display_does_not_leak_approle_secret() {
+        let cfg = VaultAuthConfig::AppRole {
+            role_id: "pub-role".to_string(),
+            secret_id: "SECRET_ID_DO_NOT_LEAK".to_string(),
+            mount_path: "approle".to_string(),
+        };
+        let rendered = format!("{}", cfg);
+        assert!(!rendered.contains("SECRET_ID_DO_NOT_LEAK"));
+        assert!(rendered.contains("pub-role"));
+    }
+}
+
 /// Vault TLS configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct VaultTlsConfig {
-    /// Skip TLS certificate verification (insecure)
+    /// **DEPRECATED**. Historically allowed turning off Vault TLS
+    /// verification; now refused unconditionally by the Vault backend.
+    ///
+    /// The field is retained so existing TOML/YAML configs that still
+    /// contain `tls.skip_verify = false` keep parsing; any `true` value is
+    /// rejected at backend initialisation with an instruction to configure
+    /// `ca_cert` instead. A future release will remove the field entirely.
     #[serde(default)]
     pub skip_verify: bool,
     /// Path to CA certificate file

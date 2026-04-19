@@ -47,16 +47,48 @@ impl LlmClient {
     ///
     /// Returns `None` if no API key is found.
     pub fn from_env() -> Option<Self> {
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(120))
-            .build()
-            .ok()?;
+        // LLM providers legitimately redirect (e.g. `/v1` → `/v1/`) and the
+        // LLM hostname comes from env, so we explicitly keep redirect
+        // following within reason — but force DNS through the SSRF-safe
+        // resolver so a malicious DNS response can't point us at an
+        // internal IP for the legitimate hostname.
+        let client = crate::net_guard::customise_ssrf_safe_client(
+            std::time::Duration::from_secs(120),
+            |b| b.redirect(reqwest::redirect::Policy::limited(2)),
+        )
+        .ok()?;
+
+        // Validate a base URL against the SSRF guard before the API key is
+        // ever sent to it. Rejects private IPs, loopback, cloud metadata,
+        // non-http(s) schemes, and obfuscated IPv4 literals.
+        fn validate_base_url(env_var: &str, url: &str) -> bool {
+            if let Err(reason) = crate::net_guard::reject_ssrf_url(url) {
+                tracing::error!(
+                    "Refusing LLM base URL from {}: {} — falling back or disabling provider",
+                    env_var,
+                    reason
+                );
+                return false;
+            }
+            if url.starts_with("http://") {
+                tracing::warn!(
+                    "LLM base URL from {} uses plaintext HTTP ({}); \
+                     API keys will be sent in the clear. Configure HTTPS in production.",
+                    env_var,
+                    url
+                );
+            }
+            true
+        }
 
         if let Ok(api_key) = std::env::var("OPENROUTER_API_KEY") {
             let model = std::env::var("OPENROUTER_MODEL")
                 .unwrap_or_else(|_| "anthropic/claude-sonnet-4".to_string());
             let base_url = std::env::var("OPENROUTER_BASE_URL")
                 .unwrap_or_else(|_| "https://openrouter.ai/api/v1".to_string());
+            if !validate_base_url("OPENROUTER_BASE_URL", &base_url) {
+                return None;
+            }
             tracing::info!(
                 "LLM client initialized: provider=OpenRouter model={}",
                 model
@@ -74,6 +106,9 @@ impl LlmClient {
             let model = std::env::var("CHAT_MODEL").unwrap_or_else(|_| "gpt-4o".to_string());
             let base_url = std::env::var("OPENAI_BASE_URL")
                 .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
+            if !validate_base_url("OPENAI_BASE_URL", &base_url) {
+                return None;
+            }
             tracing::info!("LLM client initialized: provider=OpenAI model={}", model);
             return Some(Self {
                 client,
@@ -89,6 +124,9 @@ impl LlmClient {
                 .unwrap_or_else(|_| "claude-sonnet-4-20250514".to_string());
             let base_url = std::env::var("ANTHROPIC_BASE_URL")
                 .unwrap_or_else(|_| "https://api.anthropic.com/v1".to_string());
+            if !validate_base_url("ANTHROPIC_BASE_URL", &base_url) {
+                return None;
+            }
             tracing::info!("LLM client initialized: provider=Anthropic model={}", model);
             return Some(Self {
                 client,

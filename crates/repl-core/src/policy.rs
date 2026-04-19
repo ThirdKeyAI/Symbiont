@@ -47,7 +47,11 @@ pub fn parse_policy(policy: &str) -> Result<ParsedPolicy> {
         ));
     }
 
-    // Extract policy name from first line
+    // Extract policy name from first line. Prior revisions silently accepted
+    // any non-"policy"-prefixed text as an implicit inline rule, which meant
+    // typos or misplaced content slipped through as policies. Require the
+    // `policy <name>` header explicitly so misconfigurations fail loudly at
+    // parse time.
     let first_line = lines[0];
     let name = if let Some(stripped) = first_line.strip_prefix("policy") {
         let name = stripped.trim();
@@ -58,16 +62,11 @@ pub fn parse_policy(policy: &str) -> Result<ParsedPolicy> {
         }
         name.to_string()
     } else {
-        // If there's no "policy" keyword, treat the entire input as a
-        // single-rule implicit policy (backwards-compatible with simple strings).
-        return Ok(ParsedPolicy {
-            name: "inline".to_string(),
-            rules: vec![PolicyRule {
-                action: "apply".to_string(),
-                target: policy.to_string(),
-                condition: None,
-            }],
-        });
+        return Err(ReplError::PolicyParsing(format!(
+            "Policy text must begin with a 'policy <name>' header; got {:?}. \
+             Inline/implicit policies are no longer accepted.",
+            first_line
+        )));
     };
 
     let mut rules = Vec::new();
@@ -153,12 +152,15 @@ mod tests {
     }
 
     #[test]
-    fn simple_string_becomes_inline_policy() {
-        let result = parse_policy("no_external_calls").unwrap();
-        assert_eq!(result.name, "inline");
-        assert_eq!(result.rules.len(), 1);
-        assert_eq!(result.rules[0].action, "apply");
-        assert_eq!(result.rules[0].target, "no_external_calls");
+    fn simple_string_without_policy_header_errors() {
+        // Implicit inline policies (non-"policy"-prefixed text) are rejected
+        // outright; the prior silent fallback hid configuration typos.
+        let err = parse_policy("no_external_calls").expect_err("must fail");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("must begin with a 'policy <name>' header"),
+            "got {msg}"
+        );
     }
 
     #[test]

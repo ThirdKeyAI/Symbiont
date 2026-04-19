@@ -81,7 +81,12 @@ pub enum SecretError {
     AuditFailed { message: String },
 }
 
-/// A secret value retrieved from a secrets backend
+/// A secret value retrieved from a secrets backend.
+///
+/// The `value` field holds sensitive plaintext. A `Drop` impl zeroises the
+/// buffer when the `Secret` goes out of scope so the plaintext does not
+/// linger in the heap past its useful life (protects against core dumps,
+/// swap, and post-free memory scraping).
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Secret {
     /// The secret key/name
@@ -94,6 +99,13 @@ pub struct Secret {
     pub created_at: Option<String>,
     /// Version of the secret (for versioned backends)
     pub version: Option<String>,
+}
+
+impl Drop for Secret {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+        self.value.zeroize();
+    }
 }
 
 impl Secret {

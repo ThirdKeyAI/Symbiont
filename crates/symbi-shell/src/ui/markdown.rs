@@ -32,10 +32,8 @@ pub fn render(text: &str) -> Vec<Line<'static>> {
                     in_heading = true;
                     heading_level = level as u8;
                 }
-                Tag::Paragraph => {
-                    if !lines.is_empty() && !in_list {
-                        flush_line(&mut lines, &mut current_spans);
-                    }
+                Tag::Paragraph if !lines.is_empty() && !in_list => {
+                    flush_line(&mut lines, &mut current_spans);
                 }
                 Tag::CodeBlock(kind) => {
                     flush_line(&mut lines, &mut current_spans);

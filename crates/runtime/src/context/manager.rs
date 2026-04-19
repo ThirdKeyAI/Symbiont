@@ -376,7 +376,7 @@ impl FilePersistence {
         }
 
         // Sort by modification time (newest first)
-        backup_files.sort_by(|a, b| b.1.cmp(&a.1));
+        backup_files.sort_by_key(|(_, mtime)| std::cmp::Reverse(*mtime));
 
         // Remove excess backups
         for (path, _) in backup_files.into_iter().skip(self.config.backup_count) {
@@ -1780,7 +1780,7 @@ impl StandardContextManager {
             }
 
             // Sort by timestamp (most recent first) and limit results
-            results.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+            results.sort_by_key(|r| std::cmp::Reverse(r.timestamp));
             results.truncate(query.max_results);
 
             Ok(results)

@@ -162,30 +162,22 @@ async fn handle_key(app: &mut App, key: KeyEvent) {
         }
 
         // Editing
-        (KeyCode::Backspace, _) => {
-            if app.cursor > 0 {
-                app.cursor -= 1;
-                app.input.remove(app.cursor);
-                app.trigger_completion();
-            }
+        (KeyCode::Backspace, _) if app.cursor > 0 => {
+            app.cursor -= 1;
+            app.input.remove(app.cursor);
+            app.trigger_completion();
         }
-        (KeyCode::Delete, _) => {
-            if app.cursor < app.input.len() {
-                app.input.remove(app.cursor);
-                app.trigger_completion();
-            }
+        (KeyCode::Delete, _) if app.cursor < app.input.len() => {
+            app.input.remove(app.cursor);
+            app.trigger_completion();
         }
-        (KeyCode::Left, _) => {
-            if app.cursor > 0 {
-                app.cursor -= 1;
-                app.dismiss_completion();
-            }
+        (KeyCode::Left, _) if app.cursor > 0 => {
+            app.cursor -= 1;
+            app.dismiss_completion();
         }
-        (KeyCode::Right, _) => {
-            if app.cursor < app.input.len() {
-                app.cursor += 1;
-                app.dismiss_completion();
-            }
+        (KeyCode::Right, _) if app.cursor < app.input.len() => {
+            app.cursor += 1;
+            app.dismiss_completion();
         }
         (KeyCode::Home, _) => {
             app.cursor = 0;

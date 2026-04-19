@@ -52,7 +52,7 @@ pub struct CommunicationPolicyGate {
 
 impl CommunicationPolicyGate {
     pub fn new(mut rules: Vec<CommunicationPolicyRule>) -> Self {
-        rules.sort_by(|a, b| b.priority.cmp(&a.priority));
+        rules.sort_by_key(|r| std::cmp::Reverse(r.priority));
         Self {
             rules,
             default_allow: false,

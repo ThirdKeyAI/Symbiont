@@ -110,11 +110,7 @@ async fn messaging_clamps_enormous_ttl() {
     let msgs = body["messages"].as_array().expect("messages array");
     assert_eq!(msgs.len(), 1);
     let ttl = msgs[0]["ttl_seconds"].as_u64().expect("ttl_seconds u64");
-    assert!(
-        ttl <= 3600,
-        "TTL must be clamped to <=3600, got {}",
-        ttl
-    );
+    assert!(ttl <= 3600, "TTL must be clamped to <=3600, got {}", ttl);
     server.shutdown().await;
 }
 

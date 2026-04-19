@@ -272,17 +272,28 @@ impl PolicyEvaluator {
         }
     }
 
-    /// Parse sandbox tier string into SandboxTier enum
+    /// Parse sandbox tier string into SandboxTier enum.
+    ///
+    /// `gvisor` and `firecracker` are declared in the `SandboxTier` enum but
+    /// do not yet have runner implementations; routing to them would fail
+    /// opaquely at execution time. Refuse them here so misconfigurations
+    /// surface at policy-load time with a clear error.
     fn parse_sandbox_tier(&self, sandbox_str: &str) -> Result<SandboxTier, RoutingError> {
         match sandbox_str.to_lowercase().as_str() {
             "docker" => Ok(SandboxTier::Docker),
-            "gvisor" => Ok(SandboxTier::GVisor),
-            "firecracker" => Ok(SandboxTier::Firecracker),
             "e2b" => Ok(SandboxTier::E2B),
+            "gvisor" | "firecracker" => Err(RoutingError::ConfigurationError {
+                key: "action_extension.sandbox".to_string(),
+                reason: format!(
+                    "Sandbox tier '{}' is declared but has no runner implementation. \
+                     Use 'docker' or 'e2b' until this tier is implemented.",
+                    sandbox_str
+                ),
+            }),
             _ => Err(RoutingError::ConfigurationError {
                 key: "action_extension.sandbox".to_string(),
                 reason: format!(
-                    "Invalid sandbox tier: {}. Valid options are: docker, gvisor, firecracker, e2b",
+                    "Invalid sandbox tier: {}. Valid options are: docker, e2b",
                     sandbox_str
                 ),
             }),
@@ -1048,7 +1059,7 @@ mod tests {
         });
 
         // Sort rules by priority (should be done automatically)
-        config.rules.sort_by(|a, b| b.priority.cmp(&a.priority));
+        config.rules.sort_by_key(|r| std::cmp::Reverse(r.priority));
 
         let evaluator = PolicyEvaluator::new(config, classifier, model_catalog).unwrap();
 

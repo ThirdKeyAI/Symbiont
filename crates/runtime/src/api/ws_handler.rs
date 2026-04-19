@@ -139,16 +139,25 @@ async fn handle_socket(socket: WebSocket, state: Arc<CoordinatorState>) {
                     session.handle_chat(content).await;
                 }
                 Ok(ClientMessage::Ping) => {
-                    let _ = out_tx.send(ServerMessage::Pong).await;
+                    if let Err(e) = out_tx.send(ServerMessage::Pong).await {
+                        tracing::debug!(error = %e, "WS pong send failed");
+                    }
                 }
                 Err(e) => {
-                    let _ = out_tx
+                    if let Err(send_err) = out_tx
                         .send(ServerMessage::Error {
                             request_id: None,
                             code: "PARSE_ERROR".into(),
                             message: format!("Invalid message: {}", e),
                         })
-                        .await;
+                        .await
+                    {
+                        tracing::debug!(
+                            parse_error = %e,
+                            send_error = %send_err,
+                            "WS parse-error reply failed — client likely disconnected"
+                        );
+                    }
                 }
             },
             Message::Close(_) => break,
@@ -159,7 +168,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<CoordinatorState>) {
     // Clean up
     heartbeat_handle.abort();
     drop(out_tx);
-    let _ = writer_handle.await;
+    if let Err(e) = writer_handle.await {
+        tracing::warn!(error = %e, "WebSocket writer task joined with error");
+    }
 
     tracing::info!("WebSocket connection closed");
 }

@@ -274,7 +274,7 @@ impl DefaultPolicyEnforcementPoint {
         }
 
         // Sort by priority (higher priority first)
-        policies.sort_by(|a, b| b.priority.cmp(&a.priority));
+        policies.sort_by_key(|p| std::cmp::Reverse(p.priority));
 
         Ok(policies)
     }
@@ -333,7 +333,7 @@ impl DefaultPolicyEnforcementPoint {
         }
 
         // Sort rules by priority within policy
-        rules.sort_by(|a, b| b.priority.cmp(&a.priority));
+        rules.sort_by_key(|r| std::cmp::Reverse(r.priority));
 
         Ok(ResourceAccessPolicy {
             id,

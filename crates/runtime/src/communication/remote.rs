@@ -332,13 +332,12 @@ impl RemoteCommunicationBus {
         let Some(ref provider) = self.jwt_provider else {
             return Ok(None);
         };
-        provider(sender).await.map_err(|reason| {
-            CommunicationError::DeliveryFailed {
+        provider(sender)
+            .await
+            .map_err(|reason| CommunicationError::DeliveryFailed {
                 message_id: None,
-                reason: format!("JWT provider failed for {}: {}", sender, reason)
-                    .into_boxed_str(),
-            }
-        })
+                reason: format!("JWT provider failed for {}: {}", sender, reason).into_boxed_str(),
+            })
     }
 
     fn url(&self, path: &str) -> String {

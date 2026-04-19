@@ -91,7 +91,11 @@ pub fn approval_blocks(req: &ApprovalRequest) -> serde_json::Value {
 }
 
 /// Build Slack Block Kit blocks for a finalized (resolved) approval message.
-pub fn resolved_blocks(req: &ApprovalRequest, outcome: Outcome, approver_label: &str) -> serde_json::Value {
+pub fn resolved_blocks(
+    req: &ApprovalRequest,
+    outcome: Outcome,
+    approver_label: &str,
+) -> serde_json::Value {
     let emoji = match outcome {
         Outcome::Approve => ":white_check_mark:",
         Outcome::Deny => ":no_entry_sign:",

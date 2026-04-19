@@ -3,7 +3,7 @@
 FROM rust:1.88-slim-bookworm AS chef
 
 # Install build dependencies
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     pkg-config \
     libssl-dev \
@@ -69,7 +69,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # --- Runtime stage - minimal security-hardened image ---
 FROM debian:bookworm-slim
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
     && rm -rf /var/lib/apt/lists/* \

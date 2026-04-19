@@ -1362,10 +1362,7 @@ type = "object"
     #[test]
     fn test_parse_output_custom_parser_relative_path_rejected() {
         // Even with an allowlist entry, relative paths must be refused.
-        std::env::set_var(
-            "SYMBIONT_TOOLCLAD_ALLOWED_PARSERS",
-            "./parsers/my-parser",
-        );
+        std::env::set_var("SYMBIONT_TOOLCLAD_ALLOWED_PARSERS", "./parsers/my-parser");
         assert!(!is_custom_parser_allowed("./parsers/my-parser"));
         std::env::remove_var("SYMBIONT_TOOLCLAD_ALLOWED_PARSERS");
     }

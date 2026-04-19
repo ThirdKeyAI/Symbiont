@@ -58,15 +58,16 @@ impl<T: Tty> CliPrompter<T> {
     /// This is a blocking operation and should be run on a blocking thread.
     pub fn prompt_sync(&self, req: &ApprovalRequest) -> ApprovalDecision {
         self.tty.println("");
-        self.tty.println("╔══════════════════════════════════════════╗");
-        self.tty.println("║        APPROVAL REQUIRED                ║");
-        self.tty.println("╠══════════════════════════════════════════╣");
         self.tty
-            .println(&format!("║ Tool:      {}", req.tool));
+            .println("╔══════════════════════════════════════════╗");
+        self.tty
+            .println("║        APPROVAL REQUIRED                ║");
+        self.tty
+            .println("╠══════════════════════════════════════════╣");
+        self.tty.println(&format!("║ Tool:      {}", req.tool));
         self.tty
             .println(&format!("║ Agent:     {}", req.agent_name));
-        self.tty
-            .println(&format!("║ Target:    {}", req.target));
+        self.tty.println(&format!("║ Target:    {}", req.target));
         self.tty
             .println(&format!("║ Risk:      {}", req.risk_label));
         self.tty
@@ -74,17 +75,16 @@ impl<T: Tty> CliPrompter<T> {
         self.tty
             .println(&format!("║ Expires:   {}", req.expires_at));
         self.tty.println("║");
+        self.tty.println(&format!("║ Args: {}", req.args_redacted));
         self.tty
-            .println(&format!("║ Args: {}", req.args_redacted));
-        self.tty.println("╚══════════════════════════════════════════╝");
+            .println("╚══════════════════════════════════════════╝");
         self.tty.println("");
         self.tty.print("  Approve? [y/N] > ");
 
         let line = match self.tty.read_line() {
             Ok(l) => l,
             Err(e) => {
-                self.tty
-                    .println(&format!("  Error reading input: {e}"));
+                self.tty.println(&format!("  Error reading input: {e}"));
                 return self.make_decision(req.request_id, Outcome::Deny, Some("input error"));
             }
         };

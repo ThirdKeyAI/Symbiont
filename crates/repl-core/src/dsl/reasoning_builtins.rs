@@ -475,7 +475,7 @@ mod tests {
         let json = serde_json::json!({
             "str": "hello",
             "int": 42,
-            "float": 3.14,
+            "float": 1.5,
             "bool": true,
             "null": null,
             "arr": [1, 2],

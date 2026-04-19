@@ -64,6 +64,33 @@ impl MattermostAdapter {
             ));
         }
 
+        // Refuse to construct in production without a webhook_secret.
+        // Mattermost outgoing webhooks carry a shared token in the payload
+        // (`token` field). Without a configured secret every inbound request
+        // is accepted, which in production means anyone who can reach the
+        // webhook URL can impersonate Mattermost.
+        if config.webhook_secret.is_none() {
+            let env = std::env::var("SYMBIONT_ENV").unwrap_or_default();
+            let is_prod =
+                env.eq_ignore_ascii_case("production") || env.eq_ignore_ascii_case("prod");
+            let allow_unsigned = std::env::var("SYMBIONT_MATTERMOST_ALLOW_UNSIGNED")
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false);
+            if is_prod && !allow_unsigned {
+                return Err(ChannelAdapterError::Config(
+                    "Mattermost webhook_secret is required when SYMBIONT_ENV=production. \
+                     Set mattermost.webhook_secret (preferred) or set \
+                     SYMBIONT_MATTERMOST_ALLOW_UNSIGNED=1 to opt in to accepting \
+                     unauthenticated webhooks (not recommended)."
+                        .to_string(),
+                ));
+            }
+            tracing::warn!(
+                "Mattermost adapter starting without webhook_secret — inbound \
+                 requests are NOT verified. Do not use in production."
+            );
+        }
+
         let api_client = MattermostApiClient::new(&config.server_url, &config.bot_token)?;
 
         Ok(Self {

@@ -308,10 +308,7 @@ async fn list_agents_filters_by_scope() {
     // register_agent calls; what we can assert is that b never appears
     // in the scoped view.
     for a in arr {
-        let id = a["id"]
-            .as_str()
-            .expect("id field present")
-            .to_string();
+        let id = a["id"].as_str().expect("id field present").to_string();
         assert_ne!(
             id,
             agent_b.0.to_string(),

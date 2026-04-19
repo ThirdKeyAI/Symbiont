@@ -24,6 +24,79 @@ use thiserror::Error;
 use tracing as log;
 use uuid::Uuid;
 
+/// Schema-level redaction marker.
+///
+/// Wrap a field at the type level to guarantee that `Debug`, `Display`, and
+/// `Serialize` never reveal its contents. The inner value is still usable
+/// via [`Sensitive::expose_secret`], making the `Serialize` emit `"[REDACTED]"`
+/// instead of the plaintext.
+///
+/// This is the "schema-driven" half of PII redaction: call sites that
+/// construct structured log records can opt into unconditional redaction by
+/// typing the field as `Sensitive<String>` instead of plain `String`, rather
+/// than relying on regex-based content inspection downstream.
+///
+/// ```ignore
+/// use symbi_runtime::logging::Sensitive;
+/// #[derive(serde::Serialize)]
+/// struct AuthEvent {
+///     user_id: String,
+///     bearer: Sensitive<String>, // never appears in logs
+/// }
+/// ```
+#[derive(Clone, PartialEq, Eq)]
+pub struct Sensitive<T>(T);
+
+impl<T> Sensitive<T> {
+    /// Wrap a plaintext value.
+    pub fn new(value: T) -> Self {
+        Self(value)
+    }
+
+    /// Escape hatch: return the inner value. Named to make call sites that
+    /// intentionally read the plaintext stand out in code review.
+    pub fn expose_secret(&self) -> &T {
+        &self.0
+    }
+
+    /// Take ownership of the inner value.
+    pub fn into_inner(self) -> T {
+        self.0
+    }
+}
+
+impl<T> From<T> for Sensitive<T> {
+    fn from(value: T) -> Self {
+        Self(value)
+    }
+}
+
+impl<T> std::fmt::Debug for Sensitive<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Sensitive([REDACTED])")
+    }
+}
+
+impl<T> std::fmt::Display for Sensitive<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("[REDACTED]")
+    }
+}
+
+impl<T> Serialize for Sensitive<T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str("[REDACTED]")
+    }
+}
+
+// Deserialize is intentionally NOT implemented — round-tripping a `Sensitive`
+// through serialisation must return `"[REDACTED]"`, not the original plaintext.
+// Callers that need to populate a `Sensitive` at deserialize time should
+// deserialize into a plain `T` and then wrap with `Sensitive::new`.
+
 /// Errors that can occur during logging operations
 #[derive(Debug, Error)]
 pub enum LoggingError {
@@ -453,30 +526,96 @@ impl ModelLogger {
         Ok(data)
     }
 
-    /// Mask common sensitive patterns in text
+    /// Mask common sensitive patterns in text.
+    ///
+    /// The regex list is broader than before to catch shapes that slipped
+    /// through prior versions — Slack `xox[bapr]-…` tokens, GitHub
+    /// `gh[pousr]_…` tokens, OpenAI `sk-…`, AWS access keys, and PEM-armoured
+    /// private keys. Each pattern has a labelled replacement so an operator
+    /// grepping logs for `[REDACTED:<KIND>]` can still see that something
+    /// sensitive was scrubbed without exposing the value.
+    ///
+    /// Regexes are compiled once per call — this is not a hot path (it runs
+    /// on each model interaction) and keeps the code straightforward. For
+    /// schema-driven redaction on *new* code, prefer the [`Sensitive`]
+    /// wrapper which emits `[REDACTED]` unconditionally regardless of content.
     fn mask_sensitive_patterns(&self, text: &str) -> String {
         use regex::Regex;
 
-        // Common patterns to mask
-        let patterns = [
-            (r"\b\d{3}-\d{2}-\d{4}\b", "***-**-****"), // SSN
+        // Ordered roughly by specificity → generality: more precise patterns
+        // run first so they "claim" a match before a looser one (e.g. a
+        // Slack token shouldn't fall through to the generic TOKEN= rule).
+        let patterns: &[(&str, &str)] = &[
+            // --- credentials we can recognise by prefix shape --------------
+            // OpenAI / Anthropic API keys
+            (r"\bsk-[A-Za-z0-9_\-]{20,}\b", "[REDACTED:API_KEY]"),
+            // Slack legacy tokens
+            (
+                r"\bxox[bapre]-[A-Za-z0-9-]{10,}\b",
+                "[REDACTED:SLACK_TOKEN]",
+            ),
+            // GitHub tokens (classic + fine-grained + user-to-server)
+            (r"\bgh[pousr]_[A-Za-z0-9]{30,}\b", "[REDACTED:GITHUB_TOKEN]"),
+            // AWS access key ID
+            (r"\bAKIA[0-9A-Z]{16}\b", "[REDACTED:AWS_KEY_ID]"),
+            // Google API key
+            (r"\bAIza[0-9A-Za-z_\-]{35}\b", "[REDACTED:GOOGLE_API_KEY]"),
+            // Stripe live/test keys
+            (
+                r"\bsk_(live|test)_[A-Za-z0-9]{20,}\b",
+                "[REDACTED:STRIPE_KEY]",
+            ),
+            // Bearer tokens in HTTP-style text
+            (
+                r"(?i)\bbearer\s+[A-Za-z0-9._\-]{16,}\b",
+                "Bearer [REDACTED]",
+            ),
+            // PEM-armoured private keys (single line match because log entries
+            // are usually flattened)
+            (
+                r"-----BEGIN (RSA |EC |OPENSSH |PGP |)PRIVATE KEY-----[\s\S]*?-----END (RSA |EC |OPENSSH |PGP |)PRIVATE KEY-----",
+                "[REDACTED:PRIVATE_KEY]",
+            ),
+            // JWT-shape tokens (three dot-separated base64url segments)
+            (
+                r"\beyJ[A-Za-z0-9_\-]{5,}\.[A-Za-z0-9_\-]{5,}\.[A-Za-z0-9_\-]{5,}\b",
+                "[REDACTED:JWT]",
+            ),
+            // Generic API_KEY= / TOKEN= shapes (fallback)
+            (
+                r"(?i)\bapi[_\s-]*key[\s:=]+[A-Za-z0-9+/_\-]{12,}\b",
+                "api_key=[REDACTED]",
+            ),
+            (
+                r"(?i)\btoken[\s:=]+[A-Za-z0-9+/_\-]{12,}\b",
+                "token=[REDACTED]",
+            ),
+            (
+                r"(?i)\bsecret[\s:=]+[A-Za-z0-9+/_\-]{12,}\b",
+                "secret=[REDACTED]",
+            ),
+            (r"(?i)\bpassword[\s:=]+[^\s]{6,}\b", "password=[REDACTED]"),
+            // --- PII --------------------------------------------------------
+            // SSN
+            (r"\b\d{3}-\d{2}-\d{4}\b", "[REDACTED:SSN]"),
+            // Credit card
             (
                 r"\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b",
-                "****-****-****-****",
-            ), // Credit card
+                "[REDACTED:CC]",
+            ),
+            // Email
             (
-                r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
-                "***@***.***",
-            ), // Email
-            (r"\b\d{3}[\s-]?\d{3}[\s-]?\d{4}\b", "***-***-****"), // Phone
-            (r"\bAPI[_\s]*KEY[\s:=]*[A-Za-z0-9+/]{20,}\b", "API_KEY=***"), // API keys
-            (r"\bTOKEN[\s:=]*[A-Za-z0-9+/]{20,}\b", "TOKEN=***"), // Tokens
+                r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b",
+                "[REDACTED:EMAIL]",
+            ),
+            // US phone
+            (r"\b\d{3}[\s-]?\d{3}[\s-]?\d{4}\b", "[REDACTED:PHONE]"),
         ];
 
         let mut masked_text = text.to_string();
         for (pattern, replacement) in patterns {
             if let Ok(re) = Regex::new(pattern) {
-                masked_text = re.replace_all(&masked_text, replacement).to_string();
+                masked_text = re.replace_all(&masked_text, *replacement).to_string();
             }
         }
 
@@ -507,29 +646,77 @@ impl ModelLogger {
         }
     }
 
-    /// Check if a key name indicates sensitive data
+    /// Check if a JSON field name (or equivalent identifier) indicates
+    /// sensitive data. Used as the *schema-side* of the redaction pipeline:
+    /// if a field's key matches any substring here, its value is replaced
+    /// with `"***"` without further inspection. This is the
+    /// "schema-driven" leg of PII redaction — content-shape regex is a
+    /// fallback for text blobs where no key is available.
+    ///
+    /// The list is intentionally broad; false-positive redaction of log
+    /// metadata (e.g. a field literally called `auth_algorithm`) is cheaper
+    /// than a false-negative leak of a credential.
     fn is_sensitive_key(&self, key: &str) -> bool {
-        let sensitive_keys = [
+        const SENSITIVE_FRAGMENTS: &[&str] = &[
+            // Credentials
             "password",
+            "passwd",
+            "passphrase",
             "token",
-            "key",
-            "secret",
-            "credential",
-            "api_key",
+            "bearer",
+            "jwt",
             "auth",
             "authorization",
+            "session",
+            "cookie",
+            "set_cookie",
+            "api_key",
+            "apikey",
+            "access_key",
+            "private_key",
+            "client_secret",
+            "client_id",
+            "refresh_token",
+            "id_token",
+            "csrf",
+            "otp",
+            "totp",
+            "secret",
+            "credential",
+            "signature",
+            "hmac",
+            "hash",
+            "salt",
+            "key", // catches `key`, `pkey`, `signing_key`, `master_key`, …
+            // PII
             "ssn",
             "social_security",
             "credit_card",
             "card_number",
             "cvv",
             "pin",
+            "date_of_birth",
+            "dob",
+            "phone",
+            "address",
+            "email",
+            // Connection strings that routinely embed credentials
+            "dsn",
+            "connection_string",
+            "conn_str",
+            "database_url",
+            "db_url",
+            "redis_url",
+            "amqp_url",
+            "postgres_url",
+            "mongodb_uri",
+            "url", // covers `*_url` fields inherited from config objects
         ];
 
         let key_lower = key.to_lowercase();
-        sensitive_keys
+        SENSITIVE_FRAGMENTS
             .iter()
-            .any(|&sensitive| key_lower.contains(sensitive))
+            .any(|&fragment| key_lower.contains(fragment))
     }
 
     /// Write a log entry to storage.
@@ -846,14 +1033,16 @@ mod tests {
     async fn test_pii_masking_comprehensive() {
         let logger = ModelLogger::with_defaults().unwrap();
 
-        // Test various PII patterns
+        // Test various PII patterns. Replacement strings now carry a
+        // labelled `[REDACTED:<KIND>]` marker so a grep through logs can
+        // prove redaction without revealing the source value.
         let test_cases = vec![
-            ("SSN: 123-45-6789", "***-**-****"),
-            ("Credit card: 4532-1234-5678-9012", "****-****-****-****"),
-            ("Email: user@example.com", "***@***.***"),
-            ("Phone: 555-123-4567", "***-***-****"),
-            ("API_KEY: abc123def456ghi789abcdef", "API_KEY=***"),
-            ("TOKEN: xyz789uvw456rst123abcdef", "TOKEN=***"),
+            ("SSN: 123-45-6789", "[REDACTED:SSN]"),
+            ("Credit card: 4532-1234-5678-9012", "[REDACTED:CC]"),
+            ("Email: user@example.com", "[REDACTED:EMAIL]"),
+            ("Phone: 555-123-4567", "[REDACTED:PHONE]"),
+            ("API_KEY: abc123def456ghi789abcdef", "api_key=[REDACTED]"),
+            ("TOKEN: xyz789uvw456rst123abcdef", "token=[REDACTED]"),
         ];
 
         for (input, expected_pattern) in test_cases {

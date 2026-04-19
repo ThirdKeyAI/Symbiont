@@ -115,12 +115,13 @@ impl DockerConfig {
         for vol in &self.volumes {
             validate_volume_mount(vol)?;
         }
-        // Block host network in production
+        // Block host network in production. Uses the strict SYMBIONT_ENV
+        // parser so aliases like `prod` don't slip through.
         if self.network_mode == "host" {
-            if let Ok(env) = std::env::var("SYMBIONT_ENV") {
-                if env.eq_ignore_ascii_case("production") {
-                    anyhow::bail!("SECURITY: host network mode is disabled in production");
-                }
+            let is_prod = crate::env::is_production()
+                .map_err(|e| anyhow::anyhow!("SYMBIONT_ENV parse failed: {e}"))?;
+            if is_prod {
+                anyhow::bail!("SECURITY: host network mode is disabled in production");
             }
             tracing::warn!("SECURITY: Docker host network mode provides no network isolation");
         }
@@ -495,7 +496,9 @@ mod tests {
         // Volumes pushed directly around the builder must still be caught
         // by validate().
         let mut config = DockerConfig::for_image("x");
-        config.volumes.push("/var/run/docker.sock:/sock".to_string());
+        config
+            .volumes
+            .push("/var/run/docker.sock:/sock".to_string());
         assert!(config.validate().is_err());
     }
 

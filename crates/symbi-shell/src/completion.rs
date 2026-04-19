@@ -18,7 +18,6 @@ pub struct Candidate {
     pub category: Option<String>,
 }
 
-
 /// DSL keywords for context-aware completion in /dsl mode.
 const DSL_KEYWORDS: &[(&str, &str)] = &[
     // Definition forms
@@ -82,7 +81,6 @@ const DSL_KEYWORDS: &[(&str, &str)] = &[
     ("parse_json", "fn"),
 ];
 
-
 /// Complete the current input. Returns (start_position, candidates).
 ///
 /// When `dsl_mode` is true, bare identifiers get DSL keyword/builtin completion.
@@ -143,7 +141,7 @@ pub fn complete(
                 }
             })
             .collect();
-        candidates.sort_by(|a, b| b.score.cmp(&a.score));
+        candidates.sort_by_key(|c| std::cmp::Reverse(c.score));
         return (at_pos, candidates);
     }
 

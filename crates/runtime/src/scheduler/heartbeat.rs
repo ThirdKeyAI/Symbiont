@@ -191,9 +191,11 @@ mod tests {
     #[test]
     fn heartbeat_state_resets_on_action() {
         let config = HeartbeatConfig::default();
-        let mut state = HeartbeatState::default();
-        state.consecutive_clear_count = 10;
-        state.current_backoff = 4;
+        let mut state = HeartbeatState {
+            consecutive_clear_count: 10,
+            current_backoff: 4,
+            ..Default::default()
+        };
 
         state.record_assessment(
             &HeartbeatAssessment::NeedsAction {
@@ -232,8 +234,10 @@ mod tests {
     #[test]
     fn error_does_not_reset_backoff() {
         let config = HeartbeatConfig::default();
-        let mut state = HeartbeatState::default();
-        state.current_backoff = 3;
+        let mut state = HeartbeatState {
+            current_backoff: 3,
+            ..Default::default()
+        };
 
         state.record_assessment(
             &HeartbeatAssessment::Error {

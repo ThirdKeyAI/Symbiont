@@ -92,7 +92,7 @@ impl PolicyGate {
     /// Create a new policy gate with the given rules.
     pub fn new(rules: Vec<SchedulePolicyRule>, default_allow: bool) -> Self {
         let mut sorted_rules = rules;
-        sorted_rules.sort_by(|a, b| b.priority.cmp(&a.priority));
+        sorted_rules.sort_by_key(|r| std::cmp::Reverse(r.priority));
         Self {
             rules: sorted_rules,
             default_allow,

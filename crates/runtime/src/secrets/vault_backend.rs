@@ -47,19 +47,20 @@ impl VaultSecretStore {
             settings_builder.namespace(Some(namespace.clone()));
         }
 
-        // Configure TLS settings
+        // TLS verification is always enforced for Vault connections. The
+        // `tls.skip_verify` option was removed entirely because (a) MitM on
+        // Vault is game-over for every secret in the system and (b) the
+        // previous "allowed outside production" carve-out routinely left
+        // staging deployments exposed. Operators that need self-signed
+        // certificates must configure `tls.ca_cert` to point at the CA
+        // bundle; the client will then validate against it.
         if config.tls.skip_verify {
-            if std::env::var("SYMBIONT_ENV").unwrap_or_default() == "production" {
-                return Err(SecretError::ConfigurationError {
-                    message: "TLS verification cannot be disabled in production (SYMBIONT_ENV=production). \
-                              Remove tls.skip_verify or set SYMBIONT_ENV to a non-production value."
-                        .into(),
-                });
-            }
-            tracing::warn!(
-                "Vault TLS verification is disabled — connections are vulnerable to MitM attacks"
-            );
-            settings_builder.verify(false);
+            return Err(SecretError::ConfigurationError {
+                message: "vault.tls.skip_verify has been removed and may not be set. \
+                          Point vault.tls.ca_cert at your CA bundle to trust a self-signed \
+                          Vault certificate, or fix the certificate on the Vault server."
+                    .into(),
+            });
         }
 
         // Set timeouts

@@ -1631,10 +1631,7 @@ mod tests {
             .unwrap();
         let err = cron.trigger_now(id).await.expect_err("must refuse");
         assert!(
-            matches!(
-                err,
-                CronSchedulerError::IdentityVerificationFailed(_, _)
-            ),
+            matches!(err, CronSchedulerError::IdentityVerificationFailed(_, _)),
             "expected IdentityVerificationFailed, got {:?}",
             err
         );

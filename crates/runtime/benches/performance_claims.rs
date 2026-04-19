@@ -216,7 +216,7 @@ fn bench_schemapin_verify_offline(c: &mut Criterion) {
 
     c.bench_function("claim2: schemapin_verify_offline", |b| {
         b.iter_batched(
-            || KeyPinStore::new(),
+            KeyPinStore::new,
             |mut pin_store| {
                 verify_schema_offline(
                     &schema,

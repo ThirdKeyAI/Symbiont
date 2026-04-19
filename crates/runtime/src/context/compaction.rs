@@ -213,24 +213,27 @@ where
 }
 
 /// Tier 2: Compress Episodic — merge similar memory items (enterprise only).
-#[cfg(feature = "enterprise-compaction")]
+///
+/// Returns `None` when the enterprise implementation is not yet available so
+/// the compaction pipeline skips this tier and continues to the next one.
+/// Previously this panicked via `todo!()` when the `enterprise-compaction`
+/// feature was enabled, which would hard-abort the runtime under
+/// `panic = "abort"`.
 pub fn tier_compress_episodic() -> Option<CompactionResult> {
-    todo!("enterprise: compress episodic memory items by cosine similarity")
-}
-
-#[cfg(not(feature = "enterprise-compaction"))]
-pub fn tier_compress_episodic() -> Option<CompactionResult> {
+    tracing::debug!(
+        "tier_compress_episodic: enterprise implementation not yet available; skipping tier"
+    );
     None
 }
 
 /// Tier 3: Archive to Memory — flush old items to MarkdownMemoryStore (enterprise only).
-#[cfg(feature = "enterprise-compaction")]
+///
+/// Returns `None` when the enterprise implementation is not yet available.
+/// See `tier_compress_episodic` for rationale.
 pub fn tier_archive_to_memory() -> Option<CompactionResult> {
-    todo!("enterprise: archive items to MarkdownMemoryStore daily log")
-}
-
-#[cfg(not(feature = "enterprise-compaction"))]
-pub fn tier_archive_to_memory() -> Option<CompactionResult> {
+    tracing::debug!(
+        "tier_archive_to_memory: enterprise implementation not yet available; skipping tier"
+    );
     None
 }
 
