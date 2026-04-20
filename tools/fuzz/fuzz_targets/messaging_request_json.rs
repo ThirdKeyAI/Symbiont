@@ -127,6 +127,7 @@ fuzz_target!(|input: Input| {
                 payload: payload.clone(),
                 ttl_seconds: r.ttl_seconds,
                 topic: topic.clone(),
+                agentpin_jwt: None,
             };
 
             let json = serde_json::to_string(&req).expect("serialize cannot fail");
@@ -179,6 +180,7 @@ fuzz_target!(|input: Input| {
                     payload: "p".into(),
                     ttl_seconds: Some(u64::MAX),
                     topic: None,
+                    agentpin_jwt: None,
                 };
                 let json = serde_json::to_string(&req).unwrap();
                 let parsed: SendMessageRequest = serde_json::from_str(&json).unwrap();
@@ -202,6 +204,7 @@ fuzz_target!(|input: Input| {
                     payload: s.to_string(),
                     ttl_seconds: None,
                     topic: None,
+                    agentpin_jwt: None,
                 };
                 let json = serde_json::to_string(&req).unwrap();
                 let parsed: SendMessageRequest = serde_json::from_str(&json).unwrap();

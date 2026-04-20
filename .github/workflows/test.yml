@@ -76,7 +76,11 @@ jobs:
             crypto_roundtrip \
             webhook_verify_generic \
             api_key_store \
-            policy_evaluation; do
+            policy_evaluation \
+            comm_policy_evaluate \
+            messaging_request_json \
+            remote_envelope \
+            secure_message_pipeline; do
             echo "--- Fuzzing $target (15s) ---"
             cargo fuzz run --fuzz-dir . "$target" -- -max_total_time=15 || exit 1
           done

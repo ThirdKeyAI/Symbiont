@@ -68,7 +68,7 @@ rusqlite = { version = "0.31", features = ["bundled", "serde_json"], optional = 
 regex = "1.0"
 humantime-serde = "1.1"
 clap = { version = "4.0", features = ["derive"] }
-reqwest = { version = "0.12", features = ["json", "blocking"] }
+reqwest = { version = "0.12", features = ["json", "blocking", "stream"] }
 git2 = "0.20"
 octocrab = "0.49"
 toml = "0.8"
