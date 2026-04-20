@@ -107,6 +107,11 @@ fn envelope_to_json(env: &Envelope) -> Value {
         Some(t) => json!(clamp(t.clone(), 128, "topic")),
         None => Value::Null,
     };
+    // Clamp timestamp to a value that cannot overflow `SystemTime::UNIX_EPOCH +
+    // Duration::from_secs(...)` on any reasonable platform. The runtime parser
+    // intentionally rejects overflowing timestamps; "Valid" mode must stay
+    // within the representable range so round-trip assertions hold.
+    let timestamp_secs = env.timestamp_secs % (i64::MAX as u64);
     json!({
         "message_id": message_id,
         "sender": sender,
@@ -114,7 +119,7 @@ fn envelope_to_json(env: &Envelope) -> Value {
         "topic": topic,
         "payload": clamp(env.payload.clone(), 4096, ""),
         "message_type": message_type_str(&env.kind),
-        "timestamp_secs": env.timestamp_secs,
+        "timestamp_secs": timestamp_secs,
         "ttl_seconds": env.ttl_seconds,
     })
 }

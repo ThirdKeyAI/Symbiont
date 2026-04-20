@@ -14,7 +14,24 @@
 //! - Oversized payloads must be rejected by `send_message` / `publish`
 //!   rather than triggering an OOM or panic.
 
-use futures::executor::block_on;
+// `DefaultCommunicationBus::new()` calls `tokio::spawn` for its event loop,
+// which panics under `futures::executor::block_on` (no tokio runtime in
+// scope). Drive all bus calls through a process-wide tokio runtime instead.
+use std::sync::OnceLock;
+
+fn tokio_rt() -> &'static tokio::runtime::Runtime {
+    static RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    RT.get_or_init(|| {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build tokio runtime for fuzz target")
+    })
+}
+
+fn block_on<F: std::future::Future>(f: F) -> F::Output {
+    tokio_rt().block_on(f)
+}
 use libfuzzer_sys::{arbitrary::Arbitrary, fuzz_target};
 use std::sync::Arc;
 use std::time::Duration;
@@ -176,7 +193,7 @@ fuzz_target!(|input: Input| {
             // Give the event loop a moment. Spin for a few iterations of
             // await rather than sleeping.
             for _ in 0..16 {
-                futures::executor::block_on(async { tokio::task::yield_now().await });
+                block_on(async { tokio::task::yield_now().await });
             }
 
             let mut sent_ids = Vec::new();

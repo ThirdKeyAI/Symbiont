@@ -162,7 +162,14 @@ pub fn parse_envelope(m: &Value) -> Result<SecureMessage, CommunicationError> {
         .and_then(|v| v.as_u64())
         .ok_or_else(|| CommunicationError::InvalidFormat("Missing timestamp_secs".to_string()))?;
 
-    let timestamp = SystemTime::UNIX_EPOCH + Duration::from_secs(timestamp_secs);
+    let timestamp = SystemTime::UNIX_EPOCH
+        .checked_add(Duration::from_secs(timestamp_secs))
+        .ok_or_else(|| {
+            CommunicationError::InvalidFormat(format!(
+                "timestamp_secs {} overflows SystemTime",
+                timestamp_secs
+            ))
+        })?;
 
     Ok(SecureMessage {
         id: MessageId(id),
