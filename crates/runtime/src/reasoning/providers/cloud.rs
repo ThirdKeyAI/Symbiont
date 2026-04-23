@@ -358,11 +358,16 @@ impl InferenceProvider for CloudInferenceProvider {
             let api_key = std::env::var(key_var)
                 .map_err(|_| InferenceError::Provider(format!("{} not set", key_var)))?;
             let url = format!("{}/chat/completions", base);
-            let rb = http_client
+            let mut rb = http_client
                 .post(&url)
                 .header("authorization", format!("Bearer {}", api_key))
-                .header("content-type", "application/json")
-                .json(&body);
+                .header("content-type", "application/json");
+            if matches!(self.client.provider(), LlmProvider::OpenRouter) {
+                for (k, v) in crate::http_input::llm_client::openrouter_attribution_headers() {
+                    rb = rb.header(k, v);
+                }
+            }
+            let rb = rb.json(&body);
             (url, rb)
         };
 

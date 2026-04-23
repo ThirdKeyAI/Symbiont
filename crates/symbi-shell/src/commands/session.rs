@@ -23,6 +23,7 @@ Secrets:    /secrets [list|set|delete]"#
 
 pub fn clear(app: &mut App) -> CommandResult {
     app.output.clear();
+    app.reset_flush_cursor();
     if let Some(ref orch) = app.orchestrator {
         if let Ok(mut o) = orch.try_lock() {
             o.clear();
@@ -111,27 +112,17 @@ pub fn status(app: &App) -> CommandResult {
 }
 
 pub fn snapshot(app: &mut App, args: &str) -> CommandResult {
-    let name = if args.is_empty() {
-        chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string()
+    let name = if args.trim().is_empty() {
+        session::DEFAULT_SNAPSHOT_NAME.to_string()
     } else {
-        args.to_string()
+        args.trim().to_string()
     };
 
-    let shell_session = session::ShellSession {
-        name: name.clone(),
-        timestamp: chrono::Utc::now().to_rfc3339(),
-        mode: format!("{:?}", app.mode),
-        output: app
-            .output
-            .iter()
-            .map(session::SerializedEntry::from)
-            .collect(),
-        input_history: app.history.clone(),
-        tokens_used: app.tokens_used,
-    };
-
+    let shell_session = app.build_session_snapshot(&name);
     match session::save_session(&name, &shell_session) {
-        Ok(path) => CommandResult::Output(format!("Session saved to {}", path.display())),
+        Ok(path) => {
+            CommandResult::Output(format!("Session saved as '{}' at {}", name, path.display()))
+        }
         Err(e) => CommandResult::Error(format!("Failed to save session: {}", e)),
     }
 }
@@ -154,21 +145,23 @@ pub fn resume(app: &mut App, args: &str) -> CommandResult {
             Err(e) => CommandResult::Error(format!("Failed to list sessions: {}", e)),
         }
     } else {
-        match session::load_session(args) {
+        match session::load_session(args.trim()) {
             Ok(shell_session) => {
-                app.output = shell_session
-                    .output
-                    .iter()
-                    .map(|e| e.to_output_entry())
-                    .collect();
-                app.history = shell_session.input_history;
-                app.tokens_used = shell_session.tokens_used;
-                app.scroll_to_bottom();
-                CommandResult::Output(format!(
-                    "Resumed session '{}' ({} entries)",
-                    args,
-                    app.output.len()
-                ))
+                let entry_count = shell_session.output.len();
+                let had_memory = shell_session.conversation.is_some();
+                match app.restore_from_session(shell_session) {
+                    Ok(()) => CommandResult::Output(format!(
+                        "Resumed session '{}' ({} entries{}).",
+                        args.trim(),
+                        entry_count,
+                        if had_memory {
+                            ", orchestrator memory restored"
+                        } else {
+                            ", no orchestrator memory in saved file"
+                        }
+                    )),
+                    Err(e) => CommandResult::Error(format!("Failed to resume: {}", e)),
+                }
             }
             Err(e) => CommandResult::Error(format!("Failed to resume: {}", e)),
         }
@@ -177,6 +170,7 @@ pub fn resume(app: &mut App, args: &str) -> CommandResult {
 
 pub fn new_session(app: &mut App) -> CommandResult {
     app.output.clear();
+    app.reset_flush_cursor();
     app.history.clear();
     app.tokens_used = 0;
     app.scroll_to_bottom();
@@ -185,6 +179,9 @@ pub fn new_session(app: &mut App) -> CommandResult {
             o.clear();
         }
     }
+    // New session gets its own UUID so the exit auto-save doesn't
+    // overwrite the previous run's snapshot.
+    app.session_id = uuid::Uuid::new_v4().to_string();
     app.output.push(crate::app::OutputEntry {
         source: crate::app::EntrySource::System,
         content: "New session started.".to_string(),
@@ -193,18 +190,7 @@ pub fn new_session(app: &mut App) -> CommandResult {
 }
 
 pub fn export(app: &App, args: &str) -> CommandResult {
-    let shell_session = session::ShellSession {
-        name: "export".to_string(),
-        timestamp: chrono::Utc::now().to_rfc3339(),
-        mode: format!("{:?}", app.mode),
-        output: app
-            .output
-            .iter()
-            .map(session::SerializedEntry::from)
-            .collect(),
-        input_history: app.history.clone(),
-        tokens_used: app.tokens_used,
-    };
+    let shell_session = app.build_session_snapshot("export");
 
     let text = session::export_session(&shell_session);
 

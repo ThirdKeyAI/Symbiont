@@ -10,9 +10,11 @@ pub fn spawn(app: &mut App, args: &str) -> CommandResult {
 
     let prompt = format!(
         "Generate a Symbiont DSL agent definition for the following description:\n\n{}\n\n\
-         Use the validate_dsl tool to check the generated DSL against project constraints. \
-         If validation fails, fix the issues and re-validate. \
-         Present the final validated DSL to me for review.",
+         Validate with validate_dsl; if it fails, fix and re-validate (cap: 2 attempts). \
+         As soon as validation passes, call save_artifact to write the agent to \
+         agents/<agent_name>.dsl — the user's description above IS the approval, \
+         do not stop to ask again. After saving, tell the user the exact filename \
+         and remind them they can launch the agent with `/run <agent_name>`.",
         args
     );
 
@@ -32,9 +34,10 @@ pub fn policy(app: &mut App, args: &str) -> CommandResult {
 
     let prompt = format!(
         "Generate a Cedar policy for the following requirement:\n\n{}\n\n\
-         Use the validate_cedar tool to check the generated policy against project constraints. \
-         If validation fails, fix the issues and re-validate. \
-         Present the final validated Cedar policy to me for review.",
+         Validate with validate_cedar; if it fails, fix and re-validate (cap: 2 attempts). \
+         As soon as validation passes, call save_artifact to write the policy to \
+         policies/<descriptive_slug>.cedar — the user's requirement above IS the \
+         approval. After saving, tell the user the exact filename.",
         args
     );
 
@@ -52,9 +55,10 @@ pub fn tool(app: &mut App, args: &str) -> CommandResult {
 
     let prompt = format!(
         "Generate a ToolClad TOML manifest (.clad.toml) for the following tool:\n\n{}\n\n\
-         Use the validate_toolclad tool to check the generated manifest against project constraints. \
-         If validation fails, fix the issues and re-validate. \
-         Present the final validated ToolClad manifest to me for review.",
+         Validate with validate_toolclad; if it fails, fix and re-validate (cap: 2 attempts). \
+         As soon as validation passes, call save_artifact to write the manifest to \
+         tools/<tool_name>.clad.toml — the user's description above IS the approval. \
+         After saving, tell the user the exact filename.",
         args
     );
 
@@ -72,9 +76,10 @@ pub fn behavior(app: &mut App, args: &str) -> CommandResult {
 
     let prompt = format!(
         "Generate a Symbiont DSL behavior definition for the following:\n\n{}\n\n\
-         Use the validate_dsl tool to check the generated behavior against project constraints. \
-         If validation fails, fix the issues and re-validate. \
-         Present the final validated behavior definition to me for review.",
+         Validate with validate_dsl; if it fails, fix and re-validate (cap: 2 attempts). \
+         As soon as validation passes, call save_artifact to write the behavior to \
+         agents/behaviors/<behavior_name>.dsl — the user's description above IS the \
+         approval. After saving, tell the user the exact filename.",
         args
     );
 
@@ -87,45 +92,33 @@ pub fn behavior(app: &mut App, args: &str) -> CommandResult {
 
 /// Initialize a Symbiont project.
 ///
-/// - `/init` with no args and an orchestrator: conversational project setup
-/// - `/init` with no args and no orchestrator: defaults to "minimal" profile
-/// - `/init <profile>`: deterministic scaffold (minimal, assistant, dev-agent, multi-agent)
+/// - `/init` with no args: prints the profile menu shell-side (no LLM call).
+///   The user then re-runs with `/init <profile>` or a free-form description.
+/// - `/init <profile>`: deterministic scaffold. The 4 canonical profiles are
+///   Rust constants, so output is identical every time and passes validation.
+/// - `/init <free-form description>`: conversational init through the
+///   orchestrator, which is instructed to generate + save without a second
+///   approval round (the description itself is the approval).
 pub fn init(app: &mut App, args: &str) -> CommandResult {
     let args = args.trim();
 
-    // Known profiles get deterministic scaffolding
     if matches!(args, "minimal" | "assistant" | "dev-agent" | "multi-agent") {
         return init_deterministic(args);
     }
 
-    // No args: try conversational, fall back to minimal
     if args.is_empty() {
-        if app.send_to_orchestrator(
-            "I want to initialize a new Symbiont project in the current directory. \
-             Ask me what kind of project I want to build, then help me set it up. \
-             The available profiles are:\n\
-             - minimal: bare project structure, no agents\n\
-             - assistant: single governed assistant agent\n\
-             - dev-agent: development agent with CLI execution\n\
-             - multi-agent: coordinator + worker for parallel task decomposition\n\n\
-             After I choose, generate the appropriate symbiont.toml, default Cedar policy, \
-             and agent DSL files. Use the validation tools to check each artifact. \
-             Present everything for my review before saving.",
-            "Setting up project...",
-        ) {
-            return CommandResult::Handled;
-        }
-        // No orchestrator — fall back to deterministic minimal
-        return init_deterministic("minimal");
+        return CommandResult::Output(init_menu_text());
     }
 
-    // Unknown profile name — treat as description for conversational init
     if app.send_to_orchestrator(
         &format!(
-            "I want to initialize a new Symbiont project. Here's what I need:\n\n{}\n\n\
-             Help me choose the right profile and set up the project structure. \
-             Generate symbiont.toml, Cedar policies, and agent DSL as needed. \
-             Validate everything before presenting for review.",
+            "Initialize a new Symbiont project in the current directory. Requirements:\n\n{}\n\n\
+             Generate symbiont.toml, a default Cedar policy at policies/default.cedar, \
+             and any agent DSL files under agents/. Use validate_dsl / validate_cedar / \
+             validate_toolclad to verify each artifact. The user's description above is \
+             their approval — call save_artifact immediately for every validated file \
+             without asking again. After saving, tell the user the /spawn command they \
+             should run next.",
             args
         ),
         "Setting up project...",
@@ -133,9 +126,29 @@ pub fn init(app: &mut App, args: &str) -> CommandResult {
         CommandResult::Handled
     } else {
         CommandResult::Error(
-            "Unknown profile and no orchestrator available.\nKnown profiles: minimal, assistant, dev-agent, multi-agent".to_string(),
+            "No orchestrator configured for free-form /init. Use a known profile instead:\n\n\
+             Known profiles: minimal, assistant, dev-agent, multi-agent"
+                .to_string(),
         )
     }
+}
+
+fn init_menu_text() -> String {
+    r#"Choose a project profile:
+
+  minimal       Bare project structure — symbiont.toml, default policy, no agents.
+  assistant     Single governed assistant agent (read/analyze/summarize).
+  dev-agent     Development agent with CLI execution (read/write/execute).
+  multi-agent   Coordinator + worker for parallel task decomposition.
+
+Usage:
+  /init <profile>            deterministic scaffold (recommended)
+  /init <free-form need>     describe what you need; the orchestrator will scaffold
+
+Example:
+  /init assistant
+  /init a pipeline with one cedar-gated scraper and one summarizer"#
+        .to_string()
 }
 
 const DEFAULT_CEDAR_POLICY: &str = r#"// Default Symbiont policy — deny by default, allow explicitly.
@@ -365,7 +378,24 @@ agent worker(input: SubTask) -> Result {
     for item in &created {
         out.push_str(&format!("  {}\n", item));
     }
-    out.push_str("\nNext: use /spawn, /policy, /tool to add more, or just describe what you need.");
+    out.push_str(next_steps_hint(profile));
 
     CommandResult::Output(out)
+}
+
+fn next_steps_hint(profile: &str) -> &'static str {
+    match profile {
+        "assistant" => {
+            "\nNext:\n  /spawn assistant    run the scaffolded agent\n  /policy, /tool      add more governance or tools"
+        }
+        "dev-agent" => {
+            "\nNext:\n  /spawn dev          run the scaffolded agent\n  /policy, /tool      add more governance or tools"
+        }
+        "multi-agent" => {
+            "\nNext:\n  /spawn coordinator  run the coordinator\n  /spawn worker       run the worker\n  /policy, /tool      add more governance or tools"
+        }
+        _ => {
+            "\nNext: /spawn <agent-name>, /policy, /tool, or just describe what you need."
+        }
+    }
 }

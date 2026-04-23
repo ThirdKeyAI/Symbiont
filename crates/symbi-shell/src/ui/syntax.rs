@@ -4,25 +4,20 @@
 //! - Cedar: keyword-based highlighting (permit/forbid/when/unless/principal/action/resource)
 //! - TOML: structural highlighting (sections, keys, values, strings, comments)
 
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 
 /// Highlight DSL source code into styled ratatui Lines.
 ///
-/// Falls back to plain yellow text if tree-sitter parsing fails.
+/// Falls back to plain `md_code` text if tree-sitter parsing fails.
 pub fn highlight_dsl(source: &str) -> Vec<Line<'static>> {
     match dsl::parse_dsl(source) {
         Ok(tree) => highlight_tree(&tree, source),
         Err(_) => {
-            // Fallback: plain yellow for unparseable code
+            let fallback = Style::default().fg(super::theme::current().md_code);
             source
                 .lines()
-                .map(|line| {
-                    Line::from(Span::styled(
-                        line.to_string(),
-                        Style::default().fg(Color::Yellow),
-                    ))
-                })
+                .map(|line| Line::from(Span::styled(line.to_string(), fallback)))
                 .collect()
         }
     }
@@ -123,6 +118,7 @@ fn collect_highlights(node: tree_sitter::Node, highlights: &mut Vec<(usize, usiz
 }
 
 fn style_for_node(kind: &str, is_named: bool) -> Option<Style> {
+    let t = super::theme::current();
     match kind {
         // Keywords
         "agent"
@@ -144,34 +140,34 @@ fn style_for_node(kind: &str, is_named: bool) -> Option<Style> {
         | "let"
         | "return" => Some(
             Style::default()
-                .fg(Color::Magenta)
+                .fg(t.syn_keyword)
                 .add_modifier(Modifier::BOLD),
         ),
 
         // Policy actions
         "allow" | "deny" | "require" | "audit" => {
-            Some(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD))
+            Some(Style::default().fg(t.err).add_modifier(Modifier::BOLD))
         }
 
         // Type builtins
-        "String" | "int" | "float" | "bool" => Some(Style::default().fg(Color::Cyan)),
+        "String" | "int" | "float" | "bool" => Some(Style::default().fg(t.syn_type)),
 
         // Boolean literals
-        "true" | "false" => Some(Style::default().fg(Color::Yellow)),
+        "true" | "false" => Some(Style::default().fg(t.syn_number)),
 
         // Named node types
-        "string" if is_named => Some(Style::default().fg(Color::Green)),
-        "number" if is_named => Some(Style::default().fg(Color::Yellow)),
-        "duration_literal" if is_named => Some(Style::default().fg(Color::Yellow)),
-        "comment" if is_named => Some(Style::default().fg(Color::DarkGray)),
+        "string" if is_named => Some(Style::default().fg(t.syn_string)),
+        "number" if is_named => Some(Style::default().fg(t.syn_number)),
+        "duration_literal" if is_named => Some(Style::default().fg(t.syn_number)),
+        "comment" if is_named => Some(Style::default().fg(t.syn_comment)),
         "identifier" if is_named => None, // Style depends on parent context
 
         // Operators
-        "=" | "->" => Some(Style::default().fg(Color::DarkGray)),
+        "=" | "->" => Some(Style::default().fg(t.syn_operator)),
 
         // Punctuation
         "{" | "}" | "(" | ")" | "[" | "]" | ":" | "," | ";" => {
-            Some(Style::default().fg(Color::DarkGray))
+            Some(Style::default().fg(t.syn_operator))
         }
 
         _ => None,
@@ -184,13 +180,14 @@ pub fn highlight_cedar(source: &str) -> Vec<Line<'static>> {
 }
 
 fn highlight_cedar_line(line: &str) -> Line<'static> {
+    let t = super::theme::current();
     let trimmed = line.trim();
 
     // Comments
     if trimmed.starts_with("//") {
         return Line::from(Span::styled(
             line.to_string(),
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(t.syn_comment),
         ));
     }
 
@@ -213,13 +210,13 @@ fn highlight_cedar_line(line: &str) -> Line<'static> {
         if let Some(&kw) = keyword_match {
             let style = match kw {
                 "permit" => Style::default()
-                    .fg(Color::Green)
+                    .fg(t.syn_string)
                     .add_modifier(Modifier::BOLD),
-                "forbid" => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-                "when" | "unless" => Style::default().fg(Color::Magenta),
-                "principal" | "action" | "resource" => Style::default().fg(Color::Cyan),
-                "context" => Style::default().fg(Color::Yellow),
-                _ => Style::default().fg(Color::Magenta),
+                "forbid" => Style::default().fg(t.err).add_modifier(Modifier::BOLD),
+                "when" | "unless" => Style::default().fg(t.syn_keyword),
+                "principal" | "action" | "resource" => Style::default().fg(t.syn_type),
+                "context" => Style::default().fg(t.syn_number),
+                _ => Style::default().fg(t.syn_keyword),
             };
             spans.push(Span::styled(kw.to_string(), style));
             pos += kw.len();
@@ -232,7 +229,7 @@ fn highlight_cedar_line(line: &str) -> Line<'static> {
                 let s = &remaining[pos..pos + end + 2];
                 spans.push(Span::styled(
                     s.to_string(),
-                    Style::default().fg(Color::Green),
+                    Style::default().fg(t.syn_string),
                 ));
                 pos += end + 2;
                 continue;
@@ -243,7 +240,7 @@ fn highlight_cedar_line(line: &str) -> Line<'static> {
         if rest.starts_with("::") {
             spans.push(Span::styled(
                 "::".to_string(),
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(t.syn_operator),
             ));
             pos += 2;
             continue;
@@ -255,7 +252,7 @@ fn highlight_cedar_line(line: &str) -> Line<'static> {
         if matches!(ch, '(' | ')' | '{' | '}' | ',' | ';' | '=') {
             spans.push(Span::styled(
                 ch.to_string(),
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(t.syn_operator),
             ));
         } else {
             spans.push(Span::raw(ch.to_string()));
@@ -302,13 +299,14 @@ pub fn highlight_toml(source: &str) -> Vec<Line<'static>> {
 }
 
 fn highlight_toml_line(line: &str) -> Line<'static> {
+    let t = super::theme::current();
     let trimmed = line.trim();
 
     // Comments
     if trimmed.starts_with('#') {
         return Line::from(Span::styled(
             line.to_string(),
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(t.syn_comment),
         ));
     }
 
@@ -316,9 +314,7 @@ fn highlight_toml_line(line: &str) -> Line<'static> {
     if trimmed.starts_with('[') {
         return Line::from(Span::styled(
             line.to_string(),
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(t.syn_type).add_modifier(Modifier::BOLD),
         ));
     }
 
@@ -334,22 +330,22 @@ fn highlight_toml_line(line: &str) -> Line<'static> {
         }
         spans.push(Span::styled(
             key.to_string(),
-            Style::default().fg(Color::Magenta),
+            Style::default().fg(t.syn_keyword),
         ));
         spans.push(Span::styled(
             " = ".to_string(),
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(t.syn_operator),
         ));
 
         // Style the value
         let value_style = if value.starts_with('"') {
-            Style::default().fg(Color::Green)
+            Style::default().fg(t.syn_string)
         } else if value == "true" || value == "false" {
-            Style::default().fg(Color::Yellow)
+            Style::default().fg(t.syn_number)
         } else if value.starts_with('[') {
-            Style::default().fg(Color::White)
+            Style::default().fg(t.syn_type)
         } else if value.chars().next().is_some_and(|c| c.is_ascii_digit()) {
-            Style::default().fg(Color::Yellow)
+            Style::default().fg(t.syn_number)
         } else {
             Style::default()
         };

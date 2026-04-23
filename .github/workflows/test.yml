@@ -24,6 +24,14 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --workspace -- -D warnings
       - run: cargo test --workspace
+      - name: Lint Cedar policies
+        run: |
+          files=$(git ls-files '*.cedar' 2>/dev/null || true)
+          if [ -n "$files" ]; then
+            python3 scripts/lint-cedar-policies.py $files
+          else
+            echo "No .cedar files tracked — skipping lint."
+          fi
       # Feature combination tests — verify minimal and no-default builds compile
       - name: Test minimal build (no default features)
         run: cargo check -p symbi-runtime --no-default-features

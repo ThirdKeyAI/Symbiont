@@ -1,6 +1,7 @@
+use crate::ui::theme;
 use crate::validation::diff::{DiffKind, DiffLine};
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Widget, Wrap};
 
@@ -18,19 +19,20 @@ impl<'a> DiffView<'a> {
 
 impl Widget for DiffView<'_> {
     fn render(self, area: Rect, buf: &mut ratatui::buffer::Buffer) {
+        let t = theme::current();
         let rendered_lines: Vec<Line> = self
             .lines
             .iter()
             .map(|dl| {
                 let (prefix, style) = match dl.kind {
-                    DiffKind::Added => ("+ ", Style::default().fg(Color::Green)),
-                    DiffKind::Removed => ("- ", Style::default().fg(Color::Red)),
-                    DiffKind::Unchanged => ("  ", Style::default().fg(Color::DarkGray)),
+                    DiffKind::Added => ("+ ", Style::default().fg(t.diff_add)),
+                    DiffKind::Removed => ("- ", Style::default().fg(t.diff_del)),
+                    DiffKind::Unchanged => ("  ", Style::default().fg(t.diff_context)),
                     DiffKind::Escalation => (
                         "! ",
                         Style::default()
-                            .fg(Color::Red)
-                            .bg(Color::Yellow)
+                            .fg(t.error)
+                            .bg(t.warning)
                             .add_modifier(Modifier::BOLD),
                     ),
                 };
@@ -43,7 +45,7 @@ impl Widget for DiffView<'_> {
 
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::DarkGray))
+            .border_style(Style::default().fg(t.input_border))
             .title(format!(" {} ", self.title));
 
         let paragraph = Paragraph::new(rendered_lines)

@@ -1,6 +1,6 @@
 use crate::app::App;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::Frame;
@@ -21,24 +21,25 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_project_info(frame: &mut Frame, app: &App, area: Rect) {
+    let t = super::theme::current();
     let mut lines = Vec::new();
 
     // Agents section
     lines.push(Line::from(Span::styled(
         " Agents",
         Style::default()
-            .fg(Color::Cyan)
+            .fg(t.footer_accent)
             .add_modifier(Modifier::BOLD),
     )));
     if app.active_agents == 0 {
         lines.push(Line::from(Span::styled(
             "   (none)",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(t.dim),
         )));
     } else {
         lines.push(Line::from(Span::styled(
             format!("   {} active", app.active_agents),
-            Style::default().fg(Color::Green),
+            Style::default().fg(t.success),
         )));
     }
 
@@ -48,14 +49,14 @@ fn draw_project_info(frame: &mut Frame, app: &App, area: Rect) {
     lines.push(Line::from(Span::styled(
         " Entities",
         Style::default()
-            .fg(Color::Cyan)
+            .fg(t.footer_accent)
             .add_modifier(Modifier::BOLD),
     )));
     let entity_counts = count_entity_kinds(&app.entities);
     for (kind, count) in entity_counts {
         lines.push(Line::from(Span::styled(
             format!("   {} {}", count, kind),
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(t.dim),
         )));
     }
 
@@ -68,12 +69,12 @@ fn draw_project_info(frame: &mut Frame, app: &App, area: Rect) {
     };
     lines.push(Line::from(Span::styled(
         mem_hint,
-        Style::default().fg(Color::DarkGray),
+        Style::default().fg(t.dim),
     )));
 
     let block = Block::default()
         .borders(Borders::RIGHT)
-        .border_style(Style::default().fg(Color::DarkGray))
+        .border_style(Style::default().fg(t.input_border))
         .title(" Project ");
 
     let paragraph = Paragraph::new(lines).block(block);
@@ -81,6 +82,7 @@ fn draw_project_info(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_memory(frame: &mut Frame, app: &App, area: Rect) {
+    let t = super::theme::current();
     let lines: Vec<Line> = match &app.memory_content {
         Some(content) => content
             .lines()
@@ -89,31 +91,31 @@ fn draw_memory(frame: &mut Frame, app: &App, area: Rect) {
                     Line::from(Span::styled(
                         line.to_string(),
                         Style::default()
-                            .fg(Color::Cyan)
+                            .fg(t.footer_accent)
                             .add_modifier(Modifier::BOLD),
                     ))
                 } else if let Some(item) = line.strip_prefix("- ") {
                     Line::from(vec![
-                        Span::styled("  - ", Style::default().fg(Color::DarkGray)),
+                        Span::styled("  - ", Style::default().fg(t.dim)),
                         Span::raw(item.to_string()),
                     ])
                 } else {
                     Line::from(Span::styled(
                         format!("  {}", line),
-                        Style::default().fg(Color::DarkGray),
+                        Style::default().fg(t.dim),
                     ))
                 }
             })
             .collect(),
         None => vec![Line::from(Span::styled(
             "  (no memory.md found)",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(t.dim),
         ))],
     };
 
     let block = Block::default()
         .borders(Borders::RIGHT | Borders::TOP)
-        .border_style(Style::default().fg(Color::DarkGray))
+        .border_style(Style::default().fg(t.input_border))
         .title(" Memory ");
 
     let paragraph = Paragraph::new(lines)

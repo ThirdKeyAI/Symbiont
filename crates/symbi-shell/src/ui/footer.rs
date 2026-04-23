@@ -7,10 +7,19 @@ use ratatui::Frame;
 use throbber_widgets_tui::{Throbber, WhichUse};
 
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
+    let t = super::theme::current();
     let mode_str = match app.mode {
         InputMode::Orchestrator => "ORCH",
         InputMode::Dsl => "DSL",
     };
+
+    // The mode pill is background-on-accent — keep Color::Black as the
+    // foreground because the accent color is theme-variable and should
+    // always be dark-on-light, not theme.sys on theme.footer_accent.
+    let mode_pill = Style::default()
+        .fg(Color::Black)
+        .bg(t.footer_accent)
+        .add_modifier(Modifier::BOLD);
 
     if app.is_busy() {
         // Split footer: left = status, right = throbber
@@ -20,55 +29,43 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             .split(area);
 
         let status = Line::from(vec![
-            Span::styled(
-                format!(" {} ", mode_str),
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
+            Span::styled(format!(" {} ", mode_str), mode_pill),
             Span::raw(" "),
             Span::styled(
                 format!("model:{}", app.model_name),
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(t.dim),
             ),
             Span::raw(" | "),
             Span::styled(
                 format!("tokens:{}", app.tokens_used),
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(t.dim),
             ),
         ]);
         frame.render_widget(Paragraph::new(status), chunks[0]);
 
         let throbber = Throbber::default()
             .label(app.busy_label.as_str())
-            .style(Style::default().fg(Color::Yellow))
-            .throbber_style(Style::default().fg(Color::Cyan))
+            .style(Style::default().fg(t.warning))
+            .throbber_style(Style::default().fg(t.footer_accent))
             .use_type(WhichUse::Spin);
         frame.render_stateful_widget(throbber, chunks[1], &mut app.throbber_state);
     } else {
         let footer = Line::from(vec![
-            Span::styled(
-                format!(" {} ", mode_str),
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
+            Span::styled(format!(" {} ", mode_str), mode_pill),
             Span::raw(" "),
             Span::styled(
                 format!("model:{}", app.model_name),
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(t.dim),
             ),
             Span::raw(" | "),
             Span::styled(
                 format!("agents:{}", app.active_agents),
-                Style::default().fg(Color::Yellow),
+                Style::default().fg(t.warning),
             ),
             Span::raw(" | "),
             Span::styled(
                 format!("tokens:{}", app.tokens_used),
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(t.dim),
             ),
             Span::raw(" | "),
             Span::styled(
@@ -78,9 +75,9 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                     "local".to_string()
                 },
                 Style::default().fg(if app.remote.is_some() {
-                    Color::Green
+                    t.success
                 } else {
-                    Color::DarkGray
+                    t.dim
                 }),
             ),
         ]);

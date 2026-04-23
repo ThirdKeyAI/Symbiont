@@ -564,7 +564,111 @@ async fn main() {
                         ),
                 ),
         )
-        .subcommand(Command::new("shell").about("Interactive agent orchestration shell"))
+        .subcommand(
+            Command::new("shell")
+                .about("Interactive agent orchestration shell")
+                // Forward trailing args verbatim to the symbi-shell binary
+                // so flags like `--resume <id>` and `--list-sessions` work
+                // via `symbi shell --resume …` as well as invoking the
+                // binary directly.
+                .trailing_var_arg(true)
+                .arg(
+                    clap::Arg::new("shell-args")
+                        .num_args(0..)
+                        .allow_hyphen_values(true)
+                        .trailing_var_arg(true),
+                ),
+        )
+        .subcommand(
+            Command::new("schemapin")
+                .about("TOFU integrity pinning for MCP server configs (used by SessionStart hooks)")
+                .subcommand(
+                    Command::new("verify")
+                        .about("Verify the pinned hash for one or all MCP servers in .mcp.json")
+                        .arg(
+                            Arg::new("mcp-server")
+                                .long("mcp-server")
+                                .value_name("NAME")
+                                .help("Server name from .mcp.json (omit to verify every server)"),
+                        )
+                        .arg(
+                            Arg::new("config")
+                                .long("config")
+                                .value_name("PATH")
+                                .help("Path to .mcp.json (default: ./.mcp.json)"),
+                        ),
+                )
+                .subcommand(
+                    Command::new("pin")
+                        .about("Pin the current config hash for an MCP server")
+                        .arg(
+                            Arg::new("mcp-server")
+                                .long("mcp-server")
+                                .value_name("NAME")
+                                .help("Server name from .mcp.json")
+                                .required(true),
+                        )
+                        .arg(
+                            Arg::new("config")
+                                .long("config")
+                                .value_name("PATH")
+                                .help("Path to .mcp.json (default: ./.mcp.json)"),
+                        )
+                        .arg(
+                            Arg::new("force")
+                                .long("force")
+                                .action(ArgAction::SetTrue)
+                                .help("Overwrite an existing pin if the hash differs"),
+                        ),
+                )
+                .subcommand(
+                    Command::new("list")
+                        .about("List all pinned MCP servers under ~/.symbiont/schemapin/mcp/"),
+                )
+                .subcommand(
+                    Command::new("unpin")
+                        .about("Remove the pin record for an MCP server")
+                        .arg(
+                            Arg::new("mcp-server")
+                                .long("mcp-server")
+                                .value_name("NAME")
+                                .help("Server name to unpin")
+                                .required(true),
+                        ),
+                ),
+        )
+        .subcommand(
+            Command::new("policy")
+                .about("Evaluate Cedar authorization policies against tool-call inputs")
+                .subcommand(
+                    Command::new("evaluate")
+                        .about("Read a tool-call event and decide allow/deny against a policy directory")
+                        .arg(
+                            Arg::new("stdin")
+                                .long("stdin")
+                                .action(ArgAction::SetTrue)
+                                .help("Read the JSON event from stdin"),
+                        )
+                        .arg(
+                            Arg::new("input")
+                                .long("input")
+                                .value_name("FILE")
+                                .help("Read the JSON event from FILE (alternative to --stdin)"),
+                        )
+                        .arg(
+                            Arg::new("policies")
+                                .long("policies")
+                                .value_name("DIR")
+                                .help("Directory containing .cedar policy files (default: ./policies)"),
+                        )
+                        .arg(
+                            Arg::new("json")
+                                .long("json")
+                                .action(ArgAction::SetTrue)
+                                .help("Emit only structured JSON to stdout (for programmatic use). Default: bare verdict on stdout, JSON on stderr."),
+                        ),
+                ),
+        )
         .get_matches();
 
     match matches.subcommand() {
@@ -627,7 +731,13 @@ async fn main() {
         Some(("tools", sub_matches)) => {
             commands::tools::run(sub_matches).await;
         }
-        Some(("shell", _)) => {
+        Some(("schemapin", sub_matches)) => {
+            commands::schemapin::run(sub_matches).await;
+        }
+        Some(("policy", sub_matches)) => {
+            commands::policy::run(sub_matches).await;
+        }
+        Some(("shell", sub_matches)) => {
             let exe_dir = std::env::current_exe()
                 .expect("cannot determine executable path")
                 .parent()
@@ -635,7 +745,12 @@ async fn main() {
                 .to_path_buf();
             let shell_bin = exe_dir.join("symbi-shell");
             if shell_bin.exists() {
+                let forwarded: Vec<String> = sub_matches
+                    .get_many::<String>("shell-args")
+                    .map(|vals| vals.cloned().collect())
+                    .unwrap_or_default();
                 let status = std::process::Command::new(&shell_bin)
+                    .args(forwarded)
                     .status()
                     .expect("failed to launch symbi-shell");
                 std::process::exit(status.code().unwrap_or(1));

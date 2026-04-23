@@ -6,10 +6,11 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
 pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
+    let t = super::theme::current();
     let prompt = app.prompt();
     let line = Line::from(vec![
-        Span::styled(prompt, Style::default().fg(Color::Green)),
-        Span::raw(&app.input),
+        Span::styled(prompt, Style::default().fg(t.agent)),
+        Span::styled(app.input.clone(), Style::default().fg(t.input_text)),
     ]);
     let widget = Paragraph::new(line);
     frame.render_widget(widget, area);
@@ -106,16 +107,14 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
             .map(|(i, c)| {
                 let selected_row = i == selected;
                 let name_style = if selected_row {
-                    Style::default().fg(Color::Black).bg(Color::Cyan)
+                    Style::default().fg(Color::Black).bg(t.footer_accent)
                 } else {
-                    Style::default().fg(Color::White)
+                    Style::default().fg(t.input_text)
                 };
                 let meta_style = if selected_row {
-                    Style::default().fg(Color::Black).bg(Color::Cyan)
+                    Style::default().fg(Color::Black).bg(t.footer_accent)
                 } else {
-                    Style::default()
-                        .fg(Color::DarkGray)
-                        .add_modifier(Modifier::DIM)
+                    Style::default().fg(t.dim).add_modifier(Modifier::DIM)
                 };
 
                 // Pad the name column so categories / summaries align.
@@ -166,7 +165,7 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
 
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::DarkGray))
+            .border_style(Style::default().fg(t.input_border))
             .title(title_top)
             .title_bottom(title_bottom);
         let popup = Paragraph::new(items).block(block);

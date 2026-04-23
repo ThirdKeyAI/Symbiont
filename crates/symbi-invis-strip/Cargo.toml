@@ -1,0 +1,16 @@
+[package]
+name = "symbi-invis-strip"
+version = "0.1.0"
+edition = "2021"
+rust-version.workspace = true
+license = "Apache-2.0"
+description = "Strip invisible / steganographic Unicode code points from strings before they reach a knowledge store, a journal, or a prompt."
+repository = "https://github.com/thirdkeyai/symbiont"
+homepage = "https://symbiont.dev"
+readme = "README.md"
+keywords = ["unicode", "security", "sanitise", "agent", "symbiont"]
+categories = ["text-processing"]
+
+[dependencies]
+
+[dev-dependencies]

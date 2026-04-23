@@ -26,6 +26,27 @@ impl std::fmt::Display for LlmProvider {
     }
 }
 
+/// Returns OpenRouter app-attribution headers from env, if the operator opted in.
+///
+/// Reads `OPENROUTER_REFERER` and `OPENROUTER_TITLE`. Both are optional and
+/// default to empty (no attribution sent), honoring zero-trust defaults.
+/// See https://openrouter.ai/docs/app-attribution.
+#[cfg(feature = "http-input")]
+pub(crate) fn openrouter_attribution_headers() -> Vec<(&'static str, String)> {
+    let mut headers = Vec::new();
+    if let Ok(v) = std::env::var("OPENROUTER_REFERER") {
+        if !v.is_empty() {
+            headers.push(("HTTP-Referer", v));
+        }
+    }
+    if let Ok(v) = std::env::var("OPENROUTER_TITLE") {
+        if !v.is_empty() {
+            headers.push(("X-Title", v));
+        }
+    }
+    headers
+}
+
 /// OpenAI-compatible chat completions client
 #[cfg(feature = "http-input")]
 pub struct LlmClient {
@@ -231,11 +252,17 @@ impl LlmClient {
             body["tools"] = serde_json::Value::Array(Self::tools_to_openai_functions(tools));
         }
 
-        let response = self
+        let mut req = self
             .client
             .post(format!("{}/chat/completions", self.base_url))
             .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
+            .header("Content-Type", "application/json");
+        if matches!(self.provider, LlmProvider::OpenRouter) {
+            for (k, v) in openrouter_attribution_headers() {
+                req = req.header(k, v);
+            }
+        }
+        let response = req
             .json(&body)
             .send()
             .await
@@ -410,11 +437,17 @@ impl LlmClient {
 
         let start = std::time::Instant::now();
 
-        let response = self
+        let mut req = self
             .client
             .post(format!("{}/chat/completions", self.base_url))
             .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
+            .header("Content-Type", "application/json");
+        if matches!(self.provider, LlmProvider::OpenRouter) {
+            for (k, v) in openrouter_attribution_headers() {
+                req = req.header(k, v);
+            }
+        }
+        let response = req
             .json(&body)
             .send()
             .await
