@@ -70,7 +70,10 @@ fn cmd_verify(matches: &ArgMatches) {
     };
 
     if names.is_empty() {
-        eprintln!("no signature: config '{}' lists no MCP servers", config_path.display());
+        eprintln!(
+            "no signature: config '{}' lists no MCP servers",
+            config_path.display()
+        );
         std::process::exit(1);
     }
 
@@ -104,17 +107,18 @@ fn cmd_verify(matches: &ArgMatches) {
         {
             Ok(r) => r,
             Err(e) => {
-                eprintln!(
-                    "verification failed: cannot read pin for '{}': {}",
-                    name, e
-                );
+                eprintln!("verification failed: cannot read pin for '{}': {}", name, e);
                 had_failure = true;
                 continue;
             }
         };
 
         if record.config_hash == live_hash {
-            println!("verified: {} ({})", name, &live_hash[..23.min(live_hash.len())]);
+            println!(
+                "verified: {} ({})",
+                name,
+                &live_hash[..23.min(live_hash.len())]
+            );
         } else {
             eprintln!(
                 "verification failed: MCP server '{}' config changed since pinning ({} → {})",
@@ -228,7 +232,9 @@ fn cmd_pin(matches: &ArgMatches) {
 fn cmd_list() {
     let dir = pin_root_dir();
     if !dir.exists() {
-        println!("No MCP servers pinned. Use 'symbi schemapin pin --mcp-server <name>' to add one.");
+        println!(
+            "No MCP servers pinned. Use 'symbi schemapin pin --mcp-server <name>' to add one."
+        );
         return;
     }
     let entries = match std::fs::read_dir(&dir) {
@@ -330,7 +336,10 @@ fn canonicalize(v: &serde_json::Value) -> serde_json::Value {
 
 fn pin_root_dir() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home).join(".symbiont").join("schemapin").join("mcp")
+    PathBuf::from(home)
+        .join(".symbiont")
+        .join("schemapin")
+        .join("mcp")
 }
 
 fn pin_path_for(server_name: &str) -> PathBuf {
@@ -339,7 +348,13 @@ fn pin_path_for(server_name: &str) -> PathBuf {
 
 fn sanitize(name: &str) -> String {
     name.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 

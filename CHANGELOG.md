@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`symbi shell` — interactive TUI**: New first-class subcommand providing a ratatui-based terminal UI for building, orchestrating, and operating agents. Inline viewport with live-streaming tool-call cards, async throbber during LLM calls, markdown + diff renderers, toggleable project-structure sidebar, agent-card widget, diff view, and ORGA-phase-colored trace timeline. Command registry with `/help`, `/clear`, `/quit`, `/dsl` toggle, `/model`, `/cost`, `/status`, input history, and session UUIDs. Agent lifecycle: `/agents`, `/debug`, `/stop`, `/pause`, `/destroy`. AI-assisted authoring: `/spawn`, `/policy`, `/tool`, `/behavior` (artifacts are persisted to disk). Orchestration: async orchestrator wired for conversational mode, `/audit` command wired to the ORGA journal, automatic context compaction with `/compact` and `/context`. Ops: `/deploy`, `/ask`, `/send`, `/memory`, `/run`, `/chain`, `/debate`, `/tools`, `/skills`, `/doctor`, `/logs`, `/new`. Remote attach: `/attach`, `/detach`, `/cron` over HTTP; `/channels` via remote attach; `/secrets` via local encrypted store. Session persistence: `/snapshot`, `/resume`, `/export`. Fuzzy `@mention` + `/command` completion with grouped popup, auto-trigger on `/` and `@`, arrow navigation, `@path` completion, DSL-aware completion, in-process DSL evaluation in `/dsl` mode. `/init` with deterministic profiles and conversational mode. Tree-sitter syntax highlighting for the Symbiont DSL plus Cedar and ToolClad. Artifact validation pipeline: constraint loader, DSL validator, Cedar and ToolClad validators. Theme system, OSC-8 hyperlinks, resize handling, transient-retry, Zellij detection with inline-viewport warning, `--yes`, `--profile`.
+- **Agent deployment stack**: `/deploy local` via Docker with a hardened sandbox runner, `/deploy cloudrun` for Google Cloud Run (OSS single-agent), and `/deploy aws` for AWS App Runner (OSS single-agent).
+- **Cross-instance agent messaging**: `RemoteCommunicationBus` with HTTP messaging endpoints wired into `RuntimeBridge`'s default context. Cron + heartbeat architecture documented in the spec.
+- **`symbi-approval-relay` crate**: Dual-channel human approval relay.
+- **`symbi schemapin` and `symbi policy` CLI subcommands**.
+- **`symbi-invis-strip` crate**: Zero-dependency Unicode invisible-stripping helper (ASCII C0/DEL, C1, zero-width, bidi overrides, word-joiner/invisible-operator block, BOM, variation selectors, Unicode Tag block, supplementary variation selectors). Opt-in `sanitize_field_with_markup` variant additionally strips `<!-- ... -->` HTML comments and triple-backtick fenced blocks for surfaces where renderer-hidden markup has no legitimate use.
+- **Cedar policy linter** (`scripts/lint-cedar-policies.py`): Detects homoglyph identifiers and invisible control chars in `.cedar` files. Wired to the repo pre-commit hook and CI test job.
+- **AgentPin fully wired; SchemaPin enforcement hardened**.
+- **`symbi-e2e` end-to-end test crate**: Covers AgentPin messaging, API auth scope, cross-runtime bus, Docker volumes, messaging ingress, rate limit, and webhook signature verification.
+- **Opt-in OpenRouter app attribution**: Runtime now sets the OpenRouter app-name headers when enabled.
+
+### Changed
+- **OSS vs Enterprise licensing**: Documented in the spec and plan.
+
+### Fixed
+- `symbi-shell`: `/spawn`, `/policy`, `/tool`, `/behavior` now actually persist their artifacts; Enter submits on first press even when the completion popup is visible; content scroll fix with all warnings eliminated; batched UX fixes.
+- CI: Unblocked minimal build and Docker build, added 4 missing fuzz targets, normalised `cargo fmt` across the workspace, silenced `approx_constant` lint, fixed three release-workflow + test issues exposed by v1.10.0.
+- OSS sync: Include `tests/e2e` workspace member in the OSS allowlist and Docker context.
+
+### Security
+- **2026-04-18 audit remediation**: Closed H-2/H-3/H-4 (reasoning policy gate, SchemaPin SSRF/TLS, parallel-cap enforcement). Hardened medium-severity findings (M-2..M-11 subset) and low-severity findings (L-1, L-3, L-5, L-6).
+- **SystemTime overflow DoS** in the remote envelope parser fixed; Docker proto dependencies and fuzz-target tokio runtime aligned.
+- **Agent scope enforcement**: Applied to every `/api/v1` agent, schedule, and channel route.
+- **Bus signature verification** enforced; ToolClad custom parsers gated.
+- **4 new fuzz targets** for the messaging attack surface.
+- **Dependency CVE patches**; remote-bus env var unified; env-touching tests serialised to prevent cross-test interference.
+
 ## [1.10.0] - 2026-04-13
 
 ### Added

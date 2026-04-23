@@ -121,7 +121,11 @@ struct Decision {
 }
 
 #[cfg(feature = "cedar")]
-fn evaluate(tool_name: &str, tool_input: &serde_json::Value, policies_dir: &std::path::Path) -> Decision {
+fn evaluate(
+    tool_name: &str,
+    tool_input: &serde_json::Value,
+    policies_dir: &std::path::Path,
+) -> Decision {
     use cedar_policy::{
         Authorizer, Context, Decision as CedarDecision, EntityUid, Policy, PolicyId, PolicySet,
         Request,
@@ -169,7 +173,10 @@ fn evaluate(tool_name: &str, tool_input: &serde_json::Value, policies_dir: &std:
         };
         // Cedar can parse multiple policies from one file; assign deterministic
         // ids derived from the filename so a syntax error names the offender.
-        let id_base = path.file_stem().and_then(|s| s.to_str()).unwrap_or("policy");
+        let id_base = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("policy");
         match PolicySet::from_str(&source) {
             Ok(set) => {
                 for (idx, p) in set.policies().enumerate() {
@@ -268,7 +275,10 @@ fn evaluate(tool_name: &str, tool_input: &serde_json::Value, policies_dir: &std:
         CedarDecision::Allow => Decision {
             verdict: "allow",
             reason: if determining.is_empty() {
-                format!("allowed by default (no policies forbid this; {} loaded)", loaded_count)
+                format!(
+                    "allowed by default (no policies forbid this; {} loaded)",
+                    loaded_count
+                )
             } else {
                 format!("allow policies matched: {}", determining.join(", "))
             },
@@ -276,7 +286,10 @@ fn evaluate(tool_name: &str, tool_input: &serde_json::Value, policies_dir: &std:
         CedarDecision::Deny => Decision {
             verdict: "deny",
             reason: if determining.is_empty() {
-                format!("denied by default-deny ({} policies loaded, none allow this)", loaded_count)
+                format!(
+                    "denied by default-deny ({} policies loaded, none allow this)",
+                    loaded_count
+                )
             } else {
                 format!("deny policies matched: {}", determining.join(", "))
             },
@@ -285,7 +298,11 @@ fn evaluate(tool_name: &str, tool_input: &serde_json::Value, policies_dir: &std:
 }
 
 #[cfg(not(feature = "cedar"))]
-fn evaluate(_tool_name: &str, _tool_input: &serde_json::Value, _policies_dir: &std::path::Path) -> Decision {
+fn evaluate(
+    _tool_name: &str,
+    _tool_input: &serde_json::Value,
+    _policies_dir: &std::path::Path,
+) -> Decision {
     eprintln!(
         "warning: symbi was built without the 'cedar' feature; policy evaluation is a no-op (allowing). \
          Rebuild with `cargo build --features cedar` to enforce Cedar policies."
