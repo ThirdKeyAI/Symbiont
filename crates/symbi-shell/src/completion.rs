@@ -166,7 +166,7 @@ pub fn complete(
             candidates.extend(file_path_candidates(query));
         }
 
-        candidates.sort_by(|a, b| b.score.cmp(&a.score));
+        candidates.sort_by_key(|b| std::cmp::Reverse(b.score));
         return (at_pos, candidates);
     }
 
