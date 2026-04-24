@@ -106,7 +106,16 @@ symbi init        # 交互式项目设置 — 写入 symbiont.toml、agents/、
                   # 指定目标目录（在容器内运行时必需）。
 symbi run agent   # 运行单个智能体，无需启动完整运行时
 symbi up          # 启动完整运行时，自动配置
+symbi shell       # 交互式智能体编排 shell（Beta）—— 参见下文
 ```
+
+### 交互式 shell（Beta）
+
+`symbi shell` 是一个基于 ratatui 的终端 UI，用于在 LLM 辅助下编写智能体、工具和策略，编排多智能体模式（`/chain`、`/parallel`、`/race`、`/debate`），管理调度和通道，并附加到远程运行时。状态为 **beta** —— 命令接口和持久化格式仍可能在次要版本之间变化。请参阅 [Symbi Shell 指南](/symbi-shell)。
+
+### 部署单个智能体（Beta）
+
+shell 的 `/deploy` 命令会打包当前活动的智能体并将其交付到 Docker（`/deploy local`）、Google Cloud Run（`/deploy cloudrun`）或 AWS App Runner（`/deploy aws`）。OSS 技术栈为单智能体；多智能体拓扑通过跨实例消息传递组合。请参阅 [Symbi Shell —— 部署](/symbi-shell#deployment-beta)。
 
 ---
 
@@ -185,6 +194,7 @@ Symbiont 围绕一个简单原则设计：**模型输出永远不应被信任为
 ## 指南
 
 - [入门指南](/getting-started) — 安装、配置、第一个智能体
+- [Symbi Shell](/symbi-shell)（Beta）— 用于编写、编排和远程附加的交互式 TUI
 - [安全模型](/security-model) — 零信任架构、策略执行
 - [运行时架构](/runtime-architecture) — 运行时内部机制和执行模型
 - [推理循环](/reasoning-loop) — ORGA 循环、策略门控、断路器

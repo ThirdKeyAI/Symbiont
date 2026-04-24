@@ -681,6 +681,55 @@ scanner.add_custom_rule(
 
 ---
 
+## Sanitizacion de Caracteres Invisibles (`symbi-invis-strip`)
+
+`symbi-invis-strip` es un crate utilitario sin dependencias usado en todo el runtime para eliminar caracteres que se renderizan como nada pero cambian el significado — la carga util clasica para ataques de inyeccion de prompts y evasion de politicas.
+
+### Que elimina
+
+- ASCII C0 (0x00–0x1F) y DEL (0x7F), excepto `\t` `\n` `\r`
+- ASCII C1 (0x80–0x9F)
+- Caracteres de ancho cero (ZWSP, ZWNJ, ZWJ)
+- Overrides bidireccionales (LRO, RLO, PDF, LRE, RLE, LRI, RLI, FSI, PDI)
+- Word joiner y el bloque de operadores invisibles
+- Marcas de orden de bytes (BOM)
+- Selectores de variacion (VS1–VS16 y VS17–VS256 suplementarios)
+- Caracteres del bloque Unicode Tag (U+E0000–U+E007F)
+
+### Donde se ejecuta
+
+- Cargas utiles entrantes de chat y webhook — antes de que lleguen al orquestador
+- Argumentos de llamadas a herramientas — antes de que lleguen a la evaluacion Cedar
+- Contenido de skills y DSL de agentes — antes del escaner y el parser
+
+### Eliminacion opcional de markup
+
+La variante opcional `sanitize_field_with_markup` adicionalmente elimina:
+- Comentarios HTML `<!-- ... -->`
+- Bloques de codigo delimitados por triples comillas invertidas
+
+La eliminacion de markup es apropiada para superficies donde el markup oculto al renderizador no tiene uso legitimo — por ejemplo, campos breves de justificacion de politicas o metadatos solo de visualizacion. **No** se aplica a campos que legitimamente llevan markdown o codigo (como fuente de agente, cuerpos de politica o salidas de herramientas).
+
+---
+
+## Linter de Politicas Cedar
+
+`scripts/lint-cedar-policies.py` es un pase de analisis estatico que se ejecuta sobre cada archivo `.cedar` del repositorio. Detecta una clase de ataque en la que un flujo de autoria malicioso (o comprometido) escribe una politica que *parece* correcta pero contiene caracteres que producen una decision de autorizacion diferente a la que el revisor espera.
+
+### Que detecta
+
+- **Identificadores homoglifo** — `а` cirilica (U+0430) haciendose pasar por `a` latina, `ο` griega (U+03BF) como `o` latina y similares imitaciones en nombres de principal/accion/recurso.
+- **Caracteres de control invisibles** dentro de identificadores, literales de cadena o entre tokens.
+
+### Donde se ejecuta
+
+- **Hook pre-commit** — bloquea commits que introducen cualquiera de las dos clases de problema.
+- **CI** — la misma verificacion es un job de prueba obligatorio, de modo que los commits que eluden el hook (via `--no-verify`) aun fallan en CI.
+
+Combinado con `symbi-invis-strip` en la ruta de datos, el linter cierra el vector de la ruta de autoria: los trucos invisibles no pueden entrar al repo, y cualquiera que se cuele en tiempo de ejecucion se elimina antes de la evaluacion de politicas.
+
+---
+
 ## Seguridad de Red
 
 ### Comunicacion Segura

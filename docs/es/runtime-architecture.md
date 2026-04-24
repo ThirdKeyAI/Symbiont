@@ -258,6 +258,20 @@ El `ReasoningBuiltinContext` lleva tres campos opcionales:
 - `comm_bus` — referencia al CommunicationBus para enrutamiento de mensajes
 - `comm_policy` — referencia al CommunicationPolicyGate para autorizacion
 
+### Mensajeria de agentes entre instancias
+
+El `CommunicationBus` en proceso tiene una contraparte distribuida — `RemoteCommunicationBus` — que reenvia los mismos tipos de mensajes (`ask`, `send_to`, `delegate`, `parallel`, `race`) sobre HTTP entre instancias de runtime separadas. Esto es lo que permite que un coordinador desplegado en un host hable con workers desplegados en otro sin renunciar a la aplicacion de politicas, firmas o rastros de auditoria.
+
+Propiedades clave:
+
+- **Mismo contrato** — `RemoteCommunicationBus` implementa el mismo trait que el bus local, de modo que el codigo del agente y los builtins del DSL no cambian entre topologias en proceso y entre instancias.
+- **Endpoints HTTP de mensajeria** — expuestos en la API HTTP del runtime y conectados al contexto predeterminado de `RuntimeBridge`, de modo que `symbi up` en una ubicacion puede recibir mensajes desde `symbi up` en otra.
+- **Identidad anclada a AgentPin** — los remitentes presentan un token ES256 de AgentPin; los destinatarios verifican contra la clave anclada al dominio del remitente antes de que se ejecute la compuerta de politicas.
+- **Verificacion SchemaPin** — cualquier manifiesto de herramienta referenciado entre instancias se verifica contra sus firmas fijadas antes de ejecutarse.
+- **Auditoria** — los envios y recepciones de mensajes remotos se registran con el mismo formato criptograficamente a prueba de manipulacion que los mensajes locales, de modo que el rastro de auditoria sigue al salto del mensaje.
+
+La topologia de despliegue es tipicamente una instancia coordinador mas una o mas instancias worker, cada una desplegada via `symbi shell /deploy …` (Beta) a Docker, Cloud Run o App Runner. Consulte la [guia de despliegue de Symbi Shell](/symbi-shell#deployment-beta).
+
 ---
 
 ## Sistemas de Contexto y Conocimiento

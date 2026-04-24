@@ -285,6 +285,20 @@ The `ReasoningBuiltinContext` carries three optional fields:
 - `comm_bus` — reference to the CommunicationBus for message routing
 - `comm_policy` — reference to the CommunicationPolicyGate for authorization
 
+### Cross-instance agent messaging
+
+The in-process `CommunicationBus` has a distributed counterpart — `RemoteCommunicationBus` — that forwards the same message types (`ask`, `send_to`, `delegate`, `parallel`, `race`) over HTTP between separate runtime instances. This is what lets a coordinator deployed on one host talk to workers deployed on another without giving up policy enforcement, signatures, or audit trails.
+
+Key properties:
+
+- **Same contract** — `RemoteCommunicationBus` implements the same trait as the local bus, so agent code and DSL builtins don't change between in-process and cross-instance topologies.
+- **HTTP messaging endpoints** — exposed on the runtime HTTP API and wired into `RuntimeBridge`'s default context, so `symbi up` in one location can receive messages from `symbi up` elsewhere.
+- **AgentPin-anchored identity** — senders present an AgentPin ES256 token; recipients verify against the sender's domain-anchored key before the policy gate runs.
+- **SchemaPin verification** — any tool manifests referenced across instances are verified against their pinned signatures before execution.
+- **Audit** — remote message sends and receives are logged with the same cryptographic tamper-evident format as local messages, so the audit trail follows the message hop.
+
+Deployment topology is typically a coordinator instance plus one or more worker instances, each deployed via `symbi shell /deploy …` (Beta) to Docker, Cloud Run, or App Runner. See the [Symbi Shell deployment guide](/symbi-shell#deployment-beta).
+
 ---
 
 ## Context & Knowledge Systems

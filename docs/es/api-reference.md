@@ -1224,6 +1224,56 @@ La API utiliza codigos de estado HTTP estandar y devuelve informacion detallada 
 
 ---
 
+## Subcomandos de CLI
+
+Mas alla de la superficie HTTP de larga duracion, `symbi` expone varios subcomandos exclusivos de CLI para operaciones puntuales. El catalogo completo esta en `symbi --help`; los mas relevantes para la integracion y la aplicacion de politicas son:
+
+### `symbi schemapin`
+
+Fijacion de integridad TOFU (Trust-On-First-Use) para configuraciones de servidores MCP. Esta diseñado para invocarse desde hooks SessionStart de modo que el hash de configuracion de un servidor MCP no pueda cambiar silenciosamente entre sesiones sin que el operador lo apruebe.
+
+```bash
+# Verificar el hash fijado para uno o todos los servidores MCP en .mcp.json
+symbi schemapin verify [--mcp-server <NAME>] [--config <PATH>]
+
+# Fijar el hash de configuracion actual para un servidor
+symbi schemapin pin --mcp-server <NAME> [--config <PATH>] [--force]
+
+# Listar cada servidor fijado bajo ~/.symbiont/schemapin/mcp/
+symbi schemapin list
+
+# Eliminar un registro de fijacion
+symbi schemapin unpin --mcp-server <NAME>
+```
+
+Las fijaciones se almacenan bajo `~/.symbiont/schemapin/mcp/` como registros JSON. `verify` sale con 0 si coincide, distinto de cero si no coincide o falta la fijacion — adecuado para usarse en scripts previos a la sesion.
+
+### `symbi policy`
+
+Evaluacion de politicas Cedar contra eventos de llamada a herramientas. Lee un solo evento como JSON, decide `allow` / `deny` contra un directorio de politicas y sale con un codigo de estado adecuado para scripting.
+
+```bash
+# Evaluar un evento leido desde stdin
+echo '{"principal":"Agent::\"dev\"", "action":"write", "resource":{...}}' \
+  | symbi policy evaluate --stdin --policies ./policies
+
+# Evaluar un evento leido desde un archivo
+symbi policy evaluate --input event.json --policies ./policies
+
+# Emitir solo JSON estructurado (adecuado para uso programatico)
+symbi policy evaluate --stdin --policies ./policies --json
+```
+
+La salida predeterminada es el veredicto escueto en stdout con detalle estructurado en stderr; pase `--json` para colapsar todo a JSON en stdout. Esta es la misma logica de decision Cedar que el runtime usa en linea — util para pruebas de politicas en CI (shift-left) y para depurar denegaciones fuera de un runtime en ejecucion.
+
+### `symbi agents-md`
+
+Regenera `AGENTS.md` a partir de los archivos `agents/*.dsl` actuales. Se ejecuta automaticamente durante `symbi init`; invoquelo manualmente despues de agregar o editar definiciones de agentes.
+
+```bash
+symbi agents-md generate --dir . --output AGENTS.md
+```
+
 ## Primeros Pasos
 
 ### API HTTP del Runtime

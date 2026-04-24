@@ -1224,6 +1224,56 @@ A API usa códigos de status HTTP padrão e retorna informações detalhadas de 
 
 ---
 
+## Subcomandos de CLI
+
+Além da superfície HTTP de longa duração, o `symbi` expõe diversos subcomandos apenas de CLI para operações pontuais. O catálogo completo está em `symbi --help`; os mais relevantes para integração e aplicação de políticas são:
+
+### `symbi schemapin`
+
+Fixação de integridade TOFU (Trust-On-First-Use) para configurações de servidores MCP. Projetado para ser chamado a partir de hooks SessionStart, de modo que o hash da configuração de um servidor MCP não possa mudar silenciosamente entre sessões sem que o operador aprove.
+
+```bash
+# Verificar o hash fixado para um ou todos os servidores MCP em .mcp.json
+symbi schemapin verify [--mcp-server <NAME>] [--config <PATH>]
+
+# Fixar o hash da configuração atual para um servidor
+symbi schemapin pin --mcp-server <NAME> [--config <PATH>] [--force]
+
+# Listar todos os servidores fixados em ~/.symbiont/schemapin/mcp/
+symbi schemapin list
+
+# Remover um registro de fixação
+symbi schemapin unpin --mcp-server <NAME>
+```
+
+Os pins são armazenados em `~/.symbiont/schemapin/mcp/` como registros JSON. `verify` sai com 0 em caso de correspondência, diferente de zero em caso de divergência ou pin ausente — adequado para uso em scripts de pré-sessão.
+
+### `symbi policy`
+
+Avaliação de políticas Cedar contra eventos de chamada de ferramenta. Lê um único evento como JSON, decide `allow` / `deny` contra um diretório de políticas e sai com um código de status adequado para scripting.
+
+```bash
+# Avaliar um evento lido do stdin
+echo '{"principal":"Agent::\"dev\"", "action":"write", "resource":{...}}' \
+  | symbi policy evaluate --stdin --policies ./policies
+
+# Avaliar um evento lido de um arquivo
+symbi policy evaluate --input event.json --policies ./policies
+
+# Emitir apenas JSON estruturado (adequado para uso programático)
+symbi policy evaluate --stdin --policies ./policies --json
+```
+
+A saída padrão é o veredito puro em stdout com detalhes estruturados em stderr; passe `--json` para colapsar tudo para JSON em stdout. Essa é a mesma lógica de decisão Cedar que o runtime usa inline — útil para testes de políticas shift-left em CI e para depurar negações fora de um runtime em execução.
+
+### `symbi agents-md`
+
+Regera `AGENTS.md` a partir dos arquivos `agents/*.dsl` atuais. Executa automaticamente durante `symbi init`; chame manualmente após adicionar ou editar definições de agentes.
+
+```bash
+symbi agents-md generate --dir . --output AGENTS.md
+```
+
 ## Primeiros Passos
 
 ### API HTTP do Runtime

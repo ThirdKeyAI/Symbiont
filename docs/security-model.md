@@ -690,6 +690,55 @@ scanner.add_custom_rule(
 
 ---
 
+## Invisible-Character Sanitization (`symbi-invis-strip`)
+
+`symbi-invis-strip` is a zero-dependency utility crate used across the runtime to strip characters that render as nothing but change meaning — the classic payload for prompt-injection and policy-evasion attacks.
+
+### What it removes
+
+- ASCII C0 (0x00–0x1F) and DEL (0x7F), except for `\t` `\n` `\r`
+- ASCII C1 (0x80–0x9F)
+- Zero-width characters (ZWSP, ZWNJ, ZWJ)
+- Bidirectional overrides (LRO, RLO, PDF, LRE, RLE, LRI, RLI, FSI, PDI)
+- Word joiner and the invisible-operator block
+- Byte-order marks (BOM)
+- Variation selectors (VS1–VS16 and supplementary VS17–VS256)
+- Characters in the Unicode Tag block (U+E0000–U+E007F)
+
+### Where it runs
+
+- Inbound chat and webhook payloads — before they reach the orchestrator
+- Tool-call arguments — before they reach Cedar evaluation
+- Skill and agent DSL content — before the scanner and parser
+
+### Optional markup stripping
+
+The opt-in `sanitize_field_with_markup` variant additionally removes:
+- `<!-- ... -->` HTML comments
+- Triple-backtick fenced code blocks
+
+Markup stripping is appropriate for surfaces where renderer-hidden markup has no legitimate use — for example, short policy rationale fields or display-only metadata. It is **not** applied to fields that legitimately carry markdown or code (like agent source, policy bodies, or tool outputs).
+
+---
+
+## Cedar Policy Linter
+
+`scripts/lint-cedar-policies.py` is a static analysis pass that runs on every `.cedar` file in the repository. It catches a class of attack where a malicious (or compromised) authoring flow writes a policy that *looks* correct but contains characters that produce a different authorization decision than the reviewer expects.
+
+### What it catches
+
+- **Homoglyph identifiers** — Cyrillic `а` (U+0430) masquerading as Latin `a`, Greek `ο` (U+03BF) as Latin `o`, and similar lookalikes in principal/action/resource names.
+- **Invisible control characters** inside identifiers, string literals, or between tokens.
+
+### Where it runs
+
+- **Pre-commit hook** — blocks commits that introduce either class of issue.
+- **CI** — the same check is a required test job, so commits that bypass the hook (via `--no-verify`) still fail CI.
+
+Combined with `symbi-invis-strip` on the data path, the linter closes the authoring-path vector: invisible tricks can't enter the repo, and any that slip through at runtime are stripped before policy evaluation.
+
+---
+
 ## Network Security
 
 ### Secure Communication

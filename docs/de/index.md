@@ -106,7 +106,16 @@ symbi init        # Interaktives Projekt-Setup — schreibt symbiont.toml, agent
                   # Verzeichnis anzusteuern (erforderlich beim Ausfuehren in einem Container).
 symbi run agent   # Einzelnen Agenten ausfuehren ohne das volle Runtime zu starten
 symbi up          # Volles Runtime mit Auto-Konfiguration starten
+symbi shell       # Interaktive Shell zur Agenten-Orchestrierung (Beta) — siehe unten
 ```
+
+### Interaktive Shell (Beta)
+
+`symbi shell` ist eine auf ratatui basierende Terminal-UI zum Erstellen von Agenten, Tools und Richtlinien mit LLM-Unterstuetzung, zum Orchestrieren von Multi-Agent-Mustern (`/chain`, `/parallel`, `/race`, `/debate`), zum Verwalten von Schedules und Channels sowie zum Anhaengen an entfernte Runtimes. Status ist **Beta** — die Befehlsoberflaeche und Persistenzformate koennen sich zwischen Minor-Releases noch aendern. Siehe den [Symbi Shell-Leitfaden](/symbi-shell).
+
+### Einzelne Agenten deployen (Beta)
+
+Der `/deploy`-Befehl der Shell verpackt den aktiven Agenten und liefert ihn an Docker (`/deploy local`), Google Cloud Run (`/deploy cloudrun`) oder AWS App Runner (`/deploy aws`) aus. Der OSS-Stack ist Single-Agent; Multi-Agent-Topologien werden ueber instanzenuebergreifendes Messaging zusammengesetzt. Siehe [Symbi Shell — Deployment](/symbi-shell#deployment-beta).
 
 ---
 
@@ -185,6 +194,7 @@ Weitere Details finden Sie im Leitfaden zum [Sicherheitsmodell](/security-model)
 ## Leitfaeden
 
 - [Einstieg](/getting-started) — Installation, Konfiguration, erster Agent
+- [Symbi Shell](/symbi-shell) (Beta) — Interaktive TUI fuer Authoring, Orchestrierung und Remote-Attach
 - [Sicherheitsmodell](/security-model) — Zero-Trust-Architektur, Richtliniendurchsetzung
 - [Runtime-Architektur](/runtime-architecture) — Runtime-Interna und Ausfuehrungsmodell
 - [Reasoning-Schleife](/reasoning-loop) — ORGA-Zyklus, Richtlinien-Gates, Circuit Breaker

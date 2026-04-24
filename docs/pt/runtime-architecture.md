@@ -258,6 +258,20 @@ O `ReasoningBuiltinContext` carrega três campos opcionais:
 - `comm_bus` — referência ao CommunicationBus para roteamento de mensagens
 - `comm_policy` — referência ao CommunicationPolicyGate para autorização
 
+### Mensagens entre instâncias de agentes
+
+O `CommunicationBus` em processo tem uma contraparte distribuída — `RemoteCommunicationBus` — que encaminha os mesmos tipos de mensagem (`ask`, `send_to`, `delegate`, `parallel`, `race`) sobre HTTP entre instâncias de runtime separadas. É isso que permite que um coordenador implantado em um host converse com workers implantados em outro, sem abrir mão da aplicação de políticas, assinaturas ou trilhas de auditoria.
+
+Propriedades principais:
+
+- **Mesmo contrato** — `RemoteCommunicationBus` implementa o mesmo trait que o bus local, portanto o código dos agentes e os builtins do DSL não mudam entre topologias em processo e entre instâncias.
+- **Endpoints de mensagens HTTP** — expostos na API HTTP do runtime e conectados ao contexto padrão do `RuntimeBridge`, de modo que um `symbi up` em um local pode receber mensagens de um `symbi up` em outro.
+- **Identidade ancorada por AgentPin** — os remetentes apresentam um token ES256 do AgentPin; os destinatários verificam contra a chave ancorada ao domínio do remetente antes do portão de políticas rodar.
+- **Verificação SchemaPin** — quaisquer manifestos de ferramentas referenciados entre instâncias são verificados contra suas assinaturas fixadas antes da execução.
+- **Auditoria** — envios e recebimentos de mensagens remotas são registrados com o mesmo formato criptográfico à prova de adulteração das mensagens locais, de modo que a trilha de auditoria acompanha o salto da mensagem.
+
+A topologia de deploy é tipicamente uma instância coordenadora mais uma ou mais instâncias worker, cada uma implantada via `symbi shell /deploy …` (Beta) para Docker, Cloud Run ou App Runner. Veja o [guia de deploy do Symbi Shell](/symbi-shell#deployment-beta).
+
 ---
 
 ## Sistemas de Contexto e Conhecimento

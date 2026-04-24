@@ -685,6 +685,55 @@ scanner.add_custom_rule(
 
 ---
 
+## Bereinigung unsichtbarer Zeichen (`symbi-invis-strip`)
+
+`symbi-invis-strip` ist ein abhaengigkeitsfreier Utility-Crate, der im gesamten Runtime verwendet wird, um Zeichen zu entfernen, die als nichts gerendert werden, aber die Bedeutung veraendern -- die klassische Nutzlast fuer Prompt-Injection- und Richtlinien-Umgehungs-Angriffe.
+
+### Was es entfernt
+
+- ASCII C0 (0x00--0x1F) und DEL (0x7F), ausser `\t` `\n` `\r`
+- ASCII C1 (0x80--0x9F)
+- Zero-Width-Zeichen (ZWSP, ZWNJ, ZWJ)
+- Bidirektionale Overrides (LRO, RLO, PDF, LRE, RLE, LRI, RLI, FSI, PDI)
+- Word Joiner und den Block unsichtbarer Operatoren
+- Byte-Order-Marks (BOM)
+- Variation Selectors (VS1--VS16 und ergaenzende VS17--VS256)
+- Zeichen im Unicode-Tag-Block (U+E0000--U+E007F)
+
+### Wo es laeuft
+
+- Eingehende Chat- und Webhook-Payloads -- bevor sie den Orchestrator erreichen
+- Tool-Call-Argumente -- bevor sie die Cedar-Evaluierung erreichen
+- Skill- und Agent-DSL-Inhalte -- vor Scanner und Parser
+
+### Optionale Markup-Entfernung
+
+Die optionale `sanitize_field_with_markup`-Variante entfernt zusaetzlich:
+- `<!-- ... -->` HTML-Kommentare
+- Dreifach-Backtick-Fenced-Codebloecke
+
+Markup-Entfernung ist fuer Oberflaechen geeignet, auf denen vom Renderer verborgenes Markup keine legitime Nutzung hat -- beispielsweise kurze Felder fuer Richtlinienbegruendungen oder reine Anzeige-Metadaten. Sie wird **nicht** auf Felder angewendet, die legitim Markdown oder Code tragen (wie Agent-Quellcode, Richtlinientexte oder Tool-Ausgaben).
+
+---
+
+## Cedar Policy Linter
+
+`scripts/lint-cedar-policies.py` ist ein statischer Analyse-Pass, der auf jeder `.cedar`-Datei im Repository ausgefuehrt wird. Er faengt eine Klasse von Angriffen ab, bei denen ein boeswilliger (oder kompromittierter) Authoring-Flow eine Richtlinie schreibt, die *korrekt aussieht*, aber Zeichen enthaelt, die eine andere Autorisierungsentscheidung erzeugen, als der Reviewer erwartet.
+
+### Was er abfaengt
+
+- **Homoglyph-Bezeichner** -- kyrillisches `а` (U+0430), das sich als lateinisches `a` ausgibt, griechisches `ο` (U+03BF) als lateinisches `o` und aehnliche Verwechslungen in Principal-, Action- oder Resource-Namen.
+- **Unsichtbare Steuerzeichen** innerhalb von Bezeichnern, String-Literalen oder zwischen Tokens.
+
+### Wo er laeuft
+
+- **Pre-Commit-Hook** -- blockiert Commits, die eine der beiden Problemklassen einfuehren.
+- **CI** -- dieselbe Pruefung ist ein erforderlicher Test-Job, sodass Commits, die den Hook umgehen (via `--no-verify`), trotzdem in CI fehlschlagen.
+
+Kombiniert mit `symbi-invis-strip` auf dem Datenpfad schliesst der Linter den Authoring-Pfad-Vektor: unsichtbare Tricks koennen nicht in das Repo gelangen, und solche, die zur Laufzeit durchrutschen, werden vor der Richtlinienevaluierung entfernt.
+
+---
+
 ## Netzwerksicherheit
 
 ### Sichere Kommunikation

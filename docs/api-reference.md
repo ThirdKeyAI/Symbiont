@@ -1224,6 +1224,56 @@ The API uses standard HTTP status codes and returns detailed error information:
 
 ---
 
+## CLI subcommands
+
+Beyond the long-lived HTTP surface, `symbi` exposes several CLI-only subcommands for one-shot operations. The full catalogue is in `symbi --help`; the ones most relevant to integration and policy enforcement are:
+
+### `symbi schemapin`
+
+TOFU (Trust-On-First-Use) integrity pinning for MCP server configurations. Designed to be called from SessionStart hooks so that an MCP server's configuration hash can't silently change between sessions without the operator approving it.
+
+```bash
+# Verify the pinned hash for one or all MCP servers in .mcp.json
+symbi schemapin verify [--mcp-server <NAME>] [--config <PATH>]
+
+# Pin the current config hash for a server
+symbi schemapin pin --mcp-server <NAME> [--config <PATH>] [--force]
+
+# List every pinned server under ~/.symbiont/schemapin/mcp/
+symbi schemapin list
+
+# Remove a pin record
+symbi schemapin unpin --mcp-server <NAME>
+```
+
+Pins are stored under `~/.symbiont/schemapin/mcp/` as JSON records. `verify` exits 0 on match, non-zero on mismatch or missing pin — suitable for use in pre-session scripts.
+
+### `symbi policy`
+
+Cedar policy evaluation against tool-call events. Reads a single event as JSON, decides `allow` / `deny` against a policy directory, and exits with a status code suitable for scripting.
+
+```bash
+# Evaluate an event read from stdin
+echo '{"principal":"Agent::\"dev\"", "action":"write", "resource":{...}}' \
+  | symbi policy evaluate --stdin --policies ./policies
+
+# Evaluate an event read from a file
+symbi policy evaluate --input event.json --policies ./policies
+
+# Emit structured JSON only (suitable for programmatic use)
+symbi policy evaluate --stdin --policies ./policies --json
+```
+
+Default output is the bare verdict on stdout with structured detail on stderr; pass `--json` to collapse everything to stdout JSON. This is the same Cedar decision logic the runtime uses inline — useful for shift-left policy testing in CI and for debugging denials outside a running runtime.
+
+### `symbi agents-md`
+
+Regenerate `AGENTS.md` from the current `agents/*.dsl` files. Runs automatically during `symbi init`; call it manually after adding or editing agent definitions.
+
+```bash
+symbi agents-md generate --dir . --output AGENTS.md
+```
+
 ## Getting Started
 
 ### Runtime HTTP API

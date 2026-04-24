@@ -1224,6 +1224,56 @@ API 使用标准 HTTP 状态码并返回详细的错误信息：
 
 ---
 
+## CLI 子命令
+
+除了长期运行的 HTTP 接口之外，`symbi` 还提供若干仅限 CLI 的子命令用于一次性操作。完整目录见 `symbi --help`；与集成和策略执行最相关的命令如下：
+
+### `symbi schemapin`
+
+用于 MCP 服务器配置的 TOFU（首次使用即信任）完整性固定。设计用于从 SessionStart 钩子调用，以便 MCP 服务器的配置哈希在会话之间不会在运维人员未批准的情况下静默变化。
+
+```bash
+# 校验 .mcp.json 中一个或全部 MCP 服务器的已固定哈希
+symbi schemapin verify [--mcp-server <NAME>] [--config <PATH>]
+
+# 固定某个服务器当前的配置哈希
+symbi schemapin pin --mcp-server <NAME> [--config <PATH>] [--force]
+
+# 列出 ~/.symbiont/schemapin/mcp/ 下所有已固定的服务器
+symbi schemapin list
+
+# 移除某条固定记录
+symbi schemapin unpin --mcp-server <NAME>
+```
+
+固定记录以 JSON 形式存储在 `~/.symbiont/schemapin/mcp/` 下。`verify` 在匹配时以 0 退出，不匹配或缺失固定时以非零退出 —— 适合在会话前置脚本中使用。
+
+### `symbi policy`
+
+针对工具调用事件执行 Cedar 策略评估。以 JSON 形式读取单个事件，针对策略目录作出 `allow` / `deny` 决定，并以适合脚本化使用的状态码退出。
+
+```bash
+# 评估从标准输入读取的事件
+echo '{"principal":"Agent::\"dev\"", "action":"write", "resource":{...}}' \
+  | symbi policy evaluate --stdin --policies ./policies
+
+# 评估从文件读取的事件
+symbi policy evaluate --input event.json --policies ./policies
+
+# 仅输出结构化 JSON（适合程序化使用）
+symbi policy evaluate --stdin --policies ./policies --json
+```
+
+默认输出为 stdout 上的裸结论，结构化详情输出到 stderr；传入 `--json` 可将全部内容折叠到 stdout JSON。这与运行时内联使用的 Cedar 决策逻辑相同 —— 适用于在 CI 中左移策略测试，以及在运行时之外调试拒绝决定。
+
+### `symbi agents-md`
+
+从当前的 `agents/*.dsl` 文件重新生成 `AGENTS.md`。在 `symbi init` 期间会自动运行；在添加或编辑智能体定义后可手动调用。
+
+```bash
+symbi agents-md generate --dir . --output AGENTS.md
+```
+
 ## 入门指南
 
 ### 运行时 HTTP API

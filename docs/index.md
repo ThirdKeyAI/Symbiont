@@ -102,7 +102,16 @@ symbi init        # Interactive project setup — writes symbiont.toml, agents/,
                   # directory (required when running inside a container).
 symbi run agent   # Run a single agent without starting the full runtime
 symbi up          # Start the full runtime with auto-configuration
+symbi shell       # Interactive agent orchestration shell (Beta) — see below
 ```
+
+### Interactive shell (Beta)
+
+`symbi shell` is a ratatui-based terminal UI for authoring agents, tools, and policies with LLM assistance, orchestrating multi-agent patterns (`/chain`, `/parallel`, `/race`, `/debate`), managing schedules and channels, and attaching to remote runtimes. Status is **beta** — the command surface and persistence formats may still shift between minor releases. See the [Symbi Shell guide](/symbi-shell).
+
+### Deploying single agents (Beta)
+
+The shell's `/deploy` command packages the active agent and ships it to Docker (`/deploy local`), Google Cloud Run (`/deploy cloudrun`), or AWS App Runner (`/deploy aws`). The OSS stack is single-agent; multi-agent topologies compose via cross-instance messaging. See [Symbi Shell — Deployment](/symbi-shell#deployment-beta).
 
 ---
 
@@ -181,6 +190,7 @@ See the [Security Model](/security-model) guide for full details.
 ## Guides
 
 - [Getting Started](/getting-started) — Installation, configuration, first agent
+- [Symbi Shell](/symbi-shell) (Beta) — Interactive TUI for authoring, orchestration, and remote attach
 - [Security Model](/security-model) — Zero-trust architecture, policy enforcement
 - [Runtime Architecture](/runtime-architecture) — Runtime internals and execution model
 - [Reasoning Loop](/reasoning-loop) — ORGA cycle, policy gates, circuit breakers

@@ -1224,6 +1224,56 @@ Die API verwendet Standard-HTTP-Statuscodes und gibt detaillierte Fehlerinformat
 
 ---
 
+## CLI-Subcommands
+
+Neben der langlebigen HTTP-Oberflaeche stellt `symbi` mehrere reine CLI-Subcommands fuer einmalige Operationen bereit. Der vollstaendige Katalog findet sich in `symbi --help`; die fuer Integration und Richtliniendurchsetzung relevantesten sind:
+
+### `symbi schemapin`
+
+TOFU-Integritaetspinning (Trust-On-First-Use) fuer MCP-Server-Konfigurationen. Konzipiert fuer den Aufruf aus SessionStart-Hooks, damit sich der Konfigurations-Hash eines MCP-Servers zwischen Sitzungen nicht unbemerkt aendern kann, ohne dass der Operator zustimmt.
+
+```bash
+# Gepinnten Hash fuer einen oder alle MCP-Server in .mcp.json verifizieren
+symbi schemapin verify [--mcp-server <NAME>] [--config <PATH>]
+
+# Aktuellen Konfigurations-Hash fuer einen Server pinnen
+symbi schemapin pin --mcp-server <NAME> [--config <PATH>] [--force]
+
+# Alle gepinnten Server unter ~/.symbiont/schemapin/mcp/ auflisten
+symbi schemapin list
+
+# Einen Pin-Eintrag entfernen
+symbi schemapin unpin --mcp-server <NAME>
+```
+
+Pins werden unter `~/.symbiont/schemapin/mcp/` als JSON-Eintraege gespeichert. `verify` beendet mit 0 bei Uebereinstimmung, mit einem Wert ungleich Null bei Abweichung oder fehlendem Pin — geeignet fuer den Einsatz in Pre-Session-Skripten.
+
+### `symbi policy`
+
+Cedar-Richtlinienevaluierung gegen Tool-Call-Events. Liest ein einzelnes Event als JSON, entscheidet `allow` / `deny` gegenueber einem Richtlinienverzeichnis und beendet sich mit einem fuer Skripting geeigneten Statuscode.
+
+```bash
+# Ein von stdin gelesenes Event evaluieren
+echo '{"principal":"Agent::\"dev\"", "action":"write", "resource":{...}}' \
+  | symbi policy evaluate --stdin --policies ./policies
+
+# Ein aus einer Datei gelesenes Event evaluieren
+symbi policy evaluate --input event.json --policies ./policies
+
+# Nur strukturiertes JSON ausgeben (geeignet fuer programmatische Nutzung)
+symbi policy evaluate --stdin --policies ./policies --json
+```
+
+Die Standardausgabe ist das blosse Urteil auf stdout mit strukturierten Details auf stderr; `--json` fasst alles zu stdout-JSON zusammen. Das ist dieselbe Cedar-Entscheidungslogik, die das Runtime inline verwendet — nuetzlich fuer Shift-Left-Richtlinientests in CI und zum Debuggen von Ablehnungen ausserhalb eines laufenden Runtimes.
+
+### `symbi agents-md`
+
+Regeneriert `AGENTS.md` aus den aktuellen `agents/*.dsl`-Dateien. Laeuft automatisch waehrend `symbi init`; rufen Sie es manuell nach dem Hinzufuegen oder Bearbeiten von Agentendefinitionen auf.
+
+```bash
+symbi agents-md generate --dir . --output AGENTS.md
+```
+
 ## Erste Schritte
 
 ### Runtime HTTP API

@@ -243,6 +243,20 @@ pub struct SecureMessage {
 - `comm_bus` —— 指向 `CommunicationBus` 的引用，用于消息路由
 - `comm_policy` —— 指向 `CommunicationPolicyGate` 的引用，用于授权
 
+### 跨实例智能体消息传递
+
+进程内的 `CommunicationBus` 有一个分布式对应物 —— `RemoteCommunicationBus` —— 它通过 HTTP 在独立的运行时实例之间转发相同的消息类型（`ask`、`send_to`、`delegate`、`parallel`、`race`）。这就是让部署在一台主机上的协调器能够在不放弃策略执行、签名或审计轨迹的情况下，与部署在另一台主机上的工作者通信。
+
+关键特性：
+
+- **相同契约** —— `RemoteCommunicationBus` 实现与本地总线相同的 trait，因此智能体代码和 DSL 内置函数在进程内拓扑和跨实例拓扑之间无需改动。
+- **HTTP 消息端点** —— 暴露在运行时 HTTP API 上并接入 `RuntimeBridge` 的默认上下文，因此一个位置的 `symbi up` 可以接收来自其他位置 `symbi up` 的消息。
+- **AgentPin 锚定身份** —— 发送方出示 AgentPin ES256 令牌；接收方在策略门控运行之前针对发送方的域锚定密钥进行验证。
+- **SchemaPin 校验** —— 跨实例引用的任何工具清单在执行前都会针对其已固定的签名进行校验。
+- **审计** —— 远程消息的发送与接收以与本地消息相同的密码学防篡改格式记录，因此审计轨迹会跟随消息跳转。
+
+部署拓扑通常为一个协调器实例加上一个或多个工作者实例，每个实例通过 `symbi shell /deploy …`（Beta）部署到 Docker、Cloud Run 或 App Runner。请参阅 [Symbi Shell 部署指南](/symbi-shell#deployment-beta)。
+
 ---
 
 ## 上下文和知识系统

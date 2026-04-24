@@ -106,7 +106,16 @@ symbi init        # Configuracao interativa de projeto — gera symbiont.toml, a
                   # (obrigatorio ao rodar dentro de um container).
 symbi run agent   # Executar um unico agente sem iniciar o runtime completo
 symbi up          # Iniciar o runtime completo com auto-configuracao
+symbi shell       # Shell interativo de orquestracao de agentes (Beta) — veja abaixo
 ```
+
+### Shell interativo (Beta)
+
+`symbi shell` e uma interface de terminal baseada em ratatui para autoria de agentes, ferramentas e politicas com assistencia de LLM, orquestracao de padroes multi-agente (`/chain`, `/parallel`, `/race`, `/debate`), gestao de agendamentos e canais, e attach a runtimes remotos. O status e **beta** — a superficie de comandos e os formatos de persistencia ainda podem mudar entre versoes menores. Veja o [guia do Symbi Shell](/symbi-shell).
+
+### Deploy de agentes unicos (Beta)
+
+O comando `/deploy` do shell empacota o agente ativo e o envia para Docker (`/deploy local`), Google Cloud Run (`/deploy cloudrun`) ou AWS App Runner (`/deploy aws`). A stack OSS e de agente unico; topologias multi-agente se compoem via mensagens entre instancias. Veja [Symbi Shell — Deploy](/symbi-shell#deployment-beta).
 
 ---
 
@@ -185,6 +194,7 @@ Consulte o guia do [Modelo de seguranca](/security-model) para detalhes completo
 ## Guias
 
 - [Introducao](/getting-started) — Instalacao, configuracao, primeiro agente
+- [Symbi Shell](/symbi-shell) (Beta) — TUI interativa para autoria, orquestracao e attach remoto
 - [Modelo de seguranca](/security-model) — Arquitetura de confianca zero, aplicacao de politicas
 - [Arquitetura do runtime](/runtime-architecture) — Internos do runtime e modelo de execucao
 - [Loop de raciocinio](/reasoning-loop) — Ciclo ORGA, gates de politicas, circuit breakers

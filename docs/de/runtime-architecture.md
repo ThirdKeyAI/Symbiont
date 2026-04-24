@@ -243,6 +243,20 @@ Der `ReasoningBuiltinContext` traegt drei optionale Felder:
 - `comm_bus` -- Referenz auf den CommunicationBus fuer Nachrichtenrouting
 - `comm_policy` -- Referenz auf das CommunicationPolicyGate fuer Autorisierung
 
+### Instanzenuebergreifendes Agent-Messaging
+
+Der In-Process-`CommunicationBus` hat ein verteiltes Gegenstueck -- `RemoteCommunicationBus` -- das dieselben Nachrichtentypen (`ask`, `send_to`, `delegate`, `parallel`, `race`) per HTTP zwischen separaten Runtime-Instanzen weiterleitet. Dadurch kann ein auf einem Host bereitgestellter Koordinator mit auf einem anderen Host bereitgestellten Workern kommunizieren, ohne auf Richtliniendurchsetzung, Signaturen oder Audit-Trails zu verzichten.
+
+Wichtige Eigenschaften:
+
+- **Gleicher Kontrakt** -- `RemoteCommunicationBus` implementiert dasselbe Trait wie der lokale Bus, sodass sich Agent-Code und DSL-Builtins zwischen In-Process- und instanzenuebergreifenden Topologien nicht aendern.
+- **HTTP-Messaging-Endpunkte** -- auf der Runtime-HTTP-API exponiert und in den Standardkontext des `RuntimeBridge` eingebunden, sodass `symbi up` an einem Standort Nachrichten von `symbi up` an anderer Stelle empfangen kann.
+- **AgentPin-verankerte Identitaet** -- Sender praesentieren ein AgentPin ES256-Token; Empfaenger verifizieren gegen den domainverankerten Schluessel des Senders, bevor das Policy Gate laeuft.
+- **SchemaPin-Verifikation** -- alle ueber Instanzen hinweg referenzierten Tool-Manifeste werden vor der Ausfuehrung gegen ihre gepinnten Signaturen verifiziert.
+- **Audit** -- Remote-Nachrichtensendung und -empfang werden im selben kryptographisch manipulationssicheren Format wie lokale Nachrichten protokolliert, sodass der Audit-Trail dem Nachrichten-Hop folgt.
+
+Die Deployment-Topologie besteht typischerweise aus einer Koordinator-Instanz und einer oder mehreren Worker-Instanzen, die jeweils via `symbi shell /deploy …` (Beta) auf Docker, Cloud Run oder App Runner deployt werden. Siehe den [Symbi Shell-Deployment-Leitfaden](/symbi-shell#deployment-beta).
+
 ---
 
 ## Kontext- und Wissenssysteme
