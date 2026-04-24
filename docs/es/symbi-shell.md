@@ -144,8 +144,10 @@ Los secretos se cifran en reposo con `SYMBIONT_MASTER_KEY` y estan delimitados p
 
 | Comando | Que hace |
 |---------|----------|
-| `/attach <url>` | Conecta esta shell a un runtime remoto sobre HTTP. |
+| `/attach <url>` | Conecta esta shell a un runtime remoto sobre HTTP o HTTPS. |
 | `/detach` | Se desconecta del runtime actualmente conectado. |
+
+Usa `https://` para cualquier destino remoto o de produccion — el canal de attach transporta tokens de autenticacion y trafico de operaciones, por lo que HTTP en texto plano solo es apropiado para desarrollo local. El atajo `local` usa por defecto `http://localhost:8080`, y las URLs proporcionadas sin un esquema explicito se prefijan con `http://` para preservar la ergonomia del desarrollo en loopback; para todo lo demas, pasa una URL completa `https://...`.
 
 Una vez conectada, `/cron`, `/channels`, `/agents`, `/audit` y la mayoria de los comandos de operaciones actuan sobre el runtime remoto en lugar del local. `/secrets` permanece local — los secretos remotos se quedan en el almacen del runtime remoto.
 

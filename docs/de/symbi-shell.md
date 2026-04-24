@@ -144,8 +144,10 @@ Secrets werden im Ruhezustand mit `SYMBIONT_MASTER_KEY` verschluesselt und pro A
 
 | Befehl | Funktion |
 |---------|-------------|
-| `/attach <url>` | Diese Shell per HTTP an ein entferntes Runtime anhaengen. |
+| `/attach <url>` | Diese Shell per HTTP oder HTTPS an ein entferntes Runtime anhaengen. |
 | `/detach` | Vom aktuell angehaengten Runtime loesen. |
+
+Verwenden Sie `https://` fuer jedes remote oder produktive Ziel -- der Attach-Kanal transportiert Auth-Token und Betriebsverkehr, daher ist Klartext-HTTP nur fuer lokale Entwicklung angemessen. Die Abkuerzung `local` verwendet standardmaessig `http://localhost:8080`, und URLs ohne explizites Schema werden mit `http://` praefigiert, um die Ergonomie der Loopback-Entwicklung zu erhalten; fuer alles andere uebergeben Sie eine vollstaendige `https://...` URL.
 
 Nach dem Anhaengen wirken `/cron`, `/channels`, `/agents`, `/audit` und die meisten Betriebsbefehle auf das entfernte Runtime statt auf das lokale. `/secrets` bleibt lokal -- Remote-Secrets verbleiben im Speicher des entfernten Runtimes.
 

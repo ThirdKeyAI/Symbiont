@@ -144,8 +144,10 @@ Secrets are encrypted at rest with `SYMBIONT_MASTER_KEY` and scoped per agent.
 
 | Command | What it does |
 |---------|-------------|
-| `/attach <url>` | Attach this shell to a remote runtime over HTTP. |
+| `/attach <url>` | Attach this shell to a remote runtime over HTTP or HTTPS. |
 | `/detach` | Detach from the currently attached runtime. |
+
+Use `https://` for any remote or production target — the attach channel carries auth tokens and operations traffic, so plaintext HTTP is only appropriate for local development. The `local` shortcut defaults to `http://localhost:8080`, and URLs supplied without an explicit scheme are prefixed with `http://` to preserve the loopback-dev ergonomics; for everything else, pass a full `https://...` URL.
 
 Once attached, `/cron`, `/channels`, `/agents`, `/audit`, and most operations commands act on the remote runtime instead of the local one. `/secrets` remains local — remote secrets stay in the remote runtime's store.
 
