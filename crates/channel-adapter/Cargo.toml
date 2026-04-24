@@ -1,6 +1,6 @@
 [package]
 name = "symbi-channel-adapter"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 authors = ["Jascha Wanger / ThirdKey.ai"]
 description = "Chat channel adapters for the Symbi platform — Slack, Teams, Mattermost"
