@@ -246,7 +246,7 @@ docker run -p 8081:8080 ghcr.io/thirdkeyai/symbi:latest
 docker builder prune -a
 
 # Ohne Cache neu bauen
-docker build --no-cache -f runtime/Dockerfile .
+docker build --no-cache .
 ```
 
 ### Gesundheitspruefungen

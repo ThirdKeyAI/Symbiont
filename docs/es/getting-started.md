@@ -216,6 +216,26 @@ symbi run assistant -i 'Summarize this document'
 symbi run agents/recon.dsl -i '{"target": "10.0.1.5"}' --max-iterations 5
 ```
 
+### Partir desde una plantilla (`symbi new`)
+
+`symbi init` genera un proyecto generico; `symbi new` genera un proyecto en torno a una de varias plantillas orientadas a tareas. Es util cuando sabes que tipo de agente necesitas antes de saber cuales agentes necesitas.
+
+```bash
+symbi new --list                     # show available templates
+symbi new <template> <project-name>  # create a new project from a template
+```
+
+Plantillas incluidas:
+
+| Plantilla | Que obtienes |
+|-----------|--------------|
+| `webhook-min` | Agente minimo dirigido por webhooks — configuracion de HTTP Input + un DSL manejador |
+| `webscraper-agent` | Agente de scraping con politicas de acceso Cedar y una herramienta scraper de ToolClad |
+| `slm-first` | Patron de router + lista blanca SLM + respaldo por confianza |
+| `rag-lite` | Scripts de ingesta respaldados por Qdrant mas un agente de busqueda |
+
+`symbi new` y `symbi init` son complementarios: `new` te da un punto de partida especifico para una tarea, `init` (+ `--catalog`) te da uno especifico para gobernanza. Tambien puedes combinar — genera el esqueleto con `new` y luego ejecuta `symbi init --catalog ...` para incorporar agentes preconstruidos adicionales desde el catalogo.
+
 ---
 
 ## Tu Primer Agente

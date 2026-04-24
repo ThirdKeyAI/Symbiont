@@ -488,6 +488,40 @@ impl ComplianceFramework {
 
 ---
 
+## Human Approval Relay (`symbi-approval-relay`)
+
+Wenn eine Richtlinienentscheidung `require: approval` zurueckgibt, blockiert die Aktion, bis ein menschlicher Pruefer sie freigibt oder ablehnt. `symbi-approval-relay` ist die Crate, die diese Anfragen an einen Menschen und die Entscheidung zurueck transportiert und dabei beide Schritte pruefbar haelt.
+
+### Zweikanal-Design
+
+Das Relay ist **zweikanalig** aufgebaut: jede Freigabe durchlaeuft zwei unabhaengige Pfade, und beide muessen uebereinstimmen, bevor die Runtime die Aktion entsperrt.
+
+- **Primaerkanal** -- eine interaktive Oberflaeche fuer den Pruefer (Chat-Adapter, Web-UI, CLI-Prompt). Dort liest der Pruefer die Anfrage und entscheidet.
+- **Attestierungskanal** -- ein unabhaengiger Verifizierungspfad (zum Beispiel ein signierter Callback, ein zweiter Operator oder eine Out-of-Band-Bestaetigung). Die Runtime entsperrt die Aktion nicht allein auf eine Freigabe ueber den Primaerkanal hin.
+
+Diese Struktur schlaegt den Einkanal-Kompromissfall: Ein Angreifer, der den Primaerkanal uebernimmt, kann dennoch keine Freigaben erteilen, da der Attestierungskanal sein Vertrauen nicht mit ihm teilt.
+
+### Was das Relay transportiert
+
+Jede laufende Freigabeanforderung enthaelt:
+- Die Agent-Identitaet (AgentPin-verankert) und die Richtlinienentscheidung, die die Anfrage ausgeloest hat
+- Den vollstaendigen Aktionskontext -- Tool-Aufruf, Ressource, Argumente -- als Hash, damit Pruefer bestaetigen koennen, dass sie *diese* Aktion und keine ausgetauschte freigegeben haben
+- Eine Frist, nach der die Anfrage automatisch abgelehnt wird
+- Korrelations-IDs, damit der Audit-Trail die Entscheidungen beider Kanaele einer einzigen Aktion zuordnet
+
+Freigaben und Ablehnungen werden in derselben kryptographisch manipulationssicheren Audit-Kette aufgezeichnet wie jede andere Runtime-Entscheidung. Ein menschliches "Ja" ist eine Entscheidung im Protokoll, kein Bypass desselben.
+
+### Wo es eingesetzt wird
+
+- Cedar-Richtlinien, die `RequireApproval { approver: "..." }`-Urteile ausgeben
+- Destruktive oder hochprivilegierte Tool-Aufrufe, abgesichert durch ToolClad-`approval`-Hooks
+- Geplante Jobs mit `one_shot = true` plus einer Freigaberichtlinie
+- Jeder DSL-`policy`-Block, der `require: <role>_approval` nennt
+
+Ist kein Relay konfiguriert, scheitern freigabepflichtige Aktionen fail-closed -- sie werden abgelehnt, nicht stillschweigend zugelassen.
+
+---
+
 ## Tool-Sicherheit mit SchemaPin
 
 ### Tool-Verifikationsprozess

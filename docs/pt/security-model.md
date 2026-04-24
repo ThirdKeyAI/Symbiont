@@ -484,6 +484,40 @@ impl ComplianceFramework {
 
 ---
 
+## Relay de Aprovação Humana (`symbi-approval-relay`)
+
+Quando uma decisão de política retorna `require: approval`, a ação é bloqueada até que um revisor humano a aprove ou negue. `symbi-approval-relay` é o crate que leva essas solicitações a um humano e traz a decisão de volta, mantendo ambos os trechos auditáveis.
+
+### Design de canal duplo
+
+O relay é **de canal duplo** por design: cada aprovação percorre dois caminhos independentes e ambos precisam concordar antes que o runtime desbloqueie a ação.
+
+- **Canal primário** — uma superfície interativa para o revisor (adaptador de chat, interface web, prompt de CLI). É onde o revisor lê a solicitação e decide.
+- **Canal de atestado** — um caminho de verificação independente (por exemplo, um callback assinado, um segundo operador ou uma confirmação fora de banda). O runtime não desbloqueará apenas com uma aprovação do canal primário.
+
+Essa estrutura derrota o caso de comprometimento de canal único — um atacante que toma o canal primário ainda não consegue conceder aprovações, porque o canal de atestado não compartilha confiança com ele.
+
+### O que o relay transporta
+
+Cada solicitação de aprovação em trânsito carrega:
+- A identidade do agente (ancorada por AgentPin) e a decisão de política que disparou a solicitação
+- O contexto completo da ação — invocação de ferramenta, recurso, argumentos — com hash para que os revisores possam confirmar que aprovaram *esta* ação e não uma substituída
+- Um prazo após o qual a solicitação é automaticamente negada
+- IDs de correlação para que a trilha de auditoria vincule as decisões dos dois canais de volta a uma única ação
+
+Aprovações e negações são registradas na mesma cadeia de auditoria criptograficamente resistente a adulteração que qualquer outra decisão do runtime. Um humano dizendo "sim" é uma decisão no log, não um desvio dele.
+
+### Onde é usado
+
+- Políticas Cedar que emitem veredictos `RequireApproval { approver: "..." }`
+- Chamadas de ferramentas destrutivas ou de alto privilégio mediadas por hooks `approval` do ToolClad
+- Tarefas agendadas configuradas com `one_shot = true` mais uma política de aprovação
+- Qualquer bloco `policy` de DSL que nomeie `require: <role>_approval`
+
+Se nenhum relay estiver configurado, ações mediadas por aprovação falham de forma fechada — são negadas, não permitidas silenciosamente.
+
+---
+
 ## Segurança de Ferramentas com SchemaPin
 
 ### Processo de Verificação de Ferramentas

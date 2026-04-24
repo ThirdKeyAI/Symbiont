@@ -67,7 +67,7 @@ cargo test --workspace
 
 # 特定のテストスイートを実行
 cargo test --package symbiont-dsl
-cargo test --package symbiont-runtime
+cargo test --package symbi-runtime
 
 # カバレッジ付きで実行
 cargo tarpaulin --out html

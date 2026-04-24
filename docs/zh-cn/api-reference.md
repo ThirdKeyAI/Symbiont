@@ -432,6 +432,8 @@ cargo build --features cloud-llm
 **环境变量：**
 - `OPENROUTER_API_KEY` — 您的 OpenRouter API 密钥（必需）
 - `OPENROUTER_MODEL` — 使用的模型（默认：`google/gemini-2.0-flash-001`）
+- `OPENROUTER_REFERER` — 可选。为 OpenRouter 请求设置 `HTTP-Referer` 头（应用归属）。若希望流量不带归属，则不设置此项。
+- `OPENROUTER_TITLE` — 可选。设置 `X-Title` 头。请参阅 [OpenRouter 应用归属](https://openrouter.ai/docs/app-attribution)。
 
 云端 LLM 提供商与推理循环的 `execute_actions()` 管线集成。它支持流式响应、指数退避自动重试和 token 使用量跟踪。
 
@@ -1278,29 +1280,26 @@ symbi agents-md generate --dir . --output AGENTS.md
 
 ### 运行时 HTTP API
 
-1. 确保运行时是使用 `http-api` 特性构建的：
+1. 构建 `symbi` 二进制（`http-api` 特性在二进制 crate 中默认开启）：
    ```bash
-   cargo build --features http-api
+   cargo build --release
    ```
 
-2. 设置智能体端点的认证令牌：
+2. 启动运行时 —— API 监听在 `:8080`，HTTP Input 监听在 `:8081`：
    ```bash
-   export API_AUTH_TOKEN="<your-token>"
+   ./target/release/symbi up --http-bind 0.0.0.0
    ```
 
-3. 启动运行时服务器：
-   ```bash
-   ./target/debug/symbiont-runtime --http-api
-   ```
+   如需一个已搭好的项目以及推荐的 Docker 流程，请参阅 [入门指南](/getting-started)。
 
-4. 验证服务器正在运行：
+3. 验证服务器正在运行：
    ```bash
    curl http://127.0.0.1:8080/api/v1/health
    ```
 
-5. 测试已认证的智能体端点：
+4. 测试一个已认证的端点 —— `symbi up` 会在启动时打印出生成的 Bearer 令牌（也可以通过 `--http.token` 显式指定一个）：
    ```bash
-   curl -H "Authorization: Bearer $API_AUTH_TOKEN" \
+   curl -H "Authorization: Bearer $SYMBI_HTTP_TOKEN" \
         http://127.0.0.1:8080/api/v1/agents
    ```
 

@@ -484,6 +484,40 @@ impl ComplianceFramework {
 
 ---
 
+## Relay de Aprobacion Humana (`symbi-approval-relay`)
+
+Cuando una decision de politica devuelve `require: approval`, la accion se bloquea hasta que un revisor humano la aprueba o la deniega. `symbi-approval-relay` es el crate que lleva esas solicitudes a un humano y la decision de vuelta, manteniendo ambos tramos auditables.
+
+### Diseno de canal dual
+
+El relay es **de canal dual** por diseno: cada aprobacion hace un viaje de ida y vuelta por dos rutas independientes, y ambas deben coincidir antes de que el runtime desbloquee la accion.
+
+- **Canal primario** — una superficie interactiva para el revisor (adaptador de chat, interfaz web, prompt de CLI). Aqui es donde el revisor lee la solicitud y decide.
+- **Canal de atestacion** — una ruta de verificacion independiente (por ejemplo, una devolucion de llamada firmada, un segundo operador o una confirmacion fuera de banda). El runtime no desbloqueara una aprobacion basada solo en el canal primario.
+
+Esta estructura derrota el caso de compromiso de canal unico — un atacante que tome el canal primario aun no puede otorgar aprobaciones, porque el canal de atestacion no comparte confianza con el.
+
+### Que transporta el relay
+
+Cada solicitud de aprobacion en transito transporta:
+- La identidad del agente (anclada con AgentPin) y la decision de politica que desencadeno la solicitud
+- El contexto completo de la accion — invocacion de la herramienta, recurso, argumentos — con hash para que los revisores puedan confirmar que aprobaron *esta* accion y no una sustituida
+- Un plazo limite tras el cual la solicitud se deniega automaticamente
+- IDs de correlacion para que el rastro de auditoria vincule las decisiones de ambos canales a una unica accion
+
+Las aprobaciones y denegaciones se registran en la misma cadena de auditoria criptograficamente a prueba de manipulaciones que cualquier otra decision del runtime. Un humano diciendo "si" es una decision en el registro, no un bypass de el.
+
+### Donde se usa
+
+- Politicas Cedar que emiten veredictos `RequireApproval { approver: "..." }`
+- Llamadas a herramientas destructivas o de alto privilegio controladas por hooks `approval` de ToolClad
+- Trabajos programados configurados con `one_shot = true` mas una politica de aprobacion
+- Cualquier bloque `policy` de DSL que nombre `require: <role>_approval`
+
+Si no hay un relay configurado, las acciones con aprobacion requerida fallan cerradas — se deniegan, no se permiten silenciosamente.
+
+---
+
 ## Seguridad de Herramientas con SchemaPin
 
 ### Proceso de Verificacion de Herramientas

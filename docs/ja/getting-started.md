@@ -193,6 +193,26 @@ symbi run assistant -i 'Summarize this document'
 symbi run agents/recon.dsl -i '{"target": "10.0.1.5"}' --max-iterations 5
 ```
 
+### テンプレートから始める（`symbi new`）
+
+`symbi init` は汎用的なプロジェクトをスキャフォールドしますが、`symbi new` はタスク指向の複数のテンプレートのいずれかを中心にプロジェクトをスキャフォールドします。必要なエージェント群が決まる前に、必要なエージェントの種類が分かっている場合に便利です。
+
+```bash
+symbi new --list                     # 利用可能なテンプレートを表示
+symbi new <template> <project-name>  # テンプレートから新しいプロジェクトを作成
+```
+
+同梱テンプレート：
+
+| テンプレート | 内容 |
+|----------|--------------|
+| `webhook-min` | 最小限のWebhook駆動エージェント -- HTTP Input設定とハンドラDSL |
+| `webscraper-agent` | Cedarアクセスポリシーと ToolClad スクレイパーツールを備えたスクレイピングエージェント |
+| `slm-first` | ルーター + SLM許可リスト + 信頼度フォールバックパターン |
+| `rag-lite` | Qdrantベースの取り込みスクリプトと検索エージェント |
+
+`symbi new` と `symbi init` は補完関係にあります。`new` はタスク固有の出発点を提供し、`init`（+ `--catalog`）はガバナンス固有の出発点を提供します。両者を組み合わせることも可能です。`new` でスキャフォールドした後、`symbi init --catalog ...` でカタログから追加の既製エージェントを取り込めます。
+
 ---
 
 ## 初めてのエージェント

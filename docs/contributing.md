@@ -66,7 +66,7 @@ cargo test --workspace
 
 # Run specific test suites
 cargo test --package symbiont-dsl
-cargo test --package symbiont-runtime
+cargo test --package symbi-runtime
 
 # Run with coverage
 cargo tarpaulin --out html

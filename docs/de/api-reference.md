@@ -432,6 +432,8 @@ cargo build --features cloud-llm
 **Umgebungsvariablen:**
 - `OPENROUTER_API_KEY` -- Ihr OpenRouter-API-Schluessel (erforderlich)
 - `OPENROUTER_MODEL` -- Zu verwendendes Modell (Standard: `google/gemini-2.0-flash-001`)
+- `OPENROUTER_REFERER` -- Optional. Setzt den `HTTP-Referer`-Header bei OpenRouter-Anfragen (App-Zuordnung). Nicht setzen fuer nicht zugeordneten Traffic.
+- `OPENROUTER_TITLE` -- Optional. Setzt den `X-Title`-Header. Siehe [OpenRouter app attribution](https://openrouter.ai/docs/app-attribution).
 
 Der Cloud-LLM-Anbieter integriert sich in die `execute_actions()`-Pipeline der Reasoning-Schleife. Er unterstuetzt Streaming-Antworten, automatische Wiederholungsversuche mit exponentiellem Backoff und Token-Nutzungsverfolgung.
 
@@ -1278,29 +1280,26 @@ symbi agents-md generate --dir . --output AGENTS.md
 
 ### Runtime HTTP API
 
-1. Sicherstellen, dass die Runtime mit dem `http-api` Feature gebaut ist:
+1. Das `symbi`-Binary bauen (das `http-api`-Feature ist in der Binary-Crate standardmaessig aktiv):
    ```bash
-   cargo build --features http-api
+   cargo build --release
    ```
 
-2. Authentifizierungstoken fuer Agent-Endpunkte setzen:
+2. Runtime starten -- die API lauscht auf `:8080`, HTTP Input auf `:8081`:
    ```bash
-   export API_AUTH_TOKEN="<your-token>"
+   ./target/release/symbi up --http-bind 0.0.0.0
    ```
 
-3. Runtime-Server starten:
-   ```bash
-   ./target/debug/symbiont-runtime --http-api
-   ```
+   Fuer ein vorgeneriertes Projekt und den empfohlenen Docker-Ablauf siehe [Erste Schritte](/getting-started).
 
-4. Ueberpruefen, ob der Server laeuft:
+3. Ueberpruefen, ob der Server laeuft:
    ```bash
    curl http://127.0.0.1:8080/api/v1/health
    ```
 
-5. Authentifizierten Agent-Endpunkt testen:
+4. Authentifizierten Endpunkt testen -- `symbi up` gibt das erzeugte Bearer-Token beim Start aus (oder setzen Sie eines explizit mit `--http.token`):
    ```bash
-   curl -H "Authorization: Bearer $API_AUTH_TOKEN" \
+   curl -H "Authorization: Bearer $SYMBI_HTTP_TOKEN" \
         http://127.0.0.1:8080/api/v1/agents
    ```
 

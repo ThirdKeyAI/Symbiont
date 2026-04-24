@@ -193,6 +193,26 @@ symbi run assistant -i 'Summarize this document'
 symbi run agents/recon.dsl -i '{"target": "10.0.1.5"}' --max-iterations 5
 ```
 
+### 从模板开始（`symbi new`）
+
+`symbi init` 用于搭建通用项目；`symbi new` 则围绕若干面向任务的模板来搭建项目。当你在还不确定需要哪些具体智能体之前，就已经知道你要的是什么类型的智能体时，它会非常有用。
+
+```bash
+symbi new --list                     # 显示可用的模板
+symbi new <template> <project-name>  # 从模板创建一个新项目
+```
+
+内置模板：
+
+| 模板 | 你将获得的内容 |
+|----------|--------------|
+| `webhook-min` | 最小化的 webhook 驱动智能体 —— HTTP Input 配置 + 一个处理程序 DSL |
+| `webscraper-agent` | 带 Cedar 访问策略和 ToolClad 抓取工具的爬虫智能体 |
+| `slm-first` | 路由器 + SLM 白名单 + 置信度回退模式 |
+| `rag-lite` | 基于 Qdrant 的摄取脚本以及一个搜索智能体 |
+
+`symbi new` 与 `symbi init` 是互补的：`new` 提供面向任务的起点，`init`（配合 `--catalog`）则提供面向治理的起点。你也可以组合使用 —— 先用 `new` 搭建骨架，再用 `symbi init --catalog ...` 从目录中引入额外的预置智能体。
+
 ---
 
 ## 您的第一个智能体

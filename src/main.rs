@@ -583,6 +583,17 @@ async fn main() {
                 ),
         )
         .subcommand(
+            Command::new("repl")
+                .about("Interactive DSL REPL (forwards to the repl-cli binary)")
+                .trailing_var_arg(true)
+                .arg(
+                    clap::Arg::new("repl-args")
+                        .num_args(0..)
+                        .allow_hyphen_values(true)
+                        .trailing_var_arg(true),
+                ),
+        )
+        .subcommand(
             Command::new("schemapin")
                 .about("TOFU integrity pinning for MCP server configs (used by SessionStart hooks)")
                 .subcommand(
@@ -759,6 +770,28 @@ async fn main() {
                 std::process::exit(status.code().unwrap_or(1));
             } else {
                 eprintln!("symbi-shell binary not found. Build with: cargo build -p symbi-shell");
+                std::process::exit(1);
+            }
+        }
+        Some(("repl", sub_matches)) => {
+            let exe_dir = std::env::current_exe()
+                .expect("cannot determine executable path")
+                .parent()
+                .unwrap()
+                .to_path_buf();
+            let repl_bin = exe_dir.join("repl-cli");
+            if repl_bin.exists() {
+                let forwarded: Vec<String> = sub_matches
+                    .get_many::<String>("repl-args")
+                    .map(|vals| vals.cloned().collect())
+                    .unwrap_or_default();
+                let status = std::process::Command::new(&repl_bin)
+                    .args(forwarded)
+                    .status()
+                    .expect("failed to launch repl-cli");
+                std::process::exit(status.code().unwrap_or(1));
+            } else {
+                eprintln!("repl-cli binary not found. Build with: cargo build -p repl-cli");
                 std::process::exit(1);
             }
         }

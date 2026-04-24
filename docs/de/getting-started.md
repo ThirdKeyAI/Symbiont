@@ -193,6 +193,26 @@ symbi run assistant -i 'Summarize this document'
 symbi run agents/recon.dsl -i '{"target": "10.0.1.5"}' --max-iterations 5
 ```
 
+### Aus einer Vorlage starten (`symbi new`)
+
+`symbi init` erstellt ein generisches Projekt; `symbi new` erstellt ein Projekt rund um eine von mehreren aufgabenorientierten Vorlagen. Nuetzlich, wenn Sie die Art des benoetigten Agenten kennen, bevor Sie wissen, welche Agenten Sie brauchen.
+
+```bash
+symbi new --list                     # verfuegbare Vorlagen anzeigen
+symbi new <template> <project-name>  # neues Projekt aus einer Vorlage erstellen
+```
+
+Mitgelieferte Vorlagen:
+
+| Vorlage | Was Sie erhalten |
+|---------|------------------|
+| `webhook-min` | Minimaler Webhook-gesteuerter Agent -- HTTP-Input-Konfiguration + Handler-DSL |
+| `webscraper-agent` | Scraping-Agent mit Cedar-Zugriffsrichtlinien und einem ToolClad-Scraper-Tool |
+| `slm-first` | Router + SLM-Allowlist + Confidence-Fallback-Muster |
+| `rag-lite` | Qdrant-gestuetzte Ingestion-Skripte plus ein Such-Agent |
+
+`symbi new` und `symbi init` ergaenzen sich: `new` liefert einen aufgabenspezifischen Ausgangspunkt, `init` (+ `--catalog`) einen governance-spezifischen. Sie koennen beides kombinieren -- mit `new` einsteigen und anschliessend `symbi init --catalog ...` verwenden, um zusaetzliche vorgefertigte Agenten aus dem Katalog einzubinden.
+
 ---
 
 ## Ihr erster Agent

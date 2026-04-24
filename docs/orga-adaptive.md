@@ -23,7 +23,7 @@ The `orga-adaptive` feature gate adds four advanced capabilities to the reasonin
 ```toml
 # In your Cargo.toml
 [dependencies]
-symbi-runtime = { version = "1.6", features = ["orga-adaptive"] }
+symbi-runtime = { version = "1.10", features = ["orga-adaptive"] }
 ```
 
 Or build from source:

@@ -24,7 +24,7 @@
 ```toml
 # 在您的 Cargo.toml 中
 [dependencies]
-symbi-runtime = { version = "1.6", features = ["orga-adaptive"] }
+symbi-runtime = { version = "1.10", features = ["orga-adaptive"] }
 ```
 
 或从源码构建：

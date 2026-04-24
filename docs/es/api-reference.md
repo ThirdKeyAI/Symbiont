@@ -432,6 +432,8 @@ cargo build --features cloud-llm
 **Variables de Entorno:**
 - `OPENROUTER_API_KEY` — Tu clave de API de OpenRouter (requerida)
 - `OPENROUTER_MODEL` — Modelo a usar (por defecto: `google/gemini-2.0-flash-001`)
+- `OPENROUTER_REFERER` — Opcional. Establece la cabecera `HTTP-Referer` en las solicitudes a OpenRouter (atribucion de aplicacion). Dejala sin definir para trafico no atribuido.
+- `OPENROUTER_TITLE` — Opcional. Establece la cabecera `X-Title`. Consulta [atribucion de aplicaciones en OpenRouter](https://openrouter.ai/docs/app-attribution).
 
 El proveedor de LLM en la nube se integra con el pipeline `execute_actions()` del bucle de razonamiento. Soporta respuestas en streaming, reintentos automaticos con retroceso exponencial y seguimiento de uso de tokens.
 
@@ -1278,29 +1280,26 @@ symbi agents-md generate --dir . --output AGENTS.md
 
 ### API HTTP del Runtime
 
-1. Asegurate de que el runtime este construido con la caracteristica `http-api`:
+1. Compila el binario `symbi` (la feature `http-api` esta activa por defecto en el crate del binario):
    ```bash
-   cargo build --features http-api
+   cargo build --release
    ```
 
-2. Configura el token de autenticacion para endpoints de agentes:
+2. Inicia el runtime — la API escucha en `:8080` y HTTP Input en `:8081`:
    ```bash
-   export API_AUTH_TOKEN="<your-token>"
+   ./target/release/symbi up --http-bind 0.0.0.0
    ```
 
-3. Inicia el servidor del runtime:
-   ```bash
-   ./target/debug/symbiont-runtime --http-api
-   ```
+   Para un proyecto con esqueleto generado y el flujo Docker recomendado, consulta [Primeros Pasos](/getting-started).
 
-4. Verifica que el servidor este ejecutandose:
+3. Verifica que el servidor este ejecutandose:
    ```bash
    curl http://127.0.0.1:8080/api/v1/health
    ```
 
-5. Prueba un endpoint autenticado de agentes:
+4. Prueba un endpoint autenticado — `symbi up` imprime el bearer token generado al iniciar (o configura uno explicitamente con `--http.token`):
    ```bash
-   curl -H "Authorization: Bearer $API_AUTH_TOKEN" \
+   curl -H "Authorization: Bearer $SYMBI_HTTP_TOKEN" \
         http://127.0.0.1:8080/api/v1/agents
    ```
 

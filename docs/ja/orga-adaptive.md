@@ -24,7 +24,7 @@
 ```toml
 # Cargo.toml に記述
 [dependencies]
-symbi-runtime = { version = "1.6", features = ["orga-adaptive"] }
+symbi-runtime = { version = "1.10", features = ["orga-adaptive"] }
 ```
 
 またはソースからビルド：

@@ -216,6 +216,26 @@ symbi run assistant -i 'Summarize this document'
 symbi run agents/recon.dsl -i '{"target": "10.0.1.5"}' --max-iterations 5
 ```
 
+### Starting from a template (`symbi new`)
+
+`symbi init` scaffolds a generic project; `symbi new` scaffolds a project around one of several task-shaped templates. Useful when you know the kind of agent you need before you know the agents you need.
+
+```bash
+symbi new --list                     # show available templates
+symbi new <template> <project-name>  # create a new project from a template
+```
+
+Shipped templates:
+
+| Template | What you get |
+|----------|--------------|
+| `webhook-min` | Minimal webhook-driven agent — HTTP Input config + a handler DSL |
+| `webscraper-agent` | Scraping agent with Cedar access policies and a ToolClad scraper tool |
+| `slm-first` | Router + SLM allow-list + confidence fallback pattern |
+| `rag-lite` | Qdrant-backed ingestion scripts plus a search agent |
+
+`symbi new` and `symbi init` are complementary: `new` gives you a task-specific starting point, `init` (+ `--catalog`) gives you a governance-specific one. You can also combine — scaffold with `new`, then `symbi init --catalog ...` to pull in additional pre-built agents from the catalogue.
+
 ---
 
 ## Your First Agent

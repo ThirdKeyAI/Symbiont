@@ -432,6 +432,8 @@ cargo build --features cloud-llm
 **Variáveis de Ambiente:**
 - `OPENROUTER_API_KEY` — Sua chave de API OpenRouter (obrigatória)
 - `OPENROUTER_MODEL` — Modelo a utilizar (padrão: `google/gemini-2.0-flash-001`)
+- `OPENROUTER_REFERER` — Opcional. Define o cabeçalho `HTTP-Referer` nas requisições OpenRouter (atribuição de aplicativo). Deixe em branco para tráfego sem atribuição.
+- `OPENROUTER_TITLE` — Opcional. Define o cabeçalho `X-Title`. Consulte [OpenRouter app attribution](https://openrouter.ai/docs/app-attribution).
 
 O provedor de LLM em nuvem integra-se com o pipeline `execute_actions()` do loop de raciocínio. Suporta respostas em streaming, retentativas automáticas com backoff exponencial e rastreamento de uso de tokens.
 
@@ -1278,29 +1280,26 @@ symbi agents-md generate --dir . --output AGENTS.md
 
 ### API HTTP do Runtime
 
-1. Certifique-se de que o runtime está construído com o recurso `http-api`:
+1. Compile o binário `symbi` (o recurso `http-api` está ativado por padrão no crate binário):
    ```bash
-   cargo build --features http-api
+   cargo build --release
    ```
 
-2. Configure o token de autenticação para endpoints de agentes:
+2. Inicie o runtime — a API escuta em `:8080` e o HTTP Input em `:8081`:
    ```bash
-   export API_AUTH_TOKEN="<your-token>"
+   ./target/release/symbi up --http-bind 0.0.0.0
    ```
 
-3. Inicie o servidor do runtime:
-   ```bash
-   ./target/debug/symbiont-runtime --http-api
-   ```
+   Para um projeto pré-estruturado e o fluxo Docker recomendado, consulte [Primeiros Passos](/getting-started).
 
-4. Verifique se o servidor está executando:
+3. Verifique se o servidor está executando:
    ```bash
    curl http://127.0.0.1:8080/api/v1/health
    ```
 
-5. Teste o endpoint de agentes autenticado:
+4. Teste um endpoint autenticado — `symbi up` imprime o token bearer gerado na inicialização (ou defina um explicitamente com `--http.token`):
    ```bash
-   curl -H "Authorization: Bearer $API_AUTH_TOKEN" \
+   curl -H "Authorization: Bearer $SYMBI_HTTP_TOKEN" \
         http://127.0.0.1:8080/api/v1/agents
    ```
 

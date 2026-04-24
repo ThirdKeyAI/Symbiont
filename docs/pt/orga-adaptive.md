@@ -24,7 +24,7 @@ O feature gate `orga-adaptive` adiciona quatro capacidades avançadas ao loop de
 ```toml
 # No seu Cargo.toml
 [dependencies]
-symbi-runtime = { version = "1.6", features = ["orga-adaptive"] }
+symbi-runtime = { version = "1.10", features = ["orga-adaptive"] }
 ```
 
 Ou compile a partir do código-fonte:

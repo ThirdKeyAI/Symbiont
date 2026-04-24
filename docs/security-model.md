@@ -484,6 +484,40 @@ impl ComplianceFramework {
 
 ---
 
+## Human Approval Relay (`symbi-approval-relay`)
+
+When a policy decision returns `require: approval`, the action blocks until a human reviewer either approves or denies it. `symbi-approval-relay` is the crate that carries those requests to a human and the decision back, while keeping both hops auditable.
+
+### Dual-channel design
+
+The relay is **dual-channel** by design: every approval round-trips through two independent paths, and both must agree before the runtime unblocks the action.
+
+- **Primary channel** — an interactive surface for the reviewer (chat adapter, web UI, CLI prompt). This is where the reviewer reads the request and decides.
+- **Attestation channel** — an independent verification path (for example a signed callback, a second operator, or an out-of-band confirmation). The runtime will not unblock on a primary-channel approval alone.
+
+This structure defeats the single-channel compromise case — an attacker who seizes the primary channel still cannot grant approvals, because the attestation channel doesn't share trust with it.
+
+### What the relay carries
+
+Every approval request in flight carries:
+- The agent identity (AgentPin-anchored) and the policy decision that triggered the request
+- The full action context — tool invocation, resource, arguments — hashed so reviewers can confirm they approved *this* action and not a swapped one
+- A deadline after which the request auto-denies
+- Correlation IDs so the audit trail ties the two channels' decisions back to a single action
+
+Approvals and denials are recorded in the same cryptographically tamper-evident audit chain as every other runtime decision. A human saying "yes" is a decision in the log, not a bypass of it.
+
+### Where it's used
+
+- Cedar policies that emit `RequireApproval { approver: "..." }` verdicts
+- Destructive or high-privilege tool calls gated by ToolClad `approval` hooks
+- Scheduled jobs configured with `one_shot = true` plus an approval policy
+- Any DSL `policy` block that names `require: <role>_approval`
+
+If no relay is configured, approval-gated actions fail closed — they're denied, not silently allowed.
+
+---
+
 ## Tool Security
 
 Symbiont provides two complementary layers for tool security:

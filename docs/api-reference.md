@@ -432,6 +432,8 @@ cargo build --features cloud-llm
 **Environment Variables:**
 - `OPENROUTER_API_KEY` — Your OpenRouter API key (required)
 - `OPENROUTER_MODEL` — Model to use (default: `google/gemini-2.0-flash-001`)
+- `OPENROUTER_REFERER` — Optional. Sets the `HTTP-Referer` header on OpenRouter requests (app attribution). Leave unset for unattributed traffic.
+- `OPENROUTER_TITLE` — Optional. Sets the `X-Title` header. See [OpenRouter app attribution](https://openrouter.ai/docs/app-attribution).
 
 The cloud LLM provider integrates with the reasoning loop's `execute_actions()` pipeline. It supports streaming responses, automatic retries with exponential backoff, and token usage tracking.
 
@@ -1278,29 +1280,26 @@ symbi agents-md generate --dir . --output AGENTS.md
 
 ### Runtime HTTP API
 
-1. Ensure the runtime is built with the `http-api` feature:
+1. Build the `symbi` binary (the `http-api` feature is on by default in the binary crate):
    ```bash
-   cargo build --features http-api
+   cargo build --release
    ```
 
-2. Set the authentication token for agent endpoints:
+2. Start the runtime — the API listens on `:8080` and HTTP Input on `:8081`:
    ```bash
-   export API_AUTH_TOKEN="<your-token>"
+   ./target/release/symbi up --http-bind 0.0.0.0
    ```
 
-3. Start the runtime server:
-   ```bash
-   ./target/debug/symbiont-runtime --http-api
-   ```
+   For a scaffolded project and the recommended Docker flow, see [Getting Started](/getting-started).
 
-4. Verify the server is running:
+3. Verify the server is running:
    ```bash
    curl http://127.0.0.1:8080/api/v1/health
    ```
 
-5. Test authenticated agent endpoint:
+4. Test an authenticated endpoint — `symbi up` prints the generated bearer token at startup (or set one explicitly with `--http.token`):
    ```bash
-   curl -H "Authorization: Bearer $API_AUTH_TOKEN" \
+   curl -H "Authorization: Bearer $SYMBI_HTTP_TOKEN" \
         http://127.0.0.1:8080/api/v1/agents
    ```
 

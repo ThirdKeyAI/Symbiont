@@ -432,6 +432,8 @@ cargo build --features cloud-llm
 **環境変数：**
 - `OPENROUTER_API_KEY` -- OpenRouter APIキー（必須）
 - `OPENROUTER_MODEL` -- 使用するモデル（デフォルト：`google/gemini-2.0-flash-001`）
+- `OPENROUTER_REFERER` -- 任意。OpenRouterリクエストの `HTTP-Referer` ヘッダーを設定（アプリ帰属）。未設定の場合は帰属なしのトラフィックとして扱われます。
+- `OPENROUTER_TITLE` -- 任意。`X-Title` ヘッダーを設定します。[OpenRouter app attribution](https://openrouter.ai/docs/app-attribution) を参照してください。
 
 クラウドLLMプロバイダーは推論ループの `execute_actions()` パイプラインと統合されます。ストリーミングレスポンス、指数バックオフによる自動リトライ、トークン使用追跡をサポートしています。
 
@@ -1278,29 +1280,26 @@ symbi agents-md generate --dir . --output AGENTS.md
 
 ### ランタイムHTTP API
 
-1. ランタイムが `http-api` featureでビルドされていることを確認：
+1. `symbi` バイナリをビルドします（バイナリクレートでは `http-api` featureがデフォルトで有効です）：
    ```bash
-   cargo build --features http-api
+   cargo build --release
    ```
 
-2. エージェントエンドポイント用の認証トークンを設定：
+2. ランタイムを起動します -- APIは `:8080`、HTTP Inputは `:8081` でリッスンします：
    ```bash
-   export API_AUTH_TOKEN="<your-token>"
+   ./target/release/symbi up --http-bind 0.0.0.0
    ```
 
-3. ランタイムサーバーを起動：
-   ```bash
-   ./target/debug/symbiont-runtime --http-api
-   ```
+   スキャフォールドされたプロジェクトと推奨のDockerフローについては、[Getting Started](/getting-started) を参照してください。
 
-4. サーバーが実行中であることを確認：
+3. サーバーが実行中であることを確認：
    ```bash
    curl http://127.0.0.1:8080/api/v1/health
    ```
 
-5. 認証済みエージェントエンドポイントをテスト：
+4. 認証済みエンドポイントをテスト -- `symbi up` は起動時に生成されたベアラートークンを出力します（または `--http.token` で明示的に設定できます）：
    ```bash
-   curl -H "Authorization: Bearer $API_AUTH_TOKEN" \
+   curl -H "Authorization: Bearer $SYMBI_HTTP_TOKEN" \
         http://127.0.0.1:8080/api/v1/agents
    ```
 
