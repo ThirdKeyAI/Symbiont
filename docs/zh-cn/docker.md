@@ -13,7 +13,29 @@
 
 ## 快速开始
 
-### 使用预构建镜像
+### 脚手架并运行项目（推荐）
+
+`symbi init` 在容器内工作，并将项目写入您的主机目录，包括即用型的 `docker-compose.yml` 和带有新生成 `SYMBIONT_MASTER_KEY` 的 `.env`：
+
+```bash
+# 1. Create the project files on the host
+docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest \
+  init --profile assistant --no-interact --dir /workspace
+
+# 2. Start the runtime (reads .env automatically)
+docker compose up
+```
+
+`--dir /workspace` 标志告诉 `symbi init` 写入挂载的卷而不是镜像的 WORKDIR。此命令运行后，您将在当前目录中获得 `symbiont.toml`、`agents/`、`policies/`、`.symbiont/audit/`、`AGENTS.md`、`docker-compose.yml`、`.env` 和 `.env.example`。
+
+要跳过生成 compose 文件：
+
+```bash
+docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest \
+  init --profile minimal --no-interact --no-docker-compose --dir /workspace
+```
+
+### 使用预构建镜像（临时）
 
 ```bash
 # Pull latest image
@@ -29,10 +51,10 @@ docker run --rm -i \
   ghcr.io/thirdkeyai/symbi:latest \
   mcp
 
-# Run with HTTP API
-docker run --rm -p 8080:8080 \
+# Run the runtime without a project (ephemeral, no master key)
+docker run --rm -p 8080:8080 -p 8081:8081 \
   ghcr.io/thirdkeyai/symbi:latest \
-  up --http-bind 0.0.0.0:8080
+  up --http-bind 0.0.0.0
 ```
 
 ### 开发工作流
@@ -46,7 +68,7 @@ docker run --rm -it -v $(pwd):/workspace \
 docker run --rm -it \
   -v $(pwd):/workspace \
   -p 8080:8080 \
-  -p 3000:3000 \
+  -p 8081:8081 \
   ghcr.io/thirdkeyai/symbi:latest bash
 ```
 
@@ -99,72 +121,87 @@ Docker 会自动为您的平台拉取正确的架构。
 ### 环境变量
 
 **Symbi 容器：**
+- `SYMBIONT_MASTER_KEY` - **持久化状态必需。** 用于加密本地存储的 32 字节十六进制密钥。使用 `openssl rand -hex 32` 生成。`symbi init` 会自动将一个密钥写入 `.env`。
 - `RUST_LOG` - 设置日志级别（debug、info、warn、error）
 - `SYMBIONT_VECTOR_BACKEND` - 向量后端：`lancedb`（默认）或 `qdrant`
 - `QDRANT_URL` - Qdrant 向量数据库 URL（仅在使用可选的 Qdrant 后端时需要）
+- `OPENROUTER_API_KEY` / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` - 可选的 LLM 凭证；任一设置都会启用 Coordinator Chat 端点。
 
 ### 卷挂载
 
+镜像以用户 `symbi`（UID 1000）运行，`WORKDIR=/var/lib/symbi`。项目文件以只读方式挂载到该目录；持久化状态（本地 SQLite 存储和审计日志）存放在命名卷中，以便在容器重启后保留。
+
 ```bash
-# Mount agent definitions
--v $(pwd)/agents:/var/lib/symbi/agents
+# Project files (read-only)
+-v $(pwd)/symbiont.toml:/var/lib/symbi/symbiont.toml:ro
+-v $(pwd)/agents:/var/lib/symbi/agents:ro
+-v $(pwd)/policies:/var/lib/symbi/policies:ro
+-v $(pwd)/tools:/var/lib/symbi/tools:ro
 
-# Mount configuration
--v $(pwd)/config:/etc/symbi
-
-# Mount data directory
--v symbi-data:/var/lib/symbi/data
+# Persistent state
+-v symbi-data:/var/lib/symbi/.symbi
+-v symbi-audit:/var/lib/symbi/.symbiont
 ```
 
 ## Docker Compose 示例
+
+`symbi init` 会生成一个与本节其余内容匹配的即用型 `docker-compose.yml` — 相比手写 compose 文件，推荐优先使用它。作为参考，或者在不使用 `init` 启动时：
 
 默认情况下，Symbiont 使用 **LanceDB** 作为嵌入式向量数据库——不需要外部服务。如果您需要分布式向量后端用于规模化部署，可以选择添加 Qdrant。
 
 ### 最小配置（LanceDB 默认——不需要 Qdrant）
 
-```yaml
-version: '3.8'
+将其与设置 `SYMBIONT_MASTER_KEY` 的 `.env` 文件配对使用：
 
+```yaml
 services:
   symbi:
     image: ghcr.io/thirdkeyai/symbi:latest
+    command: ["up", "--http-bind", "0.0.0.0"]
     ports:
       - "8080:8080"
-      - "3000:3000"
+      - "8081:8081"
     volumes:
-      - ./agents:/var/lib/symbi/agents
-      - ./config:/etc/symbi
-      - symbi-data:/var/lib/symbi/data
+      - ./symbiont.toml:/var/lib/symbi/symbiont.toml:ro
+      - ./agents:/var/lib/symbi/agents:ro
+      - ./policies:/var/lib/symbi/policies:ro
+      - ./tools:/var/lib/symbi/tools:ro
+      - symbi-data:/var/lib/symbi/.symbi
+      - symbi-audit:/var/lib/symbi/.symbiont
     environment:
-      - RUST_LOG=info
-    command: ["up", "--http-bind", "0.0.0.0:8080"]
+      SYMBIONT_MASTER_KEY: ${SYMBIONT_MASTER_KEY:?set SYMBIONT_MASTER_KEY in .env}
+      RUST_LOG: ${RUST_LOG:-info}
+    restart: unless-stopped
 
 volumes:
   symbi-data:
+  symbi-audit:
 ```
 
 ### 带可选 Qdrant 后端
 
 ```yaml
-version: '3.8'
-
 services:
   symbi:
     image: ghcr.io/thirdkeyai/symbi:latest
+    command: ["up", "--http-bind", "0.0.0.0"]
     ports:
       - "8080:8080"
-      - "3000:3000"
+      - "8081:8081"
     volumes:
-      - ./agents:/var/lib/symbi/agents
-      - ./config:/etc/symbi
-      - symbi-data:/var/lib/symbi/data
+      - ./symbiont.toml:/var/lib/symbi/symbiont.toml:ro
+      - ./agents:/var/lib/symbi/agents:ro
+      - ./policies:/var/lib/symbi/policies:ro
+      - symbi-data:/var/lib/symbi/.symbi
+      - symbi-audit:/var/lib/symbi/.symbiont
     environment:
-      - RUST_LOG=info
-      - SYMBIONT_VECTOR_BACKEND=qdrant
-      - QDRANT_URL=http://qdrant:6334
+      SYMBIONT_MASTER_KEY: ${SYMBIONT_MASTER_KEY:?set SYMBIONT_MASTER_KEY in .env}
+      RUST_LOG: ${RUST_LOG:-info}
+      SYMBIONT_VECTOR_BACKEND: qdrant
+      QDRANT_URL: http://qdrant:6334
     depends_on:
       - qdrant
-    command: ["up", "--http-bind", "0.0.0.0:8080"]
+    restart: unless-stopped
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -176,6 +213,7 @@ services:
 
 volumes:
   symbi-data:
+  symbi-audit:
   qdrant-data:
 ```
 

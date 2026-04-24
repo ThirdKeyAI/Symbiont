@@ -38,7 +38,21 @@ Additional capabilities: threat scanning for tool/skill content, cron scheduling
 
 ## Quick start
 
-### Installation
+### Scaffold and run a project (Docker, ~60 seconds)
+
+```bash
+# 1. Create the project. Generates symbiont.toml, agents/, policies/,
+#    docker-compose.yml, and a .env with a freshly generated SYMBIONT_MASTER_KEY.
+docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest \
+  init --profile assistant --no-interact --dir /workspace
+
+# 2. Start the runtime. Reads .env automatically.
+docker compose up
+```
+
+Runtime API on `http://localhost:8080`, HTTP Input on `http://localhost:8081`.
+
+### Installation (without Docker)
 
 **Install script (macOS / Linux):**
 ```bash
@@ -49,11 +63,6 @@ curl -fsSL https://symbiont.dev/install.sh | bash
 ```bash
 brew tap thirdkeyai/tap
 brew install symbi
-```
-
-**Docker:**
-```bash
-docker run --rm -p 8080:8080 -p 8081:8081 ghcr.io/thirdkeyai/symbi:latest up
 ```
 
 **From source:**
@@ -87,7 +96,10 @@ See the [DSL guide](/dsl-guide) for the full grammar including `metadata`, `sche
 ### Project scaffolding
 
 ```bash
-symbi init        # Interactive project setup with profile templates
+symbi init        # Interactive project setup — writes symbiont.toml, agents/,
+                  # policies/, docker-compose.yml, and a .env with a generated
+                  # SYMBIONT_MASTER_KEY. Pass --dir <PATH> to target a specific
+                  # directory (required when running inside a container).
 symbi run agent   # Run a single agent without starting the full runtime
 symbi up          # Start the full runtime with auto-configuration
 ```

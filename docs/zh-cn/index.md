@@ -42,7 +42,21 @@ Symbiont 将智能体意图与执行权限分离：
 
 ## 快速开始
 
-### 安装
+### 脚手架并运行项目（Docker，约 60 秒）
+
+```bash
+# 1. 创建项目。生成 symbiont.toml、agents/、policies/、
+#    docker-compose.yml，以及包含新生成 SYMBIONT_MASTER_KEY 的 .env。
+docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest \
+  init --profile assistant --no-interact --dir /workspace
+
+# 2. 启动运行时。自动读取 .env。
+docker compose up
+```
+
+运行时 API 位于 `http://localhost:8080`，HTTP Input 位于 `http://localhost:8081`。
+
+### 安装（不使用 Docker）
 
 **安装脚本（macOS / Linux）：**
 ```bash
@@ -53,11 +67,6 @@ curl -fsSL https://symbiont.dev/install.sh | bash
 ```bash
 brew tap thirdkeyai/tap
 brew install symbi
-```
-
-**Docker：**
-```bash
-docker run --rm -p 8080:8080 -p 8081:8081 ghcr.io/thirdkeyai/symbi:latest up
 ```
 
 **从源代码构建：**
@@ -91,7 +100,10 @@ agent secure_analyst(input: DataSet) -> Result {
 ### 项目脚手架
 
 ```bash
-symbi init        # 交互式项目设置，支持配置文件模板
+symbi init        # 交互式项目设置 — 写入 symbiont.toml、agents/、
+                  # policies/、docker-compose.yml，以及包含生成的
+                  # SYMBIONT_MASTER_KEY 的 .env。使用 --dir <PATH>
+                  # 指定目标目录（在容器内运行时必需）。
 symbi run agent   # 运行单个智能体，无需启动完整运行时
 symbi up          # 启动完整运行时，自动配置
 ```

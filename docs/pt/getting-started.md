@@ -25,18 +25,28 @@ Antes de começar com o Symbi, certifique-se de ter o seguinte instalado:
 
 ### Opção 1: Docker (Recomendado)
 
-A maneira mais rápida de começar é usando Docker:
+A maneira mais rápida de obter um runtime funcional é deixar o container fazer o scaffolding do projeto para você:
 
 ```bash
-# Clonar o repositório
+# 1. Gera symbiont.toml, agents/, policies/, docker-compose.yml e
+#    um .env com SYMBIONT_MASTER_KEY recém-gerada.
+docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest \
+  init --profile assistant --no-interact --dir /workspace
+
+# 2. Inicia o runtime. Lê o .env automaticamente.
+docker compose up
+```
+
+A API do runtime ficará em `http://localhost:8080` e a HTTP Input em `http://localhost:8081`.
+
+Se você prefere trabalhar a partir de um clone (para construir a imagem ou rodar testes):
+
+```bash
 git clone https://github.com/thirdkeyai/symbiont.git
 cd symbiont
 
 # Construir o container unificado symbi
 docker build -t symbi:latest .
-
-# Ou usar container pré-construído
-docker pull ghcr.io/thirdkeyai/symbi:latest
 
 # Executar o ambiente de desenvolvimento
 docker run --rm -it -v $(pwd):/workspace symbi:latest bash
@@ -98,6 +108,24 @@ Isso inicia um assistente interativo que o guia por:
 - **Modo SchemaPin**: `tofu` (Trust-On-First-Use), `strict` ou `disabled`
 - **Camada de sandbox**: `tier0` (nenhuma), `tier1` (Docker) ou `tier2` (gVisor)
 
+### O que `init` produz
+
+Toda execução escreve:
+
+| Arquivo | Propósito |
+|---------|-----------|
+| `symbiont.toml` | Configuração de runtime e políticas |
+| `policies/default.cedar` | Política Cedar deny-by-default |
+| `agents/*.dsl` | Definições de agentes específicas do perfil (exceto `minimal`) |
+| `AGENTS.md` | Índice gerado automaticamente dos agentes declarados |
+| `.symbiont/audit/` | Diretório do log de auditoria à prova de adulteração |
+| `.gitignore` | Acrescido com entradas específicas do Symbiont, incluindo `.env` |
+| `.env` | `SYMBIONT_MASTER_KEY` gerada a partir de `/dev/urandom` (permissões 0600) |
+| `.env.example` | Template seguro para commit mostrando as variáveis de ambiente necessárias |
+| `docker-compose.yml` | Arquivo compose pronto para execução com montagens de volume e fiação de env corretas |
+
+Passe `--no-docker-compose` para pular o arquivo compose, e `--dir <PATH>` para escrever em um diretório diferente do atual (essencial dentro de um container Docker — veja abaixo).
+
 ### Modo não interativo
 
 Para CI/CD ou configurações por script:
@@ -105,6 +133,17 @@ Para CI/CD ou configurações por script:
 ```bash
 symbi init --profile assistant --schemapin tofu --sandbox tier1 --no-interact
 ```
+
+### Executando `init` dentro do Docker
+
+Como o WORKDIR da imagem é `/var/lib/symbi`, use `--dir` para escrever no volume montado:
+
+```bash
+docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest \
+  init --profile assistant --no-interact --dir /workspace
+```
+
+Isso popula o diretório atual do host com a árvore completa do projeto.
 
 ### Perfis
 
@@ -135,7 +174,8 @@ Após a inicialização, valide e inicie:
 ```bash
 symbi dsl -f agents/assistant.dsl   # validar seu agente
 symbi run assistant -i '{"query": "hello"}'  # testar um único agente
-symbi up                             # iniciar o runtime
+symbi up                             # iniciar o runtime localmente
+docker compose up                    # ...ou iniciar no Docker (lê o .env)
 ```
 
 ### Executando um único agente
@@ -397,6 +437,11 @@ cargo build --features full
 Configure seu ambiente para performance ideal:
 
 ```bash
+# Obrigatório: chave hex de 32 bytes usada para criptografar o estado persistente.
+# Gere com: openssl rand -hex 32
+# `symbi init` escreve uma no .env automaticamente.
+export SYMBIONT_MASTER_KEY="..."
+
 # Configuração básica
 export SYMBI_LOG_LEVEL=info
 export SYMBI_RUNTIME_MODE=development

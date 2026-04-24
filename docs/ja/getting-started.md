@@ -25,18 +25,28 @@ Symbiを使い始める前に、以下がインストールされていること
 
 ### オプション1：Docker（推奨）
 
-最も簡単に始める方法はDockerを使用することです：
+動作するランタイムを最も簡単に手に入れる方法は、コンテナにプロジェクトをスキャフォールドさせることです：
 
 ```bash
-# リポジトリをクローン
+# 1. symbiont.toml、agents/、policies/、docker-compose.yml、および
+#    新しく生成された SYMBIONT_MASTER_KEY を含む .env をスキャフォールドします。
+docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest \
+  init --profile assistant --no-interact --dir /workspace
+
+# 2. ランタイムを起動します。.env を自動的に読み込みます。
+docker compose up
+```
+
+ランタイム API は `http://localhost:8080` で、HTTP 入力は `http://localhost:8081` で公開されます。
+
+クローンから作業したい場合（イメージを自分でビルドしたり、テストを実行したりする場合）：
+
+```bash
 git clone https://github.com/thirdkeyai/symbiont.git
 cd symbiont
 
 # 統合symbiコンテナをビルド
 docker build -t symbi:latest .
-
-# または事前ビルドされたコンテナを使用
-docker pull ghcr.io/thirdkeyai/symbi:latest
 
 # 開発環境を実行
 docker run --rm -it -v $(pwd):/workspace symbi:latest bash
@@ -98,6 +108,24 @@ symbi init
 - **SchemaPinモード**: `tofu`（Trust-On-First-Use）、`strict`、または `disabled`
 - **サンドボックスティア**: `tier0`（なし）、`tier1`（Docker）、または `tier2`（gVisor）
 
+### `init` が生成するもの
+
+すべての実行で次が書き込まれます：
+
+| ファイル | 目的 |
+|------|---------|
+| `symbiont.toml` | ランタイムおよびポリシー設定 |
+| `policies/default.cedar` | デフォルトで拒否する Cedar ポリシー |
+| `agents/*.dsl` | プロファイル固有のエージェント定義（`minimal` を除く） |
+| `AGENTS.md` | 宣言されたエージェントの自動生成インデックス |
+| `.symbiont/audit/` | 改ざん防止監査ログディレクトリ |
+| `.gitignore` | `.env` を含む Symbiont 固有のエントリを追記 |
+| `.env` | `/dev/urandom` から生成された `SYMBIONT_MASTER_KEY`（パーミッション 0600） |
+| `.env.example` | 必要な環境変数を示すコミット可能なテンプレート |
+| `docker-compose.yml` | 正しいボリュームマウントと環境変数配線を備えた、すぐに実行可能なコンポーズファイル |
+
+`--no-docker-compose` を渡すとコンポーズファイルをスキップし、`--dir <PATH>` でカレント以外のディレクトリに書き込みます（Docker コンテナ内で実行する場合は必須 — 下記参照）。
+
 ### 非インタラクティブモード
 
 CI/CDやスクリプトセットアップの場合：
@@ -105,6 +133,17 @@ CI/CDやスクリプトセットアップの場合：
 ```bash
 symbi init --profile assistant --schemapin tofu --sandbox tier1 --no-interact
 ```
+
+### Docker 内で `init` を実行する
+
+イメージの WORKDIR は `/var/lib/symbi` であるため、マウントされたボリュームに書き込むには `--dir` を使用します：
+
+```bash
+docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest \
+  init --profile assistant --no-interact --dir /workspace
+```
+
+これにより、ホストのカレントディレクトリに完全なプロジェクトツリーが配置されます。
 
 ### プロファイル
 
@@ -135,7 +174,8 @@ symbi init --catalog list
 ```bash
 symbi dsl -f agents/assistant.dsl   # エージェントを検証
 symbi run assistant -i '{"query": "hello"}'  # 単一エージェントをテスト
-symbi up                             # ランタイムを起動
+symbi up                             # ランタイムをローカルで起動
+docker compose up                    # ...または Docker で起動（.env を読み込む）
 ```
 
 ### 単一エージェントの実行
@@ -397,6 +437,11 @@ cargo build --features full
 最適なパフォーマンスのために環境を設定します：
 
 ```bash
+# 必須：永続状態の暗号化に使用される 32 バイトの 16 進数キー。
+# 生成方法: openssl rand -hex 32
+# `symbi init` は自動的に .env に書き込みます。
+export SYMBIONT_MASTER_KEY="..."
+
 # 基本設定
 export SYMBI_LOG_LEVEL=info
 export SYMBI_RUNTIME_MODE=development

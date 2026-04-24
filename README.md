@@ -42,17 +42,34 @@ Symbiont is built for that layer.
 
 * Docker (recommended) or Rust 1.82+
 
-### Run with Docker
+### Scaffold and run a project (Docker, ~60 seconds)
 
 ```bash
-# Start the runtime (API on :8080, HTTP input on :8081)
+# 1. Create the project in the current directory.
+#    Generates symbiont.toml, agents/, policies/, docker-compose.yml, and
+#    a .env with a freshly generated SYMBIONT_MASTER_KEY.
+docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest \
+  init --profile assistant --no-interact --dir /workspace
+
+# 2. Start the runtime. Reads .env automatically.
+docker compose up
+```
+
+That's it — Runtime API on `http://localhost:8080`, HTTP Input on `http://localhost:8081`.
+Use `symbi init --catalog list` (or the Docker equivalent) to browse pre-built agents.
+
+### Other Docker recipes
+
+```bash
+# Ad-hoc runtime without a project (ephemeral, no master key)
 docker run --rm -p 8080:8080 -p 8081:8081 ghcr.io/thirdkeyai/symbi:latest up
 
-# Run MCP server only
+# MCP server only
 docker run --rm -p 8080:8080 ghcr.io/thirdkeyai/symbi:latest mcp
 
 # Parse an agent DSL file
-docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest dsl parse /workspace/agent.dsl
+docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest \
+  dsl -f /workspace/agent.dsl
 ```
 
 ### Build from source
@@ -61,11 +78,9 @@ docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest dsl parse /
 cargo build --release
 ./target/release/symbi --help
 
-# Run the runtime
-cargo run -- up
-
-# Interactive REPL
-cargo run -- repl
+# Scaffold a project locally, then start the runtime
+./target/release/symbi init --profile assistant --no-interact
+./target/release/symbi up
 ```
 
 > For production deployments, review `SECURITY.md` and the [deployment guide](https://docs.symbiont.dev/getting-started) before enabling untrusted tool execution.

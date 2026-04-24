@@ -42,7 +42,21 @@ Capacidades adicionales: escaneo de amenazas para contenido de herramientas/habi
 
 ## Inicio rapido
 
-### Instalacion
+### Crear y ejecutar un proyecto (Docker, ~60 segundos)
+
+```bash
+# 1. Crear los archivos del proyecto. Genera symbiont.toml, agents/, policies/,
+#    docker-compose.yml y un .env con un SYMBIONT_MASTER_KEY recien generado.
+docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest \
+  init --profile assistant --no-interact --dir /workspace
+
+# 2. Iniciar el runtime. Lee .env automaticamente.
+docker compose up
+```
+
+La API del runtime queda en `http://localhost:8080` y HTTP Input en `http://localhost:8081`.
+
+### Instalacion (sin Docker)
 
 **Script de instalacion (macOS / Linux):**
 ```bash
@@ -53,11 +67,6 @@ curl -fsSL https://symbiont.dev/install.sh | bash
 ```bash
 brew tap thirdkeyai/tap
 brew install symbi
-```
-
-**Docker:**
-```bash
-docker run --rm -p 8080:8080 -p 8081:8081 ghcr.io/thirdkeyai/symbi:latest up
 ```
 
 **Desde fuente:**
@@ -91,7 +100,10 @@ Consulte la [guia DSL](/dsl-guide) para la gramatica completa incluyendo bloques
 ### Scaffolding de proyecto
 
 ```bash
-symbi init        # Configuracion interactiva de proyecto con plantillas de perfil
+symbi init        # Configuracion interactiva del proyecto — escribe symbiont.toml,
+                  # agents/, policies/, docker-compose.yml y un .env con un
+                  # SYMBIONT_MASTER_KEY generado. Use --dir <PATH> para apuntar a un
+                  # directorio especifico (obligatorio al ejecutarlo dentro de un contenedor).
 symbi run agent   # Ejecutar un solo agente sin iniciar el runtime completo
 symbi up          # Iniciar el runtime completo con auto-configuracion
 ```

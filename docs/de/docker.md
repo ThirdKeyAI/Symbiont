@@ -17,7 +17,29 @@ Symbi stellt einen einheitlichen Docker-Container mit allen Funktionen bereit, v
 
 ## Schnellstart
 
-### Vorgefertigtes Image verwenden
+### Projekt erstellen und starten (empfohlen)
+
+`symbi init` funktioniert innerhalb des Containers und schreibt ein Projekt in Ihr Host-Verzeichnis, einschliesslich einer sofort lauffaehigen `docker-compose.yml` und einer `.env` mit einem frisch generierten `SYMBIONT_MASTER_KEY`:
+
+```bash
+# 1. Projektdateien auf dem Host erstellen
+docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest \
+  init --profile assistant --no-interact --dir /workspace
+
+# 2. Runtime starten (liest .env automatisch)
+docker compose up
+```
+
+Das Flag `--dir /workspace` weist `symbi init` an, in das gemountete Volume zu schreiben anstatt in das WORKDIR des Images. Nach der Ausfuehrung haben Sie `symbiont.toml`, `agents/`, `policies/`, `.symbiont/audit/`, `AGENTS.md`, `docker-compose.yml`, `.env` und `.env.example` im aktuellen Verzeichnis.
+
+Um die Generierung der Compose-Datei zu ueberspringen:
+
+```bash
+docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest \
+  init --profile minimal --no-interact --no-docker-compose --dir /workspace
+```
+
+### Vorgefertigtes Image verwenden (ad-hoc)
 
 ```bash
 # Neuestes Image herunterladen
@@ -33,10 +55,10 @@ docker run --rm -i \
   ghcr.io/thirdkeyai/symbi:latest \
   mcp
 
-# Mit HTTP-API starten
-docker run --rm -p 8080:8080 \
+# Runtime ohne Projekt starten (ephemer, kein Master Key)
+docker run --rm -p 8080:8080 -p 8081:8081 \
   ghcr.io/thirdkeyai/symbi:latest \
-  up --http-bind 0.0.0.0:8080
+  up --http-bind 0.0.0.0
 ```
 
 ### Entwicklungs-Workflow
@@ -50,7 +72,7 @@ docker run --rm -it -v $(pwd):/workspace \
 docker run --rm -it \
   -v $(pwd):/workspace \
   -p 8080:8080 \
-  -p 3000:3000 \
+  -p 8081:8081 \
   ghcr.io/thirdkeyai/symbi:latest bash
 ```
 
@@ -103,72 +125,87 @@ Docker laedt automatisch die korrekte Architektur fuer Ihre Plattform herunter.
 ### Umgebungsvariablen
 
 **Symbi-Container:**
+- `SYMBIONT_MASTER_KEY` - **Erforderlich fuer persistenten Zustand.** 32-Byte-Hex-Schluessel zur Verschluesselung des lokalen Speichers. Generieren mit `openssl rand -hex 32`. `symbi init` schreibt automatisch einen in `.env`.
 - `RUST_LOG` - Logging-Level festlegen (debug, info, warn, error)
 - `SYMBIONT_VECTOR_BACKEND` - Vektor-Backend: `lancedb` (Standard) oder `qdrant`
 - `QDRANT_URL` - Qdrant-Vektordatenbank-URL (nur bei Verwendung des optionalen Qdrant-Backends)
+- `OPENROUTER_API_KEY` / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` - Optionale LLM-Zugangsdaten; schon eine davon aktiviert den Coordinator-Chat-Endpunkt.
 
 ### Volume-Mounts
 
+Das Image laeuft als Benutzer `symbi` (UID 1000) mit `WORKDIR=/var/lib/symbi`. Projektdateien werden schreibgeschuetzt in dieses Verzeichnis gemountet; persistente Zustaende (der lokale SQLite-Speicher und Audit-Logs) liegen in benannten Volumes, damit sie Container-Neustarts ueberdauern.
+
 ```bash
-# Agentendefinitionen mounten
--v $(pwd)/agents:/var/lib/symbi/agents
+# Projektdateien (schreibgeschuetzt)
+-v $(pwd)/symbiont.toml:/var/lib/symbi/symbiont.toml:ro
+-v $(pwd)/agents:/var/lib/symbi/agents:ro
+-v $(pwd)/policies:/var/lib/symbi/policies:ro
+-v $(pwd)/tools:/var/lib/symbi/tools:ro
 
-# Konfiguration mounten
--v $(pwd)/config:/etc/symbi
-
-# Datenverzeichnis mounten
--v symbi-data:/var/lib/symbi/data
+# Persistenter Zustand
+-v symbi-data:/var/lib/symbi/.symbi
+-v symbi-audit:/var/lib/symbi/.symbiont
 ```
 
 ## Docker Compose Beispiel
+
+`symbi init` erzeugt eine sofort lauffaehige `docker-compose.yml`, die mit dem Rest dieses Abschnitts uebereinstimmt — bevorzugen Sie das gegenueber einer handgeschriebenen Compose-Datei. Als Referenz oder wenn Sie ohne `init` starten:
 
 Standardmaessig verwendet Symbiont **LanceDB** als eingebettete Vektordatenbank -- keine externen Dienste erforderlich. Wenn Sie ein verteiltes Vektor-Backend fuer skalierte Deployments benoetigen, koennen Sie optional Qdrant hinzufuegen.
 
 ### Minimal (LanceDB-Standard -- kein Qdrant erforderlich)
 
-```yaml
-version: '3.8'
+Kombinieren Sie dies mit einer `.env`-Datei, die `SYMBIONT_MASTER_KEY` setzt:
 
+```yaml
 services:
   symbi:
     image: ghcr.io/thirdkeyai/symbi:latest
+    command: ["up", "--http-bind", "0.0.0.0"]
     ports:
       - "8080:8080"
-      - "3000:3000"
+      - "8081:8081"
     volumes:
-      - ./agents:/var/lib/symbi/agents
-      - ./config:/etc/symbi
-      - symbi-data:/var/lib/symbi/data
+      - ./symbiont.toml:/var/lib/symbi/symbiont.toml:ro
+      - ./agents:/var/lib/symbi/agents:ro
+      - ./policies:/var/lib/symbi/policies:ro
+      - ./tools:/var/lib/symbi/tools:ro
+      - symbi-data:/var/lib/symbi/.symbi
+      - symbi-audit:/var/lib/symbi/.symbiont
     environment:
-      - RUST_LOG=info
-    command: ["up", "--http-bind", "0.0.0.0:8080"]
+      SYMBIONT_MASTER_KEY: ${SYMBIONT_MASTER_KEY:?set SYMBIONT_MASTER_KEY in .env}
+      RUST_LOG: ${RUST_LOG:-info}
+    restart: unless-stopped
 
 volumes:
   symbi-data:
+  symbi-audit:
 ```
 
 ### Mit optionalem Qdrant-Backend
 
 ```yaml
-version: '3.8'
-
 services:
   symbi:
     image: ghcr.io/thirdkeyai/symbi:latest
+    command: ["up", "--http-bind", "0.0.0.0"]
     ports:
       - "8080:8080"
-      - "3000:3000"
+      - "8081:8081"
     volumes:
-      - ./agents:/var/lib/symbi/agents
-      - ./config:/etc/symbi
-      - symbi-data:/var/lib/symbi/data
+      - ./symbiont.toml:/var/lib/symbi/symbiont.toml:ro
+      - ./agents:/var/lib/symbi/agents:ro
+      - ./policies:/var/lib/symbi/policies:ro
+      - symbi-data:/var/lib/symbi/.symbi
+      - symbi-audit:/var/lib/symbi/.symbiont
     environment:
-      - RUST_LOG=info
-      - SYMBIONT_VECTOR_BACKEND=qdrant
-      - QDRANT_URL=http://qdrant:6334
+      SYMBIONT_MASTER_KEY: ${SYMBIONT_MASTER_KEY:?set SYMBIONT_MASTER_KEY in .env}
+      RUST_LOG: ${RUST_LOG:-info}
+      SYMBIONT_VECTOR_BACKEND: qdrant
+      QDRANT_URL: http://qdrant:6334
     depends_on:
       - qdrant
-    command: ["up", "--http-bind", "0.0.0.0:8080"]
+    restart: unless-stopped
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -180,6 +217,7 @@ services:
 
 volumes:
   symbi-data:
+  symbi-audit:
   qdrant-data:
 ```
 

@@ -143,6 +143,24 @@ pub async fn run(matches: &ArgMatches) {
         }
     } else if let Some(agent) = agents_found.first() {
         println!("→ Auto-routing /webhook → {}", agent);
+    } else {
+        // No agents/ directory or no .dsl files. Point the user at init so
+        // they don't end up with a runtime that literally does nothing.
+        let has_dir = Path::new("agents").is_dir();
+        if !has_dir {
+            eprintln!(
+                "\n⚠  No agents/ directory found — the runtime will start with no agents loaded."
+            );
+        } else {
+            eprintln!(
+                "\n⚠  agents/ directory is empty — the runtime will start with no agents loaded."
+            );
+        }
+        eprintln!("   To scaffold a starter project:");
+        eprintln!("     symbi init --profile assistant     # governed assistant agent");
+        eprintln!("     symbi init --profile dev-agent     # CliExecutor agent for coding tasks");
+        eprintln!("     symbi init --catalog list          # browse pre-built agents");
+        eprintln!();
     }
 
     if let Some(preset_name) = preset {

@@ -25,18 +25,28 @@
 
 ### 选项 1：Docker（推荐）
 
-开始使用的最快方法是使用 Docker：
+获得可工作运行时的最快方法是让容器为您生成项目脚手架：
 
 ```bash
-# 克隆仓库
+# 1. 生成 symbiont.toml、agents/、policies/、docker-compose.yml，以及
+#    包含新生成 SYMBIONT_MASTER_KEY 的 .env。
+docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest \
+  init --profile assistant --no-interact --dir /workspace
+
+# 2. 启动运行时。自动读取 .env。
+docker compose up
+```
+
+运行时 API 现在位于 `http://localhost:8080`，HTTP Input 位于 `http://localhost:8081`。
+
+如果您更愿意从克隆仓库工作（以便自行构建镜像或运行测试）：
+
+```bash
 git clone https://github.com/thirdkeyai/symbiont.git
 cd symbiont
 
 # 构建统一的 symbi 容器
 docker build -t symbi:latest .
-
-# 或使用预构建的容器
-docker pull ghcr.io/thirdkeyai/symbi:latest
 
 # 运行开发环境
 docker run --rm -it -v $(pwd):/workspace symbi:latest bash
@@ -98,6 +108,24 @@ symbi init
 - **SchemaPin 模式**：`tofu`（首次使用信任）、`strict` 或 `disabled`
 - **沙箱层级**：`tier0`（无）、`tier1`（Docker）或 `tier2`（gVisor）
 
+### `init` 生成的内容
+
+每次运行都会写入：
+
+| 文件 | 用途 |
+|------|------|
+| `symbiont.toml` | 运行时和策略配置 |
+| `policies/default.cedar` | 默认拒绝的 Cedar 策略 |
+| `agents/*.dsl` | 特定配置文件的智能体定义（`minimal` 除外） |
+| `AGENTS.md` | 自动生成的已声明智能体索引 |
+| `.symbiont/audit/` | 防篡改审计日志目录 |
+| `.gitignore` | 追加 Symbiont 特定条目，包括 `.env` |
+| `.env` | 从 `/dev/urandom` 生成的 `SYMBIONT_MASTER_KEY`（0600 权限） |
+| `.env.example` | 可安全提交的模板，展示所需的环境变量 |
+| `docker-compose.yml` | 即用型 compose 文件，带有正确的卷挂载和环境变量接线 |
+
+传递 `--no-docker-compose` 可跳过 compose 文件，使用 `--dir <PATH>` 可写入当前目录之外的其他目录（在 Docker 容器内运行时必需 — 见下文）。
+
 ### 非交互模式
 
 用于 CI/CD 或脚本化设置：
@@ -105,6 +133,17 @@ symbi init
 ```bash
 symbi init --profile assistant --schemapin tofu --sandbox tier1 --no-interact
 ```
+
+### 在 Docker 内运行 `init`
+
+由于镜像的 WORKDIR 为 `/var/lib/symbi`，请使用 `--dir` 写入您挂载的卷：
+
+```bash
+docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest \
+  init --profile assistant --no-interact --dir /workspace
+```
+
+这将在主机的当前目录中填充完整的项目树。
 
 ### 配置文件
 
@@ -135,7 +174,8 @@ symbi init --catalog list
 ```bash
 symbi dsl -f agents/assistant.dsl   # 验证您的智能体
 symbi run assistant -i '{"query": "hello"}'  # 测试单个智能体
-symbi up                             # 启动完整运行时
+symbi up                             # 在本地启动运行时
+docker compose up                    # ...或在 Docker 中启动（读取 .env）
 ```
 
 ### 运行单个智能体
@@ -397,6 +437,11 @@ cargo build --features full
 设置您的环境以获得最佳性能：
 
 ```bash
+# 必需：用于加密持久化状态的 32 字节十六进制密钥。
+# 生成方式：openssl rand -hex 32
+# `symbi init` 会自动将一个密钥写入 .env。
+export SYMBIONT_MASTER_KEY="..."
+
 # 基本配置
 export SYMBI_LOG_LEVEL=info
 export SYMBI_RUNTIME_MODE=development

@@ -214,12 +214,15 @@ async fn main() {
         )
         .subcommand(
             Command::new("init")
-                .about("Initialize a governed Symbiont project in the current directory")
+                .about("Create a new Symbiont project (symbiont.toml, agents/, policies/, docker-compose.yml, .env)")
+                .display_order(0)
                 .arg(Arg::new("profile").long("profile").value_name("PROFILE").help("Project profile (minimal, assistant, dev-agent, multi-agent)"))
                 .arg(Arg::new("schemapin").long("schemapin").value_name("MODE").help("SchemaPin verification mode (tofu, strict, disabled)").default_value("tofu"))
                 .arg(Arg::new("sandbox").long("sandbox").value_name("TIER").help("Sandbox isolation tier (tier0, tier1, tier2)").default_value("tier1"))
+                .arg(Arg::new("dir").long("dir").value_name("PATH").help("Target directory (default: current directory; useful inside Docker with -v $(pwd):/workspace --dir /workspace)"))
                 .arg(Arg::new("force").long("force").action(ArgAction::SetTrue).help("Overwrite existing symbiont.toml"))
                 .arg(Arg::new("no-interact").long("no-interact").action(ArgAction::SetTrue).help("Skip interactive prompts (use defaults or --flags)"))
+                .arg(Arg::new("no-docker-compose").long("no-docker-compose").action(ArgAction::SetTrue).help("Skip generating docker-compose.yml"))
                 .arg(
                     Arg::new("catalog")
                         .long("catalog")

@@ -42,7 +42,21 @@ Symbiont はエージェントの意図と実行権限を分離します：
 
 ## クイックスタート
 
-### インストール
+### プロジェクトをスキャフォールドして実行（Docker、約60秒）
+
+```bash
+# 1. プロジェクトを作成。symbiont.toml、agents/、policies/、
+#    docker-compose.yml、および新しく生成された SYMBIONT_MASTER_KEY を含む .env を生成します。
+docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest \
+  init --profile assistant --no-interact --dir /workspace
+
+# 2. ランタイムを起動します。.env を自動的に読み込みます。
+docker compose up
+```
+
+ランタイム API は `http://localhost:8080`、HTTP 入力は `http://localhost:8081` で公開されます。
+
+### インストール（Docker なし）
 
 **インストールスクリプト（macOS / Linux）：**
 ```bash
@@ -53,11 +67,6 @@ curl -fsSL https://symbiont.dev/install.sh | bash
 ```bash
 brew tap thirdkeyai/tap
 brew install symbi
-```
-
-**Docker：**
-```bash
-docker run --rm -p 8080:8080 -p 8081:8081 ghcr.io/thirdkeyai/symbi:latest up
 ```
 
 **ソースから：**
@@ -91,7 +100,10 @@ agent secure_analyst(input: DataSet) -> Result {
 ### プロジェクトスキャフォールディング
 
 ```bash
-symbi init        # プロファイルテンプレートによるインタラクティブなプロジェクトセットアップ
+symbi init        # インタラクティブなプロジェクトセットアップ — symbiont.toml、agents/、
+                  # policies/、docker-compose.yml、および生成された SYMBIONT_MASTER_KEY を含む
+                  # .env を書き込みます。特定のディレクトリを対象にするには --dir <PATH> を
+                  # 渡します（コンテナ内で実行する場合は必須）。
 symbi run agent   # フルランタイムを起動せずに単一エージェントを実行
 symbi up          # 自動設定でフルランタイムを起動
 ```
