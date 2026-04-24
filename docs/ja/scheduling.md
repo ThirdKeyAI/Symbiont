@@ -920,11 +920,13 @@ pub enum SecurityEventType {
 }
 ```
 
-監査ログのクエリ：
+インタラクティブシェルから監査ログをクエリ：
 
-```bash
-symbi audit query --type CronJobFailed --since "2026-02-01" --limit 50
+```text
+/audit CronJobFailed
 ```
+
+またはランタイム HTTP API 経由でプログラム的に — `/api/v1/audit` エンドポイントについては [API リファレンス](/api-reference) を参照してください。
 
 ## ベストプラクティス
 

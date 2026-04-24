@@ -588,4 +588,4 @@ Jetzt, da Sie Symbi zum Laufen gebracht haben, erkunden Sie diese fortgeschritte
 5. **[Sicherheitsmodell](/security-model)** - Sicherheitsrichtlinien implementieren
 6. **[Beitragen](/contributing)** - Zum Projekt beitragen
 
-Bereit, etwas Grossartiges zu bauen? Beginnen Sie mit unseren [Beispielprojekten](https://github.com/thirdkeyai/symbiont/tree/main/crates/runtime/examples) oder tauchen Sie in die [vollstaendige Spezifikation](/specification) ein.
+Bereit, etwas Grossartiges zu bauen? Beginnen Sie mit unseren [Beispielprojekten](https://github.com/thirdkeyai/symbiont/tree/main/crates/runtime/examples) oder tauchen Sie in die [vollstaendige Spezifikation](/dsl-specification) ein.

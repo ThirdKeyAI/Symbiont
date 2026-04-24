@@ -920,11 +920,13 @@ pub enum SecurityEventType {
 }
 ```
 
-Query audit log:
+Query the audit log from the interactive shell:
 
-```bash
-symbi audit query --type CronJobFailed --since "2026-02-01" --limit 50
+```text
+/audit CronJobFailed
 ```
+
+Or programmatically via the runtime HTTP API — see [API Reference](/api-reference) for the `/api/v1/audit` endpoints.
 
 ## Best Practices
 

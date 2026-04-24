@@ -1085,6 +1085,5 @@ automatic_key_pinning = false
 - **[贡献指南](/contributing)** - 安全开发指南
 - **[运行时架构](/runtime-architecture)** - 技术实现详情
 - **[API 参考](/api-reference)** - 安全 API 文档
-- **[合规指南](/compliance)** - 监管合规信息
 
 Symbiont 安全模型提供适用于受监管行业和高保障环境的企业级保护。其分层方法确保对不断演进的威胁提供强大保护，同时保持运营效率。

@@ -1089,6 +1089,5 @@ automatic_key_pinning = false
 - **[Beitraege](/contributing)** - Sicherheitsentwicklungsrichtlinien
 - **[Runtime-Architektur](/runtime-architecture)** - Technische Implementierungsdetails
 - **[API-Referenz](/api-reference)** - Sicherheits-API-Dokumentation
-- **[Compliance-Leitfaden](/compliance)** - Regulatorische Compliance-Informationen
 
 Das Symbiont-Sicherheitsmodell bietet unternehmenstauglichen Schutz fuer regulierte Industrien und Hochsicherheitsumgebungen. Sein geschichteter Ansatz gewaehrleistet robusten Schutz vor sich entwickelnden Bedrohungen bei gleichzeitiger Aufrechterhaltung der betrieblichen Effizienz.

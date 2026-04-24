@@ -1098,6 +1098,5 @@ automatic_key_pinning = false
 - **[Contributing](/contributing)** - Security development guidelines
 - **[Runtime Architecture](/runtime-architecture)** - Technical implementation details
 - **[API Reference](/api-reference)** - Security API documentation
-- **[Compliance Guide](/compliance)** - Regulatory compliance information
 
 The Symbiont security model provides enterprise-grade protection suitable for regulated industries and high-assurance environments. Its layered approach ensures robust protection against evolving threats while maintaining operational efficiency.

@@ -588,4 +588,4 @@ Symbiが動作するようになったので、これらの高度なトピック
 5. **[セキュリティモデル](/security-model)** - セキュリティポリシーを実装する
 6. **[コントリビューション](/contributing)** - プロジェクトに貢献する
 
-素晴らしいものを構築する準備はできましたか？[サンプルプロジェクト](https://github.com/thirdkeyai/symbiont/tree/main/crates/runtime/examples)から始めるか、[完全な仕様](/specification)に深く入り込んでみてください。
+素晴らしいものを構築する準備はできましたか？[サンプルプロジェクト](https://github.com/thirdkeyai/symbiont/tree/main/crates/runtime/examples)から始めるか、[完全な仕様](/dsl-specification)に深く入り込んでみてください。

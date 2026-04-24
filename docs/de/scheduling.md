@@ -925,11 +925,13 @@ pub enum SecurityEventType {
 }
 ```
 
-Audit-Protokoll abfragen:
+Audit-Protokoll aus der interaktiven Shell abfragen:
 
-```bash
-symbi audit query --type CronJobFailed --since "2026-02-01" --limit 50
+```text
+/audit CronJobFailed
 ```
+
+Oder programmatisch ueber die Runtime-HTTP-API — siehe [API-Referenz](/api-reference) fuer die `/api/v1/audit`-Endpunkte.
 
 ## Best Practices
 

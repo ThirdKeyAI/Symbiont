@@ -921,11 +921,13 @@ pub enum SecurityEventType {
 }
 ```
 
-查询审计日志：
+从交互式 shell 查询审计日志：
 
-```bash
-symbi audit query --type CronJobFailed --since "2026-02-01" --limit 50
+```text
+/audit CronJobFailed
 ```
+
+或通过运行时 HTTP API 以程序化方式查询 —— 参见 [API 参考](/api-reference) 中的 `/api/v1/audit` 端点。
 
 ## 最佳实践
 

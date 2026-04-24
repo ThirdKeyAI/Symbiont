@@ -1085,6 +1085,5 @@ automatic_key_pinning = false
 - **[Contribuir](/contributing)** - Directrices de desarrollo de seguridad
 - **[Arquitectura del Runtime](/runtime-architecture)** - Detalles de implementacion tecnica
 - **[Referencia de API](/api-reference)** - Documentacion de API de seguridad
-- **[Guia de Cumplimiento](/compliance)** - Informacion de cumplimiento regulatorio
 
 El modelo de seguridad de Symbiont proporciona proteccion de grado empresarial adecuada para industrias reguladas y entornos de alta seguridad. Su enfoque en capas asegura una proteccion robusta contra amenazas en evolucion mientras mantiene la eficiencia operacional.

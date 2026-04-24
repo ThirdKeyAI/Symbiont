@@ -666,4 +666,4 @@ Now that you have Symbi running, explore these advanced topics:
 5. **[Security Model](/security-model)** - Implement security policies
 6. **[Contributing](/contributing)** - Contribute to the project
 
-Ready to build something amazing? Start with our [example projects](https://github.com/thirdkeyai/symbiont/tree/main/crates/runtime/examples) or dive into the [complete specification](/specification).
+Ready to build something amazing? Start with our [example projects](https://github.com/thirdkeyai/symbiont/tree/main/crates/runtime/examples) or dive into the [complete specification](/dsl-specification).

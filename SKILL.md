@@ -1,8 +1,8 @@
 ---
 name: symbiont
 title: Symbiont
-description: AI-native agent runtime with typestate-enforced ORGA reasoning loop, Cedar policy authorization, CommunicationPolicyGate for inter-agent governance, ToolClad declarative tool contracts, knowledge bridge, zero-trust security, multi-tier sandboxing, webhook verification, markdown memory, skill scanning, metrics, scheduling, symbi init/run/up CLI, and a declarative DSL
-version: 1.10.0
+description: AI-native agent runtime with typestate-enforced ORGA reasoning loop, Cedar policy authorization, CommunicationPolicyGate for inter-agent governance, ToolClad declarative tool contracts, knowledge bridge, zero-trust security, multi-tier sandboxing, webhook verification, markdown memory, skill scanning, metrics, scheduling, symbi init/run/up/shell/repl CLI, interactive TUI (Beta), cross-instance agent messaging, human approval relay, and a declarative DSL
+version: 1.11.0
 ---
 
 # Symbiont Agent Development Skills Guide

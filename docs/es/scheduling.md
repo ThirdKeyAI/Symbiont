@@ -921,11 +921,13 @@ pub enum SecurityEventType {
 }
 ```
 
-Consultar el registro de auditoria:
+Consultar el registro de auditoria desde la shell interactiva:
 
-```bash
-symbi audit query --type CronJobFailed --since "2026-02-01" --limit 50
+```text
+/audit CronJobFailed
 ```
+
+O programaticamente a traves de la API HTTP del runtime — consulta [Referencia de la API](/api-reference) para los endpoints `/api/v1/audit`.
 
 ## Mejores Practicas
 

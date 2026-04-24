@@ -28,7 +28,7 @@ Das `orga-adaptive` Feature Gate fuegt vier erweiterte Faehigkeiten zur Reasonin
 ```toml
 # In Ihrer Cargo.toml
 [dependencies]
-symbi-runtime = { version = "1.10", features = ["orga-adaptive"] }
+symbi-runtime = { version = "1.11", features = ["orga-adaptive"] }
 ```
 
 Oder aus dem Quellcode kompilieren:

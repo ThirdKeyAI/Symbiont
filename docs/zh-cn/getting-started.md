@@ -588,4 +588,4 @@ cd crates/runtime && cargo run --example basic_agent 2>&1 | tee debug.log
 5. **[安全模型](/security-model)** - 实施安全策略
 6. **[贡献](/contributing)** - 为项目做出贡献
 
-准备好构建令人惊叹的东西了吗？从我们的[示例项目](https://github.com/thirdkeyai/symbiont/tree/main/crates/runtime/examples)开始，或深入了解[完整规范](/specification)。
+准备好构建令人惊叹的东西了吗？从我们的[示例项目](https://github.com/thirdkeyai/symbiont/tree/main/crates/runtime/examples)开始，或深入了解[完整规范](/dsl-specification)。
