@@ -3,6 +3,8 @@
 ## Otros idiomas
 
 
+> **¿Buscas una TUI interactiva?** [`symbi shell`](/symbi-shell) (Beta) envuelve el mismo motor `repl_core` que cubre esta guia, mas un orquestador LLM, un catalogo completo de comandos (`/spawn`, `/run`, `/chain`, …) y attach remoto. Usa el REPL cuando quieras una superficie JSON-RPC scriptable para integracion con IDEs; usa la shell cuando quieras autoria conversacional contra el mismo runtime.
+
 ## Caracteristicas
 
 - **Evaluacion Interactiva de DSL**: Ejecutar codigo DSL de Symbiont en tiempo real

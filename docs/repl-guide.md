@@ -3,6 +3,8 @@
 
 The Symbiont REPL (Read-Eval-Print Loop) provides an interactive environment for developing, testing, and debugging Symbiont agents and DSL code.
 
+> **Looking for an interactive TUI?** [`symbi shell`](/symbi-shell) (Beta) wraps the same `repl_core` engine this guide covers, plus an LLM orchestrator, a full command catalogue (`/spawn`, `/run`, `/chain`, …), and remote attach. Use the REPL when you want a scriptable JSON-RPC surface for IDE integration; use the shell when you want conversational authoring against the same runtime.
+
 ## Features
 
 - **Interactive DSL Evaluation**: Execute Symbiont DSL code in real-time

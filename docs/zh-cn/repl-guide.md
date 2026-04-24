@@ -3,6 +3,8 @@
 ## 其他语言
 
 
+> **在寻找交互式 TUI 吗？** [`symbi shell`](/symbi-shell)（Beta）包装了本指南所涵盖的同一个 `repl_core` 引擎，并在其上叠加了 LLM 编排器、完整的命令目录（`/spawn`、`/run`、`/chain` 等）以及远程附加功能。当您需要可脚本化的 JSON-RPC 接口用于 IDE 集成时，使用 REPL；当您希望在同一个运行时上进行对话式创作时，使用 shell。
+
 ## 功能特性
 
 - **交互式 DSL 求值**：实时执行 Symbiont DSL 代码
