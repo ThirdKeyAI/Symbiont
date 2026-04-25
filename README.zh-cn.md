@@ -165,6 +165,7 @@ Symbiont 围绕一个简单原则设计：**模型输出永远不应被信任为
 | `symbi-channel-adapter` | Slack/Teams/Mattermost 适配器 |
 | `repl-core` / `repl-proto` / `repl-cli` | 交互式 REPL 和 JSON-RPC 服务器 |
 | `repl-lsp` | Language Server Protocol 支持 |
+| `symbi-shell` | 用于编写、编排和远程附加的交互式 TUI（Beta） |
 | `symbi-a2ui` | 管理仪表板（Lit/TypeScript，alpha 阶段） |
 
 治理插件：[`symbi-claude-code`](https://github.com/thirdkeyai/symbi-claude-code) | [`symbi-gemini-cli`](https://github.com/thirdkeyai/symbi-gemini-cli)

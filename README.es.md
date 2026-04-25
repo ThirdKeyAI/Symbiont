@@ -165,6 +165,7 @@ Si estás ejecutando código no confiable o herramientas riesgosas, no dependas 
 | `symbi-channel-adapter` | Adaptadores para Slack/Teams/Mattermost |
 | `repl-core` / `repl-proto` / `repl-cli` | REPL interactivo y servidor JSON-RPC |
 | `repl-lsp` | Soporte del Language Server Protocol |
+| `symbi-shell` | TUI interactiva para autoría, orquestación y attach remoto (beta) |
 | `symbi-a2ui` | Panel de administración (Lit/TypeScript, alpha) |
 
 Plugins de gobernanza: [`symbi-claude-code`](https://github.com/thirdkeyai/symbi-claude-code) | [`symbi-gemini-cli`](https://github.com/thirdkeyai/symbi-gemini-cli)

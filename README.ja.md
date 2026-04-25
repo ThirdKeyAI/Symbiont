@@ -165,6 +165,7 @@ Symbiont はシンプルな原則に基づいて設計されています：**モ
 | `symbi-channel-adapter` | Slack/Teams/Mattermost アダプター |
 | `repl-core` / `repl-proto` / `repl-cli` | インタラクティブ REPL および JSON-RPC サーバー |
 | `repl-lsp` | Language Server Protocol サポート |
+| `symbi-shell` | オーサリング、オーケストレーション、リモートアタッチのためのインタラクティブ TUI（Beta） |
 | `symbi-a2ui` | 管理ダッシュボード（Lit/TypeScript、アルファ版） |
 
 ガバナンスプラグイン: [`symbi-claude-code`](https://github.com/thirdkeyai/symbi-claude-code) | [`symbi-gemini-cli`](https://github.com/thirdkeyai/symbi-gemini-cli)
