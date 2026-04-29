@@ -14,13 +14,10 @@ allow = [
     "0BSD",
 ]
 
-# List of explicitly disallowed licenses
-deny = []
+# Disallowed licenses are now expressed by omitting them from `allow` above —
+# the legacy `deny` key was removed in cargo-deny 0.14
+# (https://github.com/EmbarkStudios/cargo-deny/pull/611).
 
-# Lint level for when multiple versions of the same license requirements are detected
-multiple-versions = "warn"
-# Lint level for when a crate version requirement is '*'
-wildcards = "allow"
 # The confidence threshold for detecting a license from a license text.
 # Possible values are any number between 0.0 and 1.0.
 confidence-threshold = 0.8
