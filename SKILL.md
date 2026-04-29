@@ -2,7 +2,7 @@
 name: symbiont
 title: Symbiont
 description: AI-native agent runtime with typestate-enforced ORGA reasoning loop, Cedar policy authorization, CommunicationPolicyGate for inter-agent governance, ToolClad declarative tool contracts, knowledge bridge, zero-trust security, multi-tier sandboxing, webhook verification, markdown memory, skill scanning, metrics, scheduling, symbi init/run/up/shell/repl CLI, interactive TUI (Beta), cross-instance agent messaging, human approval relay, and a declarative DSL
-version: 1.11.0
+version: 1.12.0
 ---
 
 # Symbiont Agent Development Skills Guide
@@ -19,7 +19,8 @@ version: 1.11.0
 - **Durable Journal**: All 7 loop event types recorded for crash recovery and replay without re-calling the LLM
 - **Zero-Trust Security**: All inputs untrusted by default, explicit policies required
 - **Policy-as-Code**: Declarative security rules enforced at runtime
-- **Multi-Tier Sandboxing**: Docker → gVisor → Firecracker isolation
+- **Multi-Tier Sandboxing**: Docker → gVisor → Firecracker isolation, all OSS. Per-agent selection via `with { sandbox = "tier1"|"gvisor"|"firecracker" }`; project default in `[sandbox] tier = "..."`. E2B is a separate hosted backend (`with { sandbox = "e2b" }`, opt-in only) that maps to `SecurityTier::Hosted` and sorts below Tier 1
+- **Canonical `.symbi` extension**: Agent files use `.symbi`; legacy `.dsl` is recognized indefinitely for backward compatibility. Use `dsl::is_symbi_file` / `dsl::strip_symbi_extension` for discovery
 - **Enterprise Compliance**: HIPAA, SOC2, GDPR patterns built-in
 - **Cryptographic Verification**: SchemaPin for MCP tools, AgentPin for agent identity, Ed25519 signatures
 - **Webhook DX**: Signature verification middleware with GitHub/Stripe/Slack presets
@@ -29,7 +30,7 @@ version: 1.11.0
 - **AGENTS.md Support**: Full bidirectional agent manifest files for ecosystem interoperability
 - **Inter-Agent Communication Governance**: CommunicationPolicyGate enforces Cedar-style rules on `ask`, `delegate`, `send_to`, `parallel`, `race` builtins. Ed25519 signed, AES-256-GCM encrypted messages.
 - **ToolClad Integration**: Declarative `.clad.toml` manifests in `tools/` auto-discovered at startup. Typed argument validation, command template construction, evidence envelopes. `symbi tools list/validate/test/schema` CLI.
-- **CLI Workflow**: `symbi init` (interactive project scaffolding with profiles), `symbi run` (single agent execution), `symbi up` (full runtime). DSL supports both `//` and `#` comments.
+- **CLI Workflow**: `symbi init` (interactive project scaffolding with profiles, including `--sandbox tier3` with `--firecracker-kernel`/`--firecracker-rootfs` for microVM setup — paths are validated before scaffolding), `symbi run` (single agent execution), `symbi up` (full runtime). DSL supports both `//` and `#` comments. Agent files use `.symbi` (legacy `.dsl` accepted).
 - **Scope Enforcement**: Validates `scope_target` args against `scope/scope.toml` (IP/CIDR range checking, domain matching)
 - **AI Assistant Plugins**: Governance plugins for [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) and [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli)
 
@@ -454,18 +455,22 @@ for agent in agents {
 
 ## Sandbox Tier Selection Guide
 
+The host-isolation tiers form a monotonically increasing ladder. **Hosted** (E2B) is a separate backend, not a tier — it runs on third-party infrastructure and maps to `SecurityTier::Hosted`, which sorts **below** Tier 1.
+
 | Tier | Technology | Use Case | Performance | Security | Overhead |
 |------|------------|----------|-------------|----------|----------|
 | **Tier1** | Docker | General workloads | Fast | Good | Low (~100ms) |
-| **Tier2** | gVisor | Untrusted code | Medium | High | Medium (~500ms) |
-| **Tier3** | Firecracker | Multi-tenant isolation | Slower | Maximum | High (~2s) |
+| **Tier2** | gVisor (`runsc`) | Untrusted code | Medium | High | Medium (~500ms) |
+| **Tier3** | Firecracker microVM | Multi-tenant isolation, regulated data | Slower | Maximum | High (~2s) |
+| **Hosted** | E2B (third-party cloud) | Quick-start demos, no on-host setup | Network-bound | **No on-host isolation** | Network RTT |
 | **Native** | Process only | Development ONLY | Fastest | None | Minimal |
 
 **Selection Guide**:
-- **Tier1 (Docker)**: Default choice for most agents
-- **Tier2 (gVisor)**: Processing external data, user-provided code
-- **Tier3 (Firecracker)**: Highly sensitive, regulatory compliance
-- **Native**: NEVER use in production (development/testing only)
+- **Tier1 (Docker)**: Default choice for most agents.
+- **Tier2 (gVisor)**: Processing external data, user-provided code. Requires `runsc` registered as a Docker runtime.
+- **Tier3 (Firecracker)**: Highly sensitive, regulatory compliance. Operator-supplied kernel + rootfs required — see [`docs/firecracker-setup.md`](https://github.com/thirdkeyai/symbiont/blob/main/docs/firecracker-setup.md). Scaffold with `symbi init --sandbox tier3 --firecracker-kernel /path/to/vmlinux --firecracker-rootfs /path/to/rootfs.ext4`.
+- **Hosted (E2B)**: Opt-in only via DSL (`with { sandbox = "e2b" }` + `E2B_API_KEY`). No `--sandbox e2b` flag — different trust model than the on-host tiers. Not for workloads with privacy or compliance requirements.
+- **Native**: NEVER use in production. Requires `SYMBIONT_ALLOW_UNISOLATED=1` to bypass production guard.
 
 ---
 

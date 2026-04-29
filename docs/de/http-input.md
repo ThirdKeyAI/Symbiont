@@ -184,7 +184,7 @@ start_http_input(config, Some(runtime), Some(secrets_config)).await?;
 
 ### Beispiel-Agenten-Definition
 
-Webhook-Handler-Agent in [`webhook_handler.dsl`](../agents/webhook_handler.dsl) erstellen:
+Webhook-Handler-Agent in [`webhook_handler.symbi`](../agents/webhook_handler.symbi) erstellen:
 
 ```dsl
 agent webhook_handler(body: JSON) -> Maybe<Alert> {
@@ -276,7 +276,7 @@ Wenn die Laufzeitumgebung angebunden ist, der geroutete Agent sich aber **nicht 
 ### Funktionsweise
 
 1. Der Webhook-Handler ruft `scheduler.get_agent_status()` auf, um zu pruefen, ob der Agent aktiv laeuft. Nachrichten an nicht laufende Agenten werden nicht ueber den Kommunikationsbus zugestellt, da `send_message` sie stillschweigend verwerfen wuerde.
-2. Wenn der Agent nicht laeuft, erstellt der Handler einen System-Prompt aus allen `.dsl`-Dateien, die im Verzeichnis `agents/` gefunden werden, haengt einen optionalen vom Aufrufer bereitgestellten `system_prompt` an (laengenbegrenzt und protokolliert) und konstruiert eine Benutzernachricht aus dem Anfrage-Payload.
+2. Wenn der Agent nicht laeuft, erstellt der Handler einen System-Prompt aus allen `.symbi`-Agentendateien (oder dem Legacy-Format `.dsl`), die im Verzeichnis `agents/` gefunden werden, haengt einen optionalen vom Aufrufer bereitgestellten `system_prompt` an (laengenbegrenzt und protokolliert) und konstruiert eine Benutzernachricht aus dem Anfrage-Payload.
 3. ToolClad-Manifeste im Verzeichnis `tools/` werden geladen und dem LLM als Function-Calling-Tools bereitgestellt. Benutzerdefinierte Typen aus `toolclad.toml` werden angewendet.
 4. Der Handler fuehrt eine **ORGA**-Schleife (Observe-Reason-Gate-Act) fuer Tool-Aufrufe mit bis zu 15 Iterationen aus:
    - Das LLM schlaegt null oder mehr `tool_use`-Aufrufe vor.

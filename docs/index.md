@@ -27,7 +27,7 @@ Model output is never treated as execution authority. The runtime controls what 
 | **Tool verification** | [SchemaPin](https://schemapin.org) cryptographic verification of MCP tool schemas before execution |
 | **Agent identity** | [AgentPin](https://agentpin.org) domain-anchored ES256 identity for agents and scheduled tasks |
 | **Reasoning loop** | Typestate-enforced Observe-Reason-Gate-Act cycle with policy gates and circuit breakers |
-| **Sandboxing** | Docker-based isolation with resource limits for untrusted workloads |
+| **Sandboxing** | Per-agent isolation across three OSS tiers — Docker (Tier 1), gVisor (Tier 2), Firecracker microVM (Tier 3) — selectable from the DSL with no Enterprise gating |
 | **Audit logging** | Tamper-evident logs with structured records for every policy decision |
 | **Secrets management** | Vault/OpenBao integration, AES-256-GCM encrypted storage, scoped per agent |
 | **MCP integration** | Native Model Context Protocol support with governed tool access |

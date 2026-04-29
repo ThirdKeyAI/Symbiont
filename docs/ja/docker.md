@@ -41,10 +41,10 @@ docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest \
 # 最新イメージをプル
 docker pull ghcr.io/thirdkeyai/symbi:latest
 
-# DSLファイルをパース
+# エージェント定義をパース（`.symbi`；後方互換のため `.dsl` も受け付け）
 docker run --rm -v $(pwd):/workspace \
   ghcr.io/thirdkeyai/symbi:latest \
-  dsl --file /workspace/agent.dsl
+  dsl --file /workspace/agent.symbi
 
 # MCPサーバーを実行（stdioベース、ポート不要）
 docker run --rm -i \

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-04-29
+
+### Added
+- **Sandbox tier selection — all OSS** (PR #54): Operators now pick the host-isolation tier per agent via the DSL `with { sandbox = "tier1" | "gvisor" | "firecracker" }` block, or set a project default via `[sandbox] tier = "..."` in `symbiont.toml`. All three tiers — Docker, gVisor, and Firecracker — ship in the OSS runtime; gVisor and Firecracker are no longer Enterprise-gated. New runtime modules: `crates/runtime/src/sandbox/gvisor.rs` (delegates to Docker with the `runsc` runtime) and `crates/runtime/src/sandbox/firecracker.rs` (per-execution Firecracker microVM with operator-supplied kernel + rootfs).
+- **`.symbi` canonical agent file extension** (PR #53): Agent files use `.symbi` going forward. `.dsl` continues to be recognized indefinitely for backward compatibility — no migration required. New helpers `dsl::is_symbi_file` and `dsl::strip_symbi_extension`. Scaffolding (`symbi init`, `symbi new`) now emits `.symbi`. The 14 example agents in `agents/` were renamed.
+- **Tier 3 `symbi init` flags** (PR #55): `symbi init --sandbox tier3 --firecracker-kernel <PATH> --firecracker-rootfs <PATH>` validates both files exist before scaffolding `[sandbox.firecracker]` into `symbiont.toml`. New guide `docs/firecracker-setup.md` covers prerequisites, a quickstart recipe (prebuilt vmlinux + minimal Alpine rootfs), the in-VM init contract, transport patterns for `/work` (vsock vs. second block device), a hardening checklist, and troubleshooting.
+- **`SecurityTier::Hosted` variant** (PR #56): E2B is no longer modeled as a peer of Tier 1/2/3 — it is a separate hosted-cloud backend with no on-host isolation. `E2B → SecurityTier::Hosted` sorts **below** `Tier1` for ordering, so policies requiring host isolation (`tier >= Tier1`) now correctly reject hosted execution. E2B remains opt-in only via DSL (`with { sandbox = "e2b" }`); it is intentionally not exposed as an `[sandbox] tier` value or a `--sandbox` flag.
+
+### Changed
+- **`symbi doctor`** now reports reachability of `runsc` and `firecracker` binaries in addition to `docker`.
+- **Documentation** updated across English + 5 translations (zh-cn, es, pt, ja, de): `docs/security-model.md` rewritten with the three-tier ladder + hosted-execution sidebar, `docs/getting-started.md` documents `.symbi` and `tier3`, `docs/api-reference.md` notes `agents-md` reads `.symbi` first then `.dsl`, `docs/docker.md` and `docs/native-execution-guide.md` updated for the new file extension, `docs/http-input.md` clarifies on-demand LLM invocation reads both extensions.
+
+### Migration notes
+- No breaking changes. Existing `.dsl` files continue to work without modification.
+- Operators using E2B should review any policies that relied on `E2B → SecurityTier::Tier1` parity — those policies will now correctly fail on hosted execution unless re-scoped.
+
 ## [1.11.0] - 2026-04-24
 
 ### Added

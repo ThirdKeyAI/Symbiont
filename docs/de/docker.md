@@ -45,10 +45,10 @@ docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest \
 # Neuestes Image herunterladen
 docker pull ghcr.io/thirdkeyai/symbi:latest
 
-# Eine DSL-Datei parsen
+# Eine Agentendefinition parsen (`.symbi`; das Legacy-Format `.dsl` wird ebenfalls akzeptiert)
 docker run --rm -v $(pwd):/workspace \
   ghcr.io/thirdkeyai/symbi:latest \
-  dsl --file /workspace/agent.dsl
+  dsl --file /workspace/agent.symbi
 
 # MCP-Server starten (stdio-basiert, kein Port erforderlich)
 docker run --rm -i \

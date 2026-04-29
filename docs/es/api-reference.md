@@ -1270,7 +1270,7 @@ La salida predeterminada es el veredicto escueto en stdout con detalle estructur
 
 ### `symbi agents-md`
 
-Regenera `AGENTS.md` a partir de los archivos `agents/*.dsl` actuales. Se ejecuta automaticamente durante `symbi init`; invoquelo manualmente despues de agregar o editar definiciones de agentes.
+Regenera `AGENTS.md` a partir de los archivos `agents/*.symbi` actuales (los `.dsl` heredados tambien se reconocen). Se ejecuta automaticamente durante `symbi init`; invoquelo manualmente despues de agregar o editar definiciones de agentes.
 
 ```bash
 symbi agents-md generate --dir . --output AGENTS.md

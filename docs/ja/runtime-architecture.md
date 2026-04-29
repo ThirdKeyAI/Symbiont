@@ -64,6 +64,7 @@ graph TB
     subgraph "Sandbox Tiers"
         T1[Tier 1: Docker]
         T2[Tier 2: gVisor]
+        T3[Tier 3: Firecracker microVM]
     end
 
     ARS --> ACM
@@ -81,6 +82,7 @@ graph TB
     PG --> PE
     SO --> T1
     SO --> T2
+    SO --> T3
     MCP --> TV
     PE --> AT
 ```
@@ -175,7 +177,7 @@ pub struct ResourceLimits {
 
 ### サンドボックスアーキテクチャ
 
-ランタイムは操作リスクに基づいて2つのセキュリティ層を実装:
+ランタイムは3つのホスト分離ティア（すべて OSS）と、独立したホスト型クラウドバックエンド（E2B）を提供します。運用者は DSL の `with { sandbox = ... }` ブロックでエージェントごとにティアを選択するか、`[sandbox] tier = "..."` でプロジェクトのデフォルトを設定します。
 
 #### 層1: Docker分離
 **使用例**: 低リスク操作、開発タスク
@@ -191,7 +193,15 @@ pub struct ResourceLimits {
 - 最小限のパフォーマンス影響で強化されたセキュリティ
 - ほとんどのエージェント操作のデフォルト層
 
-> **注意**: エンタープライズエディションでは最大セキュリティ要件向けの追加分離層が利用可能。
+#### 層3: Firecracker microVM
+**使用例**: 信頼されないコード、マルチテナント、規制対象データなど、最高レベルの分離が必要なワークロード
+- KVM によるハードウェア仮想化と専用ゲストカーネル
+- 実行ごとの microVM ライフサイクル — ホストとカーネル表面を共有しない
+- デフォルトで読み取り専用のルートファイルシステム
+- `firecracker` バイナリと、Symbiont の VM 内コントラクトを実装した init スクリプトが必要 — [`docs/firecracker-setup.md`](firecracker-setup.md) を参照。
+
+#### ホスト型実行：E2B（ティアではない）
+E2B は独立したホスト型クラウドバックエンドであり、Tier 1/2/3 の **対等な存在ではありません**。`SecurityTier::Hosted` にマップされ、順序付け上 `Tier1` よりも下にソートされます — ホスト分離（`tier >= Tier1`）を要求するポリシーはホスト型実行を拒否します。DSL（`with { sandbox = "e2b" }`）経由でのみオプトイン可能です。
 
 ---
 

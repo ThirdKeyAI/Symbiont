@@ -106,7 +106,7 @@ symbi init
 Dies startet einen interaktiven Assistenten, der Sie durch Folgendes fuehrt:
 - **Profilauswahl**: `minimal`, `assistant`, `dev-agent` oder `multi-agent`
 - **SchemaPin-Modus**: `tofu` (Trust-On-First-Use), `strict` oder `disabled`
-- **Sandbox-Stufe**: `tier0` (keine), `tier1` (Docker) oder `tier2` (gVisor)
+- **Sandbox-Stufe**: `tier0` (keine, nur Entwicklung), `tier1` (Docker), `tier2` (gVisor / `runsc`) oder `tier3` (Firecracker microVM)
 
 ### Was `init` erzeugt
 
@@ -116,7 +116,7 @@ Jeder Durchlauf schreibt:
 |-------|-------|
 | `symbiont.toml` | Runtime- und Richtlinienkonfiguration |
 | `policies/default.cedar` | Cedar-Richtlinie nach dem Deny-by-default-Prinzip |
-| `agents/*.dsl` | Profilspezifische Agentendefinitionen (ausser bei `minimal`) |
+| `agents/*.symbi` | Profilspezifische Agentendefinitionen (das Legacy-Format `.dsl` wird ebenfalls erkannt; ausser bei `minimal`) |
 | `AGENTS.md` | Automatisch generierter Index der deklarierten Agenten |
 | `.symbiont/audit/` | Verzeichnis fuer manipulationssichere Audit-Logs |
 | `.gitignore` | Ergaenzt um Symbiont-spezifische Eintraege, einschliesslich `.env` |
@@ -172,7 +172,7 @@ symbi init --catalog list
 Nach der Initialisierung validieren und starten:
 
 ```bash
-symbi dsl -f agents/assistant.dsl   # Ihren Agenten validieren
+symbi dsl -f agents/assistant.symbi   # Ihren Agenten validieren
 symbi run assistant -i '{"query": "hello"}'  # Einen einzelnen Agenten testen
 symbi up                             # Runtime lokal starten
 docker compose up                    # ...oder in Docker starten (liest .env)
@@ -190,7 +190,7 @@ Der Befehl loest Agentennamen auf, indem er zuerst den direkten Pfad und dann da
 
 ```bash
 symbi run assistant -i 'Summarize this document'
-symbi run agents/recon.dsl -i '{"target": "10.0.1.5"}' --max-iterations 5
+symbi run agents/recon.symbi -i '{"target": "10.0.1.5"}' --max-iterations 5
 ```
 
 ### Aus einer Vorlage starten (`symbi new`)
@@ -221,7 +221,7 @@ Lassen Sie uns einen einfachen Datenanalyse-Agenten erstellen, um die Grundlagen
 
 ### 1. Agenten-Definition erstellen
 
-Erstellen Sie eine neue Datei `my_agent.dsl`:
+Erstellen Sie eine neue Datei `my_agent.symbi`:
 
 ```rust
 metadata {
@@ -255,10 +255,10 @@ agent greet_user(name: String) -> String {
 
 ```bash
 # Agenten-Definition parsen und validieren
-cargo run -- dsl parse my_agent.dsl
+cargo run -- dsl parse my_agent.symbi
 
 # Agent in der Laufzeitumgebung ausfuehren
-cd crates/runtime && cargo run --example basic_agent -- --agent ../../my_agent.dsl
+cd crates/runtime && cargo run --example basic_agent -- --agent ../../my_agent.symbi
 ```
 
 ---
@@ -541,7 +541,7 @@ brew install pkg-config openssl
 **Problem**: Agent startet nicht
 ```bash
 # Agenten-Definitionssyntax ueberpruefen
-cargo run -- dsl parse your_agent.dsl
+cargo run -- dsl parse your_agent.symbi
 
 # Debug-Protokollierung aktivieren
 RUST_LOG=debug cd crates/runtime && cargo run --example basic_agent

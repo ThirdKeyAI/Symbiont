@@ -184,7 +184,7 @@ start_http_input(config, Some(runtime), Some(secrets_config)).await?;
 
 ### 示例智能体定义
 
-在 [`webhook_handler.dsl`](../agents/webhook_handler.dsl) 中创建 webhook 处理程序智能体：
+在 [`webhook_handler.symbi`](../agents/webhook_handler.symbi) 中创建 webhook 处理程序智能体：
 
 ```dsl
 agent webhook_handler(body: JSON) -> Maybe<Alert> {
@@ -276,7 +276,7 @@ curl -X POST http://localhost:8081/webhook \
 ### 工作原理
 
 1. webhook 处理程序调用 `scheduler.get_agent_status()` 以验证智能体是否处于活跃运行状态。发往未运行智能体的消息不会通过通信总线派发，因为 `send_message` 会静默丢弃这些消息。
-2. 如果智能体未运行，处理程序会根据 `agents/` 目录下的任何 `.dsl` 文件构建系统提示，追加调用方可选提供的 `system_prompt`（会被长度限制并记录日志），并根据请求负载构造用户消息。
+2. 如果智能体未运行，处理程序会根据 `agents/` 目录下的任何 `.symbi`（或旧后缀 `.dsl`）智能体文件构建系统提示，追加调用方可选提供的 `system_prompt`（会被长度限制并记录日志），并根据请求负载构造用户消息。
 3. `tools/` 目录下的 ToolClad 清单被加载并作为函数调用工具暴露给 LLM。`toolclad.toml` 中的自定义类型会被应用。
 4. 处理程序运行 **ORGA**（Observe-Reason-Gate-Act）工具调用循环，最多 15 轮迭代：
    - LLM 提出零个或多个 `tool_use` 调用。

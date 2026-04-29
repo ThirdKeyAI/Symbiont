@@ -214,13 +214,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ```bash
 # Run with native execution
-symbiont run agent.dsl --native
+symbiont run agent.symbi --native
 
 # Or with explicit tier
-symbiont run agent.dsl --sandbox-tier=none
+symbiont run agent.symbi --sandbox-tier=none
 
 # With resource limits
-symbiont run agent.dsl --native \
+symbiont run agent.symbi --native \
   --max-memory=1024 \
   --max-cpu=2.0 \
   --timeout=300
@@ -319,7 +319,7 @@ impl NativeRunner {
 
 # Direct execution
 cargo build --release
-./target/release/symbiont run agent.dsl
+./target/release/symbiont run agent.symbi
 ```
 
 ### 混合方案
@@ -349,7 +349,7 @@ Docker 自动隔离环境变量。使用原生执行时，需要显式设置它�
 ```bash
 export AGENT_API_KEY="xxx"
 export AGENT_DB_URL="postgresql://..."
-symbiont run agent.dsl --native
+symbiont run agent.symbi --native
 ```
 
 ## 性能对比

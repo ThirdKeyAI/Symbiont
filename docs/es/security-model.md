@@ -24,14 +24,17 @@ Symbiont implementa una arquitectura de seguridad primero disenada para entornos
 
 ## Sandboxing de Multiples Niveles
 
-El tiempo de ejecucion implementa dos niveles de aislamiento basados en la evaluacion de riesgo:
+El runtime ofrece tres niveles de aislamiento del host (Nivel 1 → Nivel 3) mas un backend de ejecucion alojada (E2B). Los niveles forman una escalera de aislamiento monotonicamente creciente; E2B **no** es un par en esa escalera — se ejecuta sobre infraestructura de terceros y se documenta por separado mas abajo.
 
 ```mermaid
 graph TB
     A[Risk Assessment Engine] --> B{Risk Level}
 
     B -->|Low Risk| C[Tier 1: Docker]
-    B -->|Medium/High Risk| D[Tier 2: gVisor]
+    B -->|Medium Risk| D[Tier 2: gVisor]
+    B -->|High Risk| E[Tier 3: Firecracker]
+
+    A -.->|Opt-in via DSL| H[Hosted: E2B]
 
     subgraph "Tier 1: Container Isolation"
         C1[Container Runtime]
@@ -47,11 +50,26 @@ graph TB
         D4[Enhanced Isolation]
     end
 
+    subgraph "Tier 3: microVM"
+        E1[KVM Hardware Virtualization]
+        E2[Dedicated Kernel]
+        E3[Read-only Rootfs]
+        E4[Per-execution Lifecycle]
+    end
+
+    subgraph "Hosted: third-party cloud"
+        H1[No on-host isolation]
+        H2[Trust assumption: provider]
+        H3[Quick-start, no setup]
+    end
+
     C --> C1
     D --> D1
+    E --> E1
+    H --> H1
 ```
 
-> **Nota**: Niveles de aislamiento adicionales con virtualizacion de hardware estan disponibles en las ediciones Enterprise.
+> **Los tres niveles de aislamiento del host — Docker, gVisor y Firecracker — vienen incluidos en el runtime OSS.** Los operadores eligen el nivel por agente mediante el bloque DSL `with { sandbox = ... }`, o establecen un valor predeterminado del proyecto via `[sandbox] tier = "..."` en `symbiont.toml`. E2B es habilitable unicamente via DSL (`with { sandbox = "e2b" }`) y deliberadamente no se expone como valor de `[sandbox] tier`.
 
 ### Nivel 1: Aislamiento Docker
 
@@ -111,7 +129,62 @@ gvisor_security:
 - Prevencion de corrupcion de memoria
 - Mitigacion de ataques de canal lateral
 
-> **Caracteristica Enterprise**: El aislamiento avanzado con virtualizacion de hardware (Firecracker) esta disponible en las ediciones Enterprise para los requisitos de seguridad maxima.
+**Prerrequisitos:** Instale [`runsc`](https://gvisor.dev/docs/user_guide/install/) y registrelo como runtime de Docker en `/etc/docker/daemon.json`. `symbi doctor` reporta si `runsc` es alcanzable.
+
+### Nivel 3: microVM Firecracker
+
+**Casos de Uso:**
+- Cargas de trabajo de maximo aislamiento (codigo no confiable, multi-inquilino, datos regulados)
+- Cuando la granularidad del filtro de syscalls (gVisor) es insuficiente y se requiere una frontera de kernel real
+- Ciclo de vida de VM por ejecucion para una contencion mas fuerte del radio de impacto
+
+**Caracteristicas de Seguridad:**
+- Virtualizacion por hardware via KVM
+- microVM por ejecucion con kernel + rootfs proporcionados por el operador
+- Sistema de archivos raiz de solo lectura por defecto
+- Sin superficie de kernel compartida con el host
+
+**Configuracion:** `[sandbox.firecracker]` en `symbiont.toml`:
+
+```toml
+[sandbox]
+tier = "tier3"
+
+[sandbox.firecracker]
+kernel_image_path = "/var/lib/firecracker/vmlinux"
+rootfs_path       = "/var/lib/firecracker/rootfs.ext4"
+vcpus             = 1
+mem_mib           = 512
+rootfs_read_only  = true
+```
+
+**Prerrequisitos:** El operador debe proporcionar (a) una imagen de kernel compatible con Firecracker y (b) una imagen de sistema de archivos raiz con un script de init que lea la carga util del agente. **Consulte [`docs/firecracker-setup.md`](firecracker-setup.md) para una guia rapida paso a paso, el contrato de init dentro de la VM y una lista de verificacion de endurecimiento.** `symbi doctor` reporta si el binario `firecracker` es alcanzable.
+
+Una vez que tenga ambos artefactos, genere el esqueleto de un proyecto tier3 con:
+
+```bash
+symbi init --profile assistant --sandbox tier3 \
+  --firecracker-kernel /var/lib/firecracker/vmlinux \
+  --firecracker-rootfs /var/lib/firecracker/rootfs.ext4
+```
+
+`symbi init` valida que ambos archivos existan antes de escribir `symbiont.toml`, de modo que las configuraciones erroneas afloran en tiempo de scaffolding y no en la primera ejecucion del agente.
+
+### Ejecucion alojada: E2B
+
+**E2B es un backend de sandbox alojado en la nube, no un nivel de aislamiento del host.** Se ubica fuera de la escalera Nivel 1 → Nivel 3 y se documenta aqui por completitud.
+
+**Que es:** El codigo se ejecuta en la infraestructura de E2B via su API HTTPS; el runtime solo distribuye un cliente HTTP. Configure `E2B_API_KEY` y selecciones por agente con `with { sandbox = "e2b" }`. No hay flag `--sandbox e2b` en `symbi init` — E2B es deliberadamente opt-in unicamente via DSL, dado que representa un modelo de confianza distinto al de los niveles en el host.
+
+**Casos de uso:**
+- Demos rapidas y evaluacion sin instalar Docker, gVisor ni Firecracker.
+- Entornos de desarrollo donde el operador no puede ejecutar un host de sandbox (CI sin modo privilegiado, laptops bloqueadas, maquinas de desarrollo ARM).
+
+**Lo que no es:**
+- No sustituye al aislamiento en el host. El codigo, los prompts y las salidas de las herramientas atraviesan la infraestructura de E2B. No lo use para cargas de trabajo con requisitos de privacidad, residencia o cumplimiento.
+- No es comparable a los Niveles 1/2/3 en una revision de seguridad. El runtime mapea `E2B → SecurityTier::Hosted`, que ordena **por debajo** de `Tier1` — las politicas que requieran aislamiento del host (`tier >= Tier1`) rechazaran la ejecucion alojada.
+
+**Configuracion:** Sin configuracion a nivel de proyecto; configure `E2B_API_KEY` en el entorno y use `with { sandbox = "e2b" }` por agente.
 
 ---
 

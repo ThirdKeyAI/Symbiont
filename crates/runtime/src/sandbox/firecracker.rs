@@ -359,8 +359,10 @@ mod tests {
 
     #[test]
     fn missing_rootfs_path_rejected() {
-        let mut cfg = FirecrackerConfig::default();
-        cfg.kernel_image_path = PathBuf::from("/some/kernel");
+        let cfg = FirecrackerConfig {
+            kernel_image_path: PathBuf::from("/some/kernel"),
+            ..Default::default()
+        };
         let err = cfg.validate().expect_err("validation should fail");
         let msg = err.to_string();
         assert!(msg.contains("rootfs_path"), "msg: {}", msg);
@@ -368,11 +370,13 @@ mod tests {
 
     #[test]
     fn vm_config_carries_kernel_and_rootfs() {
-        let mut cfg = FirecrackerConfig::default();
-        cfg.kernel_image_path = PathBuf::from("/k/vmlinux");
-        cfg.rootfs_path = PathBuf::from("/k/rootfs.ext4");
-        cfg.vcpus = 2;
-        cfg.mem_mib = 1024;
+        let cfg = FirecrackerConfig {
+            kernel_image_path: PathBuf::from("/k/vmlinux"),
+            rootfs_path: PathBuf::from("/k/rootfs.ext4"),
+            vcpus: 2,
+            mem_mib: 1024,
+            ..Default::default()
+        };
 
         // We can't construct a FirecrackerRunner here (preflight requires
         // the binary + real files) so build the JSON via a stand-in.
@@ -388,17 +392,16 @@ mod tests {
 
     #[test]
     fn invalid_vcpus_rejected() {
-        let mut cfg = FirecrackerConfig::default();
-        cfg.kernel_image_path = PathBuf::from("/k/vmlinux");
-        cfg.rootfs_path = PathBuf::from("/k/rootfs.ext4");
-        cfg.vcpus = 0;
-        // The kernel/rootfs paths don't exist, so validate() will fail
-        // earlier — but we exercise the vcpu check by setting both paths
-        // to existing files. Use NamedTempFile so they really exist.
+        // Use NamedTempFile so the paths actually exist — otherwise validate()
+        // would fail on the path check before reaching the vcpus check.
         let kernel = tempfile::NamedTempFile::new().unwrap();
         let rootfs = tempfile::NamedTempFile::new().unwrap();
-        cfg.kernel_image_path = kernel.path().to_path_buf();
-        cfg.rootfs_path = rootfs.path().to_path_buf();
+        let cfg = FirecrackerConfig {
+            kernel_image_path: kernel.path().to_path_buf(),
+            rootfs_path: rootfs.path().to_path_buf(),
+            vcpus: 0,
+            ..Default::default()
+        };
         let err = cfg.validate().expect_err("vcpus=0 should be rejected");
         assert!(err.to_string().contains("vcpus"));
     }

@@ -41,10 +41,10 @@ docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest \
 # Pull latest image
 docker pull ghcr.io/thirdkeyai/symbi:latest
 
-# Parse a DSL file
+# 解析智能体定义文件（`.symbi`；旧后缀 `.dsl` 仍然兼容）
 docker run --rm -v $(pwd):/workspace \
   ghcr.io/thirdkeyai/symbi:latest \
-  dsl --file /workspace/agent.dsl
+  dsl --file /workspace/agent.symbi
 
 # Run MCP server (stdio-based, no port needed)
 docker run --rm -i \

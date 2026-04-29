@@ -56,8 +56,9 @@ graph TB
     subgraph "Sandbox Tiers"
         T1[Tier 1: Docker]
         T2[Tier 2: gVisor]
+        T3[Tier 3: Firecracker microVM]
     end
-    
+
     ARS --> ACM
     ARS --> PE
     ALC --> SO
@@ -66,6 +67,7 @@ graph TB
     ACM --> RAG
     SO --> T1
     SO --> T2
+    SO --> T3
     MCP --> TV
     PE --> AT
 ```
@@ -160,7 +162,7 @@ pub struct ResourceLimits {
 
 ### Sandbox-Architektur
 
-Die Laufzeit implementiert zwei Sicherheitsstufen basierend auf dem Operationsrisiko:
+Die Laufzeit liefert drei Host-Isolationsstufen — alle OSS — plus ein separates Hosted-Cloud-Backend (E2B). Betreiber waehlen die Stufe pro Agent ueber den DSL-Block `with { sandbox = ... }` oder setzen einen Projekt-Standard in `[sandbox] tier = "..."`.
 
 #### Stufe 1: Docker-Isolation
 **Anwendungsfall**: Risikoarme Operationen, Entwicklungsaufgaben
@@ -170,13 +172,21 @@ Die Laufzeit implementiert zwei Sicherheitsstufen basierend auf dem Operationsri
 - Geeignet für vertrauenswürdigen Code mit minimalen Sicherheitsanforderungen
 
 #### Stufe 2: gVisor-Isolation
-**Anwendungsfall**: Standard-Produktionsaufgaben, Datenverarbeitung
+**Anwendungsfall**: Standard-Produktionsaufgaben, Datenverarbeitung, nicht vertrauenswuerdiger Code
 - Userspace-Kernel mit Systemaufruf-Abfangung
 - Speicherschutz und I/O-Virtualisierung
 - Verbesserte Sicherheit mit minimalen Leistungsauswirkungen
-- Standard-Stufe für die meisten Agentenoperationen
+- Erfordert `runsc`, registriert als Docker-Runtime
 
-> **Hinweis**: Zusätzliche Isolationsstufen sind in Enterprise-Editionen für maximale Sicherheitsanforderungen verfügbar.
+#### Stufe 3: Firecracker microVM
+**Anwendungsfall**: Workloads mit hoechster Isolation — mandantenfaehiger nicht vertrauenswuerdiger Code, regulierte Daten, Blast-Radius-Eindaemmung
+- Hardware-Virtualisierung via KVM mit einem dedizierten Kernel pro Ausfuehrung
+- Vom Betreiber bereitgestellte vmlinux + rootfs (standardmaessig schreibgeschuetzt)
+- Keine geteilte Kernel-Oberflaeche mit dem Host
+- Erfordert das `firecracker`-Binary plus ein init-Skript, das den Symbiont In-VM-Kontrakt implementiert — siehe [`docs/firecracker-setup.md`](firecracker-setup.md).
+
+#### Hosted-Ausfuehrung: E2B (keine Stufe)
+E2B ist ein separates Hosted-Cloud-Backend, **kein** Peer von Stufe 1/2/3. Es wird auf `SecurityTier::Hosted` abgebildet, das beim Sortieren **unterhalb** von `Tier1` einsortiert wird — Richtlinien, die Host-Isolation verlangen (`tier >= Tier1`), lehnen Hosted-Ausfuehrung ab. Opt-in ausschliesslich ueber DSL (`with { sandbox = "e2b" }`).
 
 ---
 

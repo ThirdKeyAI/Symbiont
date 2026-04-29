@@ -64,6 +64,7 @@ graph TB
     subgraph "Sandbox Tiers"
         T1[Tier 1: Docker]
         T2[Tier 2: gVisor]
+        T3[Tier 3: Firecracker microVM]
     end
 
     ARS --> ACM
@@ -81,6 +82,7 @@ graph TB
     PG --> PE
     SO --> T1
     SO --> T2
+    SO --> T3
     MCP --> TV
     PE --> AT
 ```
@@ -175,7 +177,7 @@ pub struct ResourceLimits {
 
 ### Arquitectura de Sandbox
 
-El runtime implementa dos niveles de seguridad basados en el riesgo de la operación:
+El runtime ofrece tres niveles de aislamiento del host — todos OSS — mas un backend separado de nube alojada (E2B). Los operadores eligen el nivel por agente mediante el bloque DSL `with { sandbox = ... }`, o establecen un valor predeterminado del proyecto en `[sandbox] tier = "..."`.
 
 #### Nivel 1: Aislamiento Docker
 **Caso de Uso**: Operaciones de bajo riesgo, tareas de desarrollo
@@ -185,13 +187,21 @@ El runtime implementa dos niveles de seguridad basados en el riesgo de la operac
 - Adecuado para código confiable con requisitos mínimos de seguridad
 
 #### Nivel 2: Aislamiento gVisor
-**Caso de Uso**: Tareas de producción estándar, procesamiento de datos
+**Caso de Uso**: Tareas de producción estándar, procesamiento de datos, código no confiable
 - Kernel de espacio de usuario con intercepción de llamadas del sistema
 - Protección de memoria y virtualización de E/S
 - Seguridad mejorada con impacto mínimo en el rendimiento
-- Nivel predeterminado para la mayoría de operaciones de agentes
+- Requiere `runsc` registrado como runtime de Docker
 
-> **Nota**: Niveles adicionales de aislamiento están disponibles en las ediciones Enterprise para requisitos máximos de seguridad.
+#### Nivel 3: microVM Firecracker
+**Caso de Uso**: Cargas de trabajo de máximo aislamiento — código no confiable multi-inquilino, datos regulados, contención del radio de impacto
+- Virtualización por hardware via KVM con un kernel dedicado por ejecución
+- vmlinux + rootfs proporcionados por el operador (solo lectura por defecto)
+- Sin superficie de kernel compartida con el host
+- Requiere el binario `firecracker` mas un script de init que implemente el contrato in-VM de Symbiont — consulte [`docs/firecracker-setup.md`](firecracker-setup.md).
+
+#### Ejecución alojada: E2B (no es un nivel)
+E2B es un backend separado de nube alojada, **no** un par de los Niveles 1/2/3. Se mapea a `SecurityTier::Hosted`, que ordena por debajo de `Tier1` — las políticas que requieran aislamiento del host (`tier >= Tier1`) rechazarán la ejecución alojada. Habilitable únicamente via DSL (`with { sandbox = "e2b" }`).
 
 ---
 

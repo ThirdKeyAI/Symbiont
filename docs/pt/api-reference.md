@@ -1270,7 +1270,7 @@ A saída padrão é o veredito puro em stdout com detalhes estruturados em stder
 
 ### `symbi agents-md`
 
-Regera `AGENTS.md` a partir dos arquivos `agents/*.dsl` atuais. Executa automaticamente durante `symbi init`; chame manualmente após adicionar ou editar definições de agentes.
+Regera `AGENTS.md` a partir dos arquivos `agents/*.symbi` atuais (a extensão legada `.dsl` também é reconhecida). Executa automaticamente durante `symbi init`; chame manualmente após adicionar ou editar definições de agentes.
 
 ```bash
 symbi agents-md generate --dir . --output AGENTS.md

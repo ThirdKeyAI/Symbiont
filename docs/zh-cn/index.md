@@ -31,7 +31,7 @@ Symbiont 将智能体意图与执行权限分离：
 | **工具验证** | 执行前通过 [SchemaPin](https://schemapin.org) 对 MCP 工具模式进行密码学验证 |
 | **智能体身份** | 通过 [AgentPin](https://agentpin.org) 为智能体和计划任务提供域锚定的 ES256 身份 |
 | **推理循环** | 类型状态强制的 Observe-Reason-Gate-Act 循环，带策略门控和断路器 |
-| **沙箱** | 基于 Docker 的隔离，对不受信任的工作负载设置资源限制 |
+| **沙箱** | 三个 OSS 隔离层级的逐智能体隔离 —— Docker（第 1 层）、gVisor（第 2 层）、Firecracker microVM（第 3 层）—— 在 DSL 中按智能体选择，无任何企业版限制 |
 | **审计日志** | 每个策略决策的防篡改日志和结构化记录 |
 | **密钥管理** | Vault/OpenBao 集成，AES-256-GCM 加密存储，按智能体隔离 |
 | **MCP 集成** | 原生 Model Context Protocol 支持，带治理工具访问 |

@@ -31,7 +31,7 @@ Modellausgaben werden niemals als Ausfuehrungsberechtigung behandelt. Das Runtim
 | **Tool-Verifikation** | [SchemaPin](https://schemapin.org) kryptographische Verifikation von MCP-Tool-Schemas vor der Ausfuehrung |
 | **Agenten-Identitaet** | [AgentPin](https://agentpin.org) domainverankerte ES256-Identitaet fuer Agenten und geplante Aufgaben |
 | **Reasoning-Schleife** | Typestate-erzwungener Observe-Reason-Gate-Act-Zyklus mit Richtlinien-Gates und Circuit Breakern |
-| **Sandboxing** | Docker-basierte Isolation mit Ressourcenlimits fuer nicht vertrauenswuerdige Workloads |
+| **Sandboxing** | Pro-Agent-Isolation ueber drei OSS-Stufen — Docker (Tier 1), gVisor (Tier 2), Firecracker microVM (Tier 3) — aus der DSL waehlbar, ohne Enterprise-Gating |
 | **Audit-Protokollierung** | Manipulationssichere Protokolle mit strukturierten Eintraegen fuer jede Richtlinienentscheidung |
 | **Geheimnismanagement** | Vault/OpenBao-Integration, AES-256-GCM-verschluesselter Speicher, pro Agent isoliert |
 | **MCP-Integration** | Nativer Model Context Protocol-Support mit gesteuertem Tool-Zugriff |

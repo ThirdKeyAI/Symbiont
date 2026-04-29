@@ -106,7 +106,7 @@ symbi init
 これにより、以下の手順を案内するインタラクティブウィザードが起動します：
 - **プロファイル選択**: `minimal`、`assistant`、`dev-agent`、または `multi-agent`
 - **SchemaPinモード**: `tofu`（Trust-On-First-Use）、`strict`、または `disabled`
-- **サンドボックスティア**: `tier0`（なし）、`tier1`（Docker）、または `tier2`（gVisor）
+- **サンドボックスティア**: `tier0`（なし、開発専用）、`tier1`（Docker）、`tier2`（gVisor / `runsc`）、または `tier3`（Firecracker microVM）
 
 ### `init` が生成するもの
 
@@ -116,7 +116,7 @@ symbi init
 |------|---------|
 | `symbiont.toml` | ランタイムおよびポリシー設定 |
 | `policies/default.cedar` | デフォルトで拒否する Cedar ポリシー |
-| `agents/*.dsl` | プロファイル固有のエージェント定義（`minimal` を除く） |
+| `agents/*.symbi` | プロファイル固有のエージェント定義（後方互換のため `.dsl` も認識される；`minimal` を除く） |
 | `AGENTS.md` | 宣言されたエージェントの自動生成インデックス |
 | `.symbiont/audit/` | 改ざん防止監査ログディレクトリ |
 | `.gitignore` | `.env` を含む Symbiont 固有のエントリを追記 |
@@ -172,7 +172,7 @@ symbi init --catalog list
 初期化後、検証して起動：
 
 ```bash
-symbi dsl -f agents/assistant.dsl   # エージェントを検証
+symbi dsl -f agents/assistant.symbi   # エージェントを検証
 symbi run assistant -i '{"query": "hello"}'  # 単一エージェントをテスト
 symbi up                             # ランタイムをローカルで起動
 docker compose up                    # ...または Docker で起動（.env を読み込む）
@@ -190,7 +190,7 @@ symbi run <agent-name-or-file> --input <json>
 
 ```bash
 symbi run assistant -i 'Summarize this document'
-symbi run agents/recon.dsl -i '{"target": "10.0.1.5"}' --max-iterations 5
+symbi run agents/recon.symbi -i '{"target": "10.0.1.5"}' --max-iterations 5
 ```
 
 ### テンプレートから始める（`symbi new`）
@@ -221,7 +221,7 @@ Symbiの基本を理解するために、シンプルなデータ分析エージ
 
 ### 1. エージェント定義の作成
 
-新しいファイル `my_agent.dsl` を作成します：
+新しいファイル `my_agent.symbi` を作成します：
 
 ```rust
 metadata {
@@ -255,10 +255,10 @@ agent greet_user(name: String) -> String {
 
 ```bash
 # エージェント定義を解析して検証
-cargo run -- dsl parse my_agent.dsl
+cargo run -- dsl parse my_agent.symbi
 
 # ランタイムでエージェントを実行
-cd crates/runtime && cargo run --example basic_agent -- --agent ../../my_agent.dsl
+cd crates/runtime && cargo run --example basic_agent -- --agent ../../my_agent.symbi
 ```
 
 ---
@@ -541,7 +541,7 @@ brew install pkg-config openssl
 **問題**：エージェントの開始に失敗
 ```bash
 # エージェント定義の構文を確認
-cargo run -- dsl parse your_agent.dsl
+cargo run -- dsl parse your_agent.symbi
 
 # デバッグログを有効化
 RUST_LOG=debug cd crates/runtime && cargo run --example basic_agent

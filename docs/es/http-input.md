@@ -184,7 +184,7 @@ start_http_input(config, Some(runtime), Some(secrets_config)).await?;
 
 ### Ejemplo de Definicion de Agente
 
-Crear un agente manejador de webhook en [`webhook_handler.dsl`](../agents/webhook_handler.dsl):
+Crear un agente manejador de webhook en [`webhook_handler.symbi`](../agents/webhook_handler.symbi):
 
 ```dsl
 agent webhook_handler(body: JSON) -> Maybe<Alert> {
@@ -276,7 +276,7 @@ Cuando el runtime esta adjunto pero el agente enrutado **no esta en el estado `R
 ### Como funciona
 
 1. El manejador de webhook llama a `scheduler.get_agent_status()` para verificar que el agente esta activamente en ejecucion. Los mensajes a agentes que no estan en ejecucion no se despachan a traves del bus de comunicacion, ya que `send_message` los descartaria silenciosamente.
-2. Si el agente no esta en ejecucion, el manejador construye un prompt de sistema a partir de cualquier archivo `.dsl` encontrado en el directorio `agents/`, agrega un `system_prompt` opcional proporcionado por el llamante (con limite de longitud y registrado), y construye un mensaje de usuario a partir de la carga util de la peticion.
+2. Si el agente no esta en ejecucion, el manejador construye un prompt de sistema a partir de cualquier archivo de agente `.symbi` (o `.dsl` heredado) encontrado en el directorio `agents/`, agrega un `system_prompt` opcional proporcionado por el llamante (con limite de longitud y registrado), y construye un mensaje de usuario a partir de la carga util de la peticion.
 3. Los manifiestos de ToolClad en el directorio `tools/` se cargan y se exponen al LLM como herramientas de llamada a funciones. Los tipos personalizados de `toolclad.toml` se aplican.
 4. El manejador ejecuta un bucle de llamada a herramientas **ORGA** (Observe-Reason-Gate-Act), hasta 15 iteraciones:
    - El LLM propone cero o mas llamadas `tool_use`.

@@ -23,14 +23,17 @@ Symbiontは、規制された高保証環境向けに設計されたセキュリ
 
 ## マルチティアサンドボックス
 
-ランタイムは、リスク評価に基づいて2つの分離ティアを実装します：
+ランタイムは、3つのホスト分離ティア（Tier 1 → Tier 3）と、1つのホスト型実行バックエンド（E2B）を提供します。これらのティアは単調増加する分離のはしごを形成しており、E2B はそのはしご上の **対等な存在ではありません** — E2B はサードパーティのインフラ上で実行され、後述で別途説明します。
 
 ```mermaid
 graph TB
     A[Risk Assessment Engine] --> B{Risk Level}
 
     B -->|Low Risk| C[Tier 1: Docker]
-    B -->|Medium/High Risk| D[Tier 2: gVisor]
+    B -->|Medium Risk| D[Tier 2: gVisor]
+    B -->|High Risk| E[Tier 3: Firecracker]
+
+    A -.->|Opt-in via DSL| H[Hosted: E2B]
 
     subgraph "Tier 1: Container Isolation"
         C1[Container Runtime]
@@ -46,11 +49,26 @@ graph TB
         D4[Enhanced Isolation]
     end
 
+    subgraph "Tier 3: microVM"
+        E1[KVM Hardware Virtualization]
+        E2[Dedicated Kernel]
+        E3[Read-only Rootfs]
+        E4[Per-execution Lifecycle]
+    end
+
+    subgraph "Hosted: third-party cloud"
+        H1[No on-host isolation]
+        H2[Trust assumption: provider]
+        H3[Quick-start, no setup]
+    end
+
     C --> C1
     D --> D1
+    E --> E1
+    H --> H1
 ```
 
-> **注意**: ハードウェア仮想化を使用した追加の分離ティアはEnterpriseエディションで利用可能です。
+> **3つのホスト分離ティア — Docker、gVisor、Firecracker — はすべて OSS ランタイムに同梱されています。** 運用者は DSL の `with { sandbox = ... }` ブロックでエージェントごとにティアを選択するか、`symbiont.toml` の `[sandbox] tier = "..."` でプロジェクト全体のデフォルトを設定します。E2B は DSL 経由（`with { sandbox = "e2b" }`）でのみオプトインで利用可能であり、`[sandbox] tier` の値としては意図的に公開していません。
 
 ### ティア1：Docker分離
 
@@ -110,7 +128,62 @@ gvisor_security:
 - メモリ破損防止
 - サイドチャネル攻撃緩和
 
-> **Enterprise機能**: 最大セキュリティ要件のためのハードウェア仮想化（Firecracker）による高度な分離はEnterpriseエディションで利用可能です。
+**前提条件：** [`runsc`](https://gvisor.dev/docs/user_guide/install/) をインストールし、`/etc/docker/daemon.json` で Docker ランタイムとして登録します。`symbi doctor` は `runsc` が到達可能かを報告します。
+
+### ティア3：Firecracker microVM
+
+**使用例：**
+- 最高レベルの分離が必要なワークロード（信頼されないコード、マルチテナント、規制対象データ）
+- syscall フィルタの粒度（gVisor）では不十分で、実際のカーネル境界が必要な場合
+- ブラスト半径をより強力に封じ込める実行ごとの VM ライフサイクル
+
+**セキュリティ機能：**
+- KVM によるハードウェア仮想化
+- 運用者が提供するカーネル + rootfs を用いた実行ごとの microVM
+- デフォルトで読み取り専用のルートファイルシステム
+- ホストとカーネル表面を共有しない
+
+**設定：** `symbiont.toml` の `[sandbox.firecracker]`：
+
+```toml
+[sandbox]
+tier = "tier3"
+
+[sandbox.firecracker]
+kernel_image_path = "/var/lib/firecracker/vmlinux"
+rootfs_path       = "/var/lib/firecracker/rootfs.ext4"
+vcpus             = 1
+mem_mib           = 512
+rootfs_read_only  = true
+```
+
+**前提条件：** 運用者は (a) Firecracker 互換のカーネルイメージと (b) エージェントペイロードを読み取る init スクリプトを持つルートファイルシステムイメージの両方を用意する必要があります。**ステップバイステップのクイックスタート、VM 内 init コントラクト、ハードニングチェックリストについては [`docs/firecracker-setup.md`](firecracker-setup.md) を参照してください。** `symbi doctor` は `firecracker` バイナリが到達可能かを報告します。
+
+両方の成果物が揃ったら、次のコマンドで tier3 プロジェクトをスキャフォールドできます：
+
+```bash
+symbi init --profile assistant --sandbox tier3 \
+  --firecracker-kernel /var/lib/firecracker/vmlinux \
+  --firecracker-rootfs /var/lib/firecracker/rootfs.ext4
+```
+
+`symbi init` は `symbiont.toml` を書き出す前に両方のファイルが存在することを検証するため、設定ミスは最初のエージェント実行時ではなくスキャフォールド時に表面化します。
+
+### ホスト型実行：E2B
+
+**E2B はホスト型のクラウドサンドボックスバックエンドであり、ホスト分離ティアではありません。** Tier 1 → Tier 3 のはしごの外側に位置し、完全性を保つため本ドキュメントで併記します。
+
+**何をするか：** コードは E2B のインフラ上で HTTPS API 経由で実行され、ランタイム側が同梱しているのは HTTP クライアントのみです。`E2B_API_KEY` を設定し、エージェントごとに `with { sandbox = "e2b" }` で選択します。`symbi init` には `--sandbox e2b` フラグはありません — E2B はオンホストのティアとは異なる信頼モデルを表すため、意図的に DSL 経由でのみオプトインできるようにしています。
+
+**使用例：**
+- Docker、gVisor、Firecracker をインストールせずに行うクイックスタートデモや評価。
+- 運用者がサンドボックスホストを実行できない開発環境（特権モードのない CI、ロックダウンされたラップトップ、ARM 開発マシンなど）。
+
+**してはいけないこと：**
+- オンホスト分離の代替ではありません。コード、プロンプト、ツール出力は E2B のインフラを経由します。プライバシー、データ所在地、コンプライアンス要件のあるワークロードには使用しないでください。
+- セキュリティレビューの観点で Tier 1/2/3 と比較できるものではありません。ランタイムは `E2B → SecurityTier::Hosted` にマップし、これは順序付け上 `Tier1` よりも **下** にソートされます — ホスト分離（`tier >= Tier1`）を要求するポリシーはホスト型実行を拒否します。
+
+**設定：** プロジェクトレベルの設定はありません。環境変数 `E2B_API_KEY` を設定し、エージェントごとに `with { sandbox = "e2b" }` を使用します。
 
 ---
 

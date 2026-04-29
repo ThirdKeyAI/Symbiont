@@ -1270,7 +1270,7 @@ symbi policy evaluate --stdin --policies ./policies --json
 
 ### `symbi agents-md`
 
-从当前的 `agents/*.dsl` 文件重新生成 `AGENTS.md`。在 `symbi init` 期间会自动运行；在添加或编辑智能体定义后可手动调用。
+从当前的 `agents/*.symbi` 文件重新生成 `AGENTS.md`（同时也会读取旧后缀 `.dsl`）。在 `symbi init` 期间会自动运行；在添加或编辑智能体定义后可手动调用。
 
 ```bash
 symbi agents-md generate --dir . --output AGENTS.md

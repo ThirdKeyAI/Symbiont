@@ -184,7 +184,7 @@ start_http_input(config, Some(runtime), Some(secrets_config)).await?;
 
 ### Exemplo de Definição de Agente
 
-Criar um agente manipulador de webhook em [`webhook_handler.dsl`](../agents/webhook_handler.dsl):
+Criar um agente manipulador de webhook em [`webhook_handler.symbi`](../agents/webhook_handler.symbi):
 
 ```dsl
 agent webhook_handler(body: JSON) -> Maybe<Alert> {
@@ -276,7 +276,7 @@ Quando o runtime está anexado mas o agente roteado **não está no estado `Runn
 ### Como funciona
 
 1. O manipulador de webhook chama `scheduler.get_agent_status()` para verificar se o agente está ativamente em execução. Mensagens para agentes não em execução não são despachadas através do barramento de comunicação, já que `send_message` as descartaria silenciosamente.
-2. Se o agente não está em execução, o manipulador constrói um system prompt a partir de quaisquer arquivos `.dsl` encontrados no diretório `agents/`, anexa um `system_prompt` opcional fornecido pelo chamador (com limite de tamanho e registrado), e constrói uma mensagem de usuário a partir do payload da requisição.
+2. Se o agente não está em execução, o manipulador constrói um system prompt a partir de quaisquer arquivos de agente `.symbi` (ou legados `.dsl`) encontrados no diretório `agents/`, anexa um `system_prompt` opcional fornecido pelo chamador (com limite de tamanho e registrado), e constrói uma mensagem de usuário a partir do payload da requisição.
 3. Manifestos ToolClad no diretório `tools/` são carregados e expostos ao LLM como ferramentas de function-calling. Tipos customizados de `toolclad.toml` são aplicados.
 4. O manipulador executa um loop de chamada de ferramentas **ORGA** (Observe-Reason-Gate-Act), até 15 iterações:
    - O LLM propõe zero ou mais chamadas `tool_use`.

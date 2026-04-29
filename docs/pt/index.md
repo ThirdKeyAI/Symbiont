@@ -31,7 +31,7 @@ A saida do modelo nunca e tratada como autoridade de execucao. O runtime control
 | **Verificacao de ferramentas** | Verificacao criptografica [SchemaPin](https://schemapin.org) de esquemas de ferramentas MCP antes da execucao |
 | **Identidade de agentes** | Identidade ES256 ancorada ao dominio com [AgentPin](https://agentpin.org) para agentes e tarefas agendadas |
 | **Loop de raciocinio** | Ciclo Observe-Reason-Gate-Act com aplicacao de typestate, gates de politicas e circuit breakers |
-| **Sandboxing** | Isolamento baseado em Docker com limites de recursos para cargas de trabalho nao confiaveis |
+| **Sandboxing** | Tres camadas OSS de isolamento no host -- Docker (Tier 1), gVisor (Tier 2) e microVMs Firecracker (Tier 3) -- com limites de recursos para cargas de trabalho nao confiaveis |
 | **Registro de auditoria** | Logs a prova de adulteracao com registros estruturados para cada decisao de politica |
 | **Gestao de segredos** | Integracao com Vault/OpenBao, armazenamento criptografado AES-256-GCM, com escopo por agente |
 | **Integracao MCP** | Suporte nativo ao Model Context Protocol com acesso governado a ferramentas |

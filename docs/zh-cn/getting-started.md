@@ -106,7 +106,7 @@ symbi init
 这将启动一个交互式向导，引导您完成：
 - **配置文件选择**：`minimal`、`assistant`、`dev-agent` 或 `multi-agent`
 - **SchemaPin 模式**：`tofu`（首次使用信任）、`strict` 或 `disabled`
-- **沙箱层级**：`tier0`（无）、`tier1`（Docker）或 `tier2`（gVisor）
+- **沙箱层级**：`tier0`（无，仅供开发使用）、`tier1`（Docker）、`tier2`（gVisor / `runsc`）或 `tier3`（Firecracker microVM）
 
 ### `init` 生成的内容
 
@@ -116,7 +116,7 @@ symbi init
 |------|------|
 | `symbiont.toml` | 运行时和策略配置 |
 | `policies/default.cedar` | 默认拒绝的 Cedar 策略 |
-| `agents/*.dsl` | 特定配置文件的智能体定义（`minimal` 除外） |
+| `agents/*.symbi` | 特定配置文件的智能体定义（同时也可识别旧后缀 `.dsl`；`minimal` 除外） |
 | `AGENTS.md` | 自动生成的已声明智能体索引 |
 | `.symbiont/audit/` | 防篡改审计日志目录 |
 | `.gitignore` | 追加 Symbiont 特定条目，包括 `.env` |
@@ -172,7 +172,7 @@ symbi init --catalog list
 初始化完成后，验证并启动：
 
 ```bash
-symbi dsl -f agents/assistant.dsl   # 验证您的智能体
+symbi dsl -f agents/assistant.symbi   # 验证您的智能体
 symbi run assistant -i '{"query": "hello"}'  # 测试单个智能体
 symbi up                             # 在本地启动运行时
 docker compose up                    # ...或在 Docker 中启动（读取 .env）
@@ -190,7 +190,7 @@ symbi run <agent-name-or-file> --input <json>
 
 ```bash
 symbi run assistant -i 'Summarize this document'
-symbi run agents/recon.dsl -i '{"target": "10.0.1.5"}' --max-iterations 5
+symbi run agents/recon.symbi -i '{"target": "10.0.1.5"}' --max-iterations 5
 ```
 
 ### 从模板开始（`symbi new`）
@@ -221,7 +221,7 @@ symbi new <template> <project-name>  # 从模板创建一个新项目
 
 ### 1. 创建智能体定义
 
-创建一个新文件 `my_agent.dsl`：
+创建一个新文件 `my_agent.symbi`：
 
 ```rust
 metadata {
@@ -255,10 +255,10 @@ agent greet_user(name: String) -> String {
 
 ```bash
 # 解析并验证智能体定义
-cargo run -- dsl parse my_agent.dsl
+cargo run -- dsl parse my_agent.symbi
 
 # 在运行时中运行智能体
-cd crates/runtime && cargo run --example basic_agent -- --agent ../../my_agent.dsl
+cd crates/runtime && cargo run --example basic_agent -- --agent ../../my_agent.symbi
 ```
 
 ---
@@ -541,7 +541,7 @@ brew install pkg-config openssl
 **问题**：智能体启动失败
 ```bash
 # 检查智能体定义语法
-cargo run -- dsl parse your_agent.dsl
+cargo run -- dsl parse your_agent.symbi
 
 # 启用调试日志记录
 RUST_LOG=debug cd crates/runtime && cargo run --example basic_agent

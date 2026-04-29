@@ -64,6 +64,7 @@ graph TB
     subgraph "Sandbox Tiers"
         T1[Tier 1: Docker]
         T2[Tier 2: gVisor]
+        T3[Tier 3: Firecracker]
     end
     
     ARS --> ACM
@@ -81,6 +82,7 @@ graph TB
     PG --> PE
     SO --> T1
     SO --> T2
+    SO --> T3
     MCP --> TV
     PE --> AT
 ```
@@ -175,7 +177,7 @@ pub struct ResourceLimits {
 
 ### Arquitetura de Sandbox
 
-O runtime implementa duas camadas de segurança baseadas no risco da operação:
+O runtime entrega três camadas de isolamento no host (Tier 1 → Tier 3) mais um backend de execução hospedada (E2B). As camadas formam uma escada de isolamento monotonicamente crescente; o E2B **não** é um par nessa escada — executa em infraestrutura de terceiros e é documentado separadamente.
 
 #### Camada 1: Isolamento Docker
 **Caso de Uso**: Operações de baixo risco, tarefas de desenvolvimento
@@ -189,9 +191,21 @@ O runtime implementa duas camadas de segurança baseadas no risco da operação:
 - Kernel de espaço do usuário com interceptação de chamadas do sistema
 - Proteção de memória e virtualização de E/S
 - Segurança aprimorada com impacto mínimo na performance
-- Camada padrão para a maioria das operações de agentes
+- Pré-requisitos: instalar [`runsc`](https://gvisor.dev/docs/user_guide/install/) e registrá-lo como runtime do Docker
 
-> **Nota**: Camadas adicionais de isolamento estão disponíveis nas edições Enterprise para requisitos máximos de segurança.
+#### Camada 3: microVM Firecracker
+**Caso de Uso**: Cargas de trabalho de mais alto isolamento (código não confiável, multi-tenant, dados regulamentados)
+- Virtualização de hardware via KVM
+- microVM por execução com kernel + rootfs fornecidos pelo operador
+- Sistema de arquivos raiz somente leitura por padrão
+- Sem superfície de kernel compartilhada com o host
+
+Configuração via `[sandbox.firecracker]` em `symbiont.toml`. O operador deve fornecer (a) uma imagem de kernel compatível com Firecracker e (b) uma imagem de sistema de arquivos raiz com um script de init que leia o payload do agente. Veja [`docs/firecracker-setup.md`](firecracker-setup.md) para um guia rápido passo a passo.
+
+#### Execução hospedada: E2B
+**O E2B é um backend de sandbox em nuvem hospedado, não uma camada de isolamento no host.** Fica fora da escada Tier 1 → Tier 3. O código roda na infraestrutura do E2B via API HTTPS; o runtime envia apenas um cliente HTTP. Defina `E2B_API_KEY` e selecione-o por agente com `with { sandbox = "e2b" }`. Não há flag `--sandbox e2b` no `symbi init` — o E2B é intencionalmente opt-in apenas via DSL, pois representa um modelo de confiança diferente das camadas no host. O runtime mapeia `E2B → SecurityTier::Hosted`, que ordena **abaixo** de `Tier1` — políticas que exigem isolamento no host (`tier >= Tier1`) rejeitarão a execução hospedada.
+
+> **As três camadas de isolamento no host — Docker, gVisor e Firecracker — são todas entregues no runtime OSS.** Operadores escolhem a camada por agente via o bloco DSL `with { sandbox = ... }`, ou definem um padrão de projeto via `[sandbox] tier = "..."` em `symbiont.toml`.
 
 ---
 

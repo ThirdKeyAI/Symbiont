@@ -184,7 +184,7 @@ start_http_input(config, Some(runtime), Some(secrets_config)).await?;
 
 ### エージェント定義例
 
-[`webhook_handler.dsl`](../agents/webhook_handler.dsl) で webhook ハンドラーエージェントを作成：
+[`webhook_handler.symbi`](../agents/webhook_handler.symbi) で webhook ハンドラーエージェントを作成：
 
 ```dsl
 agent webhook_handler(body: JSON) -> Maybe<Alert> {
@@ -276,7 +276,7 @@ curl -X POST http://localhost:8081/webhook \
 ### 仕組み
 
 1. webhook ハンドラーは `scheduler.get_agent_status()` を呼び出してエージェントがアクティブに実行されているかを確認します。`send_message` は黙ってドロップするため、実行されていないエージェントへのメッセージは通信バス経由でディスパッチされません。
-2. エージェントが実行されていない場合、ハンドラーは `agents/` ディレクトリ内の `.dsl` ファイルからシステムプロンプトを構築し、呼び出し元が任意で指定した `system_prompt`（長さ上限あり・ログ記録あり）を追加し、リクエストペイロードからユーザーメッセージを作成します。
+2. エージェントが実行されていない場合、ハンドラーは `agents/` ディレクトリ内の `.symbi`（または後方互換の `.dsl`）エージェントファイルからシステムプロンプトを構築し、呼び出し元が任意で指定した `system_prompt`（長さ上限あり・ログ記録あり）を追加し、リクエストペイロードからユーザーメッセージを作成します。
 3. `tools/` ディレクトリ内の ToolClad マニフェストがロードされ、関数呼び出しツールとして LLM に公開されます。`toolclad.toml` のカスタム型が適用されます。
 4. ハンドラーは最大 15 回の反復で **ORGA**（Observe-Reason-Gate-Act）ツール呼び出しループを実行します：
    - LLM がゼロ個以上の `tool_use` 呼び出しを提案します。

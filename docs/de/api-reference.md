@@ -1270,7 +1270,7 @@ Die Standardausgabe ist das blosse Urteil auf stdout mit strukturierten Details 
 
 ### `symbi agents-md`
 
-Regeneriert `AGENTS.md` aus den aktuellen `agents/*.dsl`-Dateien. Laeuft automatisch waehrend `symbi init`; rufen Sie es manuell nach dem Hinzufuegen oder Bearbeiten von Agentendefinitionen auf.
+Regeneriert `AGENTS.md` aus den aktuellen `agents/*.symbi`-Dateien (das Legacy-Format `.dsl` wird ebenfalls erfasst). Laeuft automatisch waehrend `symbi init`; rufen Sie es manuell nach dem Hinzufuegen oder Bearbeiten von Agentendefinitionen auf.
 
 ```bash
 symbi agents-md generate --dir . --output AGENTS.md

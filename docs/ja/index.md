@@ -31,7 +31,7 @@ Symbiont はエージェントの意図と実行権限を分離します：
 | **ツール検証** | 実行前に [SchemaPin](https://schemapin.org) による MCP ツールスキーマの暗号学的検証 |
 | **エージェントアイデンティティ** | [AgentPin](https://agentpin.org) によるエージェントとスケジュールタスクのドメイン固定 ES256 アイデンティティ |
 | **推論ループ** | ポリシーゲートとサーキットブレーカーを備えた型状態強制の Observe-Reason-Gate-Act サイクル |
-| **サンドボックス** | 信頼されないワークロード向けのリソース制限付き Docker ベースの分離 |
+| **サンドボックス** | 3つの OSS ティアによるエージェントごとの分離 — Docker（Tier 1）、gVisor（Tier 2）、Firecracker microVM（Tier 3） — Enterprise ゲーティングなしで DSL から選択可能 |
 | **監査ログ** | すべてのポリシー決定に対する構造化レコード付き改ざん防止ログ |
 | **シークレット管理** | Vault/OpenBao 統合、AES-256-GCM 暗号化ストレージ、エージェントごとのスコープ |
 | **MCP 統合** | 制御されたツールアクセスを備えたネイティブ Model Context Protocol サポート |

@@ -63,6 +63,7 @@ graph TB
     subgraph "Sandbox Tiers"
         T1[Tier 1: Docker]
         T2[Tier 2: gVisor]
+        T3[Tier 3: Firecracker microVM]
     end
 
     ARS --> ACM
@@ -80,6 +81,7 @@ graph TB
     PG --> PE
     SO --> T1
     SO --> T2
+    SO --> T3
     MCP --> TV
     PE --> AT
 ```
@@ -202,7 +204,7 @@ pub struct ResourceLimits {
 
 ### Sandbox Architecture
 
-The runtime implements two security tiers based on operation risk:
+The runtime ships three host-isolation tiers — all OSS — plus one separate hosted-cloud backend (E2B). Operators pick the tier per agent via the DSL `with { sandbox = ... }` block, or set a project default in `[sandbox] tier = "..."`.
 
 #### Tier 1: Docker Isolation
 **Use Case**: Low-risk operations, development tasks
@@ -212,13 +214,21 @@ The runtime implements two security tiers based on operation risk:
 - Suitable for trusted code with minimal security requirements
 
 #### Tier 2: gVisor Isolation
-**Use Case**: Standard production tasks, data processing
+**Use Case**: Standard production tasks, data processing, untrusted code
 - User-space kernel with system call interception
 - Memory protection and I/O virtualization
 - Enhanced security with minimal performance impact
-- Default tier for most agent operations
+- Requires `runsc` registered as a Docker runtime
 
-> **Note**: Additional isolation tiers are available in Enterprise editions for maximum security requirements.
+#### Tier 3: Firecracker microVM
+**Use Case**: Highest-isolation workloads — multi-tenant untrusted code, regulated data, blast-radius containment
+- Hardware virtualization via KVM with a dedicated kernel per execution
+- Operator-supplied vmlinux + rootfs (read-only by default)
+- No shared kernel surface with the host
+- Requires the `firecracker` binary plus an init script implementing the Symbiont in-VM contract — see [`docs/firecracker-setup.md`](firecracker-setup.md).
+
+#### Hosted execution: E2B (not a tier)
+E2B is a separate hosted-cloud backend, **not** a peer of Tier 1/2/3. It maps to `SecurityTier::Hosted` which sorts below `Tier1` for ordering — policies that require host isolation (`tier >= Tier1`) reject hosted execution. Opt-in only via DSL (`with { sandbox = "e2b" }`).
 
 ---
 

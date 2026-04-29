@@ -129,7 +129,7 @@ symbi init
 Esto lanza un asistente interactivo que te guia a traves de:
 - **Seleccion de perfil**: `minimal`, `assistant`, `dev-agent` o `multi-agent`
 - **Modo SchemaPin**: `tofu` (Trust-On-First-Use), `strict` o `disabled`
-- **Nivel de sandbox**: `tier0` (ninguno), `tier1` (Docker) o `tier2` (gVisor)
+- **Nivel de sandbox**: `tier0` (ninguno, solo desarrollo), `tier1` (Docker), `tier2` (gVisor / `runsc`) o `tier3` (microVM Firecracker)
 
 ### Lo que produce `init`
 
@@ -139,7 +139,7 @@ Cada ejecucion escribe:
 |---------|-----------|
 | `symbiont.toml` | Configuracion del runtime y de politicas |
 | `policies/default.cedar` | Politica Cedar deny-by-default |
-| `agents/*.dsl` | Definiciones de agente especificas del perfil (excepto `minimal`) |
+| `agents/*.symbi` | Definiciones de agente especificas del perfil (los `.dsl` heredados tambien se reconocen; excepto `minimal`) |
 | `AGENTS.md` | Indice autogenerado de los agentes declarados |
 | `.symbiont/audit/` | Directorio del registro de auditoria a prueba de manipulacion |
 | `.gitignore` | Se anade con entradas especificas de Symbiont, incluyendo `.env` |
@@ -195,7 +195,7 @@ symbi init --catalog list
 Despues de la inicializacion, valida e inicia:
 
 ```bash
-symbi dsl -f agents/assistant.dsl   # validate your agent
+symbi dsl -f agents/assistant.symbi   # validate your agent
 symbi run assistant -i '{"query": "hello"}'  # test a single agent
 symbi up                             # start the runtime locally
 docker compose up                    # ...or start it in Docker (reads .env)
@@ -213,7 +213,7 @@ El comando resuelve nombres de agentes buscando: ruta directa, luego el director
 
 ```bash
 symbi run assistant -i 'Summarize this document'
-symbi run agents/recon.dsl -i '{"target": "10.0.1.5"}' --max-iterations 5
+symbi run agents/recon.symbi -i '{"target": "10.0.1.5"}' --max-iterations 5
 ```
 
 ### Partir desde una plantilla (`symbi new`)
@@ -244,7 +244,7 @@ Vamos a crear un agente simple de analisis de datos para entender los conceptos 
 
 ### 1. Crear Definicion de Agente
 
-Crear un nuevo archivo `my_agent.dsl`:
+Crear un nuevo archivo `my_agent.symbi`:
 
 ```rust
 metadata {
@@ -278,10 +278,10 @@ agent greet_user(name: String) -> String {
 
 ```bash
 # Parse and validate the agent definition
-cargo run -- dsl parse my_agent.dsl
+cargo run -- dsl parse my_agent.symbi
 
 # Run the agent in the runtime
-cd crates/runtime && cargo run --example basic_agent -- --agent ../../my_agent.dsl
+cd crates/runtime && cargo run --example basic_agent -- --agent ../../my_agent.symbi
 ```
 
 ---
@@ -564,7 +564,7 @@ brew install pkg-config openssl
 **Problema**: El agente falla al iniciar
 ```bash
 # Check agent definition syntax
-cargo run -- dsl parse your_agent.dsl
+cargo run -- dsl parse your_agent.symbi
 
 # Enable debug logging
 RUST_LOG=debug cd crates/runtime && cargo run --example basic_agent

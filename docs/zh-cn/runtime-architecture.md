@@ -56,6 +56,7 @@ graph TB
     subgraph "Sandbox Tiers"
         T1[Tier 1: Docker]
         T2[Tier 2: gVisor]
+        T3[Tier 3: Firecracker microVM]
     end
     
     ARS --> ACM
@@ -66,6 +67,7 @@ graph TB
     ACM --> RAG
     SO --> T1
     SO --> T2
+    SO --> T3
     MCP --> TV
     PE --> AT
 ```
@@ -160,7 +162,7 @@ pub struct ResourceLimits {
 
 ### 沙箱架构
 
-运行时基于操作风险实现两个安全层：
+运行时附带三个主机隔离层 —— 全部为 OSS —— 外加一个独立的托管云后端（E2B）。运维方可在 DSL 的 `with { sandbox = ... }` 块中按智能体选择层级，或在 `[sandbox] tier = "..."` 中设置项目默认值。
 
 #### 第 1 层：Docker 隔离
 **用例**：低风险操作、开发任务
@@ -170,13 +172,21 @@ pub struct ResourceLimits {
 - 适用于具有最小安全要求的可信代码
 
 #### 第 2 层：gVisor 隔离
-**用例**：标准生产任务、数据处理
+**用例**：标准生产任务、数据处理、不受信任代码
 - 具有系统调用拦截的用户空间内核
 - 内存保护和 I/O 虚拟化
 - 增强安全性，性能影响最小
-- 大多数代理操作的默认层
+- 需要将 `runsc` 注册为 Docker 运行时
 
-> **注意**：企业版中提供了额外的隔离层，以满足最大安全要求。
+#### 第 3 层：Firecracker microVM
+**用例**：最高隔离级别工作负载 —— 多租户不受信任代码、受监管数据、爆炸半径控制
+- 通过 KVM 实现的硬件虚拟化，每次执行使用独立内核
+- 由运维方提供 vmlinux 与 rootfs（默认只读）
+- 与主机不共享任何内核表面
+- 需要 `firecracker` 二进制以及实现 Symbiont 在 VM 内启动契约的 init 脚本 —— 见 [`docs/firecracker-setup.md`](firecracker-setup.md)。
+
+#### 托管执行：E2B（不是一个层级）
+E2B 是一个独立的托管云后端，**不是**第 1/2/3 层的对等项。它映射到 `SecurityTier::Hosted`，在排序上位于 `Tier1` **之下** —— 任何要求主机隔离（`tier >= Tier1`）的策略都会拒绝托管执行。仅可通过 DSL（`with { sandbox = "e2b" }`）选择启用。
 
 ---
 

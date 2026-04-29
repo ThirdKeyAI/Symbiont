@@ -1270,7 +1270,7 @@ symbi policy evaluate --stdin --policies ./policies --json
 
 ### `symbi agents-md`
 
-現在の `agents/*.dsl` ファイルから `AGENTS.md` を再生成します。`symbi init` の実行中に自動的に実行されます。エージェント定義を追加または編集した後に手動で呼び出してください。
+現在の `agents/*.symbi` ファイルから `AGENTS.md` を再生成します（後方互換のため `.dsl` も認識されます）。`symbi init` の実行中に自動的に実行されます。エージェント定義を追加または編集した後に手動で呼び出してください。
 
 ```bash
 symbi agents-md generate --dir . --output AGENTS.md

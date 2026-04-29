@@ -214,13 +214,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ```bash
 # Executar com execução nativa
-symbiont run agent.dsl --native
+symbiont run agent.symbi --native
 
 # Ou com nível explícito
-symbiont run agent.dsl --sandbox-tier=none
+symbiont run agent.symbi --sandbox-tier=none
 
 # Com limites de recursos
-symbiont run agent.dsl --native \
+symbiont run agent.symbi --native \
   --max-memory=1024 \
   --max-cpu=2.0 \
   --timeout=300
@@ -319,7 +319,7 @@ Em sistemas Unix, a execução nativa ainda pode impor alguns limites:
 
 # Execução direta
 cargo build --release
-./target/release/symbiont run agent.dsl
+./target/release/symbiont run agent.symbi
 ```
 
 ### Abordagem Híbrida
@@ -349,7 +349,7 @@ O Docker isolava automaticamente as variáveis de ambiente. Com execução nativ
 ```bash
 export AGENT_API_KEY="xxx"
 export AGENT_DB_URL="postgresql://..."
-symbiont run agent.dsl --native
+symbiont run agent.symbi --native
 ```
 
 ## Comparação de Desempenho

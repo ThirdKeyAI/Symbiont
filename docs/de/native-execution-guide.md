@@ -218,13 +218,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ```bash
 # Mit nativer Ausfuehrung starten
-symbiont run agent.dsl --native
+symbiont run agent.symbi --native
 
 # Oder mit expliziter Stufe
-symbiont run agent.dsl --sandbox-tier=none
+symbiont run agent.symbi --sandbox-tier=none
 
 # Mit Ressourcenlimits
-symbiont run agent.dsl --native \
+symbiont run agent.symbi --native \
   --max-memory=1024 \
   --max-cpu=2.0 \
   --timeout=300
@@ -323,7 +323,7 @@ Auf Unix-Systemen kann die native Ausfuehrung dennoch einige Limits durchsetzen:
 
 # Direkte Ausfuehrung
 cargo build --release
-./target/release/symbiont run agent.dsl
+./target/release/symbiont run agent.symbi
 ```
 
 ### Hybridansatz
@@ -353,7 +353,7 @@ Docker hat Umgebungsvariablen automatisch isoliert. Bei nativer Ausfuehrung mues
 ```bash
 export AGENT_API_KEY="xxx"
 export AGENT_DB_URL="postgresql://..."
-symbiont run agent.dsl --native
+symbiont run agent.symbi --native
 ```
 
 ## Performance-Vergleich
