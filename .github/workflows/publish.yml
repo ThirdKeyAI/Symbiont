@@ -107,6 +107,7 @@ jobs:
           # Tier 4: Depends on repl-core, repl-proto, symbi-runtime
           publish_crate repl-cli || exit 1
           publish_crate repl-lsp || exit 1
+          publish_crate symbi-shell || exit 1
 
           echo "Waiting 30s for crates.io index..."
           sleep 30
