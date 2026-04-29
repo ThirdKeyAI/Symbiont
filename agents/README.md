@@ -63,11 +63,11 @@ cp examples/agents/* ./agents/
 
 ```bash
 # Parse and validate an agent definition
-cargo run -- dsl parse agents/nlp_processor.dsl
+cargo run -- dsl parse agents/nlp_processor.symbi
 
 # Run an agent in the runtime
 cd crates/runtime
-cargo run --example basic_agent -- --agent ../../agents/nlp_processor.dsl
+cargo run --example basic_agent -- --agent ../../agents/nlp_processor.symbi
 ```
 
 ---
@@ -90,7 +90,7 @@ cargo run --example basic_agent -- --agent ../../agents/nlp_processor.dsl
 echo '{
   "text": "I love this product! The customer service was excellent and delivery was fast.",
   "tasks": ["sentiment", "entities", "keywords"]
-}' | cargo run --example basic_agent -- --agent agents/nlp_processor.dsl
+}' | cargo run --example basic_agent -- --agent agents/nlp_processor.symbi
 ```
 
 ### Expected Output
@@ -152,7 +152,7 @@ echo '{
       {"name": "age", "type": "integer", "min": 0, "max": 120}
     ]
   }
-}' | cargo run --example basic_agent -- --agent agents/data_validator.dsl
+}' | cargo run --example basic_agent -- --agent agents/data_validator.symbi
 ```
 
 ### Expected Output
@@ -214,7 +214,7 @@ echo '{
     "content": "name,email,age\nJohn,john@example.com,30\nJane,jane@example.com,25"
   },
   "target_format": "json"
-}' | cargo run --example basic_agent -- --agent agents/format_converter.dsl
+}' | cargo run --example basic_agent -- --agent agents/format_converter.symbi
 ```
 
 ### Expected Output
@@ -280,7 +280,7 @@ echo '{
     }
   ],
   "query": "New York, NY"
-}' | cargo run --example basic_agent -- --agent agents/api_aggregator.dsl
+}' | cargo run --example basic_agent -- --agent agents/api_aggregator.symbi
 ```
 
 ### Expected Output
@@ -350,7 +350,7 @@ echo '{
     "classification": "internal"
   },
   "scan_type": "comprehensive"
-}' | cargo run --example basic_agent -- --agent agents/security_scanner.dsl
+}' | cargo run --example basic_agent -- --agent agents/security_scanner.symbi
 ```
 
 ### Expected Output
@@ -447,7 +447,7 @@ echo '{
     "timestamp": "2024-01-15T10:30:00Z",
     "login_attempts": 5
   }
-}' | cargo run --example basic_agent -- --agent agents/webhook_handler.dsl
+}' | cargo run --example basic_agent -- --agent agents/webhook_handler.symbi
 ```
 
 ### Expected Output
@@ -530,7 +530,7 @@ echo '{
     ],
     "allowed_agents": ["data_validator", "format_converter", "nlp_processor"]
   }
-}' | cargo run --example basic_agent -- --agent agents/workflow_orchestrator.dsl
+}' | cargo run --example basic_agent -- --agent agents/workflow_orchestrator.symbi
 ```
 
 ### Expected Output
@@ -618,7 +618,7 @@ echo '{
       }
     ]
   }
-}' | cargo run --example basic_agent -- --agent agents/notification_router.dsl
+}' | cargo run --example basic_agent -- --agent agents/notification_router.symbi
 ```
 
 ### Expected Output
@@ -692,13 +692,13 @@ echo '{
     "source": "adr-001",
     "user": {"name": "alice", "role": "editor"}
   }
-}' | cargo run --example basic_agent -- --agent agents/knowledge_curator.dsl
+}' | cargo run --example basic_agent -- --agent agents/knowledge_curator.symbi
 
 # Search the knowledge base
 echo '{
   "query": "What database did we choose?",
   "context": {"user": {"name": "bob", "role": "viewer"}}
-}' | cargo run --example basic_agent -- --agent agents/knowledge_curator.dsl
+}' | cargo run --example basic_agent -- --agent agents/knowledge_curator.symbi
 ```
 
 ### Use Cases
@@ -766,7 +766,7 @@ echo '{
   "verified": true,
   "summary": "Critical dependency vulnerability in lodash",
   "severity": "critical"
-}' | cargo run --example basic_agent -- --agent agents/incident_tracker.dsl
+}' | cargo run --example basic_agent -- --agent agents/incident_tracker.symbi
 ```
 
 ### Expected Output
@@ -848,10 +848,10 @@ export SLACK_WEBHOOK_URL=your_slack_webhook
 
 ```bash
 # Validate agent syntax
-cargo run -- dsl parse agents/your_agent.dsl
+cargo run -- dsl parse agents/your_agent.symbi
 
 # Test with mock data
-echo '{"test": "data"}' | cargo run --example basic_agent -- --agent agents/your_agent.dsl
+echo '{"test": "data"}' | cargo run --example basic_agent -- --agent agents/your_agent.symbi
 
 # Run integration tests
 cargo test --test agent_integration_tests

@@ -5,10 +5,20 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
+  "keywords": ["tree-sitter", "parser", "symbiont", "symbi", "dsl"],
   "author": "",
   "license": "ISC",
-  "description": "",
+  "description": "Tree-sitter grammar for the Symbiont (.symbi) agent DSL.",
+  "tree-sitter": [
+    {
+      "scope": "source.symbi",
+      "file-types": [
+        "symbi",
+        "dsl"
+      ],
+      "highlights": "queries/highlights.scm"
+    }
+  ],
   "dependencies": {
     "tree-sitter-cli": "^0.25.6"
   }

@@ -1270,7 +1270,7 @@ Default output is the bare verdict on stdout with structured detail on stderr; p
 
 ### `symbi agents-md`
 
-Regenerate `AGENTS.md` from the current `agents/*.dsl` files. Runs automatically during `symbi init`; call it manually after adding or editing agent definitions.
+Regenerate `AGENTS.md` from the current `agents/*.symbi` files (legacy `.dsl` is also picked up). Runs automatically during `symbi init`; call it manually after adding or editing agent definitions.
 
 ```bash
 symbi agents-md generate --dir . --output AGENTS.md

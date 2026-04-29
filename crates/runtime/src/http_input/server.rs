@@ -862,7 +862,7 @@ fn scan_agent_dsl_files() -> Vec<(String, String)> {
     if let Ok(entries) = std::fs::read_dir(agents_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().is_some_and(|ext| ext == "dsl") {
+            if dsl::is_symbi_file(&path) {
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     let filename = path
                         .file_name()

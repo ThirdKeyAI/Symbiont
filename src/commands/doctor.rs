@@ -15,6 +15,24 @@ pub async fn run() {
         all_ok = false;
     }
 
+    // Check gVisor (informational — only blocks if a project requests tier2)
+    print!("• Checking gVisor (optional)... ");
+    if check_runsc() {
+        println!("✓ runsc available (tier2/gVisor ready)");
+    } else {
+        println!("○ runsc not installed (tier2/gVisor unavailable)");
+        println!("  Install: https://gvisor.dev/docs/user_guide/install/");
+    }
+
+    // Check Firecracker (informational — only blocks if a project requests tier3)
+    print!("• Checking Firecracker (optional)... ");
+    if check_firecracker() {
+        println!("✓ firecracker available (tier3 ready, kernel + rootfs still required)");
+    } else {
+        println!("○ firecracker not installed (tier3 unavailable)");
+        println!("  Install: https://github.com/firecracker-microvm/firecracker/releases");
+    }
+
     // Check ports
     print!("• Checking ports... ");
     let port_8080 = !is_port_in_use(8080);
@@ -75,6 +93,22 @@ fn check_docker() -> bool {
         .unwrap_or(false)
 }
 
+fn check_runsc() -> bool {
+    Command::new("runsc")
+        .arg("--version")
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+fn check_firecracker() -> bool {
+    Command::new("firecracker")
+        .arg("--version")
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
 fn is_port_in_use(port: u16) -> bool {
     std::net::TcpListener::bind(("127.0.0.1", port)).is_err()
 }
@@ -96,14 +130,7 @@ fn count_dsl_files(dir: &str) -> usize {
         .map(|entries| {
             entries
                 .filter_map(Result::ok)
-                .filter(|entry| {
-                    entry
-                        .path()
-                        .extension()
-                        .and_then(|ext| ext.to_str())
-                        .map(|ext| ext == "dsl")
-                        .unwrap_or(false)
-                })
+                .filter(|entry| dsl::is_symbi_file(&entry.path()))
                 .count()
         })
         .unwrap_or(0)

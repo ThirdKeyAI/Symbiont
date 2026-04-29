@@ -41,14 +41,21 @@ impl AgentBundle {
     pub fn discover(agent_name: &str) -> Result<Self> {
         let cwd = std::env::current_dir()?;
 
-        // Look for the agent DSL file
-        let dsl_path = cwd.join(format!("agents/{}.dsl", agent_name));
-        if !dsl_path.exists() {
+        // Look for the agent definition. Prefer canonical `.symbi`, fall back
+        // to legacy `.dsl` so existing projects keep deploying.
+        let symbi_path = cwd.join(format!("agents/{}.symbi", agent_name));
+        let legacy_path = cwd.join(format!("agents/{}.dsl", agent_name));
+        let dsl_path = if symbi_path.exists() {
+            symbi_path
+        } else if legacy_path.exists() {
+            legacy_path
+        } else {
             return Err(anyhow!(
-                "Agent definition not found at {}. Run /spawn first.",
-                dsl_path.display()
+                "Agent definition not found at {} (or legacy {}). Run /spawn first.",
+                symbi_path.display(),
+                legacy_path.display()
             ));
-        }
+        };
 
         // Verify project is initialized
         if !cwd.join("symbiont.toml").exists() {

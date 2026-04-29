@@ -185,6 +185,10 @@ impl ScheduledTask {
     pub fn to_routing_context(&self) -> RoutingContext {
         let security_level = match self.config.security_tier {
             SecurityTier::None => SecurityLevel::Low,
+            // Hosted execution carries no on-host isolation guarantees; from
+            // the routing engine's perspective it lives in the same risk
+            // bucket as native execution.
+            SecurityTier::Hosted => SecurityLevel::Low,
             SecurityTier::Tier1 => SecurityLevel::Medium,
             SecurityTier::Tier2 => SecurityLevel::High,
             SecurityTier::Tier3 => SecurityLevel::Critical,

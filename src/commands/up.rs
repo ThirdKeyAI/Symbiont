@@ -10,10 +10,29 @@ use symbi_channel_adapter::{
 use symbi_runtime::api::server::{HttpApiConfig, HttpApiServer};
 use symbi_runtime::http_input::llm_client::LlmClient;
 use symbi_runtime::http_input::{start_http_input, HttpInputConfig};
-use symbi_runtime::types::AgentId;
+use symbi_runtime::types::{AgentId, SecurityTier};
 use symbi_runtime::AgentRuntime;
 use symbi_runtime::RuntimeConfig;
 use symbi_runtime::SecretsConfig;
+
+/// Resolve the per-agent `SecurityTier` by parsing the DSL `with { sandbox
+/// = ... }` block. Falls back to `default_tier` when the DSL doesn't
+/// specify one.
+fn resolve_security_tier(source: &str, default_tier: SecurityTier) -> SecurityTier {
+    let tree = match dsl::parse_dsl(source) {
+        Ok(t) => t,
+        Err(_) => return default_tier,
+    };
+    let with_blocks = match dsl::extract_with_blocks(&tree, source) {
+        Ok(b) => b,
+        Err(_) => return default_tier,
+    };
+    with_blocks
+        .iter()
+        .find_map(|b| b.sandbox_tier.as_ref())
+        .map(SecurityTier::from_dsl_sandbox)
+        .unwrap_or(default_tier)
+}
 
 pub async fn run(matches: &ArgMatches) {
     // Initialize tracing for structured logging
@@ -138,13 +157,13 @@ pub async fn run(matches: &ArgMatches) {
     if agents_found.len() > 1 {
         println!("→ Auto-routing by agent name:");
         for agent in &agents_found {
-            let name = agent.trim_end_matches(".dsl");
+            let name = dsl::strip_symbi_extension(agent).unwrap_or(agent);
             println!("    /webhook/{} → {}", name, agent);
         }
     } else if let Some(agent) = agents_found.first() {
         println!("→ Auto-routing /webhook → {}", agent);
     } else {
-        // No agents/ directory or no .dsl files. Point the user at init so
+        // No agents/ directory or no agent files. Point the user at init so
         // they don't end up with a runtime that literally does nothing.
         let has_dir = Path::new("agents").is_dir();
         if !has_dir {
@@ -347,7 +366,7 @@ pub async fn run(matches: &ArgMatches) {
             let default_agent = slack_agent.cloned().or_else(|| {
                 agents_found
                     .first()
-                    .map(|f| f.strip_suffix(".dsl").unwrap_or(f).to_string())
+                    .map(|f| dsl::strip_symbi_extension(f).unwrap_or(f).to_string())
             });
 
             let slack_config = SlackConfig {
@@ -417,7 +436,7 @@ pub async fn run(matches: &ArgMatches) {
             let default_agent = teams_agent.cloned().or_else(|| {
                 agents_found
                     .first()
-                    .map(|f| f.strip_suffix(".dsl").unwrap_or(f).to_string())
+                    .map(|f| dsl::strip_symbi_extension(f).unwrap_or(f).to_string())
             });
 
             let teams_config = TeamsConfig {
@@ -480,7 +499,7 @@ pub async fn run(matches: &ArgMatches) {
             let default_agent = mm_agent.cloned().or_else(|| {
                 agents_found
                     .first()
-                    .map(|f| f.strip_suffix(".dsl").unwrap_or(f).to_string())
+                    .map(|f| dsl::strip_symbi_extension(f).unwrap_or(f).to_string())
             });
 
             let mm_config = MattermostConfig {
@@ -672,13 +691,15 @@ async fn load_dsl_schedules(cron: &symbi_runtime::CronScheduler) -> usize {
     let mut count = 0;
     if let Ok(entries) = fs::read_dir(agents_dir) {
         for entry in entries.flatten() {
-            if entry.path().extension().is_some_and(|ext| ext == "dsl") {
+            if dsl::is_symbi_file(&entry.path()) {
                 if let Ok(source) = fs::read_to_string(entry.path()) {
                     match dsl::parse_dsl(&source) {
                         Ok(tree) => match dsl::extract_schedule_definitions(&tree, &source) {
                             Ok(schedules) => {
                                 for sched_def in schedules {
                                     if let Some(ref cron_expr) = sched_def.cron {
+                                        let security_tier =
+                                            resolve_security_tier(&source, SecurityTier::Tier1);
                                         let agent_config = symbi_runtime::types::AgentConfig {
                                             id: symbi_runtime::types::AgentId::new(),
                                             name: sched_def
@@ -687,8 +708,7 @@ async fn load_dsl_schedules(cron: &symbi_runtime::CronScheduler) -> usize {
                                             dsl_source: source.clone(),
                                             execution_mode:
                                                 symbi_runtime::types::ExecutionMode::Ephemeral,
-                                            security_tier:
-                                                symbi_runtime::types::SecurityTier::Tier1,
+                                            security_tier,
                                             resource_limits:
                                                 symbi_runtime::types::ResourceLimits::default(),
                                             capabilities: vec![],
@@ -760,7 +780,7 @@ async fn load_agents_into_registry(runtime: &AgentRuntime) -> Vec<(String, Agent
     let mut agents = Vec::new();
     if let Ok(entries) = fs::read_dir(agents_dir) {
         for entry in entries.flatten() {
-            if entry.path().extension().is_some_and(|ext| ext == "dsl") {
+            if dsl::is_symbi_file(&entry.path()) {
                 if let Ok(source) = fs::read_to_string(entry.path()) {
                     let name = entry
                         .path()
@@ -768,12 +788,14 @@ async fn load_agents_into_registry(runtime: &AgentRuntime) -> Vec<(String, Agent
                         .map(|s| s.to_string_lossy().to_string())
                         .unwrap_or_default();
 
+                    let security_tier = resolve_security_tier(&source, SecurityTier::Tier1);
+
                     let agent_config = symbi_runtime::types::AgentConfig {
                         id: symbi_runtime::types::AgentId::new(),
                         name: name.clone(),
                         dsl_source: source,
                         execution_mode: symbi_runtime::types::ExecutionMode::Ephemeral,
-                        security_tier: symbi_runtime::types::SecurityTier::Tier1,
+                        security_tier: security_tier.clone(),
                         resource_limits: symbi_runtime::types::ResourceLimits::default(),
                         capabilities: vec![symbi_runtime::types::Capability::Computation],
                         policies: vec![],
@@ -783,7 +805,7 @@ async fn load_agents_into_registry(runtime: &AgentRuntime) -> Vec<(String, Agent
 
                     match runtime.scheduler.schedule_agent(agent_config).await {
                         Ok(id) => {
-                            println!("  → {} [{}]", name, id);
+                            println!("  → {} [{}] sandbox={}", name, id, security_tier);
                             agents.push((name, id));
                         }
                         Err(e) => {
@@ -804,11 +826,9 @@ fn scan_agents_directory() -> Vec<String> {
     if agents_dir.exists() && agents_dir.is_dir() {
         if let Ok(entries) = fs::read_dir(agents_dir) {
             for entry in entries.flatten() {
-                if let Some(ext) = entry.path().extension() {
-                    if ext == "dsl" {
-                        if let Some(name) = entry.path().file_name() {
-                            agents.push(name.to_string_lossy().to_string());
-                        }
+                if dsl::is_symbi_file(&entry.path()) {
+                    if let Some(name) = entry.path().file_name() {
+                        agents.push(name.to_string_lossy().to_string());
                     }
                 }
             }
@@ -830,7 +850,7 @@ fn scan_agent_dsl_sources() -> Vec<(String, String)> {
     if let Ok(entries) = fs::read_dir(agents_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().is_some_and(|ext| ext == "dsl") {
+            if dsl::is_symbi_file(&path) {
                 if let Ok(content) = fs::read_to_string(&path) {
                     let filename = path
                         .file_name()

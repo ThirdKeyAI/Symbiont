@@ -5,6 +5,8 @@
 
 pub mod docker;
 pub mod e2b;
+pub mod firecracker;
+pub mod gvisor;
 #[cfg(feature = "native-sandbox")]
 pub mod native;
 
@@ -14,6 +16,8 @@ use std::collections::HashMap;
 
 pub use docker::{DockerConfig, DockerRunner};
 pub use e2b::E2BSandbox;
+pub use firecracker::{FirecrackerConfig, FirecrackerRunner};
+pub use gvisor::{GVisorConfig, GVisorRunner};
 #[cfg(feature = "native-sandbox")]
 pub use native::{NativeConfig, NativeRunner};
 
@@ -42,19 +46,10 @@ impl SandboxTier {
     /// misconfigured deployments have previously left the unisolated tier
     /// running on real traffic.
     pub fn enforce_production_guard(&self) -> Result<(), String> {
-        // Tiers without a runner implementation must be refused unconditionally.
-        // They are kept in the enum for API stability but cannot be executed.
-        match self {
-            SandboxTier::GVisor | SandboxTier::Firecracker => {
-                return Err(format!(
-                    "SECURITY: {:?} is declared but has no runner implementation; \
-                     use Docker or E2B until this tier ships",
-                    self
-                ));
-            }
-            _ => {}
-        }
-
+        // All tiers (Docker, GVisor, Firecracker, E2B) ship with OSS runner
+        // implementations. The only tier the guard refuses unconditionally
+        // in production is `None` — direct host execution — unless the
+        // operator has explicitly opted in via `SYMBIONT_ALLOW_UNISOLATED=1`.
         if !matches!(self, SandboxTier::None) {
             return Ok(());
         }
@@ -141,6 +136,61 @@ impl ExecutionResult {
     }
 }
 
+/// Build a `SandboxRunner` for the given tier using the supplied profile.
+///
+/// `profile` carries the per-tier configuration knobs the operator set in
+/// `symbiont.toml` (`[sandbox.docker]`, `[sandbox.gvisor]`,
+/// `[sandbox.firecracker]`). Defaults are applied for any tier the operator
+/// hasn't customised.
+///
+/// Returns `Err` if the tier is `SandboxTier::None` — host-only execution
+/// must come from a deliberate code path, not a runner factory call.
+pub fn build_runner(
+    tier: SandboxTier,
+    profile: &SandboxRunnerProfile,
+) -> Result<Box<dyn SandboxRunner>, anyhow::Error> {
+    match tier {
+        SandboxTier::None => Err(anyhow::anyhow!(
+            "SandboxTier::None has no runner; agents must use docker, gvisor, firecracker, or e2b"
+        )),
+        SandboxTier::Docker => {
+            let cfg = profile.docker.clone().unwrap_or_default();
+            Ok(Box::new(DockerRunner::new(cfg)?))
+        }
+        SandboxTier::GVisor => {
+            let cfg = profile.gvisor.clone().unwrap_or_default();
+            Ok(Box::new(GVisorRunner::new(cfg)?))
+        }
+        SandboxTier::Firecracker => {
+            let cfg = profile.firecracker.clone().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Firecracker tier selected but [sandbox.firecracker] is not configured \
+                     in symbiont.toml. Set kernel_image_path and rootfs_path."
+                )
+            })?;
+            Ok(Box::new(FirecrackerRunner::new(cfg)?))
+        }
+        SandboxTier::E2B => {
+            let api_key = std::env::var("E2B_API_KEY")
+                .map_err(|_| anyhow::anyhow!("E2B tier selected but E2B_API_KEY is not set"))?;
+            Ok(Box::new(E2BSandbox::new_with_default_endpoint(api_key)))
+        }
+    }
+}
+
+/// Per-tier configuration container surfaced to `build_runner`.
+///
+/// Each field is optional: if the operator hasn't supplied a value for a
+/// given tier, `build_runner` falls back to that tier's `Default::default()`
+/// (with the exception of Firecracker, which has no sensible defaults and
+/// therefore returns an error if the field is `None`).
+#[derive(Debug, Clone, Default)]
+pub struct SandboxRunnerProfile {
+    pub docker: Option<DockerConfig>,
+    pub gvisor: Option<GVisorConfig>,
+    pub firecracker: Option<FirecrackerConfig>,
+}
+
 /// Trait for sandbox runners providing code execution capabilities
 #[async_trait]
 pub trait SandboxRunner: Send + Sync {
@@ -190,16 +240,31 @@ mod tier_guard_tests {
     #[serial_test::serial(sandbox_tier_env)]
     fn non_none_tier_passes_guard() {
         assert!(SandboxTier::Docker.enforce_production_guard().is_ok());
+        assert!(SandboxTier::GVisor.enforce_production_guard().is_ok());
+        assert!(SandboxTier::Firecracker.enforce_production_guard().is_ok());
         assert!(SandboxTier::E2B.enforce_production_guard().is_ok());
     }
 
     #[test]
-    #[serial_test::serial(sandbox_tier_env)]
-    fn unimplemented_tiers_are_refused() {
-        // GVisor and Firecracker variants remain in the enum for API
-        // stability but must be refused at startup until a runner exists.
-        assert!(SandboxTier::GVisor.enforce_production_guard().is_err());
-        assert!(SandboxTier::Firecracker.enforce_production_guard().is_err());
+    fn build_runner_rejects_none_tier() {
+        let profile = SandboxRunnerProfile::default();
+        match build_runner(SandboxTier::None, &profile) {
+            Ok(_) => panic!("None tier must not yield a runner"),
+            Err(e) => assert!(e.to_string().contains("has no runner"), "got: {}", e),
+        }
+    }
+
+    #[test]
+    fn build_runner_rejects_firecracker_without_config() {
+        let profile = SandboxRunnerProfile::default();
+        match build_runner(SandboxTier::Firecracker, &profile) {
+            Ok(_) => panic!("missing firecracker config must error"),
+            Err(e) => assert!(
+                e.to_string().contains("[sandbox.firecracker]"),
+                "error should point at config: {}",
+                e
+            ),
+        }
     }
 
     #[test]

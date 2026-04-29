@@ -83,7 +83,7 @@ fn create_webhook_min_template(project_name: &str) {
 
     // Create agent
     fs::write(
-        base.join("agents/webhook_handler.dsl"),
+        base.join("agents/webhook_handler.symbi"),
         r#"agent webhook_handler {
     name: "Webhook Handler"
     description: "Handles incoming webhook requests"
@@ -209,7 +209,7 @@ Minimal webhook handler with bearer token authentication and JSON echo.
 
 ## Project Structure
 
-- `agents/webhook_handler.dsl` - Webhook agent definition
+- `agents/webhook_handler.symbi` - Webhook agent definition
 - `policies/webhook_policy.dsl` - Security policy
 - `tests/webhook_test.sh` - Integration test
 - `symbi.toml` - Runtime configuration
@@ -238,7 +238,7 @@ fn create_webscraper_agent_template(project_name: &str) {
     fs::create_dir_all(base.join("tests")).unwrap();
 
     fs::write(
-        base.join("agents/scraper.dsl"),
+        base.join("agents/scraper.symbi"),
         r#"agent webscraper {
     name: "Web Scraper"
     description: "Scrapes and extracts content from URLs"
@@ -342,7 +342,7 @@ fn create_slm_first_template(project_name: &str) {
     fs::create_dir_all(base.join("routing")).unwrap();
 
     fs::write(
-        base.join("agents/code_helper.dsl"),
+        base.join("agents/code_helper.symbi"),
         r#"agent code_helper {
     name: "Code Helper"
     description: "SLM-first coding assistant with LLM fallback"
@@ -443,7 +443,7 @@ fn create_rag_lite_template(project_name: &str) {
     fs::create_dir_all(base.join("docs")).unwrap();
 
     fs::write(
-        base.join("agents/doc_search.dsl"),
+        base.join("agents/doc_search.symbi"),
         r#"agent doc_search {
     name: "Document Search"
     description: "RAG agent for searching documentation"

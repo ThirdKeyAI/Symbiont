@@ -184,7 +184,7 @@ start_http_input(config, Some(runtime), Some(secrets_config)).await?;
 
 ### Example Agent Definition
 
-Create a webhook handler agent in [`webhook_handler.dsl`](../agents/webhook_handler.dsl):
+Create a webhook handler agent in [`webhook_handler.symbi`](../agents/webhook_handler.symbi):
 
 ```dsl
 agent webhook_handler(body: JSON) -> Maybe<Alert> {
@@ -276,7 +276,7 @@ When the runtime is attached but the routed agent is **not in the `Running` stat
 ### How it works
 
 1. The webhook handler calls `scheduler.get_agent_status()` to verify the agent is actively running. Messages to non-running agents are not dispatched via the communication bus, since `send_message` would silently drop them.
-2. If the agent is not running, the handler builds a system prompt from any `.dsl` files found in the `agents/` directory, appends an optional caller-supplied `system_prompt` (length-capped and logged), and constructs a user message from the request payload.
+2. If the agent is not running, the handler builds a system prompt from any `.symbi` (or legacy `.dsl`) agent files found in the `agents/` directory, appends an optional caller-supplied `system_prompt` (length-capped and logged), and constructs a user message from the request payload.
 3. ToolClad manifests in the `tools/` directory are loaded and exposed to the LLM as function-calling tools. Custom types from `toolclad.toml` are applied.
 4. The handler runs an **ORGA** (Observe-Reason-Gate-Act) tool-calling loop, up to 15 iterations:
    - The LLM proposes zero or more `tool_use` calls.

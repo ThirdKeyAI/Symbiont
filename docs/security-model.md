@@ -22,34 +22,52 @@ Symbiont implements a security-first architecture designed for regulated and hig
 
 ## Multi-Tier Sandboxing
 
-The runtime implements two isolation tiers based on risk assessment:
+The runtime ships three host-isolation tiers (Tier 1 → Tier 3) plus one hosted-execution backend (E2B). The tiers form a monotonically increasing isolation ladder; E2B is **not** a peer on that ladder — it executes on third-party infrastructure and is documented separately below.
 
 ```mermaid
 graph TB
     A[Risk Assessment Engine] --> B{Risk Level}
-    
+
     B -->|Low Risk| C[Tier 1: Docker]
-    B -->|Medium/High Risk| D[Tier 2: gVisor]
-    
+    B -->|Medium Risk| D[Tier 2: gVisor]
+    B -->|High Risk| E[Tier 3: Firecracker]
+
+    A -.->|Opt-in via DSL| H[Hosted: E2B]
+
     subgraph "Tier 1: Container Isolation"
         C1[Container Runtime]
         C2[Resource Limits]
         C3[Network Isolation]
         C4[Read-only Filesystem]
     end
-    
+
     subgraph "Tier 2: User-space Kernel"
         D1[System Call Interception]
         D2[Memory Protection]
         D3[I/O Virtualization]
         D4[Enhanced Isolation]
     end
-    
+
+    subgraph "Tier 3: microVM"
+        E1[KVM Hardware Virtualization]
+        E2[Dedicated Kernel]
+        E3[Read-only Rootfs]
+        E4[Per-execution Lifecycle]
+    end
+
+    subgraph "Hosted: third-party cloud"
+        H1[No on-host isolation]
+        H2[Trust assumption: provider]
+        H3[Quick-start, no setup]
+    end
+
     C --> C1
     D --> D1
+    E --> E1
+    H --> H1
 ```
 
-> **Note**: Additional isolation tiers with hardware virtualization are available in Enterprise editions.
+> **All three host-isolation tiers — Docker, gVisor, and Firecracker — ship in the OSS runtime.** Operators pick the tier per agent via the DSL `with { sandbox = ... }` block, or set a project default via `[sandbox] tier = "..."` in `symbiont.toml`. E2B is opt-in only via the DSL (`with { sandbox = "e2b" }`) and is intentionally not exposed as an `[sandbox] tier` value.
 
 ### Tier 1: Docker Isolation
 
@@ -109,7 +127,62 @@ gvisor_security:
 - Memory corruption prevention
 - Side-channel attack mitigation
 
-> **Enterprise Feature**: Advanced isolation with hardware virtualization (Firecracker) is available in Enterprise editions for maximum security requirements.
+**Prerequisites:** Install [`runsc`](https://gvisor.dev/docs/user_guide/install/) and register it as a Docker runtime in `/etc/docker/daemon.json`. `symbi doctor` reports whether `runsc` is reachable.
+
+### Tier 3: Firecracker microVM
+
+**Use Cases:**
+- Highest-isolation workloads (untrusted code, multi-tenant, regulated data)
+- Where syscall-filter granularity (gVisor) is insufficient and a real kernel boundary is required
+- Per-execution VM lifecycle for stronger blast-radius containment
+
+**Security Features:**
+- Hardware virtualization via KVM
+- Per-execution microVM with operator-supplied kernel + rootfs
+- Read-only root filesystem by default
+- No shared kernel surface with the host
+
+**Configuration:** `[sandbox.firecracker]` in `symbiont.toml`:
+
+```toml
+[sandbox]
+tier = "tier3"
+
+[sandbox.firecracker]
+kernel_image_path = "/var/lib/firecracker/vmlinux"
+rootfs_path       = "/var/lib/firecracker/rootfs.ext4"
+vcpus             = 1
+mem_mib           = 512
+rootfs_read_only  = true
+```
+
+**Prerequisites:** Operator must supply (a) a Firecracker-compatible kernel image and (b) a root filesystem image with an init script that reads the agent payload. **See [`docs/firecracker-setup.md`](firecracker-setup.md) for a step-by-step quickstart, the in-VM init contract, and a hardening checklist.** `symbi doctor` reports whether the `firecracker` binary is reachable.
+
+Once you have both artifacts, scaffold a tier3 project with:
+
+```bash
+symbi init --profile assistant --sandbox tier3 \
+  --firecracker-kernel /var/lib/firecracker/vmlinux \
+  --firecracker-rootfs /var/lib/firecracker/rootfs.ext4
+```
+
+`symbi init` validates that both files exist before writing `symbiont.toml`, so misconfigurations surface at scaffold time rather than first agent run.
+
+### Hosted execution: E2B
+
+**E2B is a hosted cloud-sandbox backend, not a host-isolation tier.** It sits outside the Tier 1 → Tier 3 ladder and is documented here for completeness.
+
+**What it is:** Code runs on E2B's infrastructure via their HTTPS API; the runtime ships only an HTTP client. Set `E2B_API_KEY` and select it per agent with `with { sandbox = "e2b" }`. There is no `--sandbox e2b` flag on `symbi init` — E2B is intentionally opt-in via DSL only, since it represents a different trust model than the on-host tiers.
+
+**Use cases:**
+- Quick-start demos and evaluation without installing Docker, gVisor, or Firecracker.
+- Development environments where the operator can't run a sandbox host (CI without privileged mode, locked-down laptops, ARM developer machines).
+
+**What it is not:**
+- Not a substitute for on-host isolation. Code, prompts, and tool outputs traverse E2B's infrastructure. Don't use it for workloads with privacy, residency, or compliance requirements.
+- Not comparable to Tier 1/2/3 in a security review. The runtime maps `E2B → SecurityTier::Hosted`, which sorts **below** `Tier1` for ordering — policies that require host isolation (`tier >= Tier1`) will reject hosted execution.
+
+**Configuration:** No project-level config; set `E2B_API_KEY` in the environment and use `with { sandbox = "e2b" }` per agent.
 
 ---
 

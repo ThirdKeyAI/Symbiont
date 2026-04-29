@@ -4,9 +4,33 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tree_sitter::{Language, Node, Parser, Tree};
+
+/// Canonical file extension for Symbiont agent definitions.
+pub const SYMBI_EXTENSION: &str = "symbi";
+
+/// Legacy file extension for Symbiont agent definitions. Continues to be
+/// recognized indefinitely for backward compatibility; new files should
+/// use `SYMBI_EXTENSION`.
+pub const LEGACY_DSL_EXTENSION: &str = "dsl";
+
+/// Returns true if the given path has a Symbiont agent definition extension
+/// (either canonical `.symbi` or legacy `.dsl`).
+pub fn is_symbi_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext == SYMBI_EXTENSION || ext == LEGACY_DSL_EXTENSION)
+}
+
+/// Strip a recognized Symbiont agent extension (`.symbi` or `.dsl`) from a
+/// filename, returning the stem. Returns `None` if the name has neither
+/// extension.
+pub fn strip_symbi_extension(name: &str) -> Option<&str> {
+    name.strip_suffix(".symbi")
+        .or_else(|| name.strip_suffix(".dsl"))
+}
 
 /// Maximum AST traversal depth. The Symbi DSL produces shallow trees in
 /// practice (top-level block → attribute list → value); 256 gives generous
@@ -1156,6 +1180,21 @@ fn collect_errors(node: Node, source: &str, depth: usize, diagnostics: &mut Vec<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_extension_helpers() {
+        assert!(is_symbi_file(Path::new("foo.symbi")));
+        assert!(is_symbi_file(Path::new("foo.dsl")));
+        assert!(is_symbi_file(Path::new("agents/bar.symbi")));
+        assert!(!is_symbi_file(Path::new("foo.txt")));
+        assert!(!is_symbi_file(Path::new("foo")));
+        assert!(!is_symbi_file(Path::new("foo.SYMBI")));
+
+        assert_eq!(strip_symbi_extension("agent.symbi"), Some("agent"));
+        assert_eq!(strip_symbi_extension("agent.dsl"), Some("agent"));
+        assert_eq!(strip_symbi_extension("agent"), None);
+        assert_eq!(strip_symbi_extension("agent.txt"), None);
+    }
 
     #[test]
     fn test_basic_parsing() {

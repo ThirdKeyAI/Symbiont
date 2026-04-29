@@ -69,11 +69,9 @@ fn list_agents() -> Vec<String> {
     if agents_dir.exists() && agents_dir.is_dir() {
         if let Ok(entries) = std::fs::read_dir(agents_dir) {
             for entry in entries.flatten() {
-                if let Some(ext) = entry.path().extension() {
-                    if ext == "dsl" {
-                        if let Some(name) = entry.path().file_stem() {
-                            agents.push(name.to_string_lossy().to_string());
-                        }
+                if dsl::is_symbi_file(&entry.path()) {
+                    if let Some(name) = entry.path().file_stem() {
+                        agents.push(name.to_string_lossy().to_string());
                     }
                 }
             }

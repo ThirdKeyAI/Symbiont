@@ -129,7 +129,7 @@ symbi init
 This launches an interactive wizard that guides you through:
 - **Profile selection**: `minimal`, `assistant`, `dev-agent`, or `multi-agent`
 - **SchemaPin mode**: `tofu` (Trust-On-First-Use), `strict`, or `disabled`
-- **Sandbox tier**: `tier0` (none), `tier1` (Docker), or `tier2` (gVisor)
+- **Sandbox tier**: `tier0` (none, dev only), `tier1` (Docker), `tier2` (gVisor / `runsc`), or `tier3` (Firecracker microVM)
 
 ### What `init` produces
 
@@ -139,7 +139,7 @@ Every run writes:
 |------|---------|
 | `symbiont.toml` | Runtime and policy configuration |
 | `policies/default.cedar` | Deny-by-default Cedar policy |
-| `agents/*.dsl` | Profile-specific agent definitions (except `minimal`) |
+| `agents/*.symbi` | Profile-specific agent definitions (legacy `.dsl` is also recognized; except `minimal`) |
 | `AGENTS.md` | Auto-generated index of declared agents |
 | `.symbiont/audit/` | Tamper-evident audit log directory |
 | `.gitignore` | Appended with Symbiont-specific entries, including `.env` |
@@ -195,7 +195,7 @@ symbi init --catalog list
 After initialization, validate and run:
 
 ```bash
-symbi dsl -f agents/assistant.dsl   # validate your agent
+symbi dsl -f agents/assistant.symbi   # validate your agent
 symbi run assistant -i '{"query": "hello"}'  # test a single agent
 symbi up                             # start the runtime locally
 docker compose up                    # ...or start it in Docker (reads .env)
@@ -213,7 +213,7 @@ The command resolves agent names by searching: direct path, then `agents/` direc
 
 ```bash
 symbi run assistant -i 'Summarize this document'
-symbi run agents/recon.dsl -i '{"target": "10.0.1.5"}' --max-iterations 5
+symbi run agents/recon.symbi -i '{"target": "10.0.1.5"}' --max-iterations 5
 ```
 
 ### Starting from a template (`symbi new`)
@@ -244,7 +244,7 @@ Let's create a simple data analysis agent to understand the basics of Symbi.
 
 ### 1. Create Agent Definition
 
-Create a new file `my_agent.dsl`:
+Create a new file `my_agent.symbi`:
 
 ```rust
 metadata {
@@ -278,10 +278,10 @@ agent greet_user(name: String) -> String {
 
 ```bash
 # Parse and validate the agent definition
-cargo run -- dsl parse my_agent.dsl
+cargo run -- dsl parse my_agent.symbi
 
 # Run the agent in the runtime
-cd crates/runtime && cargo run --example basic_agent -- --agent ../../my_agent.dsl
+cd crates/runtime && cargo run --example basic_agent -- --agent ../../my_agent.symbi
 ```
 
 ---
@@ -619,7 +619,7 @@ brew install pkg-config openssl
 **Problem**: Agent fails to start
 ```bash
 # Check agent definition syntax
-cargo run -- dsl parse your_agent.dsl
+cargo run -- dsl parse your_agent.symbi
 
 # Enable debug logging
 RUST_LOG=debug cd crates/runtime && cargo run --example basic_agent

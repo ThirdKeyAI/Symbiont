@@ -39,7 +39,7 @@ fn generate(dir: &str, output_path: &str) {
         std::process::exit(1);
     }
 
-    // Collect and parse all .dsl files
+    // Collect and parse all `.symbi` (and legacy `.dsl`) agent files
     let mut agents = Vec::new();
 
     let mut entries: Vec<_> = std::fs::read_dir(&agents_dir)
@@ -48,7 +48,7 @@ fn generate(dir: &str, output_path: &str) {
             std::process::exit(1);
         })
         .flatten()
-        .filter(|e| e.path().extension().is_some_and(|ext| ext == "dsl"))
+        .filter(|e| dsl::is_symbi_file(&e.path()))
         .collect();
     entries.sort_by_key(|e| e.file_name());
 
@@ -58,7 +58,7 @@ fn generate(dir: &str, output_path: &str) {
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
-        let name = filename.strip_suffix(".dsl").unwrap_or(&filename);
+        let name = dsl::strip_symbi_extension(&filename).unwrap_or(&filename);
 
         let source = match std::fs::read_to_string(&path) {
             Ok(s) => s,

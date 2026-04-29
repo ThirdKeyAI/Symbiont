@@ -110,29 +110,38 @@ pub async fn run(matches: &ArgMatches) {
     );
 }
 
-/// Resolve agent path: check direct path, then agents/ directory
+/// Resolve agent path: check direct path, then agents/ directory.
+/// Tries the bare name, then `.symbi` (canonical), then `.dsl` (legacy).
 fn resolve_agent_path(name: &str) -> std::path::PathBuf {
     let path = Path::new(name);
 
-    // Direct path (with or without .dsl extension)
+    // Direct path (already has extension or is a literal path).
     if path.exists() {
         return path.to_path_buf();
     }
-    if !name.ends_with(".dsl") {
-        let with_ext = format!("{}.dsl", name);
+
+    let already_extended = name.ends_with(".symbi") || name.ends_with(".dsl");
+    let candidate_exts: &[&str] = if already_extended {
+        &[]
+    } else {
+        &["symbi", "dsl"]
+    };
+
+    for ext in candidate_exts {
+        let with_ext = format!("{}.{}", name, ext);
         let path_ext = Path::new(&with_ext);
         if path_ext.exists() {
             return path_ext.to_path_buf();
         }
     }
 
-    // Check agents/ directory
+    // Check agents/ directory.
     let agents_path = Path::new("agents").join(name);
     if agents_path.exists() {
         return agents_path;
     }
-    if !name.ends_with(".dsl") {
-        let agents_path_ext = Path::new("agents").join(format!("{}.dsl", name));
+    for ext in candidate_exts {
+        let agents_path_ext = Path::new("agents").join(format!("{}.{}", name, ext));
         if agents_path_ext.exists() {
             return agents_path_ext;
         }

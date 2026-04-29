@@ -5,11 +5,24 @@ use std::time::{Duration, SystemTime};
 
 use super::{AgentId, PolicyId};
 
-/// Security tiers for sandboxing
+/// Security tiers for sandboxing.
+///
+/// `Tier1` → `Tier3` form a monotonically increasing host-isolation ladder
+/// (Docker → gVisor → Firecracker). `Hosted` is **not** a peer on that
+/// ladder — it represents execution on third-party infrastructure (e.g.
+/// E2B) where the operator does not run their own sandbox host. It carries
+/// no on-host isolation guarantees but is not outright `None`, so it sits
+/// between `None` and `Tier1` for ordering purposes.
+///
+/// Use `tier >= SecurityTier::Tier1` when policies require host isolation.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default)]
 pub enum SecurityTier {
-    /// No isolation - native execution (⚠️ DEVELOPMENT ONLY)
+    /// No isolation — native execution (⚠️ DEVELOPMENT ONLY)
     None,
+    /// Hosted cloud execution (e.g. E2B) — code runs on third-party
+    /// infrastructure. No on-host isolation guarantees; trust assumption
+    /// is "you trust the hosting provider."
+    Hosted,
     /// Docker-based isolation
     #[default]
     Tier1,
@@ -23,9 +36,27 @@ impl std::fmt::Display for SecurityTier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SecurityTier::None => write!(f, "None (Native - No Isolation ⚠️)"),
+            SecurityTier::Hosted => write!(f, "Hosted (third-party cloud sandbox)"),
             SecurityTier::Tier1 => write!(f, "Tier1 (Docker)"),
             SecurityTier::Tier2 => write!(f, "Tier2 (gVisor)"),
             SecurityTier::Tier3 => write!(f, "Tier3 (Firecracker)"),
+        }
+    }
+}
+
+impl SecurityTier {
+    /// Map a DSL `sandbox_tier` value to the runtime's `SecurityTier`.
+    ///
+    /// `dsl::SandboxTier::E2B` maps to `Hosted` — it is not a host-
+    /// isolation tier. The runner factory still picks the actual E2B
+    /// backend; this mapping only affects how the agent's security
+    /// requirements are categorised in policy decisions.
+    pub fn from_dsl_sandbox(tier: &dsl::SandboxTier) -> Self {
+        match tier {
+            dsl::SandboxTier::Docker => SecurityTier::Tier1,
+            dsl::SandboxTier::GVisor => SecurityTier::Tier2,
+            dsl::SandboxTier::Firecracker => SecurityTier::Tier3,
+            dsl::SandboxTier::E2B => SecurityTier::Hosted,
         }
     }
 }
@@ -318,4 +349,40 @@ pub enum Capability {
     DataRead(String),
     DataWrite(String),
     DataDelete(String),
+}
+
+#[cfg(test)]
+mod from_dsl_sandbox_tests {
+    use super::*;
+
+    #[test]
+    fn dsl_sandbox_maps_to_runtime_tier() {
+        assert_eq!(
+            SecurityTier::from_dsl_sandbox(&dsl::SandboxTier::Docker),
+            SecurityTier::Tier1
+        );
+        assert_eq!(
+            SecurityTier::from_dsl_sandbox(&dsl::SandboxTier::GVisor),
+            SecurityTier::Tier2
+        );
+        assert_eq!(
+            SecurityTier::from_dsl_sandbox(&dsl::SandboxTier::Firecracker),
+            SecurityTier::Tier3
+        );
+        // E2B is hosted (third-party cloud), not a host-isolation tier.
+        assert_eq!(
+            SecurityTier::from_dsl_sandbox(&dsl::SandboxTier::E2B),
+            SecurityTier::Hosted
+        );
+    }
+
+    #[test]
+    fn hosted_orders_below_tier1() {
+        // Policies that require host isolation use `tier >= Tier1`. Hosted
+        // must sort below Tier1 so those checks reject it.
+        assert!(SecurityTier::Hosted < SecurityTier::Tier1);
+        assert!(SecurityTier::Hosted < SecurityTier::Tier2);
+        assert!(SecurityTier::Hosted < SecurityTier::Tier3);
+        assert!(SecurityTier::None < SecurityTier::Hosted);
+    }
 }

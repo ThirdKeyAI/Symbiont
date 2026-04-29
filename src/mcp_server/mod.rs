@@ -29,7 +29,7 @@ use symbi_runtime::integrations::schemapin::{
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct InvokeAgentParams {
-    /// Agent name (matches .dsl filename without extension in agents/ directory)
+    /// Agent name (matches `.symbi` filename without extension in agents/ directory; `.dsl` also accepted)
     pub agent: String,
     /// The prompt or input to send to the agent
     pub prompt: String,
@@ -39,7 +39,7 @@ pub struct InvokeAgentParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ParseDslParams {
-    /// Path to a .dsl file to parse
+    /// Path to a `.symbi` (or legacy `.dsl`) file to parse
     pub file: Option<String>,
     /// Inline DSL content to parse (used if file is not provided)
     pub content: Option<String>,
@@ -47,7 +47,7 @@ pub struct ParseDslParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct GetAgentDslParams {
-    /// Agent name (filename without .dsl extension)
+    /// Agent name (filename without `.symbi` / `.dsl` extension)
     pub agent: String,
 }
 
@@ -110,7 +110,7 @@ impl SymbiMcpServer {
             .agent_dsl_sources
             .iter()
             .filter(|(filename, _)| {
-                let stem = filename.strip_suffix(".dsl").unwrap_or(filename);
+                let stem = dsl::strip_symbi_extension(filename).unwrap_or(filename);
                 stem == params.agent
             })
             .collect();
@@ -169,7 +169,7 @@ impl SymbiMcpServer {
             .agent_dsl_sources
             .iter()
             .map(|(filename, content)| {
-                let name = filename.strip_suffix(".dsl").unwrap_or(filename);
+                let name = dsl::strip_symbi_extension(filename).unwrap_or(filename);
 
                 // Quick check for schedule/channel blocks
                 let has_schedules = content.contains("schedule ");
@@ -207,9 +207,9 @@ impl SymbiMcpServer {
                     "File path must be relative and cannot contain '..' components.",
                 )]));
             }
-            if path.extension().and_then(|e| e.to_str()) != Some("dsl") {
+            if !dsl::is_symbi_file(path) {
                 return Ok(CallToolResult::error(vec![Content::text(
-                    "Only .dsl files can be parsed.",
+                    "Only .symbi (or legacy .dsl) files can be parsed.",
                 )]));
             }
             match tokio::fs::read_to_string(file).await {
@@ -311,7 +311,7 @@ impl SymbiMcpServer {
     ) -> Result<CallToolResult, McpError> {
         // First check pre-scanned sources
         for (filename, content) in self.agent_dsl_sources.iter() {
-            let stem = filename.strip_suffix(".dsl").unwrap_or(filename);
+            let stem = dsl::strip_symbi_extension(filename).unwrap_or(filename);
             if stem == params.agent {
                 return Ok(CallToolResult::success(vec![Content::text(
                     content.clone(),
@@ -329,15 +329,18 @@ impl SymbiMcpServer {
                 "Agent name must contain only alphanumeric characters, hyphens, and underscores.",
             )]));
         }
-        // Fall back to reading from disk (in case agents were added after startup)
-        let path = format!("agents/{}.dsl", params.agent);
-        match tokio::fs::read_to_string(&path).await {
-            Ok(content) => Ok(CallToolResult::success(vec![Content::text(content)])),
-            Err(_) => Ok(CallToolResult::error(vec![Content::text(format!(
-                "Agent '{}' not found. Use list_agents to see available agents.",
-                params.agent
-            ))])),
+        // Fall back to reading from disk (in case agents were added after startup).
+        // Try `.symbi` first (canonical), then `.dsl` (legacy).
+        for ext in [dsl::SYMBI_EXTENSION, dsl::LEGACY_DSL_EXTENSION] {
+            let path = format!("agents/{}.{}", params.agent, ext);
+            if let Ok(content) = tokio::fs::read_to_string(&path).await {
+                return Ok(CallToolResult::success(vec![Content::text(content)]));
+            }
         }
+        Ok(CallToolResult::error(vec![Content::text(format!(
+            "Agent '{}' not found. Use list_agents to see available agents.",
+            params.agent
+        ))]))
     }
 
     #[tool(
@@ -485,7 +488,8 @@ impl ServerHandler for SymbiMcpServer {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Scan the agents/ directory for .dsl files and return (filename, content) pairs.
+/// Scan the agents/ directory for `.symbi` (or legacy `.dsl`) files and
+/// return (filename, content) pairs.
 fn scan_agent_dsl_files() -> Vec<(String, String)> {
     let agents_dir = std::path::Path::new("agents");
     let mut sources = Vec::new();
@@ -497,7 +501,7 @@ fn scan_agent_dsl_files() -> Vec<(String, String)> {
     if let Ok(entries) = std::fs::read_dir(agents_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().is_some_and(|ext| ext == "dsl") {
+            if dsl::is_symbi_file(&path) {
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     let filename = path
                         .file_name()
