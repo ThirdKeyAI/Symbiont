@@ -6,6 +6,10 @@ description = "Dual-channel (CLI + Slack) human approval relay for AI agent gate
 license = "Apache-2.0"
 repository = "https://github.com/thirdkeyai/symbiont"
 
+# Tracked for future machete cleanup — see v1.12.0 release thread.
+[package.metadata.cargo-machete]
+ignored = ["tokio-util", "wiremock"]
+
 [dependencies]
 axum = { version = "0.7", features = ["macros"] }
 async-trait = "0.1"

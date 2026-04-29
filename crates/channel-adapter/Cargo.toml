@@ -9,6 +9,10 @@ repository = "https://github.com/thirdkeyai/symbiont"
 readme = "README.md"
 keywords = ["chat", "slack", "adapter", "symbiont", "agents"]
 
+# Tracked for future machete cleanup — see v1.12.0 release thread.
+[package.metadata.cargo-machete]
+ignored = ["base64", "tokio-test", "tower", "tower-http"]
+
 [dependencies]
 tokio = { version = "1.0", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }

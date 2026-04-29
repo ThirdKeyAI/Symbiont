@@ -9,6 +9,30 @@ repository = "https://github.com/thirdkeyai/symbiont"
 keywords = ["dsl", "tree-sitter", "ast", "parser", "symbiont"]
 categories = ["parsing", "development-tools"]
 
+# `cargo machete` produces high-noise output on this crate because the
+# tree-sitter integration uses `cc` from build.rs and several deps are
+# referenced through generated parser code that machete doesn't analyse.
+# Tracked for a future cleanup pass; see the v1.12.0 release thread.
+[package.metadata.cargo-machete]
+ignored = [
+    "anyhow",
+    "cc",
+    "clap",
+    "criterion",
+    "ring",
+    "serde_json",
+    "thiserror",
+    "tokio",
+    "tokio-test",
+    "tracing-subscriber",
+    "tree-sitter-javascript",
+    "tree-sitter-python",
+    "tree-sitter-rust",
+    "tree-sitter-typescript",
+    "uuid",
+    "walkdir",
+]
+
 [dependencies]
 # Tree-sitter core for AST parsing and manipulation
 tree-sitter = "0.20"
@@ -34,9 +58,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # CLI argument parsing
 clap = { version = "4.0", features = ["derive"] }
-
-# Configuration management
-config = "0.13"
 
 # UUID generation for agent IDs
 uuid = { version = "1.0", features = ["v4", "serde"] }

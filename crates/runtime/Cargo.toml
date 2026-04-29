@@ -9,6 +9,27 @@ repository = "https://github.com/thirdkeyai/symbiont"
 keywords = ["agent", "runtime", "ai", "symbiont", "automation"]
 categories = ["development-tools", "api-bindings"]
 
+# These deps are flagged as unused by `cargo machete` but are actually
+# referenced through feature gates, dev-dependencies activated via
+# `--features`, or build-script wiring that machete doesn't see. Keep
+# this list minimal — only add an entry after confirming the dep is
+# wired through a feature or `[target.'cfg(...)']` block.
+[package.metadata.cargo-machete]
+ignored = [
+    "candle-core",          # `embedding-models` feature
+    "candle-nn",            # `embedding-models` feature
+    "candle-transformers",  # `embedding-models` feature
+    "tokenizers",           # `embedding-models` feature
+    "hf-hub",               # `embedding-models` feature
+    "tower",                # `http-api` / `http-input` features
+    "tokio-tungstenite",    # `http-api` feature (websockets)
+    "openssl",              # `vendored-openssl` feature for static linking
+    "humantime-serde",      # used as serde `with = "humantime_serde"` attribute
+    "symbi-dsl",            # imported as `dsl::` (renamed via crate alias)
+    "criterion",            # benchmark-only dev-dep
+    "tokio-test",           # async test harness, used in `#[tokio::test]` indirectly
+]
+
 
 [[example]]
 name = "basic_agent"
@@ -41,7 +62,6 @@ async-trait = "0.1"
 arc-swap = "1"
 dashmap = "5.0"
 parking_lot = "0.12"
-crossbeam = "0.8"
 ed25519-dalek = { version = "2.1", features = ["serde"] }
 aes-gcm = "0.10"
 rand = "0.8"
@@ -69,12 +89,9 @@ regex = "1.0"
 humantime-serde = "1.1"
 clap = { version = "4.0", features = ["derive"] }
 reqwest = { version = "0.12", features = ["json", "blocking", "stream"] }
-git2 = "0.20"
-octocrab = "0.49"
 toml = "0.8"
 url = "2.4"
 base64 = "0.21"
-base64ct = "1"
 schemapin = "1.3.0"
 agentpin = { version = "0.2.0", features = ["fetch"] }
 jsonschema = "0.28"

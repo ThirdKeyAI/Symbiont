@@ -2,7 +2,11 @@ default:
     @just --list
 
 # Pre-release health sweep — must pass before tagging or publishing.
-check: fmt clippy test machete audit deny geiger
+# `geiger` is intentionally not in this list: cargo-geiger 0.13 panics
+# against cargo ≥0.86 (upstream incompat). Run `just geiger` manually
+# when you want the unsafe-surface report; re-add to `check` once the
+# upstream fix lands.
+check: fmt clippy test machete audit deny
 
 fmt:
     cargo fmt --check

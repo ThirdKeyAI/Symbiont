@@ -14,7 +14,6 @@ name = "repl_core"
 path = "src/lib.rs"
 
 [dependencies]
-anyhow = "1.0"
 thiserror = "1.0"
 rand = { version = "0.8", features = ["small_rng"] }
 rand_chacha = "0.3"
@@ -28,5 +27,3 @@ futures = "0.3"
 bytes = "1.0"
 symbi-runtime = { path = "../runtime", version = "1.12.0", features = ["http-input"] }
 
-[dev-dependencies]
-tokio-test = "0.4"

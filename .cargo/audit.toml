@@ -1,0 +1,13 @@
+[advisories]
+# Mirror of the `[advisories.ignore]` block in deny.toml — keep in sync.
+# `cargo audit` exits non-zero on errors only; we ignore here so warnings
+# stay informational and `just check` can pass on dep-tree state we cannot
+# influence directly. See deny.toml for per-advisory justifications.
+ignore = [
+    "RUSTSEC-2025-0134",  # rustls-pemfile unmaintained — blocked on tonic
+    "RUSTSEC-2024-0388",  # derivative unmaintained
+    "RUSTSEC-2024-0384",  # instant unmaintained
+    "RUSTSEC-2024-0436",  # paste unmaintained
+    "RUSTSEC-2024-0370",  # proc-macro-error unmaintained
+    "RUSTSEC-2026-0097",  # rand rng() unsoundness — fix in rand 0.9, blocked by deps
+]

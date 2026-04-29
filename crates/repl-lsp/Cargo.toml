@@ -17,5 +17,4 @@ path = "src/main.rs"
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 tower-lsp = "0.20"
-serde_json = "1.0"
 repl-core = { path = "../repl-core", version = "1.12.0" }
