@@ -162,6 +162,160 @@ impl LlmClient {
         None
     }
 
+    /// Like `from_env`, but also accepts an optional `SecretStore` from which
+    /// API keys can be resolved when the corresponding `*_API_KEY_REF`
+    /// environment variable is set.
+    ///
+    /// Operators point at vault/openbao keys with these env vars:
+    /// * `OPENROUTER_API_KEY_REF` — secret-store key for the OpenRouter API key
+    /// * `OPENAI_API_KEY_REF` — secret-store key for the OpenAI API key
+    /// * `ANTHROPIC_API_KEY_REF` — secret-store key for the Anthropic API key
+    ///
+    /// When a `*_REF` env var is set and `store` is `Some`, the value is
+    /// fetched from the store. On store miss / failure, it falls back to the
+    /// regular `*_API_KEY` env var. When `*_REF` is unset, the regular env
+    /// var is used directly. The provider-detection order matches `from_env`:
+    /// OpenRouter → OpenAI → Anthropic.
+    ///
+    /// The `*_BASE_URL` and `*_MODEL` env vars are unchanged from `from_env`.
+    pub async fn from_env_or_secrets(
+        store: Option<std::sync::Arc<dyn crate::secrets::SecretStore + Send + Sync>>,
+    ) -> Option<Self> {
+        let client = crate::net_guard::customise_ssrf_safe_client(
+            std::time::Duration::from_secs(120),
+            |b| b.redirect(reqwest::redirect::Policy::limited(2)),
+        )
+        .ok()?;
+
+        fn validate_base_url(env_var: &str, url: &str) -> bool {
+            if let Err(reason) = crate::net_guard::reject_ssrf_url(url) {
+                tracing::error!(
+                    "Refusing LLM base URL from {}: {} — falling back or disabling provider",
+                    env_var,
+                    reason
+                );
+                return false;
+            }
+            if url.starts_with("http://") {
+                tracing::warn!(
+                    "LLM base URL from {} uses plaintext HTTP ({}); \
+                     API keys will be sent in the clear. Configure HTTPS in production.",
+                    env_var,
+                    url
+                );
+            }
+            true
+        }
+
+        let store_ref: Option<&(dyn crate::secrets::SecretStore + Send + Sync)> = store.as_deref();
+
+        // OpenRouter
+        let openrouter_ref = std::env::var("OPENROUTER_API_KEY_REF").ok();
+        if let Some(api_key) = crate::secrets::resolve_secret_or_env(
+            "OPENROUTER_API_KEY",
+            openrouter_ref.as_deref(),
+            store_ref,
+        )
+        .await
+        {
+            let model = std::env::var("OPENROUTER_MODEL")
+                .unwrap_or_else(|_| "anthropic/claude-sonnet-4".to_string());
+            let base_url = std::env::var("OPENROUTER_BASE_URL")
+                .unwrap_or_else(|_| "https://openrouter.ai/api/v1".to_string());
+            if !validate_base_url("OPENROUTER_BASE_URL", &base_url) {
+                return None;
+            }
+            tracing::info!(
+                "LLM client initialized: provider=OpenRouter model={} (key source: {})",
+                model,
+                if openrouter_ref.is_some() && store_ref.is_some() {
+                    "secret store (with env fallback)"
+                } else {
+                    "env"
+                }
+            );
+            return Some(Self {
+                client,
+                api_key,
+                base_url,
+                model,
+                provider: LlmProvider::OpenRouter,
+            });
+        }
+
+        // OpenAI
+        let openai_ref = std::env::var("OPENAI_API_KEY_REF").ok();
+        if let Some(api_key) = crate::secrets::resolve_secret_or_env(
+            "OPENAI_API_KEY",
+            openai_ref.as_deref(),
+            store_ref,
+        )
+        .await
+        {
+            let model = std::env::var("CHAT_MODEL").unwrap_or_else(|_| "gpt-4o".to_string());
+            let base_url = std::env::var("OPENAI_BASE_URL")
+                .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
+            if !validate_base_url("OPENAI_BASE_URL", &base_url) {
+                return None;
+            }
+            tracing::info!(
+                "LLM client initialized: provider=OpenAI model={} (key source: {})",
+                model,
+                if openai_ref.is_some() && store_ref.is_some() {
+                    "secret store (with env fallback)"
+                } else {
+                    "env"
+                }
+            );
+            return Some(Self {
+                client,
+                api_key,
+                base_url,
+                model,
+                provider: LlmProvider::OpenAI,
+            });
+        }
+
+        // Anthropic
+        let anthropic_ref = std::env::var("ANTHROPIC_API_KEY_REF").ok();
+        if let Some(api_key) = crate::secrets::resolve_secret_or_env(
+            "ANTHROPIC_API_KEY",
+            anthropic_ref.as_deref(),
+            store_ref,
+        )
+        .await
+        {
+            let model = std::env::var("ANTHROPIC_MODEL")
+                .unwrap_or_else(|_| "claude-sonnet-4-20250514".to_string());
+            let base_url = std::env::var("ANTHROPIC_BASE_URL")
+                .unwrap_or_else(|_| "https://api.anthropic.com/v1".to_string());
+            if !validate_base_url("ANTHROPIC_BASE_URL", &base_url) {
+                return None;
+            }
+            tracing::info!(
+                "LLM client initialized: provider=Anthropic model={} (key source: {})",
+                model,
+                if anthropic_ref.is_some() && store_ref.is_some() {
+                    "secret store (with env fallback)"
+                } else {
+                    "env"
+                }
+            );
+            return Some(Self {
+                client,
+                api_key,
+                base_url,
+                model,
+                provider: LlmProvider::Anthropic,
+            });
+        }
+
+        tracing::info!(
+            "No LLM API key found in environment or secret store, LLM invocation disabled"
+        );
+        None
+    }
+
     /// Get the model name
     pub fn model(&self) -> &str {
         &self.model
@@ -170,6 +324,29 @@ impl LlmClient {
     /// Get the provider
     pub fn provider(&self) -> &LlmProvider {
         &self.provider
+    }
+
+    /// Get the configured API base URL.
+    ///
+    /// Crate-private and gated on `cloud-llm`: only the cloud inference
+    /// provider needs this to make HTTP requests directly without re-reading
+    /// the env var on every call. External callers should keep using the
+    /// public `chat_completion` methods, which never expose the URL.
+    #[cfg(feature = "cloud-llm")]
+    pub(crate) fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
+    /// Get the configured API key.
+    ///
+    /// Crate-private and gated on `cloud-llm`: only the cloud inference
+    /// provider needs raw access to the key in order to construct
+    /// provider-specific HTTP headers. Public callers must go through
+    /// `chat_completion`, which never exposes the key. The value never
+    /// appears in `Debug` output.
+    #[cfg(feature = "cloud-llm")]
+    pub(crate) fn api_key(&self) -> &str {
+        &self.api_key
     }
 
     /// Send a chat completion request with system and user messages.

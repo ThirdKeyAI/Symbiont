@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **LLM API keys via `SecretStore`**: `CloudInferenceProvider` and `LlmClient` now accept an optional `Arc<dyn SecretStore + Send + Sync>` (HashiCorp Vault, OpenBao, or the file-encrypted backend) for resolving provider API keys. Operators point at secret-store keys with new env vars (`OPENROUTER_API_KEY_REF`, `OPENAI_API_KEY_REF`, `ANTHROPIC_API_KEY_REF`); when the corresponding `*_REF` is set the value is fetched from the store, otherwise the existing `*_API_KEY` env var is used. On store miss/failure the loader falls back to the env var so dev and CI workflows are unaffected. New helper `secrets::resolve_secret_or_env(env_var, secret_key, store)` exposes the same logic for other call sites. New constructors `LlmClient::from_env_or_secrets(store)` and `CloudInferenceProvider::from_env_or_secrets(store)` (async); `from_env()` is unchanged. Side benefit: the cloud provider no longer re-reads `*_API_KEY` / `*_BASE_URL` from the env on every inference call.
+
+### Fixed
+- **`jsonwebtoken` v10 crypto backend**: pinned `rust_crypto` feature on `jsonwebtoken` in `crates/runtime` and `crates/channel-adapter`. The v10 release dropped a default backend and required exactly one of `rust_crypto` or `aws_lc_rs` to be enabled; without it, JWT verifier tests panicked at runtime. `rust_crypto` was selected because the workspace already depends on RustCrypto crates (`hmac`, `sha2`, `ecdsa`, `p256`) and avoids pulling in `aws-lc-sys`.
+
 ## [1.12.0] - 2026-04-29
 
 ### Added

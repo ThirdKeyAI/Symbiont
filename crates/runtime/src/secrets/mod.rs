@@ -233,6 +233,46 @@ pub async fn get_secret_checked(
 /// Result type for secrets operations
 pub type SecretResult<T> = Result<T, SecretError>;
 
+/// Resolve a secret value, preferring a `SecretStore` over an environment
+/// variable when both are available.
+///
+/// Resolution order:
+/// 1. If `secret_key` is `Some` and `store` is `Some`, attempt to fetch the
+///    secret from the store. On success, return the value.
+/// 2. On store error (or if either is `None`), fall back to
+///    `std::env::var(env_var)`.
+/// 3. Return `None` if neither source produces a value.
+///
+/// Store failures are logged at WARN level. Successful store reads are logged
+/// at DEBUG. The secret value itself is never logged.
+///
+/// This is intended for plumbing third-party API keys (LLM providers,
+/// webhooks, etc.) through the existing secrets infrastructure while keeping
+/// env-var configuration as a graceful fallback for development and CI.
+pub async fn resolve_secret_or_env(
+    env_var: &str,
+    secret_key: Option<&str>,
+    store: Option<&(dyn SecretStore + Send + Sync)>,
+) -> Option<String> {
+    if let (Some(store), Some(key)) = (store, secret_key) {
+        match store.get_secret(key).await {
+            Ok(secret) => {
+                tracing::debug!(secret_key = %key, "Resolved secret from secret store");
+                return Some(secret.value().to_string());
+            }
+            Err(e) => {
+                tracing::warn!(
+                    secret_key = %key,
+                    env_var = %env_var,
+                    error = %e,
+                    "Failed to fetch secret from store; falling back to env var"
+                );
+            }
+        }
+    }
+    std::env::var(env_var).ok()
+}
+
 // Re-export config types, backends, and auditing
 pub use auditing::*;
 pub use config::*;
@@ -365,5 +405,78 @@ mod tests {
         };
         assert!(!meta.is_expired());
         assert!(!meta.needs_rotation());
+    }
+
+    /// Minimal in-memory `SecretStore` for tests of `resolve_secret_or_env`.
+    struct MapStore {
+        data: HashMap<String, String>,
+        fail: bool,
+    }
+
+    #[async_trait]
+    impl SecretStore for MapStore {
+        async fn get_secret(&self, key: &str) -> Result<Secret, SecretError> {
+            if self.fail {
+                return Err(SecretError::BackendError {
+                    message: "synthetic failure".to_string(),
+                });
+            }
+            self.data
+                .get(key)
+                .map(|v| Secret::new(key.to_string(), v.clone()))
+                .ok_or_else(|| SecretError::NotFound {
+                    key: key.to_string(),
+                })
+        }
+
+        async fn list_secrets(&self) -> Result<Vec<String>, SecretError> {
+            Ok(self.data.keys().cloned().collect())
+        }
+    }
+
+    // Each test uses a unique env-var name so concurrent runs don't race on
+    // shared process state. We make sure to remove the var at the end of each
+    // test. We don't restore prior values because the test names are unique
+    // and chosen to be unused outside the test module.
+
+    #[tokio::test]
+    async fn resolve_returns_store_value_when_present() {
+        std::env::set_var("RESOLVE_TEST_KEY_A", "env-key");
+        let store = MapStore {
+            data: HashMap::from([("llm/anthropic".to_string(), "vault-key".to_string())]),
+            fail: false,
+        };
+        let got =
+            resolve_secret_or_env("RESOLVE_TEST_KEY_A", Some("llm/anthropic"), Some(&store)).await;
+        std::env::remove_var("RESOLVE_TEST_KEY_A");
+        assert_eq!(got.as_deref(), Some("vault-key"));
+    }
+
+    #[tokio::test]
+    async fn resolve_falls_back_to_env_on_store_error() {
+        std::env::set_var("RESOLVE_TEST_KEY_B", "env-key");
+        let store = MapStore {
+            data: HashMap::new(),
+            fail: true,
+        };
+        let got =
+            resolve_secret_or_env("RESOLVE_TEST_KEY_B", Some("llm/anthropic"), Some(&store)).await;
+        std::env::remove_var("RESOLVE_TEST_KEY_B");
+        assert_eq!(got.as_deref(), Some("env-key"));
+    }
+
+    #[tokio::test]
+    async fn resolve_uses_env_when_no_secret_key() {
+        std::env::set_var("RESOLVE_TEST_KEY_C", "env-only");
+        let got = resolve_secret_or_env("RESOLVE_TEST_KEY_C", None, None).await;
+        std::env::remove_var("RESOLVE_TEST_KEY_C");
+        assert_eq!(got.as_deref(), Some("env-only"));
+    }
+
+    #[tokio::test]
+    async fn resolve_returns_none_when_nothing_set() {
+        std::env::remove_var("RESOLVE_TEST_KEY_D");
+        let got = resolve_secret_or_env("RESOLVE_TEST_KEY_D", None, None).await;
+        assert!(got.is_none());
     }
 }

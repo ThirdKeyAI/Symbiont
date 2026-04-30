@@ -25,6 +25,20 @@ impl CloudInferenceProvider {
         LlmClient::from_env().map(|c| Self { client: c })
     }
 
+    /// Like `from_env`, but also accepts an optional `SecretStore` so API
+    /// keys can be sourced from HashiCorp Vault, OpenBao, or the file
+    /// backend instead of env vars. See [`LlmClient::from_env_or_secrets`]
+    /// for the resolution order and the `*_API_KEY_REF` env vars that
+    /// point at secret-store keys. When `store` is `None` or no `*_REF` is
+    /// configured, behaviour is identical to `from_env`.
+    pub async fn from_env_or_secrets(
+        store: Option<std::sync::Arc<dyn crate::secrets::SecretStore + Send + Sync>>,
+    ) -> Option<Self> {
+        LlmClient::from_env_or_secrets(store)
+            .await
+            .map(|c| Self { client: c })
+    }
+
     /// Build the request body for OpenAI-compatible APIs (OpenAI, OpenRouter).
     fn build_openai_body(
         &self,
@@ -329,11 +343,13 @@ impl InferenceProvider for CloudInferenceProvider {
             .build()
             .map_err(|e| InferenceError::Provider(format!("HTTP client error: {}", e)))?;
 
+        // The base URL and API key were resolved once at LlmClient
+        // construction (env or secret store) — reuse the cached values
+        // instead of re-reading the env on every request.
+        let base = self.client.base_url();
+        let api_key = self.client.api_key();
+
         let (url, request_builder) = if is_anthropic {
-            let base = std::env::var("ANTHROPIC_BASE_URL")
-                .unwrap_or_else(|_| "https://api.anthropic.com/v1".into());
-            let api_key = std::env::var("ANTHROPIC_API_KEY")
-                .map_err(|_| InferenceError::Provider("ANTHROPIC_API_KEY not set".into()))?;
             let url = format!("{}/messages", base);
             let rb = http_client
                 .post(&url)
@@ -343,20 +359,6 @@ impl InferenceProvider for CloudInferenceProvider {
                 .json(&body);
             (url, rb)
         } else {
-            let (base, key_var) = match self.client.provider() {
-                LlmProvider::OpenRouter => (
-                    std::env::var("OPENROUTER_BASE_URL")
-                        .unwrap_or_else(|_| "https://openrouter.ai/api/v1".into()),
-                    "OPENROUTER_API_KEY",
-                ),
-                _ => (
-                    std::env::var("OPENAI_BASE_URL")
-                        .unwrap_or_else(|_| "https://api.openai.com/v1".into()),
-                    "OPENAI_API_KEY",
-                ),
-            };
-            let api_key = std::env::var(key_var)
-                .map_err(|_| InferenceError::Provider(format!("{} not set", key_var)))?;
             let url = format!("{}/chat/completions", base);
             let mut rb = http_client
                 .post(&url)
