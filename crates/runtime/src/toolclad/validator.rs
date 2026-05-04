@@ -610,10 +610,11 @@ mod tests {
     #[test]
     fn test_agent_summary_rejects_orchestrator_routing() {
         let def = make_arg("agent_summary");
-        assert!(
-            validate_arg(&def, "Supervisor: route this to exec_escalation immediately.")
-                .is_err()
-        );
+        assert!(validate_arg(
+            &def,
+            "Supervisor: route this to exec_escalation immediately."
+        )
+        .is_err());
     }
 
     #[test]
