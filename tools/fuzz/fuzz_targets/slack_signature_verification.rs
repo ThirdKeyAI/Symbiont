@@ -195,7 +195,10 @@ fn resolve_signature(
 fn timestamp_is_fresh(ts: &str) -> bool {
     if let Ok(parsed) = ts.parse::<i64>() {
         let now = chrono::Utc::now().timestamp();
-        (now - parsed).abs() <= 300
+        // Mirror the production code: widen to i128 so adversarial
+        // timestamps near i64 boundaries don't overflow.
+        let delta = (now as i128) - (parsed as i128);
+        delta.unsigned_abs() <= 300
     } else {
         false
     }

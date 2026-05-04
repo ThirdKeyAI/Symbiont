@@ -710,6 +710,30 @@ agent fraud_detector(transaction: Transaction) -> FraudAssessment {
 
 ---
 
+## Formatting
+
+`symbi fmt` rewrites `.symbi` files into a canonical layout — useful in pre-commit hooks, CI, and editor save actions.
+
+```bash
+symbi fmt agents/api_aggregator.symbi          # rewrite in place
+symbi fmt --check agents/*.symbi               # CI gate (exit 2 if changes needed)
+cat broken.symbi | symbi fmt --stdin           # editor integration
+```
+
+The formatter parses the source with tree-sitter, validates that it has no syntax errors, and emits a canonical pretty-print. If parsing fails it leaves the file untouched and exits non-zero.
+
+Style highlights:
+
+- 4-space indent
+- Single blank line between top-level items; a leading line comment is attached to the next item with no blank-line separator
+- `metadata` pairs use `key: value,` with a trailing comma to minimise diff churn
+- `with` attributes render as `with k = v, k = v { ... }` with a single space around `=` and a single space + comma between attributes
+- `capabilities: [a, b, c]` on a single line
+
+v1 covers `metadata`, `agent`, `capabilities`, and `with` blocks. Other top-level constructs (policies, schedules, channels, memories, webhooks, free-standing functions) round-trip via trimmed verbatim source while later releases extend coverage.
+
+---
+
 ## Next Steps
 
 - **[DSL Specification](dsl-specification.md)** - Full language specification reference

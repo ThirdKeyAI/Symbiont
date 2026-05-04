@@ -1,0 +1,5 @@
+// File-level comment
+metadata {
+// inside metadata
+version: "1.0"
+}

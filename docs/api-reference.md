@@ -1276,6 +1276,23 @@ Regenerate `AGENTS.md` from the current `agents/*.symbi` files (legacy `.dsl` is
 symbi agents-md generate --dir . --output AGENTS.md
 ```
 
+### `symbi fmt`
+
+Canonical-format `.symbi` files. Reuses the tree-sitter parse tree from `symbi-dsl` to emit a stable layout suitable for pre-commit hooks, CI gates, and editor save actions.
+
+```bash
+# Rewrite files in place
+symbi fmt agents/*.symbi
+
+# CI gate — exit 2 if anything would change, no writes
+symbi fmt --check agents/*.symbi
+
+# Stdio mode for editor integration
+cat broken.symbi | symbi fmt --stdin
+```
+
+Exit codes: `0` no changes (or wrote successfully), `1` an I/O or syntax error occurred and no file was rewritten, `2` `--check` saw drift or invalid argument combination. The formatter refuses to format files containing syntax errors.
+
 ## Getting Started
 
 ### Runtime HTTP API

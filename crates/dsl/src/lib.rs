@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tree_sitter::{Language, Node, Parser, Tree};
 
+pub mod format;
+
 /// Canonical file extension for Symbiont agent definitions.
 pub const SYMBI_EXTENSION: &str = "symbi";
 

@@ -1,0 +1,10 @@
+metadata {
+    version: "1.0",
+}
+
+agent Echo {
+    capabilities: [speak]
+
+    with sandbox = "docker", timeout = "10.seconds" {
+    }
+}

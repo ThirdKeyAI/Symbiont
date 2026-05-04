@@ -1,0 +1,5 @@
+agent  Greeter   {
+capabilities :  [hello,wave  ]
+with sandbox = "docker" , timeout = "30.seconds"  {
+}
+}

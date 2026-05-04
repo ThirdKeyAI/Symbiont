@@ -328,6 +328,28 @@ async fn main() {
                 ),
         )
         .subcommand(
+            Command::new("fmt")
+                .about("Canonical-format Symbi (.symbi) source files")
+                .arg(
+                    Arg::new("check")
+                        .long("check")
+                        .action(ArgAction::SetTrue)
+                        .help("Exit non-zero if any file needs formatting; do not write changes"),
+                )
+                .arg(
+                    Arg::new("stdin")
+                        .long("stdin")
+                        .action(ArgAction::SetTrue)
+                        .help("Read source from stdin, write formatted output to stdout"),
+                )
+                .arg(
+                    Arg::new("files")
+                        .help(".symbi files to format (rewritten in place by default)")
+                        .num_args(0..)
+                        .value_name("FILES"),
+                ),
+        )
+        .subcommand(
             Command::new("chat")
                 .about("Manage chat channel adapters (Slack, Teams, Mattermost)")
                 .subcommand(
@@ -717,6 +739,9 @@ async fn main() {
         }
         Some(("agents-md", sub_matches)) => {
             commands::agents_md::run(sub_matches);
+        }
+        Some(("fmt", sub_matches)) => {
+            std::process::exit(commands::fmt::run(sub_matches));
         }
         Some(("dsl", sub_matches)) => {
             let source = if let Some(file) = sub_matches.get_one::<String>("file") {

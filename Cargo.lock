@@ -9171,7 +9171,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-invis-strip"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "symbi-runtime"
@@ -9237,6 +9237,7 @@ dependencies = [
  "sha2",
  "subtle",
  "symbi-dsl",
+ "symbi-invis-strip",
  "sysinfo",
  "tempfile",
  "thiserror 1.0.69",

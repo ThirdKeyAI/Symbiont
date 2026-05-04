@@ -29,7 +29,11 @@ pub fn verify_slack_signature(
         .parse()
         .map_err(|_| ChannelAdapterError::SignatureInvalid("invalid timestamp".to_string()))?;
     let now = chrono::Utc::now().timestamp();
-    if (now - ts).abs() > MAX_TIMESTAMP_AGE_SECS {
+    // Widen to i128 so adversarial timestamps near i64::MIN/MAX cannot
+    // overflow the subtraction (debug builds panic; release builds wrap
+    // and could let a stale request slip through the freshness check).
+    let delta = (now as i128) - (ts as i128);
+    if delta.unsigned_abs() > MAX_TIMESTAMP_AGE_SECS as u128 {
         return Err(ChannelAdapterError::SignatureInvalid(
             "request timestamp too old".to_string(),
         ));
@@ -93,6 +97,30 @@ mod tests {
                 assert!(msg.contains("mismatch"));
             }
             other => panic!("expected SignatureInvalid, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn extreme_timestamps_do_not_panic() {
+        // Regression: the freshness check used `(now - ts).abs()` on i64,
+        // which panics on subtract-overflow when ts is i64::MIN/MAX (or
+        // wraps in release builds, potentially accepting stale requests).
+        let secret = "test-secret";
+        let body = b"body";
+        let sig = "v0=00";
+
+        for ts in [
+            i64::MAX.to_string(),
+            i64::MIN.to_string(),
+            (i64::MAX - 1).to_string(),
+            (i64::MIN + 1).to_string(),
+        ] {
+            let result = verify_slack_signature(secret, &ts, body, sig);
+            // Must not panic; must reject as out-of-window.
+            assert!(
+                result.is_err(),
+                "extreme timestamp {ts} must be rejected, got {result:?}",
+            );
         }
     }
 
