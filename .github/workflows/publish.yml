@@ -86,12 +86,14 @@ jobs:
 
           # Tier 1: No workspace dependencies
           publish_crate symbi-dsl || exit 1
+          publish_crate symbi-invis-strip || exit 1
+          publish_crate symbi-approval-relay || exit 1
           publish_crate repl-proto || exit 1
 
           echo "Waiting 30s for crates.io index..."
           sleep 30
 
-          # Tier 2: Depends on symbi-dsl
+          # Tier 2: Depends on symbi-dsl + symbi-invis-strip
           publish_crate symbi-runtime || exit 1
 
           echo "Waiting 30s for crates.io index..."
