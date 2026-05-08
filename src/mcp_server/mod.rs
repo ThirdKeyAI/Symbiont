@@ -68,6 +68,9 @@ pub struct SymbiMcpServer {
     llm_client: Option<Arc<LlmClient>>,
     agent_dsl_sources: Arc<Vec<(String, String)>>,
     schema_pin: Arc<NativeSchemaPinClient>,
+    // Used by `#[tool_handler]`-generated code via `self.tool_router.call(...)`.
+    // The dead-code pass cannot see the macro-expanded reference.
+    #[allow(dead_code)]
     tool_router: ToolRouter<Self>,
 }
 
@@ -416,18 +419,20 @@ impl SymbiMcpServer {
 #[tool_handler]
 impl ServerHandler for SymbiMcpServer {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo {
-            instructions: Some(
-                "Symbiont AI Agent Runtime — invoke agents, parse DSL, \
-                 manage agent definitions, verify schemas via SchemaPin"
-                    .to_string(),
-            ),
-            capabilities: ServerCapabilities::builder()
-                .enable_tools()
-                .enable_resources()
-                .build(),
-            ..Default::default()
-        }
+        // ServerInfo (alias for InitializeResult) became #[non_exhaustive]
+        // in rmcp 1.x; out-of-crate code can no longer use struct literal
+        // syntax even with `..Default::default()`. Build via mutation.
+        let mut info = ServerInfo::default();
+        info.instructions = Some(
+            "Symbiont AI Agent Runtime — invoke agents, parse DSL, \
+             manage agent definitions, verify schemas via SchemaPin"
+                .to_string(),
+        );
+        info.capabilities = ServerCapabilities::builder()
+            .enable_tools()
+            .enable_resources()
+            .build();
+        info
     }
 
     fn list_resources(
@@ -465,9 +470,9 @@ impl ServerHandler for SymbiMcpServer {
     ) -> Result<ReadResourceResult, McpError> {
         if request.uri == "file:///AGENTS.md" {
             match tokio::fs::read_to_string("AGENTS.md").await {
-                Ok(content) => Ok(ReadResourceResult {
-                    contents: vec![ResourceContents::text(content, "file:///AGENTS.md")],
-                }),
+                Ok(content) => Ok(ReadResourceResult::new(vec![
+                    ResourceContents::text(content, "file:///AGENTS.md"),
+                ])),
                 Err(_) => Err(McpError::new(
                     ErrorCode::INVALID_PARAMS,
                     "AGENTS.md not found",
