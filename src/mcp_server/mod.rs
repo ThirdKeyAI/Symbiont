@@ -470,9 +470,10 @@ impl ServerHandler for SymbiMcpServer {
     ) -> Result<ReadResourceResult, McpError> {
         if request.uri == "file:///AGENTS.md" {
             match tokio::fs::read_to_string("AGENTS.md").await {
-                Ok(content) => Ok(ReadResourceResult::new(vec![
-                    ResourceContents::text(content, "file:///AGENTS.md"),
-                ])),
+                Ok(content) => Ok(ReadResourceResult::new(vec![ResourceContents::text(
+                    content,
+                    "file:///AGENTS.md",
+                )])),
                 Err(_) => Err(McpError::new(
                     ErrorCode::INVALID_PARAMS,
                     "AGENTS.md not found",
