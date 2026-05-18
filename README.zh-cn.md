@@ -7,6 +7,11 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-online-brightgreen)](https://docs.symbiont.dev)
 
+[![OATS Reference Implementation](https://img.shields.io/badge/OATS-Reference%20Implementation-1f6feb)](https://openagenttruststack.org)
+[![DOI Typestate Loops](https://zenodo.org/badge/DOI/10.5281/zenodo.19896446.svg)](https://doi.org/10.5281/zenodo.19896446)
+[![DOI ToolClad](https://zenodo.org/badge/DOI/10.5281/zenodo.19957596.svg)](https://doi.org/10.5281/zenodo.19957596)
+[![DOI Empirical Eval](https://zenodo.org/badge/DOI/10.5281/zenodo.20043247.svg)](https://doi.org/10.5281/zenodo.20043247)
+
 ---
 
 **面向生产环境的策略治理智能体运行时。**
@@ -34,14 +39,19 @@ AI 智能体易于演示，却难以信任。
 
 Symbiont 正是为这一层而构建的。
 
-> **安全默认值（v1.13.0 审计之后）。** 自该版本起：
-> - 推理循环策略门控（`symbi up`、`symbi run`）默认采用**失败即关闭**策略——除非显式接入策略后端，否则工具调用与智能体间委派将被拒绝。之前的宽松默认值现已置于 `--insecure-allow-all` / `SYMBI_INSECURE_ALLOW_ALL=1` 之后，并会打印醒目的 stderr 横幅；仅限本地开发使用。
-> - JWT 验证器强制执行算法白名单（非对称路径仅接受 ES256/EdDSA，HMAC webhook 路径仅接受 HS256）。RSA 签名的 JWT 一律拒绝，从而在运维方可控的所有路径上中和 `rsa` crate 的时序攻击建议（RUSTSEC-2023-0071）。Microsoft Teams 适配器仍使用 RS256，因为 Bot Framework 要求如此；该表面被限定在由 MS 签名的令牌内。
-> - `composio` 特性标志、`ComposioToolExecutor`、`symbiont_mcp add`/`list` CLI 子命令以及 SymbiBot 自动发帖功能已被整体移除——Composio 在没有静态白名单或 TLS 固定的情况下派发 LLM 提供的工具名。完整理由参见 `SECURITY_AUDIT.md` C3。请改为接入您自己的 `ActionExecutor`。
-> - `docker-compose.test.yml` 现在要求设置 `SYMBIONT_API_TOKEN`（不再有 `testtoken123` 默认值），并绑定到 `127.0.0.1` 而非 `0.0.0.0`。附带 `.env.example`。
-> - 新增的环境变量记录在 `docs/getting-started.md` 中：`SYMBI_INSECURE_ALLOW_ALL`、`SYMBI_REJECT_LEGACY_API_KEYS`、`SYMBI_UNSAFE_NATIVE_SANDBOX`。已移除：`SYMBIONT_ALLOW_NO_JWT_AUDIENCE`、`COMPOSIO_API_KEY`、`COMPOSIO_MCP_URL`。
->
-> 完整审计与威胁模型见 `SECURITY_AUDIT.md`；带外运维事项（PAT 轮换等）见 `SECURITY-OPS.md`。
+### Open Agent Trust Stack (OATS) — 参考实现
+
+Symbiont 是 **[Open Agent Trust Stack (OATS)](https://openagenttruststack.org) 的参考实现** —— 一份开放规范（CC BY 4.0），通过结构性强制而非事后拦截来保障 AI 智能体执行的安全（"定义允许的行为，使其余一切在结构上无法表达"）。OATS 规范根植于 Symbiont 的生产运维经验，Symbiont 的设计也直接对应 OATS 的各层：
+
+| OATS 层级 | Symbiont 映射 |
+|---|---|
+| **Layer 1 — ORGA Loop**（类型状态强制的 Observe-Reason-Gate-Act） | `crates/runtime/src/reasoning/` —— 类型状态强制的阶段；策略门在编译期不可跳过。参见 [Wanger 2026 / DOI 10.5281/zenodo.19896446](https://doi.org/10.5281/zenodo.19896446)。 |
+| **Layer 2 — Tool Contracts** | [ToolClad](https://github.com/ThirdKeyAI/ToolClad) 声明式 `.clad.toml` 清单 + `crates/runtime/src/toolclad/` 中的 `agent_summary` 类型状态屏障。参见 [Wanger 2026 / DOI 10.5281/zenodo.19957596](https://doi.org/10.5281/zenodo.19957596)。 |
+| **Layer 3 — Identity** | 面向 MCP 工具的 [SchemaPin](https://github.com/ThirdKeyAI/SchemaPin) + [AgentPin](https://github.com/ThirdKeyAI/AgentPin) ES256 域锚定智能体身份。 |
+| **Layer 4 — Policy Engine** | Cedar 策略门（`crates/runtime/src/reasoning/cedar_gate.rs`）+ 用于智能体间调用的 `CommunicationPolicyGate`；两者自 v1.14.0 起默认失败即关闭。 |
+| **Layer 5 — Audit Journal** | 推理循环中的哈希链接、Ed25519 签名的 `BufferedJournal`；`crates/runtime/src/logging.rs` 中加密的模型 I/O 日志。 |
+
+Symbiont 符合 **OATS Extended**（C1–C7 + E1–E8）。为该规范提供依据的结构性强制运行时实证比较见 [Wanger 2026 / DOI 10.5281/zenodo.20043247](https://doi.org/10.5281/zenodo.20043247)。
 
 ---
 

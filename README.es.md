@@ -7,6 +7,11 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-online-brightgreen)](https://docs.symbiont.dev)
 
+[![OATS Reference Implementation](https://img.shields.io/badge/OATS-Reference%20Implementation-1f6feb)](https://openagenttruststack.org)
+[![DOI Typestate Loops](https://zenodo.org/badge/DOI/10.5281/zenodo.19896446.svg)](https://doi.org/10.5281/zenodo.19896446)
+[![DOI ToolClad](https://zenodo.org/badge/DOI/10.5281/zenodo.19957596.svg)](https://doi.org/10.5281/zenodo.19957596)
+[![DOI Empirical Eval](https://zenodo.org/badge/DOI/10.5281/zenodo.20043247.svg)](https://doi.org/10.5281/zenodo.20043247)
+
 ---
 
 **Runtime de agentes gobernado por políticas para producción.**
@@ -34,14 +39,19 @@ Una vez que un agente puede llamar herramientas, acceder a archivos, enviar mens
 
 Symbiont está construido para esa capa.
 
-> **Valores predeterminados de seguridad (auditoría posterior a v1.13.0).** A partir de esta versión:
-> - La compuerta de políticas del bucle de razonamiento (`symbi up`, `symbi run`) es **fail-closed** por defecto — las llamadas a herramientas y las delegaciones entre agentes se deniegan a menos que se conecte un backend de políticas explícito. El comportamiento permisivo anterior queda detrás de `--insecure-allow-all` / `SYMBI_INSECURE_ALLOW_ALL=1` con un banner ruidoso en stderr; úsalo solo para desarrollo local.
-> - El verificador JWT aplica una lista de algoritmos permitidos (ES256/EdDSA para las rutas asimétricas, HS256 para la ruta HMAC de webhooks). Los JWT firmados con RSA se rechazan, lo que neutraliza el aviso de ataque de tiempo del crate `rsa` (RUSTSEC-2023-0071) en cada ruta que el operador controla. El adaptador de Microsoft Teams sigue usando RS256 porque el Bot Framework lo exige; esa superficie está acotada a tokens firmados por MS.
-> - El feature flag `composio`, el `ComposioToolExecutor`, los subcomandos CLI `symbiont_mcp add`/`list` y la función de publicación autónoma de SymbiBot fueron eliminados por completo — Composio despachaba nombres de herramientas suministrados por el LLM sin una lista blanca estática ni pinning TLS. Consulta `SECURITY_AUDIT.md` C3 para la justificación completa. En su lugar, aporta tu propio `ActionExecutor`.
-> - `docker-compose.test.yml` ahora exige `SYMBIONT_API_TOKEN` (sin valor por defecto `testtoken123`) y se vincula a `127.0.0.1` en lugar de `0.0.0.0`. Se incluye un `.env.example`.
-> - Las nuevas variables de entorno están documentadas en `docs/getting-started.md`: `SYMBI_INSECURE_ALLOW_ALL`, `SYMBI_REJECT_LEGACY_API_KEYS`, `SYMBI_UNSAFE_NATIVE_SANDBOX`. Eliminadas: `SYMBIONT_ALLOW_NO_JWT_AUDIENCE`, `COMPOSIO_API_KEY`, `COMPOSIO_MCP_URL`.
->
-> Auditoría completa y modelos de amenazas: `SECURITY_AUDIT.md`. Elementos operativos fuera de banda (rotación de PAT, etc.): `SECURITY-OPS.md`.
+### Open Agent Trust Stack (OATS) — implementación de referencia
+
+Symbiont es la **implementación de referencia del [Open Agent Trust Stack (OATS)](https://openagenttruststack.org)** — una especificación abierta (CC BY 4.0) para asegurar la ejecución de agentes de IA mediante aplicación estructural en lugar de interceptación posterior ("definir lo que está permitido y hacer que todo lo demás sea estructuralmente inexpresable"). La especificación OATS se basa en la experiencia operativa en producción de Symbiont, y el diseño de Symbiont sigue directamente las capas de OATS:
+
+| Capa OATS | Mapeo en Symbiont |
+|---|---|
+| **Capa 1 — Bucle ORGA** (Observe-Reason-Gate-Act con typestate) | `crates/runtime/src/reasoning/` — fases aplicadas mediante typestate; la compuerta de políticas no puede saltarse en tiempo de compilación. Véase [Wanger 2026 / DOI 10.5281/zenodo.19896446](https://doi.org/10.5281/zenodo.19896446). |
+| **Capa 2 — Contratos de herramientas** | Manifiestos declarativos `.clad.toml` de [ToolClad](https://github.com/ThirdKeyAI/ToolClad) + la barrera typestate `agent_summary` en `crates/runtime/src/toolclad/`. Véase [Wanger 2026 / DOI 10.5281/zenodo.19957596](https://doi.org/10.5281/zenodo.19957596). |
+| **Capa 3 — Identidad** | [SchemaPin](https://github.com/ThirdKeyAI/SchemaPin) para herramientas MCP + identidad de agente ES256 anclada al dominio con [AgentPin](https://github.com/ThirdKeyAI/AgentPin). |
+| **Capa 4 — Motor de políticas** | Compuerta de políticas Cedar (`crates/runtime/src/reasoning/cedar_gate.rs`) + `CommunicationPolicyGate` para llamadas entre agentes; ambos fail-closed por defecto desde la v1.14.0. |
+| **Capa 5 — Diario de auditoría** | `BufferedJournal` encadenado por hash y firmado con Ed25519 en el bucle de razonamiento; logs cifrados de entrada/salida del modelo en `crates/runtime/src/logging.rs`. |
+
+Symbiont cumple con **OATS Extended** (C1–C7 + E1–E8). La comparación empírica de runtimes de aplicación estructural que sustenta la especificación es [Wanger 2026 / DOI 10.5281/zenodo.20043247](https://doi.org/10.5281/zenodo.20043247).
 
 ---
 
