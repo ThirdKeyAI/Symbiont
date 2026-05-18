@@ -1,6 +1,6 @@
 [package]
 name = "repl-core"
-version = "1.13.0"
+version = "1.14.0"
 edition = "2021"
 authors = ["Jascha Wanger / ThirdKey.ai"]
 description = "Core REPL engine for the Symbi platform"
@@ -25,5 +25,5 @@ tokio = { version = "1.0", features = ["sync"] }
 tracing = "0.1"
 futures = "0.3"
 bytes = "1.0"
-symbi-runtime = { path = "../runtime", version = "1.13.0", features = ["http-input"] }
+symbi-runtime = { path = "../runtime", version = "1.14.0", features = ["http-input"] }
 

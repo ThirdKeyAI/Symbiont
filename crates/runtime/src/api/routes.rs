@@ -2,6 +2,14 @@
 //!
 //! This module contains route handler implementations for the HTTP API.
 
+// Every route handler returns `Result<_, (StatusCode, Json<ErrorResponse>)>`.
+// `ErrorResponse` carries the structured error fields every public endpoint
+// exposes (`code`, `error`, optional `details`); the resulting `Err` payload
+// is large (>=128 B) by design. Boxing every `Err` here would be a workspace-
+// wide refactor of the route handler signature and is deferred — see
+// `clippy::result_large_err` (lint promoted in Rust 1.95).
+#![allow(clippy::result_large_err)]
+
 #[cfg(feature = "http-api")]
 use axum::{
     extract::{Extension, Path, State},

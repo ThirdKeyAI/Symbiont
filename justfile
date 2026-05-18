@@ -21,7 +21,11 @@ machete:
     cargo machete
 
 audit:
-    cargo audit
+    # RUSTSEC-2023-0071 (rsa Marvin Attack via jsonwebtoken) is runtime-mitigated:
+    # the JWT verifier enforces an ES256/EdDSA/HS256 algorithm allowlist and refuses
+    # RS/PS algorithms before the rsa crate's timing-side-channel path is reachable.
+    # See crates/runtime/src/http_input/webhook_verify.rs and deny.toml.
+    cargo audit --ignore RUSTSEC-2023-0071
 
 deny:
     cargo deny check

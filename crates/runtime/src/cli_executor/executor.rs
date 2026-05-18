@@ -38,9 +38,10 @@ const ENV_ALLOWLIST: &[&str] = &[
 ];
 
 /// How to handle stdin for the spawned process.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub enum StdinStrategy {
     /// Close stdin immediately after spawn (default for most tools).
+    #[default]
     CloseImmediately,
     /// Continuously write `"y\n"` to auto-accept prompts.
     AutoYes,
@@ -50,12 +51,6 @@ pub enum StdinStrategy {
     Scripted(Vec<String>),
     /// Redirect stdin to /dev/null.
     DevNull,
-}
-
-impl Default for StdinStrategy {
-    fn default() -> Self {
-        Self::CloseImmediately
-    }
 }
 
 /// Configuration for the CLI executor.

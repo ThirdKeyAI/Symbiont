@@ -7,14 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Removed
-- Composio MCP integration and SymbiBot autonomous-posting feature removed for security reasons (see SECURITY_AUDIT.md C3)
+## [1.14.0] - 2026-05-18
 
-### Security
-- `DefaultPolicyGate::new()` is now fail-closed: every `ToolCall` and `Delegate` action is denied with an explicit reason unless an OPA-backed gate is wired or the operator opts into the dev-only permissive mode via `--insecure-allow-all` (or `SYMBI_INSECURE_ALLOW_ALL=1`). The previous fail-open behaviour silently allowed every action. (SECURITY_AUDIT.md C2/M3)
-- `DefaultPolicyGate::permissive()` was renamed to `DefaultPolicyGate::permissive_for_dev_only()` and marked `#[doc(hidden)]`; it now emits a `tracing::warn!` on every evaluated action so insecure permissive mode is visible in production logs.
-- `symbi up` and `symbi run` now default to the fail-closed gate; the dev-only permissive gate must be explicitly enabled.
-- Tool-call arguments produced by the LLM are now validated against the declared JSON Schema before the policy gate runs. Arguments that are not a JSON object — or that fail schema validation — are rejected as `LoopDecision::Deny`. (SECURITY_AUDIT.md M4)
+**Security audit response release.** Implements every finding in `SECURITY_AUDIT.md` (5 CRITICAL, 7 HIGH, 10 MEDIUM, 9 LOW). Out-of-band operator items live in `SECURITY-OPS.md`.
+
+### Removed (BREAKING)
+- **Composio MCP integration + SymbiBot autonomous-posting feature** removed entirely (SECURITY_AUDIT.md C3). Affected surface: the `composio` Cargo feature flag, `ComposioToolExecutor`, the `crates/runtime/src/integrations/composio` module, the `symbiont_mcp add` / `symbiont_mcp list` CLI subcommands, the `crates/runtime/examples/composio_smoke_test.rs` example, and the `tools/fuzz/fuzz_targets/sse_jsonrpc_parsing.rs` fuzz target. Env vars `COMPOSIO_API_KEY` and `COMPOSIO_MCP_URL` are no longer read. Bring your own `ActionExecutor` for external tool dispatch — Composio dispatched LLM-supplied tool names without a static allowlist or TLS pinning.
+- **`SYMBIONT_ALLOW_NO_JWT_AUDIENCE` env-var escape hatch** removed (SECURITY_AUDIT.md M2). Every JWT verifier now requires an explicit `aud` configuration unconditionally.
+
+### Changed (BREAKING)
+- **`symbi up` / `symbi run` default policy gate is now fail-closed** (SECURITY_AUDIT.md C2 / M3). `DefaultPolicyGate::new()` returns `LoopDecision::Deny` for every `ToolCall` and `Delegate` action with an explicit reason; `Respond` actions remain allowed. The previous binary hard-coded `DefaultPolicyGate::permissive()`, which silently allowed every tool call and delegation. Wire `CedarPolicyGate` / `OpaPolicyGateBridge` / your own `ReasoningPolicyGate` impl, or opt into the dev-only permissive mode via `--insecure-allow-all` (or `SYMBI_INSECURE_ALLOW_ALL=1`) with a loud stderr banner.
+- **`DefaultPolicyGate::permissive()` renamed to `DefaultPolicyGate::permissive_for_dev_only()`** and marked `#[doc(hidden)]`. It now emits a `tracing::warn!` on every evaluated action so insecure permissive mode is visible in production logs.
+- **`bundled docker-compose.test.yml` now requires `SYMBIONT_API_TOKEN`** (no `testtoken123` default) and binds published ports to `127.0.0.1` rather than `0.0.0.0` (SECURITY_AUDIT.md C5). `VM_HOST` is also required; `.env.example` is included.
+- **JWT verifier algorithm allowlist** (SECURITY_AUDIT.md C4). ES256 and EdDSA only for the asymmetric `Authorization: Bearer` path; HS256 only for the HMAC webhook-signature path. `RS256`/`RS384`/`RS512`/`PS256`/`PS384`/`PS512` and `none` are rejected at both the header-inspection guard and the `Validation::algorithms` allowlist. Neutralizes RUSTSEC-2023-0071 (`rsa` Marvin Attack reachable through `jsonwebtoken`) on every path operators control. The Microsoft Teams adapter (`crates/channel-adapter/src/adapters/teams/auth.rs`) still uses RS256 because the Bot Framework protocol requires it; that surface is bounded to MS-signed tokens.
+- **`symbi-invis-strip` 0.3.0**: forbidden range expanded with U+00AD (soft hyphen), U+0300..=U+036F (combining diacritical marks), and U+2070..=U+209F (superscript/subscript forms); `detect_injection_patterns` now NFKC-normalises input (closes fullwidth and math-alphanumeric homoglyph bypasses), adds a compact-projection scan (catches post-strip word concatenation), and flags Latin+Cyrillic mixing with a synthetic `mixed-script` marker. New `unicode-normalization` dependency. 7 new `bypass_proofs` regression tests cover each bypass class. (SECURITY_AUDIT.md H5)
+
+### Added
+- **`SYMBI_REJECT_LEGACY_API_KEYS=1` env var**: short-circuits the deprecated O(n) Argon2 scan for unprefixed API keys (returns `None` with a warn log). Operators should re-issue every key in `keyid.secret` format. The legacy path will be removed in the next minor release. (SECURITY_AUDIT.md M6)
+- **`SYMBI_UNSAFE_NATIVE_SANDBOX=1` env var**: required (in addition to `SYMBI_ENV` not being `production`) to construct the `native` sandbox runner at runtime. The `native-sandbox` Cargo feature now also fails to compile in release builds via a top-of-module `compile_error!`. (SECURITY_AUDIT.md H4)
+- **Tool-call argument validation against the declared JSON Schema** (SECURITY_AUDIT.md M4). Arguments produced by the LLM are validated before the policy gate runs; non-object arguments and schema-violating arguments are rejected as `LoopDecision::Deny`.
+- **`Secret` has a hand-written `Serialize` impl that emits `"value": "[REDACTED]"`** (SECURITY_AUDIT.md M7). Derived `Deserialize` retained. Regression test asserts the JSON output never leaks the plaintext.
+- **`symbi-approval-relay` 0.1.1**: Slack timestamp delta widened to `i128` + `saturating_sub` to mirror the channel-adapter pattern. (SECURITY_AUDIT.md L4)
+
+### Fixed
+- **Scheduler shell-injection sink** (SECURITY_AUDIT.md C1). `scheduler/task_manager.rs` no longer interpolates `task.config.dsl_source` into `sh -c`. The DSL is written to disk and passed via `$1` argv with a quoted-literal script.
+- **Toolclad `session.startup_command` shell-injection** (SECURITY_AUDIT.md H1). Parsed via `shlex::split` and executed as argv; empty / metacharacter-bearing tokens rejected.
+- **Firecracker host `/tmp` working directory** (SECURITY_AUDIT.md H3). Production path now uses per-uid `/run/symbi/agent_<id>` (0700) with `<temp>/symbi-<uid>/agent_<id>` fallback. Avoids cross-user `/tmp` races.
+- **Docker sandbox `-e KEY=VALUE` env smuggling** (SECURITY_AUDIT.md M5). Environment is now written to a 0600 tempfile and passed via `--env-file`. Env keys containing `=`, newlines, or NULs are rejected.
+- **HTTP-input CORS wildcard `"*"` accepted at startup** (SECURITY_AUDIT.md M1). Server now returns a `RuntimeError::Configuration` and refuses to start when the wildcard is configured.
+- **HTTP-input error response logging** (SECURITY_AUDIT.md L1). Replaced `tracing::debug!` of the full `Display` string with `tracing::info!` of a stable enum-tag (`Configuration`, `Security`, etc.) plus the public message. No more internal path leaks.
+- **Empty `ApiKeyStore` silent legacy fallback** (SECURITY_AUDIT.md L3). When a key store is configured but contains no records, a one-shot `tracing::error!` fires before falling back to the legacy env-var auth.
+- **`approval-relay` Slack timestamp `i64::abs` overflow** (SECURITY_AUDIT.md L4). Widened to `i128 + saturating_sub`.
+- **`Dockerfile` base images pinned by `@sha256:` digest** (SECURITY_AUDIT.md L6). `rust:1.88-slim-bookworm@sha256:38bc5a86…`, `debian:bookworm-slim@sha256:67b30a61…`.
+- **`Dockerfile` HEALTHCHECK probes the HTTP server** (SECURITY_AUDIT.md L7). `curl -fsS http://127.0.0.1:8080/api/v1/health` with the original `/proc/net/tcp` socket-listen check as a fallback for HTTP-Input-only deploys.
+- **All third-party GitHub Actions SHA-pinned** (SECURITY_AUDIT.md H6). Every `uses:` line carries a 40-char commit SHA with a trailing version comment. `cargo install cargo-fuzz` pinned to `0.13.1 --locked`. PR-only jobs now run with `permissions: contents: read` only (SECURITY_AUDIT.md M9).
+- **`deny.toml`**: stale ignores `RUSTSEC-2026-0097` and `RUSTSEC-2026-0002` removed; `RUSTSEC-2023-0071` (`rsa` Marvin Attack) documented as a runtime-mitigated ignore pointing at the JWT verifier allowlist (SECURITY_AUDIT.md M8).
+- **`config.rs` weak-token guard extended** (SECURITY_AUDIT.md C5 belt-and-braces). Rejects `testtoken123` literally and any token starting with `test` (case-insensitive) shorter than 20 chars. Prevents re-introduction of the historical compose default.
+
+### Migration notes
+- **No replacement for Composio.** Implement your own `ActionExecutor` for external tool dispatch. If you were using `ComposioToolExecutor` directly, see the v1.7.0 phase guidance in `ROADMAP.md` for the `ActionExecutor` trait surface.
+- **If `symbi up` / `symbi run` denies every tool call after upgrade**, that is expected: wire a real policy backend (`CedarPolicyGate`, `OpaPolicyGateBridge`, or a custom `ReasoningPolicyGate`), or opt into permissive mode for local development via `--insecure-allow-all` / `SYMBI_INSECURE_ALLOW_ALL=1`.
+- **Operators who issued API keys before the `keyid.secret` format** should re-issue all keys in the new format and set `SYMBI_REJECT_LEGACY_API_KEYS=1`. The legacy O(n) scan path will be removed in the next minor release.
+- **JWT verifier**: tokens without `aud` are rejected unconditionally; remove `SYMBIONT_ALLOW_NO_JWT_AUDIENCE` from any environment file. RSA-signed JWTs are refused on every path under operator control.
+- **`docker-compose.test.yml`** now requires explicit `SYMBIONT_API_TOKEN` and `VM_HOST` env vars and binds to `127.0.0.1`. See `.env.example`.
+- **`native-sandbox` Cargo feature** fails to compile in release builds. The feature is intended only for local debugging — use the `docker`, `gvisor`, `firecracker`, or `e2b` runners in CI / staging / production.
+
+### Crate versions
+| Crate | Version |
+|-------|---------|
+| `symbi` | 1.14.0 |
+| `symbi-runtime` | 1.14.0 |
+| `symbi-dsl` | 1.14.0 |
+| `repl-core` | 1.14.0 |
+| `repl-cli` | 1.14.0 |
+| `repl-proto` | 1.14.0 |
+| `repl-lsp` | 1.14.0 |
+| `symbi-shell` | 1.14.0 |
+| `symbi-invis-strip` | 0.3.0 |
+| `symbi-approval-relay` | 0.1.1 |
+| `symbi-channel-adapter` | 0.1.3 (unchanged) |
 
 ## [1.13.0] - 2026-05-07
 

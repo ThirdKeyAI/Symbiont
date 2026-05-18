@@ -3,6 +3,10 @@
 //! ⚠️ WARNING: This example shows how to run code without Docker/container
 //! isolation. Use ONLY in trusted development environments!
 
+// Examples favor the `let mut config = T::default(); config.x = ...;` pattern
+// for didactic clarity over the struct-update form. Stylistic only.
+#![allow(clippy::field_reassign_with_default)]
+
 use std::collections::HashMap;
 use symbi_runtime::sandbox::{NativeConfig, NativeRunner, SandboxRunner};
 use tokio::time::Duration;

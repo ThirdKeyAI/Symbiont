@@ -148,6 +148,14 @@ impl CedarPolicyGate {
     /// Maps agent_id → Cedar principal (`Agent::"<id>"`),
     /// the action → Cedar action (`Action::"<name>"`),
     /// and uses a default resource (`Resource::"default"`).
+    //
+    // Some of the `let Ok(...) = EntityId::from_str(...) else { ... }` binds
+    // below are currently irrefutable because cedar-policy's `EntityId`
+    // constructor is `Infallible` for our input shape. We keep the defensive
+    // `else` branches so this code remains robust if cedar tightens the
+    // constructor's error type in a future release — that's a known cedar
+    // semver pattern.
+    #[allow(irrefutable_let_patterns)]
     fn evaluate_against_policies(
         &self,
         policies: &[CedarPolicy],

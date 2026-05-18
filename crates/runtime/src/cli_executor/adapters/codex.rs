@@ -14,18 +14,13 @@ use crate::cli_executor::executor::StdinStrategy;
 use crate::sandbox::ExecutionResult;
 
 /// Approval mode for Codex CLI.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub enum CodexApprovalMode {
     /// Automatically apply all changes without confirmation.
+    #[default]
     FullAuto,
     /// Suggest changes but don't apply automatically.
     Suggest,
-}
-
-impl Default for CodexApprovalMode {
-    fn default() -> Self {
-        Self::FullAuto
-    }
 }
 
 /// Adapter for OpenAI's Codex CLI tool.
