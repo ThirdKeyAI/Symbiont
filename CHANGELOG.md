@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.1] - 2026-05-18
+
+**Hotfix for v1.14.0 release workflow + integration tests.** v1.14.0's binaries and `cargo publish` to crates.io did not ship: the GitHub Actions workflow YAML captured at the v1.14.0 tag commit had two issues that prevented the tag-triggered jobs from running. v1.14.1 is identical in source-level security posture to v1.14.0 — see the v1.14.0 entry below for the full audit response.
+
+### Fixed
+- **`dtolnay/rust-toolchain` action invocation**: the SHA-pinned form (added in v1.14.0 H6) requires an explicit `with: toolchain: <version>` input — the older ref-as-toolchain inference (`@stable`) only works when the action is consumed by ref name, not by SHA. Three workflow sites in `.github/workflows/{test,publish,release-binaries}.yml` now pass `toolchain: stable`. (The `fuzz` job's second invocation was already correct, pinning `nightly-2026-02-21`.)
+- **`tools/fuzz` CI list**: dropped `sse_jsonrpc_parsing` from the hardcoded fuzz-target list in `.github/workflows/test.yml`. The corresponding source was removed in v1.14.0 as part of the Composio MCP removal but the workflow YAML was not updated, causing the fuzz job to fail on `cargo fuzz run sse_jsonrpc_parsing`.
+- **`crates/runtime/tests/http_input_integration_tests.rs`**: the test fixture seeded `cors_origins: ["*"]`, but v1.14.0's M1 fix refuses the wildcard at server startup. The integration tests therefore failed with `Connection refused` for the whole file (9/9 tests). Test fixture now uses the explicit loopback origin (`http://127.0.0.1:<port>`); the `test_cors_headers_when_enabled` preflight is rewritten to send the matching `Origin` header so it actually exercises the allowlist path. Local `cargo test -p symbi-runtime --test http_input_integration_tests --features http-input` is green (9/9 pass).
+
+### Crate versions
+| Crate | Version |
+|-------|---------|
+| `symbi` | 1.14.1 |
+| `symbi-runtime` | 1.14.1 |
+| `symbi-dsl` | 1.14.1 |
+| `repl-core` | 1.14.1 |
+| `repl-cli` | 1.14.1 |
+| `repl-proto` | 1.14.1 |
+| `repl-lsp` | 1.14.1 |
+| `symbi-shell` | 1.14.1 |
+| `symbi-invis-strip` | 0.3.0 (unchanged) |
+| `symbi-approval-relay` | 0.1.1 (unchanged) |
+| `symbi-channel-adapter` | 0.1.3 (unchanged) |
+
 ## [1.14.0] - 2026-05-18
 
 **Security audit response release.** Implements every finding in `SECURITY_AUDIT.md` (5 CRITICAL, 7 HIGH, 10 MEDIUM, 9 LOW). Out-of-band operator items live in `SECURITY-OPS.md`.

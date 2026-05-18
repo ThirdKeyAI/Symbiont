@@ -6,7 +6,7 @@ The following versions of Symbiont are currently supported with security updates
 
 | Version | Supported          | Notes |
 | ------- | ------------------ | ----- |
-| 1.14.x  | :white_check_mark: | Current. Security-audit response release — fixes 5 CRITICAL / 7 HIGH / 10 MEDIUM / 9 LOW findings. See `SECURITY_AUDIT.md`. |
+| 1.14.x  | :white_check_mark: | Current. v1.14.0 is the security-audit response release — fixes 5 CRITICAL / 7 HIGH / 10 MEDIUM / 9 LOW findings (see `SECURITY_AUDIT.md`). v1.14.1 is the release-workflow + integration-test hotfix that ships v1.14.0's source-level posture as crates.io / binary release artifacts. |
 | 1.13.x  | :white_check_mark: | Previous. Affected by every finding fixed in v1.14.0. Operators on 1.13 should upgrade. |
 | < 1.13  | :x:                | Unsupported. Several exploitable issues are documented in `SECURITY_AUDIT.md`. |
 
