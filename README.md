@@ -7,6 +7,11 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-online-brightgreen)](https://docs.symbiont.dev)
 
+[![OATS Reference Implementation](https://img.shields.io/badge/OATS-Reference%20Implementation-1f6feb)](https://openagenttruststack.org)
+[![DOI Typestate Loops](https://zenodo.org/badge/DOI/10.5281/zenodo.19896446.svg)](https://doi.org/10.5281/zenodo.19896446)
+[![DOI ToolClad](https://zenodo.org/badge/DOI/10.5281/zenodo.19957596.svg)](https://doi.org/10.5281/zenodo.19957596)
+[![DOI Empirical Eval](https://zenodo.org/badge/DOI/10.5281/zenodo.20043247.svg)](https://doi.org/10.5281/zenodo.20043247)
+
 ---
 
 **Policy-governed agent runtime for production.**
@@ -33,6 +38,20 @@ Once an agent can call tools, access files, send messages, or invoke external se
 * **Approval gates** for sensitive actions — human review before execution when policy requires it
 
 Symbiont is built for that layer.
+
+### Open Agent Trust Stack (OATS) — reference implementation
+
+Symbiont is the **reference implementation of the [Open Agent Trust Stack (OATS)](https://openagenttruststack.org)** — an open specification (CC BY 4.0) for securing AI agent execution through structural enforcement rather than post-hoc interception ("define what is permitted and make everything else structurally inexpressible"). The OATS spec is grounded in Symbiont's production operational experience and Symbiont's design tracks the OATS layers directly:
+
+| OATS Layer | Symbiont mapping |
+|---|---|
+| **Layer 1 — ORGA Loop** (typestate-enforced Observe-Reason-Gate-Act) | `crates/runtime/src/reasoning/` — typestate-enforced phases; policy gate is unskippable at compile time. See [Wanger 2026 / DOI 10.5281/zenodo.19896446](https://doi.org/10.5281/zenodo.19896446). |
+| **Layer 2 — Tool Contracts** | [ToolClad](https://github.com/ThirdKeyAI/ToolClad) declarative `.clad.toml` manifests + the `agent_summary` typestate fence in `crates/runtime/src/toolclad/`. See [Wanger 2026 / DOI 10.5281/zenodo.19957596](https://doi.org/10.5281/zenodo.19957596). |
+| **Layer 3 — Identity** | [SchemaPin](https://github.com/ThirdKeyAI/SchemaPin) for MCP tools + [AgentPin](https://github.com/ThirdKeyAI/AgentPin) ES256 domain-anchored agent identity. |
+| **Layer 4 — Policy Engine** | Cedar policy gate (`crates/runtime/src/reasoning/cedar_gate.rs`) + `CommunicationPolicyGate` for inter-agent calls; both fail-closed by default since v1.14.0. |
+| **Layer 5 — Audit Journal** | Hash-chained, Ed25519-signed `BufferedJournal` in the reasoning loop; encrypted model-I/O logs in `crates/runtime/src/logging.rs`. |
+
+Symbiont conforms to **OATS Extended** (C1–C7 + E1–E8). The empirical comparison of structural-enforcement runtimes that informs the spec is [Wanger 2026 / DOI 10.5281/zenodo.20043247](https://doi.org/10.5281/zenodo.20043247).
 
 > **Security defaults (post-v1.13.0 audit).** Beginning with this version:
 > - The reasoning-loop policy gate (`symbi up`, `symbi run`) is **fail-closed** by default — tool calls and agent-to-agent delegations are denied unless an explicit policy backend is wired in. The previous permissive default is gated behind `--insecure-allow-all` / `SYMBI_INSECURE_ALLOW_ALL=1` with a loud stderr banner; use it only for local development.
