@@ -337,6 +337,19 @@ let runner = ReasoningLoopRunner::builder()
     .build();
 ```
 
+### Standardverhalten des Reasoning-Loop-Policy-Gates (nach dem v1.13.0-Audit)
+
+Die Reasoning-Schleife in `symbi up` und `symbi run` ist standardmaessig **fail-closed**. `DefaultPolicyGate::new()` liefert `LoopDecision::Deny` fuer jede `ToolCall`- und `Delegate`-Aktion zurueck, mit der Begruendung `"No policy gate configured (DefaultPolicyGate::new is fail-closed; wire OpaPolicyGateBridge or pass --insecure-allow-all)"`. `Respond`-Aktionen bleiben weiterhin erlaubt, damit der Agent weiterhin Textausgaben produzieren kann.
+
+Diese Aenderung schliesst die Luecke, in der das Produktions-Binary zuvor `DefaultPolicyGate::permissive()` fest verdrahtet hatte und jede Aktion stillschweigend zuliess -- siehe `SECURITY_AUDIT.md` C2 fuer die Audit-Spur.
+
+Betreiber haben zwei Pfade:
+
+1. **Ein echtes Policy-Backend anbinden** (empfohlen): `CedarPolicyGate`, `OpaPolicyGateBridge` oder Ihre eigene Implementierung des Traits `ReasoningPolicyGate` konstruieren und an den Runner uebergeben.
+2. **Opt-in in den permissiven Modus fuer lokale Entwicklung**: `--insecure-allow-all` an `symbi up` / `symbi run` uebergeben oder `SYMBI_INSECURE_ALLOW_ALL=1` setzen. Bei jedem Start in diesem Modus wird ein mehrzeiliger stderr-Banner ausgegeben, und `tracing::warn!` feuert bei jeder ausgewerteten Aktion.
+
+Der bisherige Konstruktor `permissive()` wurde in `permissive_for_dev_only()` umbenannt und mit `#[doc(hidden)]` markiert, um eine versehentliche Verwendung in Produktionscodepfaden zu verhindern.
+
 ### Inter-Agent-Kommunikationsrichtlinie
 
 Das `CommunicationPolicyGate` erzwingt Autorisierungsregeln fuer die gesamte Inter-Agent-Kommunikation. Jeder Aufruf ueber `ask`, `delegate`, `send_to`, `parallel` oder `race` wird vor der Ausfuehrung gegen Richtlinienregeln ausgewertet.

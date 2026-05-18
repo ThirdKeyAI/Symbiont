@@ -12,5 +12,9 @@ keywords = ["unicode", "security", "sanitise", "agent", "symbiont"]
 categories = ["text-processing"]
 
 [dependencies]
+# NFKC normalization closes the fullwidth (U+FF00–U+FFEF) and math-alphanumeric
+# (U+1D400–U+1D7FF) homoglyph bypass classes in `detect_injection_patterns`.
+# Tiny dep, large defence-in-depth gain — see SECURITY_AUDIT.md H5.
+unicode-normalization = "0.1"
 
 [dev-dependencies]

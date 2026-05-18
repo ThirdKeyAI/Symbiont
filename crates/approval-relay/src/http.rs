@@ -19,7 +19,11 @@ type HmacSha256 = Hmac<Sha256>;
 /// Maximum allowed age (in seconds) between the Slack request timestamp and
 /// the current clock before the request is rejected. Mirrors Slack's own
 /// guidance of five minutes for replay protection.
-const MAX_TIMESTAMP_AGE_SECS: i64 = 300;
+///
+/// `u64` so we can compare against `i128::unsigned_abs()` without a lossy
+/// cast — see `verify_signature` below. Mirrors the pattern in
+/// `crates/channel-adapter/src/adapters/slack/signature.rs`.
+const MAX_TIMESTAMP_AGE_SECS: u64 = 300;
 
 /// Application state for the Axum HTTP server.
 #[derive(Clone)]
@@ -123,8 +127,13 @@ fn verify_signature(signing_secret: &str, timestamp: &str, body: &str, expected:
             return false;
         }
     };
-    let now = chrono::Utc::now().timestamp();
-    if (now - ts).abs() > MAX_TIMESTAMP_AGE_SECS {
+    // Widen to i128 so adversarial timestamps near i64::MIN/MAX cannot
+    // overflow the subtraction (debug builds panic; release builds wrap
+    // and could let a stale request slip through the freshness check).
+    // Mirrors the channel-adapter Slack signature verifier.
+    let now: i64 = chrono::Utc::now().timestamp();
+    let delta = (now as i128).saturating_sub(ts as i128).unsigned_abs();
+    if delta > (MAX_TIMESTAMP_AGE_SECS as u128) {
         tracing::warn!(
             "Slack request timestamp {} outside ±{}s window (now={})",
             ts,

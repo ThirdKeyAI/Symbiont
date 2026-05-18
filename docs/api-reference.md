@@ -439,17 +439,17 @@ The cloud LLM provider integrates with the reasoning loop's `execute_actions()` 
 
 #### Standalone Agent Mode (`standalone-agent`)
 
-Combines cloud LLM inference with Composio tool access for cloud-native agents:
+Meta-feature that enables cloud LLM inference for cloud-native agents:
 
 ```bash
 cargo build --features standalone-agent
-# Enables: cloud-llm + composio
+# Enables: cloud-llm
 ```
 
 **Environment Variables:**
 - `OPENROUTER_API_KEY` — OpenRouter API key
-- `COMPOSIO_API_KEY` — Composio API key
-- `COMPOSIO_MCP_URL` — Composio MCP server URL
+
+> **Note:** Composio MCP and SymbiBot integration were removed in this version due to security concerns — see SECURITY_AUDIT.md C3 for context.
 
 #### Cedar Policy Engine (`cedar`)
 

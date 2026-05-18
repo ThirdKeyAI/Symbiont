@@ -36,9 +36,6 @@ pub mod coordinator;
 #[cfg(feature = "http-api")]
 pub mod ws_handler;
 
-#[cfg(feature = "composio")]
-pub mod composio_executor;
-
 #[cfg(feature = "http-api")]
 pub use server::HttpApiServer;
 

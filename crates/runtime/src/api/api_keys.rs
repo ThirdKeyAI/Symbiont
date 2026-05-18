@@ -164,9 +164,26 @@ impl ApiKeyStore {
         // Legacy fallback: no `.` separator — O(n) scan over all keys.
         // This path exists for backward compatibility with keys that were
         // issued before the keyid.secret format was introduced.
-        tracing::warn!(
-            "API key without 'keyid.secret' prefix — using legacy O(n) scan. \
-             Re-issue keys in 'keyid.secret' format to avoid per-request DoS risk."
+        //
+        // M6: the path is scheduled for removal in the next minor release.
+        // Operators can opt-in to immediate rejection by exporting
+        // `SYMBI_REJECT_LEGACY_API_KEYS=1`, which short-circuits the scan
+        // and refuses any unprefixed key.
+        let reject_legacy = std::env::var("SYMBI_REJECT_LEGACY_API_KEYS")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+        if reject_legacy {
+            tracing::warn!(
+                "SYMBI_REJECT_LEGACY_API_KEYS=1: refusing API key without 'keyid.secret' \
+                 prefix without running the O(n) Argon2 scan."
+            );
+            return None;
+        }
+
+        tracing::error!(
+            "API key without 'keyid.secret' prefix accepted via deprecated O(n) scan. \
+             This path will be REMOVED in the next minor release; re-issue all keys \
+             in 'keyid.secret' format immediately."
         );
 
         for record in &self.records {

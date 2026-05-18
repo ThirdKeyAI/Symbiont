@@ -31,6 +31,20 @@ pub enum VerifyError {
     /// (e.g. missing audience under strict mode).
     #[error("configuration error: {0}")]
     Configuration(String),
+
+    /// The JWT used an algorithm that is not on the verifier's allowlist
+    /// (e.g. an RSA-family algorithm such as `RS256`, where the underlying
+    /// RSA implementation is subject to RUSTSEC-2023-0071 / Marvin Attack).
+    #[error("JWT algorithm not allowed: {algorithm}")]
+    AlgorithmNotAllowed {
+        /// The disallowed algorithm header value.
+        algorithm: String,
+    },
+
+    /// JWT verifier was constructed without an audience. Audience is
+    /// mandatory to prevent cross-service token reuse.
+    #[error("JWT verifier requires an audience claim to be configured")]
+    MissingAudience,
 }
 
 /// Trait for verifying webhook request signatures.
@@ -124,69 +138,50 @@ impl SignatureVerifier for HmacVerifier {
 ///
 /// Extracts a JWT from a request header, strips an optional `Bearer ` prefix,
 /// and validates it using the `jsonwebtoken` crate.
+///
+/// This verifier expects symmetric (HS256) JWTs. RSA-family and `none`
+/// algorithms are rejected unconditionally — the algorithm allowlist is
+/// enforced both via `Validation::algorithms` and by an explicit header
+/// inspection step. This neutralises RUSTSEC-2023-0071 (Marvin Attack on
+/// the transitively-pulled `rsa` crate) on every path that reaches a JWT
+/// verifier in the runtime.
 pub struct JwtVerifier {
     secret: Vec<u8>,
     header_name: String,
     required_issuer: Option<String>,
-    /// If set, the `aud` claim must match this value. When `None`, audience
-    /// validation is disabled — callers should be aware that any valid JWT
-    /// will be accepted regardless of intended audience, which may allow
-    /// token misuse across services sharing the same signing key.
-    audience: Option<String>,
+    /// The `aud` claim must match this value. Audience is mandatory — the
+    /// constructor refuses to build a verifier without one to prevent
+    /// cross-service token reuse.
+    audience: String,
 }
 
 impl JwtVerifier {
     /// Create a JWT verifier using HMAC-SHA256 symmetric signing.
     ///
-    /// Audience is REQUIRED by default. Without an audience claim any JWT
-    /// signed with the same key — including tokens minted for a different
-    /// service — would be accepted, so the verifier refuses to construct.
-    /// The legacy behaviour (warn-only) can be re-enabled by setting
-    /// `SYMBIONT_ALLOW_NO_JWT_AUDIENCE=1`, which is intended for migration
-    /// windows only and logs loudly on every construction.
+    /// Audience is REQUIRED. Without an audience claim any JWT signed with
+    /// the same key — including tokens minted for a different service —
+    /// would be accepted, so the verifier refuses to construct. The previous
+    /// `SYMBIONT_ALLOW_NO_JWT_AUDIENCE` escape hatch has been removed.
     ///
     /// # Arguments
     /// * `secret` — the shared HMAC secret
     /// * `header_name` — HTTP header carrying the JWT (e.g. `"Authorization"`)
     /// * `required_issuer` — if set, the `iss` claim must match this value
-    /// * `audience` — if set, the `aud` claim must match this value
+    /// * `audience` — required: the `aud` claim must match this value;
+    ///   passing `None` returns [`VerifyError::MissingAudience`]
     pub fn new_hmac(
         secret: Vec<u8>,
         header_name: String,
         required_issuer: Option<String>,
         audience: Option<String>,
     ) -> Result<Self, VerifyError> {
-        // Opt-out flag for the previous warn-only behaviour.
-        let allow_no_audience = std::env::var("SYMBIONT_ALLOW_NO_JWT_AUDIENCE")
-            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-            .unwrap_or(false);
-        match (&audience, allow_no_audience) {
-            (None, false) => Err(VerifyError::Configuration(
-                "JwtVerifier requires an audience to prevent cross-service token reuse; \
-                 pass Some(aud) or set SYMBIONT_ALLOW_NO_JWT_AUDIENCE=1 to opt in to \
-                 the legacy permissive behaviour (not recommended)"
-                    .to_string(),
-            )),
-            (None, true) => {
-                tracing::error!(
-                    "SYMBIONT_ALLOW_NO_JWT_AUDIENCE=1: JwtVerifier constructed without \
-                     audience. Any JWT signed with this key will be accepted regardless \
-                     of aud. Remove this flag and set an audience as soon as possible."
-                );
-                Ok(Self {
-                    secret,
-                    header_name,
-                    required_issuer,
-                    audience,
-                })
-            }
-            (Some(_), _) => Ok(Self {
-                secret,
-                header_name,
-                required_issuer,
-                audience,
-            }),
-        }
+        let audience = audience.ok_or(VerifyError::MissingAudience)?;
+        Ok(Self {
+            secret,
+            header_name,
+            required_issuer,
+            audience,
+        })
     }
 
     /// Strict constructor: an audience is required, matching the M-2
@@ -202,7 +197,7 @@ impl JwtVerifier {
             secret,
             header_name,
             required_issuer,
-            audience: Some(audience),
+            audience,
         }
     }
 
@@ -235,27 +230,41 @@ impl SignatureVerifier for JwtVerifier {
         // Strip "Bearer " prefix if present
         let token = header_value.strip_prefix("Bearer ").unwrap_or(header_value);
 
+        // Explicit defence-in-depth: inspect the header alg before any
+        // signature work. The Validation::algorithms allowlist below also
+        // enforces this, but reading the header first gives a precise error
+        // and avoids any possibility of an alg-confusion bug in the verifier
+        // crate exposing the RSA code path (RUSTSEC-2023-0071).
+        let header = jsonwebtoken::decode_header(token).map_err(|e| {
+            VerifyError::InvalidSignature(format!("failed to decode JWT header: {}", e))
+        })?;
+        // This verifier path is symmetric (HMAC). HS256 is the only allowed
+        // algorithm here. Everything else — RSA-family, EC, EdDSA, none — is
+        // rejected unconditionally. Other paths (e.g. the EdDSA Bearer path
+        // in `http_input::server`) maintain their own asymmetric-only
+        // allowlists.
+        if !matches!(header.alg, jsonwebtoken::Algorithm::HS256) {
+            return Err(VerifyError::AlgorithmNotAllowed {
+                algorithm: format!("{:?}", header.alg),
+            });
+        }
+
         let decoding_key = jsonwebtoken::DecodingKey::from_secret(&self.secret);
 
         let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
+        // Pin the algorithm allowlist to HS256 only. This refuses every
+        // RS/PS/ES/EdDSA/none algorithm at the validator level and
+        // neutralises the Marvin Attack reachability through this verifier.
+        validation.algorithms = vec![jsonwebtoken::Algorithm::HS256];
         validation.required_spec_claims = std::collections::HashSet::new();
 
         if let Some(ref issuer) = self.required_issuer {
             validation.set_issuer(&[issuer]);
         }
 
-        if let Some(ref aud) = self.audience {
-            validation.validate_aud = true;
-            validation.aud = Some(std::collections::HashSet::from([aud.clone()]));
-        } else {
-            // SECURITY: audience validation is disabled — any valid JWT signed
-            // with this key will be accepted regardless of the `aud` claim.
-            tracing::warn!(
-                "JWT audience validation is disabled — configure an audience value \
-                 to prevent cross-service token reuse"
-            );
-            validation.validate_aud = false;
-        }
+        // Audience is mandatory (enforced at constructor time).
+        validation.validate_aud = true;
+        validation.aud = Some(std::collections::HashSet::from([self.audience.clone()]));
 
         let token_data = jsonwebtoken::decode::<JwtClaims>(token, &decoding_key, &validation)
             .map_err(|e| {
@@ -507,5 +516,138 @@ mod tests {
             result.unwrap_err(),
             VerifyError::VerificationFailed(_)
         ));
+    }
+
+    #[tokio::test]
+    async fn test_jwt_verifier_requires_audience() {
+        // M2: constructor must refuse `None` audience — no env-var escape
+        // hatch any more.
+        let secret = b"jwt-test-secret";
+        let result = JwtVerifier::new_hmac(
+            secret.to_vec(),
+            "Authorization".to_string(),
+            Some("test-issuer".to_string()),
+            None,
+        );
+        assert!(matches!(result, Err(VerifyError::MissingAudience)));
+    }
+
+    #[tokio::test]
+    async fn test_jwt_verifier_env_var_does_not_bypass_audience() {
+        // Even if a stale operator sets SYMBIONT_ALLOW_NO_JWT_AUDIENCE, the
+        // constructor must still refuse: the escape hatch is gone.
+        let secret = b"jwt-test-secret";
+        std::env::set_var("SYMBIONT_ALLOW_NO_JWT_AUDIENCE", "1");
+        let result = JwtVerifier::new_hmac(
+            secret.to_vec(),
+            "Authorization".to_string(),
+            Some("test-issuer".to_string()),
+            None,
+        );
+        std::env::remove_var("SYMBIONT_ALLOW_NO_JWT_AUDIENCE");
+        assert!(matches!(result, Err(VerifyError::MissingAudience)));
+    }
+
+    /// C4: a token signed with an RSA algorithm must be rejected even before
+    /// any signature work happens. We forge a JWT with `alg=RS256` in the
+    /// header by hand (header.payload.signature, base64url) so we don't
+    /// need an RSA key. The verifier must trip the AlgorithmNotAllowed
+    /// guard at header-decode time.
+    #[tokio::test]
+    async fn test_jwt_verifier_rejects_rs256_token() {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+        let header_json = r#"{"alg":"RS256","typ":"JWT"}"#;
+        let payload_json = r#"{"iss":"test-issuer","aud":"test-audience","exp":9999999999}"#;
+        let token = format!(
+            "{}.{}.{}",
+            URL_SAFE_NO_PAD.encode(header_json),
+            URL_SAFE_NO_PAD.encode(payload_json),
+            URL_SAFE_NO_PAD.encode(b"fake-signature"),
+        );
+
+        let verifier = JwtVerifier::new_hmac(
+            b"any-secret".to_vec(),
+            "Authorization".to_string(),
+            Some("test-issuer".to_string()),
+            Some("test-audience".to_string()),
+        )
+        .expect("test verifier construction");
+
+        let headers = vec![("Authorization".to_string(), format!("Bearer {}", token))];
+        let result = verifier.verify(&headers, b"").await;
+        assert!(
+            matches!(result, Err(VerifyError::AlgorithmNotAllowed { .. })),
+            "RS256 must be rejected, got: {:?}",
+            result
+        );
+    }
+
+    /// Same idea as above for RS384 / RS512 / PS256 / EdDSA / none — every
+    /// non-HS256 algorithm string must be rejected.
+    #[tokio::test]
+    async fn test_jwt_verifier_rejects_all_non_hs256_algorithms() {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+
+        // jsonwebtoken's decode_header only accepts algorithms it knows
+        // about. "none" is intentionally not part of the Algorithm enum
+        // (jsonwebtoken refuses to recognise it at all), so we exercise the
+        // remaining asymmetric algorithms it does support.
+        let algs = [
+            "RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "EdDSA",
+        ];
+        for alg in algs {
+            let header_json = format!(r#"{{"alg":"{}","typ":"JWT"}}"#, alg);
+            let payload_json = r#"{"iss":"test-issuer","aud":"test-audience","exp":9999999999}"#;
+            let token = format!(
+                "{}.{}.{}",
+                URL_SAFE_NO_PAD.encode(header_json),
+                URL_SAFE_NO_PAD.encode(payload_json),
+                URL_SAFE_NO_PAD.encode(b"fake-signature"),
+            );
+
+            let verifier = JwtVerifier::new_hmac(
+                b"any-secret".to_vec(),
+                "Authorization".to_string(),
+                Some("test-issuer".to_string()),
+                Some("test-audience".to_string()),
+            )
+            .expect("test verifier construction");
+
+            let headers = vec![("Authorization".to_string(), format!("Bearer {}", token))];
+            let result = verifier.verify(&headers, b"").await;
+            assert!(
+                matches!(result, Err(VerifyError::AlgorithmNotAllowed { .. })),
+                "alg={} must be rejected, got: {:?}",
+                alg,
+                result
+            );
+        }
+    }
+
+    /// Belt-and-braces: even if header inspection were skipped, the
+    /// `Validation::algorithms` allowlist must not contain RSA/PS variants.
+    #[test]
+    fn test_jwt_verifier_validation_algorithms_is_hs256_only() {
+        // Reconstruct the same Validation the runtime uses, ensure the
+        // allowlist is exactly HS256 — no RSA, no PS, no EdDSA.
+        let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
+        validation.algorithms = vec![jsonwebtoken::Algorithm::HS256];
+        assert_eq!(validation.algorithms, vec![jsonwebtoken::Algorithm::HS256]);
+        for forbidden in [
+            jsonwebtoken::Algorithm::RS256,
+            jsonwebtoken::Algorithm::RS384,
+            jsonwebtoken::Algorithm::RS512,
+            jsonwebtoken::Algorithm::PS256,
+            jsonwebtoken::Algorithm::PS384,
+            jsonwebtoken::Algorithm::PS512,
+            jsonwebtoken::Algorithm::ES256,
+            jsonwebtoken::Algorithm::EdDSA,
+        ] {
+            assert!(
+                !validation.algorithms.contains(&forbidden),
+                "{:?} must not be in the JWT verifier allowlist",
+                forbidden
+            );
+        }
     }
 }

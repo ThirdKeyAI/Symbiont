@@ -332,6 +332,19 @@ let runner = ReasoningLoopRunner::builder()
     .build();
 ```
 
+### 推論ループポリシーゲートのデフォルト（v1.13.0 監査後）
+
+`symbi up` および `symbi run` の推論ループはデフォルトで**フェイルクローズ**です。`DefaultPolicyGate::new()` はすべての `ToolCall` および `Delegate` アクションに対して `LoopDecision::Deny` を返し、その理由は `"No policy gate configured (DefaultPolicyGate::new is fail-closed; wire OpaPolicyGateBridge or pass --insecure-allow-all)"` です。`Respond` アクションは引き続き許可されるため、エージェントはテキスト出力を生成できます。
+
+この変更により、本番バイナリが以前は `DefaultPolicyGate::permissive()` をハードコードしてすべてのアクションを暗黙的に許可していたギャップが塞がれます — 監査の経緯は `SECURITY_AUDIT.md` C2 を参照してください。
+
+オペレーターには 2 つの選択肢があります：
+
+1. **実際のポリシーバックエンドを配線する**（推奨）: `CedarPolicyGate`、`OpaPolicyGateBridge`、または `ReasoningPolicyGate` トレイトの独自実装を構築し、ランナーに渡します。
+2. **ローカル開発向けに許可モードをオプトインする**: `symbi up` / `symbi run` に `--insecure-allow-all` を渡すか、`SYMBI_INSECURE_ALLOW_ALL=1` を設定します。このモードでランタイムが起動するたびに複数行の stderr バナーが表示され、評価される各アクションで `tracing::warn!` が発火します。
+
+レガシーの `permissive()` コンストラクタは `permissive_for_dev_only()` に名前変更され、本番コードパスでの偶発的な使用を抑制するために `#[doc(hidden)]` がマークされました。
+
 ### エージェント間通信ポリシー
 
 `CommunicationPolicyGate` はすべてのエージェント間通信に対する認可ルールを実行します。`ask`、`delegate`、`send_to`、`parallel`、`race` を通じたすべての呼び出しは、実行前にポリシールールに対して評価されます。

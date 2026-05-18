@@ -200,7 +200,7 @@ async fn test_full_orga_cycle() {
     let runner = ReasoningLoopRunner::builder()
         .provider(Arc::new(OrgaMockProvider::new()) as Arc<dyn InferenceProvider>)
         .executor(Arc::new(OrgaMockExecutor) as Arc<dyn ActionExecutor>)
-        .policy_gate(Arc::new(DefaultPolicyGate::permissive()))
+        .policy_gate(Arc::new(DefaultPolicyGate::permissive_for_dev_only()))
         .circuit_breakers(circuit_breakers)
         .journal(journal.clone())
         .build();

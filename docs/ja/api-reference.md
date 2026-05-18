@@ -439,17 +439,17 @@ cargo build --features cloud-llm
 
 #### スタンドアロンエージェントモード (`standalone-agent`)
 
-クラウドネイティブエージェントのためにクラウドLLM推論とComposioツールアクセスを組み合わせます：
+クラウドネイティブエージェントのためにクラウドLLM推論を有効化するメタフィーチャー：
 
 ```bash
 cargo build --features standalone-agent
-# 有効化: cloud-llm + composio
+# 有効化: cloud-llm
 ```
 
 **環境変数：**
 - `OPENROUTER_API_KEY` -- OpenRouter APIキー
-- `COMPOSIO_API_KEY` -- Composio APIキー
-- `COMPOSIO_MCP_URL` -- Composio MCPサーバーURL
+
+> **Note:** Composio MCP and SymbiBot integration were removed in this version due to security concerns — see SECURITY_AUDIT.md C3 for context.
 
 #### Cedarポリシーエンジン (`cedar`)
 

@@ -1,6 +1,8 @@
 # Unified Symbi Container - DSL and Runtime
 # Multi-stage build with cargo-chef for deterministic dependency caching
-FROM rust:1.88-slim-bookworm AS chef
+# Base images are pinned by digest (verified against Docker Hub on 2026-05-17).
+# Update the digest alongside any tag bump.
+FROM rust:1.88-slim-bookworm@sha256:38bc5a86d998772d4aec2348656ed21438d20fcdce2795b56ca434cf21430d89 AS chef
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -68,11 +70,16 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cp target/release/symbi /tmp/symbi
 
 # --- Runtime stage - minimal security-hardened image ---
-FROM debian:bookworm-slim
+# Base image pinned by digest (verified against Docker Hub on 2026-05-17).
+# Update the digest alongside any tag bump.
+FROM debian:bookworm-slim@sha256:67b30a61dc87758f0caf819646104f29ecbda97d920aaf5edc834128ac8493d3
 
+# curl is required by the application-level HEALTHCHECK below; ca-certificates
+# and libssl3 are required by the runtime binary for TLS.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
+    curl \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -104,9 +111,16 @@ WORKDIR /var/lib/symbi
 # Expose ports: 8080 (Runtime API / MCP), 8081 (HTTP Input / webhooks)
 EXPOSE 8080 8081
 
-# Health check: verify HTTP port 8081 is listening (no curl/wget in image)
+# Health check: probe the runtime API health endpoint on port 8080.
+# Falls back to a socket-listen check on the HTTP Input port (8081, hex 1F91)
+# so the probe still passes for deployments that only expose the webhook
+# server. The HTTP endpoint catches application-level hangs that a raw
+# socket-listen check would miss.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD grep -q ':1F91 ' /proc/net/tcp 2>/dev/null || grep -q ':1F91 ' /proc/net/tcp6 2>/dev/null || exit 1
+    CMD curl -fsS --max-time 5 http://127.0.0.1:8080/api/v1/health >/dev/null 2>&1 \
+        || grep -q ':1F91 ' /proc/net/tcp 2>/dev/null \
+        || grep -q ':1F91 ' /proc/net/tcp6 2>/dev/null \
+        || exit 1
 
 # Default entrypoint is the unified symbi binary
 ENTRYPOINT ["/usr/local/bin/symbi"]

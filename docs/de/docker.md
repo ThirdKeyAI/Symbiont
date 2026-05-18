@@ -153,6 +153,8 @@ Das Image laeuft als Benutzer `symbi` (UID 1000) mit `WORKDIR=/var/lib/symbi`. P
 
 Standardmaessig verwendet Symbiont **LanceDB** als eingebettete Vektordatenbank -- keine externen Dienste erforderlich. Wenn Sie ein verteiltes Vektor-Backend fuer skalierte Deployments benoetigen, koennen Sie optional Qdrant hinzufuegen.
 
+> **Sicherheits-Standardwerte (nach dem v1.13.0-Audit).** Die mitgelieferte `docker-compose.test.yml` setzt nun voraus, dass `SYMBIONT_API_TOKEN` in der Umgebung gesetzt ist (kein Standardwert mehr -- `testtoken123` wurde entfernt) und bindet veroeffentlichte Ports an `127.0.0.1` statt `0.0.0.0`. Die Runtime lehnt zusaetzlich jeden Token ab, der exakt `testtoken123` lautet oder mit `test` beginnt und kuerzer als 20 Zeichen ist; dies verhindert das versehentliche erneute Deployment des historischen Standardwerts. Siehe `.env.example` fuer die erforderlichen Variablen und `SECURITY_AUDIT.md` C5 fuer die Begruendung.
+
 ### Minimal (LanceDB-Standard -- kein Qdrant erforderlich)
 
 Kombinieren Sie dies mit einer `.env`-Datei, die `SYMBIONT_MASTER_KEY` setzt:

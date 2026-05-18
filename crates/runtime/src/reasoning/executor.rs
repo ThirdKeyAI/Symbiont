@@ -29,7 +29,7 @@ pub trait ActionExecutor: Send + Sync {
     ///
     /// The runner auto-populates `LoopConfig.tool_definitions` from this
     /// when the config's list is empty. Override in executors that discover
-    /// tools dynamically (e.g., `ComposioToolExecutor`).
+    /// tools dynamically.
     fn tool_definitions(&self) -> Vec<ToolDefinition> {
         Vec::new()
     }

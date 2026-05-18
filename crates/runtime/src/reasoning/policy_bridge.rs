@@ -29,22 +29,37 @@ pub trait ReasoningPolicyGate: Send + Sync {
     ) -> LoopDecision;
 }
 
-/// Default policy gate that wraps the existing `PolicyEngine`.
+/// Default policy gate.
 ///
-/// For tool calls, it evaluates the tool name and arguments against the
-/// policy engine. For other action types, it applies sensible defaults.
+/// In its non-permissive mode (`DefaultPolicyGate::new()`) this gate is
+/// **fail-closed**: every `ToolCall` and `Delegate` action is denied with
+/// an explicit reason instructing the operator to wire a real policy
+/// backend (e.g. [`OpaPolicyGateBridge`]) or to opt into the dev-only
+/// permissive mode via [`DefaultPolicyGate::permissive_for_dev_only`].
+/// `Respond` and `Terminate` remain allowed so the reasoning loop can
+/// still surface the denial back to the caller.
 pub struct DefaultPolicyGate {
     allow_all: bool,
 }
 
 impl DefaultPolicyGate {
-    /// Create a gate that evaluates all actions against the policy engine.
+    /// Create a fail-closed gate. `ToolCall` and `Delegate` actions are
+    /// denied by default; only `Respond` and `Terminate` pass.
+    ///
+    /// Wire [`OpaPolicyGateBridge`] (or another `ReasoningPolicyGate`
+    /// implementation) for production deployments.
     pub fn new() -> Self {
         Self { allow_all: false }
     }
 
-    /// Create a permissive gate that allows all actions (for development).
-    pub fn permissive() -> Self {
+    /// WARNING: Allows every tool call and delegation. Only safe for local
+    /// development. Production deployments MUST wire `OpaPolicyGateBridge`.
+    ///
+    /// Use behind an explicit operator opt-in (e.g. `--insecure-allow-all`
+    /// CLI flag or `SYMBI_INSECURE_ALLOW_ALL=1` env var) and surface a
+    /// loud warning at startup.
+    #[doc(hidden)]
+    pub fn permissive_for_dev_only() -> Self {
         Self { allow_all: true }
     }
 }
@@ -64,46 +79,43 @@ impl ReasoningPolicyGate for DefaultPolicyGate {
         _state: &LoopState,
     ) -> LoopDecision {
         if self.allow_all {
+            // Loud warning on every action so insecure permissive mode is
+            // visible in production logs, not just at construction time.
+            tracing::warn!(
+                "DefaultPolicyGate is in insecure permissive mode — action={:?}",
+                action
+            );
             return LoopDecision::Allow;
         }
 
         match action {
-            ProposedAction::ToolCall {
-                name, arguments, ..
-            } => {
-                // Build policy input from the tool call
-                let input = serde_json::json!({
-                    "type": "tool_call",
-                    "agent_id": agent_id.to_string(),
-                    "tool_name": name,
-                    "arguments": arguments,
-                });
-
+            ProposedAction::ToolCall { name, .. } => {
                 tracing::debug!(
-                    "Policy gate evaluating tool call: agent={} tool={}",
+                    "Policy gate denying tool call (fail-closed default): agent={} tool={}",
                     agent_id,
                     name
                 );
-
-                // In production, this delegates to the PolicyEngine.
-                // The default implementation allows tool calls but logs them.
-                let _ = input; // Used for policy evaluation in full implementation
-                LoopDecision::Allow
+                LoopDecision::Deny {
+                    reason: "No policy gate configured (DefaultPolicyGate::new is fail-closed; wire OpaPolicyGateBridge or pass --insecure-allow-all)".to_string(),
+                }
             }
             ProposedAction::Delegate { target, .. } => {
                 tracing::debug!(
-                    "Policy gate evaluating delegation: agent={} target={}",
+                    "Policy gate denying delegation (fail-closed default): agent={} target={}",
                     agent_id,
                     target
                 );
-                LoopDecision::Allow
+                LoopDecision::Deny {
+                    reason: "No policy gate configured (DefaultPolicyGate::new is fail-closed; wire OpaPolicyGateBridge or pass --insecure-allow-all)".to_string(),
+                }
             }
             ProposedAction::Respond { .. } => {
-                // Responses are generally allowed
+                // Responses are always allowed so the loop can surface
+                // policy decisions back to the caller.
                 LoopDecision::Allow
             }
             ProposedAction::Terminate { .. } => {
-                // Terminations are always allowed
+                // Terminations are always allowed.
                 LoopDecision::Allow
             }
         }
@@ -248,8 +260,8 @@ mod tests {
     use crate::reasoning::loop_types::LoopState;
 
     #[tokio::test]
-    async fn test_default_gate_allows_all_actions() {
-        let gate = DefaultPolicyGate::permissive();
+    async fn test_permissive_dev_only_allows_all_actions() {
+        let gate = DefaultPolicyGate::permissive_for_dev_only();
         let agent_id = AgentId::new();
         let state = LoopState::new(agent_id, Conversation::new());
 
@@ -283,18 +295,37 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_default_gate_standard_mode() {
+    async fn test_default_gate_fail_closed_tool_call() {
         let gate = DefaultPolicyGate::new();
         let agent_id = AgentId::new();
         let state = LoopState::new(agent_id, Conversation::new());
 
-        // Default gate allows tool calls (delegates to PolicyEngine in production)
         let tool_call = ProposedAction::ToolCall {
             call_id: "c1".into(),
             name: "search".into(),
             arguments: "{}".into(),
         };
         let decision = gate.evaluate_action(&agent_id, &tool_call, &state).await;
+        assert!(matches!(decision, LoopDecision::Deny { .. }));
+
+        let delegate = ProposedAction::Delegate {
+            target: "other".into(),
+            message: "hi".into(),
+        };
+        let decision = gate.evaluate_action(&agent_id, &delegate, &state).await;
+        assert!(matches!(decision, LoopDecision::Deny { .. }));
+
+        let respond = ProposedAction::Respond {
+            content: "done".into(),
+        };
+        let decision = gate.evaluate_action(&agent_id, &respond, &state).await;
+        assert!(matches!(decision, LoopDecision::Allow));
+
+        let terminate = ProposedAction::Terminate {
+            reason: "done".into(),
+            output: "result".into(),
+        };
+        let decision = gate.evaluate_action(&agent_id, &terminate, &state).await;
         assert!(matches!(decision, LoopDecision::Allow));
     }
 

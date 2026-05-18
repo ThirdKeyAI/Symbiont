@@ -74,7 +74,7 @@ impl ReasoningLoopRunner {
 
 // Methods available regardless of typestate
 impl<P, E> ReasoningLoopRunnerBuilder<P, E> {
-    /// Set a custom policy gate. Default: `DefaultPolicyGate::permissive()`.
+    /// Set a custom policy gate. Default: `DefaultPolicyGate::new()` (fail-closed).
     pub fn policy_gate(mut self, gate: Arc<dyn ReasoningPolicyGate>) -> Self {
         self.policy_gate = Some(gate);
         self
@@ -553,7 +553,7 @@ mod tests {
     fn make_runner(provider: Arc<dyn InferenceProvider>) -> ReasoningLoopRunner {
         ReasoningLoopRunner {
             provider,
-            policy_gate: Arc::new(DefaultPolicyGate::permissive()),
+            policy_gate: Arc::new(DefaultPolicyGate::permissive_for_dev_only()),
             executor: Arc::new(DefaultActionExecutor::default()),
             context_manager: Arc::new(DefaultContextManager::default()),
             circuit_breakers: Arc::new(CircuitBreakerRegistry::default()),
@@ -846,7 +846,7 @@ mod tests {
 
         let runner = ReasoningLoopRunner {
             provider,
-            policy_gate: Arc::new(DefaultPolicyGate::permissive()),
+            policy_gate: Arc::new(DefaultPolicyGate::permissive_for_dev_only()),
             executor: Arc::new(ToolfulExecutor),
             context_manager: Arc::new(DefaultContextManager::default()),
             circuit_breakers: Arc::new(CircuitBreakerRegistry::default()),

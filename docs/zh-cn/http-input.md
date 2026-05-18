@@ -131,7 +131,11 @@ let config = HttpInputConfig {
 };
 ```
 
-JWT 验证器从指定的 PEM 文件加载 Ed25519 公钥，并验证传入的 `Authorization: Bearer <jwt>` 令牌。仅接受 **EdDSA** 算法——HS256、RS256 及其他算法会被拒绝。
+JWT 验证器从指定的 PEM 文件加载 Ed25519 公钥，并验证传入的 `Authorization: Bearer <jwt>` 令牌。
+
+**算法白名单（v1.13.0 审计之后）：** 非对称 Bearer 令牌路径仅接受 **ES256** 与 **EdDSA**。HMAC webhook 签名路径（用于 Slack、Mattermost、GitHub 等）仅接受 **HS256**。RSA 系列算法（`RS256`、`RS384`、`RS512`、`PS256`、`PS384`、`PS512`）以及符号 `none` 算法在头部检查守卫和 `Validation::algorithms` 白名单两处都会被拒绝。这在运维方可控的所有路径上中和了 `rsa` crate 的时序攻击建议（RUSTSEC-2023-0071）。参见 `SECURITY_AUDIT.md` C4。（Microsoft Teams 适配器仍使用 RS256，因为 Bot Framework 要求如此；该表面被限定在由 MS 签名的令牌内。）
+
+**强制要求 audience：** `SYMBIONT_ALLOW_NO_JWT_AUDIENCE` 环境变量逃生通道已在 v1.13.0 审计之后被移除。每个 JWT 验证器都要求显式的 `aud` 配置；不匹配 audience 的令牌会被拒绝。
 
 #### 健康端点
 
@@ -148,7 +152,7 @@ curl http://127.0.0.1:8080/api/v1/health
 ### 安全控制
 
 - **仅回环地址默认**：`bind_address` 默认为 `127.0.0.1`——服务器仅接受本地连接，除非显式配置为其他地址
-- **CORS 默认禁用**：`cors_origins` 默认为空列表，表示 CORS 已禁用；添加特定来源以启用跨域访问
+- **CORS 默认禁用**：`cors_origins` 默认为空列表，表示 CORS 已禁用；添加特定来源以启用跨域访问。`cors_origins` 中出现字面量 `"*"` 会在**启动时被拒绝** —— HTTP 输入服务器拒绝以通配来源启动。（在 v1.13.0 审计之后新增；参见 `SECURITY_AUDIT.md` M1。）
 - **请求大小限制**：可配置的最大主体大小防止资源耗尽
 - **并发限制**：内置信号量控制并发请求处理
 - **审计日志记录**：启用时对所有传入请求进行结构化日志记录

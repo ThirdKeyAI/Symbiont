@@ -333,6 +333,19 @@ let runner = ReasoningLoopRunner::builder()
     .build();
 ```
 
+### 推理循环策略门控默认值（v1.13.0 审计之后）
+
+`symbi up` 与 `symbi run` 中的推理循环默认采用**失败即关闭**策略。`DefaultPolicyGate::new()` 会对每个 `ToolCall` 和 `Delegate` 操作返回 `LoopDecision::Deny`，原因为 `"No policy gate configured (DefaultPolicyGate::new is fail-closed; wire OpaPolicyGateBridge or pass --insecure-allow-all)"`。`Respond` 操作仍被允许，以便智能体可以继续产生文本输出。
+
+此变更填补了之前生产二进制硬编码 `DefaultPolicyGate::permissive()` 并静默允许所有操作的漏洞——审计轨迹见 `SECURITY_AUDIT.md` C2。
+
+运维方有两种路径：
+
+1. **接入真实的策略后端**（推荐）：构造 `CedarPolicyGate`、`OpaPolicyGateBridge`，或自行实现 `ReasoningPolicyGate` trait，并将其传入 runner。
+2. **为本地开发选择性启用宽松模式**：向 `symbi up` / `symbi run` 传递 `--insecure-allow-all`，或设置 `SYMBI_INSECURE_ALLOW_ALL=1`。每次运行时以此模式启动都会打印多行 stderr 横幅，并且 `tracing::warn!` 会针对每个被评估的操作触发。
+
+旧的 `permissive()` 构造函数被重命名为 `permissive_for_dev_only()` 并标记为 `#[doc(hidden)]`，以阻止在生产代码路径中无意使用。
+
 ### 智能体间通信策略
 
 `CommunicationPolicyGate` 为所有智能体间通信强制执行授权规则。通过 `ask`、`delegate`、`send_to`、`parallel` 或 `race` 发起的每次调用都会在执行前经过策略规则评估。

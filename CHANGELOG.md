@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- Composio MCP integration and SymbiBot autonomous-posting feature removed for security reasons (see SECURITY_AUDIT.md C3)
+
+### Security
+- `DefaultPolicyGate::new()` is now fail-closed: every `ToolCall` and `Delegate` action is denied with an explicit reason unless an OPA-backed gate is wired or the operator opts into the dev-only permissive mode via `--insecure-allow-all` (or `SYMBI_INSECURE_ALLOW_ALL=1`). The previous fail-open behaviour silently allowed every action. (SECURITY_AUDIT.md C2/M3)
+- `DefaultPolicyGate::permissive()` was renamed to `DefaultPolicyGate::permissive_for_dev_only()` and marked `#[doc(hidden)]`; it now emits a `tracing::warn!` on every evaluated action so insecure permissive mode is visible in production logs.
+- `symbi up` and `symbi run` now default to the fail-closed gate; the dev-only permissive gate must be explicitly enabled.
+- Tool-call arguments produced by the LLM are now validated against the declared JSON Schema before the policy gate runs. Arguments that are not a JSON object — or that fail schema validation — are rejected as `LoopDecision::Deny`. (SECURITY_AUDIT.md M4)
+
 ## [1.13.0] - 2026-05-07
 
 ### Added

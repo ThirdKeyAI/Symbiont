@@ -161,6 +161,12 @@ async fn main() {
                         .long("serve-agents-md")
                         .action(ArgAction::SetTrue)
                         .help("Serve AGENTS.md at /agents.md and /.well-known/agents.md (auth-gated)"),
+                )
+                .arg(
+                    Arg::new("insecure-allow-all")
+                        .long("insecure-allow-all")
+                        .action(ArgAction::SetTrue)
+                        .help("DEV ONLY: switch the policy gate into permissive mode (allows every tool call and delegation). Also enabled by SYMBI_INSECURE_ALLOW_ALL=1. Do not use in production."),
                 ),
         )
         .subcommand(

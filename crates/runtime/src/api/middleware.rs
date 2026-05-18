@@ -20,8 +20,14 @@ use governor::{
 use std::{
     net::{IpAddr, SocketAddr},
     num::NonZeroU32,
-    sync::{Arc, OnceLock},
+    sync::{Arc, Once, OnceLock},
 };
+
+/// Fires the loud "ApiKeyStore configured but empty — falling back to
+/// legacy env-var auth" error exactly once per process. See
+/// SECURITY_AUDIT.md L3.
+#[cfg(feature = "http-api")]
+static EMPTY_KEYSTORE_FALLBACK_WARN: Once = Once::new();
 
 #[cfg(feature = "http-api")]
 use dashmap::DashMap;
@@ -216,6 +222,19 @@ pub async fn auth_middleware(request: Request, next: Next) -> Result<Response, S
                 }
             };
         }
+        // Empty keystore + configured — this is a misconfiguration; the
+        // operator wired up a key store but populated zero records, and
+        // we're about to silently fall through to the legacy
+        // SYMBIONT_API_TOKEN env-var path. Log loudly exactly once per
+        // process so this surfaces in ops dashboards. See
+        // SECURITY_AUDIT.md L3.
+        EMPTY_KEYSTORE_FALLBACK_WARN.call_once(|| {
+            tracing::error!(
+                "ApiKeyStore is configured but contains no records — falling back to legacy \
+                 SYMBIONT_API_TOKEN env-var auth. This is a misconfiguration; populate the \
+                 keystore or remove its configuration."
+            );
+        });
     }
 
     // --- Legacy fallback: static SYMBIONT_API_TOKEN env var ---

@@ -358,14 +358,16 @@ impl TaskManager {
     ) -> Result<ExecutionEnvironment, String> {
         use std::env;
 
-        // For tests, use a temporary directory that we know exists
+        // Per-uid working directory under /run (tmpfs, cleared on reboot) avoids
+        // sharing host /tmp across users; fall back to a per-uid subdir of
+        // std::env::temp_dir when /run/symbi is not writable.
         let working_dir = if cfg!(test) {
-            env::temp_dir()
-                .join(format!("agent_{}", task.agent_id))
-                .to_string_lossy()
-                .to_string()
+            let dir = env::temp_dir().join(format!("agent_{}", task.agent_id));
+            Self::create_dir_secure(&dir)?;
+            dir.to_string_lossy().to_string()
         } else {
-            format!("/tmp/agent_{}", task.agent_id)
+            let dir = Self::resolve_agent_working_dir(task.agent_id)?;
+            dir.to_string_lossy().to_string()
         };
 
         Ok(ExecutionEnvironment {
@@ -386,9 +388,7 @@ impl TaskManager {
         task: &super::ScheduledTask,
         env: &ExecutionEnvironment,
     ) -> Result<Command, String> {
-        let mut command = Command::new("sh");
-
-        // Create the working directory if it doesn't exist
+        // Ensure working directory exists (idempotent).
         if let Err(e) = tokio::fs::create_dir_all(&env.working_directory).await {
             tracing::warn!(
                 "Failed to create working directory {}: {}",
@@ -397,40 +397,82 @@ impl TaskManager {
             );
         }
 
-        // Set working directory
+        // Write DSL source to a sibling file so it crosses the process boundary
+        // as data on disk, never as a shell-interpolated argv token.
+        let dsl_path = std::path::Path::new(&env.working_directory).join("agent.dsl");
+        tokio::fs::write(&dsl_path, &task.config.dsl_source)
+            .await
+            .map_err(|e| format!("failed to write dsl: {e}"))?;
+
+        let mut command = Command::new("/bin/sh");
         command.current_dir(&env.working_directory);
 
-        // Set environment variables
         for (key, value) in &env.environment_variables {
             command.env(key, value);
         }
 
-        // Create a script that executes the agent DSL
-        let script_content = if cfg!(test) {
-            // Simplified script for testing that should always succeed
-            format!(
-                r#"echo "Test execution of agent {}" >&2
-echo "DSL Source: {}" >&2
-echo "Agent test execution completed" >&2"#,
-                task.agent_id, task.config.dsl_source
-            )
+        command.arg("-c");
+        // Quoted-literal script with NO interpolation of attacker-controlled data.
+        // DSL contents arrive via argv ($1) and are read with `cat`, never expanded.
+        if cfg!(test) {
+            command.arg(
+                r#"echo "Test execution of agent ${AGENT_ID}" >&2; echo "DSL Source:" >&2; cat "$1" >&2; echo "Agent test execution completed" >&2"#,
+            );
         } else {
-            format!(
-                r#"#!/bin/bash
-set -e
-echo "Executing agent {}" >&2
-echo "DSL Source:" >&2
-echo "{}" >&2
-# In a real implementation, this would compile and execute the DSL
-sleep 1
-echo "Agent execution completed" >&2"#,
-                task.agent_id, task.config.dsl_source
-            )
-        };
-
-        command.args(["-c", &script_content]);
+            command.arg(
+                r#"echo "Executing agent ${AGENT_ID}" >&2; echo "DSL Source:" >&2; cat "$1" >&2; sleep 1; echo "Agent execution completed" >&2"#,
+            );
+        }
+        command.arg("--");
+        command.arg(dsl_path.as_os_str());
 
         Ok(command)
+    }
+
+    /// Resolve a per-uid agent working directory: prefer /run/symbi/agent_<id>
+    /// (XDG runtime root style), fall back to <temp>/symbi-<uid>/agent_<id>.
+    /// Both modes are created with 0700 perms to avoid cross-user exposure.
+    fn resolve_agent_working_dir(agent_id: AgentId) -> Result<std::path::PathBuf, String> {
+        #[cfg(unix)]
+        let uid = unsafe { libc::getuid() };
+        #[cfg(not(unix))]
+        let uid: u32 = 0;
+
+        let primary_root = std::path::PathBuf::from("/run/symbi");
+        let primary = primary_root.join(format!("agent_{}", agent_id));
+        if Self::create_dir_secure(&primary_root).is_ok()
+            && Self::create_dir_secure(&primary).is_ok()
+        {
+            return Ok(primary);
+        }
+
+        let fallback_root = std::env::temp_dir().join(format!("symbi-{}", uid));
+        Self::create_dir_secure(&fallback_root)?;
+        let fallback = fallback_root.join(format!("agent_{}", agent_id));
+        Self::create_dir_secure(&fallback)?;
+        Ok(fallback)
+    }
+
+    /// Create a directory with 0700 perms on Unix. Idempotent: if it already
+    /// exists, leaves perms alone.
+    fn create_dir_secure(path: &std::path::Path) -> Result<(), String> {
+        if path.exists() {
+            return Ok(());
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            std::fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(path)
+                .map_err(|e| format!("failed to create {}: {e}", path.display()))
+        }
+        #[cfg(not(unix))]
+        {
+            std::fs::create_dir_all(path)
+                .map_err(|e| format!("failed to create {}: {e}", path.display()))
+        }
     }
 
     /// Monitor process execution

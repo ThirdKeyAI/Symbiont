@@ -931,13 +931,32 @@ impl Config {
             "qwerty",
             "abc123",
             "password123",
+            // Known shipped default that was previously baked into
+            // docker-compose.test.yml — refuse it even if an operator
+            // re-introduces the literal string.
+            "testtoken123",
         ];
 
-        if weak_tokens.contains(&trimmed.to_lowercase().as_str()) {
+        let lower = trimmed.to_lowercase();
+
+        if weak_tokens.contains(&lower.as_str()) {
             return Err(ConfigError::InvalidValue {
                 key: "auth_token".to_string(),
                 reason: format!(
                     "Token '{}' is a known weak/default token. Use a strong random token instead.",
+                    trimmed
+                ),
+            });
+        }
+
+        // Belt-and-suspenders: any token starting with "test" (case-insensitive)
+        // and shorter than 20 characters is treated as a placeholder. Real
+        // production tokens are typically random strings well over 20 chars.
+        if lower.starts_with("test") && trimmed.len() < 20 {
+            return Err(ConfigError::InvalidValue {
+                key: "auth_token".to_string(),
+                reason: format!(
+                    "Token '{}' looks like a test/placeholder value (starts with 'test', shorter than 20 chars). Use a strong random token >=20 chars instead.",
                     trimmed
                 ),
             });
@@ -1632,6 +1651,46 @@ mod tests {
             "strong_secure_token_12345"
         );
         env::remove_var("API_AUTH_TOKEN");
+    }
+
+    #[test]
+    fn test_validate_auth_token_rejects_testtoken123() {
+        // Belt-and-suspenders against re-introducing the historical
+        // docker-compose default.
+        let result = Config::validate_auth_token("testtoken123");
+        assert!(result.is_err(), "'testtoken123' must be rejected");
+        if let Err(ConfigError::InvalidValue { reason, .. }) = result {
+            assert!(
+                reason.contains("weak/default token") || reason.contains("test/placeholder"),
+                "Expected weak/placeholder rejection, got: {}",
+                reason
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_auth_token_rejects_short_test_prefix() {
+        // Any token starting with "test" (case-insensitive) and shorter
+        // than 20 chars is rejected as a placeholder.
+        let cases = vec![
+            "testabcdef",     // 10 chars
+            "TESTabcdefghij", // 14 chars
+            "Testing1234",    // 11 chars
+        ];
+        for token in cases {
+            let result = Config::validate_auth_token(token);
+            assert!(
+                result.is_err(),
+                "Short test-prefixed token '{}' should be rejected",
+                token
+            );
+        }
+
+        // A test-prefixed token >=20 chars passes the prefix check (still
+        // permitted, since long random tokens that happen to start with
+        // "test" are not necessarily placeholders).
+        let long = "testxxxxxxxxxxxxxxxxxxxxx"; // 25 chars
+        assert!(Config::validate_auth_token(long).is_ok());
     }
 
     #[test]

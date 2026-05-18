@@ -65,9 +65,9 @@ pub async fn builtin_reason(args: &[DslValue], ctx: &ReasoningBuiltinContext) ->
 
     // Prefer a caller-provided policy gate (e.g. OpaPolicyGateBridge wired
     // from the runtime). Fall back to the non-permissive default rather
-    // than `DefaultPolicyGate::permissive()` so `reason()` no longer opts
-    // every DSL program into unrestricted tool calls regardless of how
-    // the runtime was configured.
+    // than `DefaultPolicyGate::permissive_for_dev_only()` so `reason()`
+    // no longer opts every DSL program into unrestricted tool calls
+    // regardless of how the runtime was configured.
     let policy_gate: Arc<dyn ReasoningPolicyGate + Send + Sync> =
         match ctx.reasoning_policy_gate.clone() {
             Some(gate) => gate,

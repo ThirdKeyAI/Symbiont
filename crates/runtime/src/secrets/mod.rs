@@ -87,7 +87,13 @@ pub enum SecretError {
 /// buffer when the `Secret` goes out of scope so the plaintext does not
 /// linger in the heap past its useful life (protects against core dumps,
 /// swap, and post-free memory scraping).
-#[derive(Clone, Serialize, Deserialize)]
+///
+/// `Serialize` is implemented by hand and redacts `value` exactly the same
+/// way the custom `Debug` impl does — so a structured logger calling
+/// `serde_json::to_string(&secret)` cannot leak plaintext. `Deserialize`
+/// is still derived because secrets must be read back from backends like
+/// Vault and the file backend.
+#[derive(Clone, Deserialize)]
 pub struct Secret {
     /// The secret key/name
     pub key: String,
@@ -99,6 +105,25 @@ pub struct Secret {
     pub created_at: Option<String>,
     /// Version of the secret (for versioned backends)
     pub version: Option<String>,
+}
+
+impl Serialize for Secret {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("Secret", 5)?;
+        state.serialize_field("key", &self.key)?;
+        // SECURITY: never serialize the plaintext value. The Debug impl
+        // redacts the same field; serde must match so structured loggers
+        // (tracing JSON appenders, log forwarders) cannot leak the secret.
+        state.serialize_field("value", "[REDACTED]")?;
+        state.serialize_field("metadata", &self.metadata)?;
+        state.serialize_field("created_at", &self.created_at)?;
+        state.serialize_field("version", &self.version)?;
+        state.end()
+    }
 }
 
 impl Drop for Secret {
@@ -326,6 +351,30 @@ mod tests {
         assert_eq!(secret.key, "test_key");
         assert_eq!(secret.value(), "test_value");
         assert!(secret.metadata.is_none());
+    }
+
+    #[test]
+    fn test_secret_serialize_redacts_value() {
+        // M7: Serialize must NOT emit the plaintext `value`. Even if a
+        // structured logger calls `serde_json::to_string(&secret)`, the
+        // output must contain "[REDACTED]" and never the real secret.
+        let secret = Secret::new(
+            "api_key".to_string(),
+            "super-secret-plaintext-value".to_string(),
+        );
+        let json = serde_json::to_string(&secret).expect("serialize Secret");
+        assert!(
+            json.contains("[REDACTED]"),
+            "Serialize output must contain [REDACTED]; got: {}",
+            json
+        );
+        assert!(
+            !json.contains("super-secret-plaintext-value"),
+            "Serialize output must NOT contain the plaintext value; got: {}",
+            json
+        );
+        // Sanity-check that other fields still serialize.
+        assert!(json.contains("api_key"));
     }
 
     #[test]

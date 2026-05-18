@@ -34,6 +34,15 @@ Una vez que un agente puede llamar herramientas, acceder a archivos, enviar mens
 
 Symbiont está construido para esa capa.
 
+> **Valores predeterminados de seguridad (auditoría posterior a v1.13.0).** A partir de esta versión:
+> - La compuerta de políticas del bucle de razonamiento (`symbi up`, `symbi run`) es **fail-closed** por defecto — las llamadas a herramientas y las delegaciones entre agentes se deniegan a menos que se conecte un backend de políticas explícito. El comportamiento permisivo anterior queda detrás de `--insecure-allow-all` / `SYMBI_INSECURE_ALLOW_ALL=1` con un banner ruidoso en stderr; úsalo solo para desarrollo local.
+> - El verificador JWT aplica una lista de algoritmos permitidos (ES256/EdDSA para las rutas asimétricas, HS256 para la ruta HMAC de webhooks). Los JWT firmados con RSA se rechazan, lo que neutraliza el aviso de ataque de tiempo del crate `rsa` (RUSTSEC-2023-0071) en cada ruta que el operador controla. El adaptador de Microsoft Teams sigue usando RS256 porque el Bot Framework lo exige; esa superficie está acotada a tokens firmados por MS.
+> - El feature flag `composio`, el `ComposioToolExecutor`, los subcomandos CLI `symbiont_mcp add`/`list` y la función de publicación autónoma de SymbiBot fueron eliminados por completo — Composio despachaba nombres de herramientas suministrados por el LLM sin una lista blanca estática ni pinning TLS. Consulta `SECURITY_AUDIT.md` C3 para la justificación completa. En su lugar, aporta tu propio `ActionExecutor`.
+> - `docker-compose.test.yml` ahora exige `SYMBIONT_API_TOKEN` (sin valor por defecto `testtoken123`) y se vincula a `127.0.0.1` en lugar de `0.0.0.0`. Se incluye un `.env.example`.
+> - Las nuevas variables de entorno están documentadas en `docs/getting-started.md`: `SYMBI_INSECURE_ALLOW_ALL`, `SYMBI_REJECT_LEGACY_API_KEYS`, `SYMBI_UNSAFE_NATIVE_SANDBOX`. Eliminadas: `SYMBIONT_ALLOW_NO_JWT_AUDIENCE`, `COMPOSIO_API_KEY`, `COMPOSIO_MCP_URL`.
+>
+> Auditoría completa y modelos de amenazas: `SECURITY_AUDIT.md`. Elementos operativos fuera de banda (rotación de PAT, etc.): `SECURITY-OPS.md`.
+
 ---
 
 ## Inicio rápido

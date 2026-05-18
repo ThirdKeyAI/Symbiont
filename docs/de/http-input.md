@@ -131,7 +131,11 @@ let config = HttpInputConfig {
 };
 ```
 
-Der JWT-Verifizierer laedt einen Ed25519-Public-Key aus der angegebenen PEM-Datei und validiert eingehende `Authorization: Bearer <jwt>`-Token. Nur der **EdDSA**-Algorithmus wird akzeptiert -- HS256, RS256 und andere Algorithmen werden abgelehnt.
+Der JWT-Verifizierer laedt einen Ed25519-Public-Key aus der angegebenen PEM-Datei und validiert eingehende `Authorization: Bearer <jwt>`-Token.
+
+**Algorithmus-Allowlist (nach dem v1.13.0-Audit):** Der asymmetrische Bearer-Token-Pfad akzeptiert nur **ES256** und **EdDSA**. Der HMAC-Webhook-Signaturpfad (verwendet von Slack, Mattermost, GitHub usw.) akzeptiert nur **HS256**. RSA-Familie-Algorithmen (`RS256`, `RS384`, `RS512`, `PS256`, `PS384`, `PS512`) sowie der symbolische `none`-Algorithmus werden sowohl von der Header-Inspektionspruefung als auch von der `Validation::algorithms`-Allowlist abgewiesen. Dies neutralisiert die Timing-Attack-Schwachstelle der `rsa`-Crate (RUSTSEC-2023-0071) auf jedem vom Betreiber kontrollierten Pfad. Siehe `SECURITY_AUDIT.md` C4. (Der Microsoft-Teams-Adapter verwendet weiterhin RS256, da das Bot Framework dies vorschreibt; diese Flaeche ist auf MS-signierte Tokens beschraenkt.)
+
+**Audience ist erforderlich:** Der Notausgang ueber die Umgebungsvariable `SYMBIONT_ALLOW_NO_JWT_AUDIENCE` wurde im Audit nach v1.13.0 entfernt. Jeder JWT-Verifizierer verlangt eine explizite `aud`-Konfiguration; Tokens ohne passende Audience werden abgelehnt.
 
 #### Health-Endpunkt
 
@@ -148,7 +152,7 @@ Wenn Sie Gesundheitstests speziell fuer den HTTP-Eingabe-Server benoetigen, leit
 ### Sicherheitskontrollen
 
 - **Nur-Loopback-Standard**: `bind_address` ist standardmaessig `127.0.0.1` -- der Server akzeptiert nur lokale Verbindungen, sofern nicht explizit anders konfiguriert
-- **CORS standardmaessig deaktiviert**: `cors_origins` ist standardmaessig eine leere Liste, was bedeutet, dass CORS deaktiviert ist; fuegen Sie spezifische Urspruenge hinzu, um Cross-Origin-Zugriff zu ermoeglichen
+- **CORS standardmaessig deaktiviert**: `cors_origins` ist standardmaessig eine leere Liste, was bedeutet, dass CORS deaktiviert ist; fuegen Sie spezifische Urspruenge hinzu, um Cross-Origin-Zugriff zu ermoeglichen. Ein literales `"*"` in `cors_origins` wird **beim Start abgelehnt** -- der HTTP-Eingabe-Server verweigert den Start mit einem Wildcard-Origin. (Im Audit nach v1.13.0 hinzugefuegt; siehe `SECURITY_AUDIT.md` M1.)
 - **Anfragengroessenlimits**: Konfigurierbare maximale Body-Groesse verhindert Ressourcenerschoepfung
 - **Parallelitaetslimits**: Eingebauter Semaphor kontrolliert gleichzeitige Anfragebearbeitung
 - **Audit-Logging**: Strukturiertes Logging aller eingehenden Anfragen bei Aktivierung

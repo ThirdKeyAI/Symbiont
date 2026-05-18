@@ -225,7 +225,7 @@ fn make_runner(
 ) -> ReasoningLoopRunner {
     ReasoningLoopRunner {
         provider,
-        policy_gate: Arc::new(DefaultPolicyGate::permissive()),
+        policy_gate: Arc::new(DefaultPolicyGate::permissive_for_dev_only()),
         executor: Arc::new(DefaultActionExecutor::default()),
         context_manager: Arc::new(DefaultContextManager::default()),
         circuit_breakers: Arc::new(CircuitBreakerRegistry::default()),

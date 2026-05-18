@@ -61,6 +61,28 @@ fn validate_token(token: &str, key_store: Option<&Arc<super::api_keys::ApiKeySto
 /// Axum handler for `GET /ws/chat`.
 ///
 /// Validates the bearer token from query params, then upgrades to WebSocket.
+//
+// SECURITY: the WebSocket upgrade carries the auth token as a query
+// parameter rather than an `Authorization` header. This is the
+// browser-WebSocket-API limitation — `new WebSocket(url)` does not
+// allow custom headers, so query-param auth is the only practical
+// path. The tradeoff:
+//
+//   - Pro: works from every browser, no two-step handshake required.
+//   - Con: the URL (including the token) appears in access logs,
+//     proxy logs, and browser history. Mitigations in place:
+//       * the token is matched against the Argon2-hashed
+//         `ApiKeyStore` (`validate_token` → `store.validate_key`)
+//         using constant-time comparison (`subtle::ConstantTimeEq`
+//         on the legacy fallback path);
+//       * the WebSocket upgrade itself replaces the HTTP request,
+//         so the token-bearing URL is not re-sent on every frame.
+//
+// TODO: implement two-step handshake — `POST /api/v1/auth/ws-session`
+// returns a short-lived (single-use, <60s) session ID; the client
+// then opens `/ws/chat?session=<id>`. That keeps the long-lived API
+// token out of every log line while preserving browser
+// compatibility. See SECURITY_AUDIT.md L2.
 #[cfg(feature = "http-api")]
 pub async fn ws_chat_handler(
     ws: WebSocketUpgrade,

@@ -59,6 +59,8 @@ pub async fn run(matches: &ArgMatches) {
         .unwrap_or_default();
     let http_audit = matches.get_flag("http-audit");
     let serve_agents_md = matches.get_flag("serve-agents-md");
+    let insecure_allow_all = matches.get_flag("insecure-allow-all")
+        || std::env::var("SYMBI_INSECURE_ALLOW_ALL").as_deref() == Ok("1");
     let preset = matches.get_one::<String>("preset");
     let slack_token = matches.get_one::<String>("slack-token");
     let slack_signing_secret = matches.get_one::<String>("slack-signing-secret");
@@ -570,12 +572,29 @@ pub async fn run(matches: &ArgMatches) {
         if let Some(cloud_provider) =
             symbi_runtime::reasoning::providers::cloud::CloudInferenceProvider::from_env()
         {
+            let policy_gate: Arc<dyn symbi_runtime::reasoning::policy_bridge::ReasoningPolicyGate> =
+                if insecure_allow_all {
+                    eprintln!("\n");
+                    eprintln!("================================================================");
+                    eprintln!("WARNING: --insecure-allow-all / SYMBI_INSECURE_ALLOW_ALL=1 is set");
+                    eprintln!("Coordinator policy gate is in PERMISSIVE mode.");
+                    eprintln!("Every LLM-proposed tool call and delegation will be allowed.");
+                    eprintln!("This is only safe for local development. Do NOT use in production.");
+                    eprintln!("================================================================\n");
+                    Arc::new(
+                        symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate::permissive_for_dev_only(),
+                    )
+                } else {
+                    tracing::info!(
+                        "policy gate: fail-closed default; configure OpaPolicyGateBridge for production policy enforcement"
+                    );
+                    Arc::new(symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate::new())
+                };
+
             let coordinator_state =
                 Arc::new(symbi_runtime::api::coordinator::CoordinatorState::new(
                     Arc::new(cloud_provider),
-                    Arc::new(
-                        symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate::permissive(),
-                    ),
+                    policy_gate,
                     rt.clone(),
                 ));
             api_server = api_server.with_coordinator(coordinator_state);

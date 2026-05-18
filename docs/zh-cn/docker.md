@@ -149,6 +149,8 @@ Docker 会自动为您的平台拉取正确的架构。
 
 默认情况下，Symbiont 使用 **LanceDB** 作为嵌入式向量数据库——不需要外部服务。如果您需要分布式向量后端用于规模化部署，可以选择添加 Qdrant。
 
+> **安全默认值（v1.13.0 审计之后）。** 自带的 `docker-compose.test.yml` 现在要求在环境中设置 `SYMBIONT_API_TOKEN`（不再有默认值——`testtoken123` 已被移除），并将发布的端口绑定到 `127.0.0.1` 而非 `0.0.0.0`。运行时还会额外拒绝任何恰好等于 `testtoken123`，或以 `test` 开头且长度不足 20 个字符的令牌；这可防止历史默认值被意外重新部署。所需变量见 `.env.example`，理由见 `SECURITY_AUDIT.md` C5。
+
 ### 最小配置（LanceDB 默认——不需要 Qdrant）
 
 将其与设置 `SYMBIONT_MASTER_KEY` 的 `.env` 文件配对使用：

@@ -131,7 +131,11 @@ let config = HttpInputConfig {
 };
 ```
 
-El verificador JWT carga una clave publica Ed25519 del archivo PEM especificado y valida los tokens entrantes `Authorization: Bearer <jwt>`. Solo se acepta el algoritmo **EdDSA** — HS256, RS256 y otros algoritmos son rechazados.
+El verificador JWT carga una clave publica Ed25519 del archivo PEM especificado y valida los tokens entrantes `Authorization: Bearer <jwt>`.
+
+**Lista de algoritmos permitidos (auditoria posterior a v1.13.0):** la ruta asimetrica de Bearer-token acepta unicamente **ES256** y **EdDSA**. La ruta HMAC de firma de webhooks (usada por Slack, Mattermost, GitHub, etc.) acepta unicamente **HS256**. Los algoritmos de la familia RSA (`RS256`, `RS384`, `RS512`, `PS256`, `PS384`, `PS512`) y el algoritmo simbolico `none` son rechazados tanto en la guarda de inspeccion de cabecera como en la lista de permitidos de `Validation::algorithms`. Esto neutraliza el aviso de ataque de tiempo del crate `rsa` (RUSTSEC-2023-0071) en cada ruta que el operador controla. Consulta `SECURITY_AUDIT.md` C4. (El adaptador de Microsoft Teams sigue usando RS256 porque el Bot Framework lo exige; esa superficie esta acotada a tokens firmados por MS.)
+
+**Audiencia requerida:** la escotilla de escape mediante la variable de entorno `SYMBIONT_ALLOW_NO_JWT_AUDIENCE` fue eliminada en la auditoria posterior a v1.13.0. Cada verificador JWT requiere una configuracion `aud` explicita; los tokens sin una audiencia coincidente se rechazan.
 
 #### Endpoint de Salud
 
@@ -148,7 +152,7 @@ Si necesita sondas de salud para el servidor de Entrada HTTP especificamente, di
 ### Controles de Seguridad
 
 - **Solo Loopback por Defecto**: `bind_address` por defecto es `127.0.0.1` — el servidor solo acepta conexiones locales a menos que se configure explicitamente de otra manera
-- **CORS Deshabilitado por Defecto**: `cors_origins` por defecto es una lista vacia, lo que significa que CORS esta deshabilitado; agregue origenes especificos para habilitar el acceso entre origenes
+- **CORS Deshabilitado por Defecto**: `cors_origins` por defecto es una lista vacia, lo que significa que CORS esta deshabilitado; agregue origenes especificos para habilitar el acceso entre origenes. Un literal `"*"` en `cors_origins` es **rechazado al arranque** — el servidor de Entrada HTTP se negara a iniciar con un origen comodin. (Anadido en la auditoria posterior a v1.13.0; consulta `SECURITY_AUDIT.md` M1.)
 - **Limites de Tamano de Peticion**: El tamano maximo configurable del cuerpo previene el agotamiento de recursos
 - **Limites de Concurrencia**: Semaforo integrado controla el procesamiento de peticiones concurrentes
 - **Registro de Auditoria**: Registro estructurado de todas las peticiones entrantes cuando esta habilitado

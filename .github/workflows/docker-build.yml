@@ -24,9 +24,93 @@ on:
 env:
   REGISTRY: ghcr.io
 
+# Default job-level permissions are read-only. The push/publish jobs below
+# opt into the broader `packages: write` + `id-token: write` scopes only
+# when running on `push` or `release` events. PR jobs run with read-only
+# permissions and skip the registry login / push / cosign-sign steps.
+permissions:
+  contents: read
+
 jobs:
+  # ---------------------------------------------------------------------------
+  # PR validation: build only, no registry login, no push, no signing.
+  # Runs with read-only permissions — no OIDC token issuance from this job.
+  # ---------------------------------------------------------------------------
+  pr-build-symbi:
+    name: PR Build Symbi Runtime (no push)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+      with:
+        images: ${{ env.REGISTRY }}/thirdkeyai/symbi
+        tags: |
+          type=ref,event=pr
+          type=sha
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+    - name: Build Docker image (no push)
+      uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
+      with:
+        context: .
+        push: false
+        load: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        build-args: BUILD_PROFILE=ci
+        cache-from: type=gha,scope=symbi
+        cache-to: type=gha,mode=max,scope=symbi
+
+  pr-build-a2ui:
+    name: PR Build Operations Console (no push)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+      with:
+        images: ${{ env.REGISTRY }}/thirdkeyai/symbi-a2ui
+        tags: |
+          type=ref,event=pr
+          type=sha
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+    - name: Build Docker image (no push)
+      uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
+      with:
+        context: crates/symbi-a2ui
+        push: false
+        load: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha,scope=a2ui
+        cache-to: type=gha,mode=max,scope=a2ui
+
+  # ---------------------------------------------------------------------------
+  # Push + sign: only runs on push / release events. Requires write scopes.
+  # ---------------------------------------------------------------------------
   build-symbi:
     name: Build and Push Symbi Runtime
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -35,10 +119,10 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
     - name: Log in to Container Registry
-      uses: docker/login-action@v3
+      uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
       with:
         registry: ${{ env.REGISTRY }}
         username: ${{ github.actor }}
@@ -46,12 +130,11 @@ jobs:
 
     - name: Extract metadata
       id: meta
-      uses: docker/metadata-action@v5
+      uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
       with:
         images: ${{ env.REGISTRY }}/thirdkeyai/symbi
         tags: |
           type=ref,event=branch
-          type=ref,event=pr
           type=sha
           type=semver,pattern={{version}}
           type=semver,pattern={{major}}.{{minor}}
@@ -59,7 +142,7 @@ jobs:
           type=raw,value=latest,enable={{is_default_branch}}
 
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
     - name: Determine build profile
       id: profile
@@ -72,11 +155,10 @@ jobs:
 
     - name: Build and push Docker image
       id: build
-      uses: docker/build-push-action@v5
+      uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
       with:
         context: .
-        push: ${{ github.event_name != 'pull_request' }}
-        load: ${{ github.event_name == 'pull_request' }}
+        push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: BUILD_PROFILE=${{ steps.profile.outputs.profile }}
@@ -84,13 +166,11 @@ jobs:
         cache-to: type=gha,mode=max,scope=symbi
 
     - name: Install cosign
-      if: github.event_name != 'pull_request'
-      uses: sigstore/cosign-installer@v3.4.0
+      uses: sigstore/cosign-installer@e1523de7571e31dbe865fd2e80c5c7c23ae71eb4 # v3.4.0
       with:
         cosign-release: 'v2.2.3'
 
     - name: Sign image with cosign
-      if: github.event_name != 'pull_request'
       run: |
         images="${{ steps.meta.outputs.tags }}"
         for image in ${images//,/ }; do
@@ -102,6 +182,7 @@ jobs:
 
   build-a2ui:
     name: Build and Push Operations Console (a2ui)
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -110,10 +191,10 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
     - name: Log in to Container Registry
-      uses: docker/login-action@v3
+      uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
       with:
         registry: ${{ env.REGISTRY }}
         username: ${{ github.actor }}
@@ -121,12 +202,11 @@ jobs:
 
     - name: Extract metadata
       id: meta
-      uses: docker/metadata-action@v5
+      uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
       with:
         images: ${{ env.REGISTRY }}/thirdkeyai/symbi-a2ui
         tags: |
           type=ref,event=branch
-          type=ref,event=pr
           type=sha
           type=semver,pattern={{version}}
           type=semver,pattern={{major}}.{{minor}}
@@ -134,28 +214,25 @@ jobs:
           type=raw,value=latest,enable={{is_default_branch}}
 
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
     - name: Build and push Docker image
       id: build
-      uses: docker/build-push-action@v5
+      uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
       with:
         context: crates/symbi-a2ui
-        push: ${{ github.event_name != 'pull_request' }}
-        load: ${{ github.event_name == 'pull_request' }}
+        push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha,scope=a2ui
         cache-to: type=gha,mode=max,scope=a2ui
 
     - name: Install cosign
-      if: github.event_name != 'pull_request'
-      uses: sigstore/cosign-installer@v3.4.0
+      uses: sigstore/cosign-installer@e1523de7571e31dbe865fd2e80c5c7c23ae71eb4 # v3.4.0
       with:
         cosign-release: 'v2.2.3'
 
     - name: Sign image with cosign
-      if: github.event_name != 'pull_request'
       run: |
         images="${{ steps.meta.outputs.tags }}"
         for image in ${images//,/ }; do

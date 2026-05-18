@@ -9,9 +9,6 @@ pub mod sandbox_orchestrator;
 pub mod schemapin;
 pub mod tool_invocation;
 
-#[cfg(feature = "composio")]
-pub mod composio;
-
 // Re-export specific types to avoid naming conflicts
 pub use agentpin::{
     AgentPinConfig, AgentPinError, AgentPinKeyStore, AgentPinVerifier, AgentVerificationResult,
@@ -43,12 +40,6 @@ pub use tool_invocation::{
     mask_sensitive_arguments, DefaultToolInvocationEnforcer, EnforcementDecision,
     EnforcementPolicy, InvocationContext, InvocationEnforcementConfig, InvocationResult,
     ToolInvocationEnforcer, ToolInvocationError,
-};
-
-#[cfg(feature = "composio")]
-pub use composio::{
-    load_mcp_config, ComposioGlobalConfig, ComposioMcpSource, McpConfigFile, McpServerEntry,
-    ServerPolicy, SseTransport,
 };
 
 // Re-export error types from the types module

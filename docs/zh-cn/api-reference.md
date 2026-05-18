@@ -439,17 +439,17 @@ cargo build --features cloud-llm
 
 #### 独立智能体模式（`standalone-agent`）
 
-将云端 LLM 推理与 Composio 工具访问结合，用于云原生智能体：
+启用云端 LLM 推理的元特性，用于云原生智能体：
 
 ```bash
 cargo build --features standalone-agent
-# 启用：cloud-llm + composio
+# 启用：cloud-llm
 ```
 
 **环境变量：**
 - `OPENROUTER_API_KEY` — OpenRouter API 密钥
-- `COMPOSIO_API_KEY` — Composio API 密钥
-- `COMPOSIO_MCP_URL` — Composio MCP 服务器 URL
+
+> **Note:** Composio MCP and SymbiBot integration were removed in this version due to security concerns — see SECURITY_AUDIT.md C3 for context.
 
 #### Cedar 策略引擎（`cedar`）
 

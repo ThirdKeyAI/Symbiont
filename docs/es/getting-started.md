@@ -396,12 +396,14 @@ export OPENROUTER_MODEL="google/gemini-2.0-flash-001"  # optional
 
 #### Modo Agente Autonomo
 
-Una sola linea para agentes nativos de la nube con inferencia LLM y acceso a herramientas Composio:
+Una sola linea para agentes nativos de la nube con inferencia LLM:
 
 ```bash
 cargo build --features standalone-agent
-# Enables: cloud-llm + composio
+# Enables: cloud-llm
 ```
+
+> **Note:** Composio MCP and SymbiBot integration were removed in this version due to security concerns — see SECURITY_AUDIT.md C3 for context.
 
 #### Primitivas de Razonamiento Avanzado
 
@@ -453,8 +455,7 @@ cd crates/runtime && cargo run --example context_example
 | `http-api` | API REST con Swagger UI | No |
 | `http-input` | Servidor webhook con autenticacion JWT | No |
 | `cloud-llm` | Inferencia LLM en la nube (OpenRouter) | No |
-| `composio` | Integracion de herramientas Composio MCP | No |
-| `standalone-agent` | Combo Cloud LLM + Composio | No |
+| `standalone-agent` | Meta-feature Cloud LLM | No |
 | `cedar` | Motor de politicas Cedar | No |
 | `orga-adaptive` | Primitivas de razonamiento avanzado | No |
 | `cron` | Programacion cron persistente | No |
@@ -497,6 +498,20 @@ export SYMBI_RUNTIME_MODE=development
 # MCP integration (optional)
 export MCP_SERVER_URLS="http://localhost:8080"
 ```
+
+#### Variables de Entorno Relacionadas con Seguridad (auditoria posterior a v1.13.0)
+
+| Variable | Por defecto | Efecto |
+|---|---|---|
+| `SYMBI_INSECURE_ALLOW_ALL` | sin establecer | Cuando se establece a `1`, `symbi up` / `symbi run` usan la compuerta de politicas permisiva (toda llamada a herramienta y toda delegacion se permite). Equivalente al flag `--insecure-allow-all`. Se imprime un banner ruidoso en stderr. **Solo para desarrollo local.** Sin esto, el bucle de razonamiento es fail-closed y rechaza llamadas a herramientas y delegaciones hasta que se conecte un backend de politicas explicito. |
+| `SYMBI_REJECT_LEGACY_API_KEYS` | sin establecer | Cuando se establece a `1`, el validador de claves de API corta circuito el escaneo Argon2 O(n) obsoleto para las claves sin prefijo. Uselo inmediatamente despues de reemitir cada clave en formato `keyid.secret`. La ruta heredada se eliminara en la proxima release menor de todos modos. |
+| `SYMBI_UNSAFE_NATIVE_SANDBOX` | sin establecer | Requerido (ademas de `SYMBI_ENV=production`-no-establecido) para construir el runner de sandbox `native`. El feature Cargo `native-sandbox` ademas falla al compilar en builds release. El runner nativo no proporciona aislamiento y esta destinado unicamente a depuracion local. |
+| `SYMBI_TRUSTED_PROXIES` | sin establecer | Lista de permitidos CIDR para proxies reversos de confianza; `X-Forwarded-For` solo se honra desde estas direcciones. |
+
+Las siguientes variables de entorno fueron **eliminadas**:
+
+- `SYMBIONT_ALLOW_NO_JWT_AUDIENCE` — el verificador JWT ahora siempre requiere `aud`. (Eliminada en la auditoria posterior a v1.13.0; era una escotilla de escape no segura.)
+- `COMPOSIO_API_KEY`, `COMPOSIO_MCP_URL` — la integracion de Composio MCP fue eliminada por completo. Consulta `SECURITY_AUDIT.md` C3.
 
 ### Configuracion de Runtime
 

@@ -671,7 +671,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let runner = ReasoningLoopRunner::builder()
         .provider(Arc::new(provider) as Arc<dyn InferenceProvider>)
         .executor(executor as Arc<dyn ActionExecutor>)
-        .policy_gate(Arc::new(DefaultPolicyGate::permissive()))
+        .policy_gate(Arc::new(DefaultPolicyGate::permissive_for_dev_only()))
         .circuit_breakers(circuit_breakers)
         .journal(journal.clone())
         .build();

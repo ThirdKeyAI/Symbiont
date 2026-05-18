@@ -86,6 +86,20 @@ impl HttpInputServer {
         let config = self.config.read().await;
         let addr = format!("{}:{}", config.bind_address, config.port);
 
+        // Refuse to start when CORS is configured as a wildcard. The main
+        // API server uses an explicit-allowlist pattern; the HTTP input
+        // server must match that to avoid being a softer target for
+        // browser-origin cross-site exploitation. See SECURITY_AUDIT.md M1.
+        if config.cors_origins.iter().any(|o| o == "*") {
+            return Err(RuntimeError::Configuration(
+                crate::types::ConfigError::Invalid(
+                    "CORS wildcard '*' is not permitted on the HTTP input server. \
+                     Specify explicit origins."
+                        .to_string(),
+                ),
+            ));
+        }
+
         // Warn when binding to a non-loopback address without any authentication
         if config.bind_address != "127.0.0.1"
             && config.bind_address != "localhost"
@@ -211,26 +225,22 @@ impl HttpInputServer {
         // Add body size limit
         app = app.layer(DefaultBodyLimit::max(config.max_body_bytes));
 
-        // Add CORS if origins are configured
+        // Add CORS if origins are configured. Wildcard origin is rejected
+        // at the top of `start` (see SECURITY_AUDIT.md M1), so by the time
+        // we get here the list is guaranteed to be an explicit allowlist.
         if !config.cors_origins.is_empty() {
             use axum::http::{header, HeaderValue, Method};
 
-            let cors = if config.cors_origins.iter().any(|o| o == "*") {
-                tracing::warn!(
-                    "CORS configured with wildcard origin — not recommended for production"
-                );
-                CorsLayer::permissive()
-            } else {
-                let origins: Vec<HeaderValue> = config
-                    .cors_origins
-                    .iter()
-                    .filter_map(|o| o.parse().ok())
-                    .collect();
-                CorsLayer::new()
-                    .allow_origin(origins)
-                    .allow_methods([Method::POST])
-                    .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
-            };
+            let origins: Vec<HeaderValue> = config
+                .cors_origins
+                .iter()
+                .filter_map(|o| o.parse().ok())
+                .collect();
+            let cors = CorsLayer::new()
+                .allow_origin(origins)
+                .allow_methods([Method::POST])
+                .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
+                .allow_credentials(false);
             app = app.layer(cors);
         }
 
@@ -337,7 +347,38 @@ async fn auth_middleware(
     if let Some(ref decoding_key) = state.jwt_decoding_key {
         if let Some(provided_auth) = auth_header {
             if let Some(token) = provided_auth.strip_prefix("Bearer ") {
+                // SECURITY (C4 / RUSTSEC-2023-0071): this is the asymmetric
+                // verifier path. We accept ES256 / EdDSA only and reject
+                // RSA-family, HMAC, and `none` algorithms explicitly to
+                // neutralise the Marvin Attack reachability through
+                // `jsonwebtoken`'s transitive `rsa` dependency.
+                let header = match jsonwebtoken::decode_header(token) {
+                    Ok(h) => h,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "JWT header decode failed");
+                        return Err(StatusCode::UNAUTHORIZED);
+                    }
+                };
+                if !matches!(
+                    header.alg,
+                    jsonwebtoken::Algorithm::ES256 | jsonwebtoken::Algorithm::EdDSA
+                ) {
+                    tracing::warn!(
+                        algorithm = ?header.alg,
+                        "JWT algorithm not allowed on asymmetric Bearer path \
+                         (expected ES256 or EdDSA)"
+                    );
+                    return Err(StatusCode::UNAUTHORIZED);
+                }
+
                 let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::EdDSA);
+                // Pin the algorithm allowlist explicitly. `Validation::new`
+                // only sets a single algorithm; assigning to `algorithms`
+                // overrides any later additions and prevents alg confusion.
+                validation.algorithms = vec![
+                    jsonwebtoken::Algorithm::ES256,
+                    jsonwebtoken::Algorithm::EdDSA,
+                ];
                 // Require exp claim; do not enforce audience/issuer
                 validation.set_required_spec_claims(&["exp"]);
                 validation.validate_aud = false;
@@ -928,7 +969,28 @@ fn format_error_response(
         RuntimeError::Configuration(_) => "Configuration error",
         _ => "Internal server error",
     };
-    tracing::debug!("HTTP error response detail: {}", error);
+    // Log only the error variant (a stable enum-tag, no internal paths
+    // or arbitrary user input), not the full Display string. See
+    // SECURITY_AUDIT.md L1.
+    let kind_name = match &error {
+        RuntimeError::Configuration(_) => "Configuration",
+        RuntimeError::Resource(_) => "Resource",
+        RuntimeError::Security(_) => "Security",
+        RuntimeError::Communication(_) => "Communication",
+        RuntimeError::Policy(_) => "Policy",
+        RuntimeError::Sandbox(_) => "Sandbox",
+        RuntimeError::Scheduler(_) => "Scheduler",
+        RuntimeError::Lifecycle(_) => "Lifecycle",
+        RuntimeError::Audit(_) => "Audit",
+        RuntimeError::ErrorHandler(_) => "ErrorHandler",
+        RuntimeError::Internal(_) => "Internal",
+        RuntimeError::Authentication(_) => "Authentication",
+    };
+    tracing::info!(
+        "HTTP error response (kind={}): public={}",
+        kind_name,
+        public_message
+    );
     let error_body = serde_json::json!({
         "error": public_message,
         "timestamp": chrono::Utc::now().to_rfc3339()
@@ -1067,5 +1129,44 @@ mod tests {
     #[test]
     fn test_truncate_utf8_zero_limit() {
         assert_eq!(truncate_utf8("hello", 0), "");
+    }
+
+    /// C4 (RUSTSEC-2023-0071): the asymmetric Bearer-token verifier must
+    /// pin its algorithm allowlist to ES256 + EdDSA. Any RSA / PS / HS /
+    /// none variant in `Validation::algorithms` would re-open the Marvin
+    /// Attack reachability through `jsonwebtoken`'s transitive `rsa` dep.
+    #[test]
+    fn test_jwt_bearer_validation_allowlist_excludes_rsa_and_hmac() {
+        // Reconstruct the same Validation the auth middleware builds.
+        let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::EdDSA);
+        validation.algorithms = vec![
+            jsonwebtoken::Algorithm::ES256,
+            jsonwebtoken::Algorithm::EdDSA,
+        ];
+
+        assert!(validation
+            .algorithms
+            .contains(&jsonwebtoken::Algorithm::ES256));
+        assert!(validation
+            .algorithms
+            .contains(&jsonwebtoken::Algorithm::EdDSA));
+
+        for forbidden in [
+            jsonwebtoken::Algorithm::RS256,
+            jsonwebtoken::Algorithm::RS384,
+            jsonwebtoken::Algorithm::RS512,
+            jsonwebtoken::Algorithm::PS256,
+            jsonwebtoken::Algorithm::PS384,
+            jsonwebtoken::Algorithm::PS512,
+            jsonwebtoken::Algorithm::HS256,
+            jsonwebtoken::Algorithm::HS384,
+            jsonwebtoken::Algorithm::HS512,
+        ] {
+            assert!(
+                !validation.algorithms.contains(&forbidden),
+                "{:?} must not be in the asymmetric Bearer JWT allowlist",
+                forbidden
+            );
+        }
     }
 }

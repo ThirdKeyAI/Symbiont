@@ -234,11 +234,35 @@ impl SessionExecutor {
         let pty = Pty::new().map_err(|e| format!("Failed to create PTY: {}", e))?;
         let pts = pty.pts().map_err(|e| format!("Failed to get PTS: {}", e))?;
 
-        let child = PtyCommand::new("sh")
-            .arg("-c")
-            .arg(&session_def.startup_command)
+        // Parse startup_command as argv (no shell) to remove the sh -c sink.
+        // Reject any token containing shell metacharacters as defense-in-depth:
+        // shlex already yields literal tokens, so presence of `;|&` or
+        // `$( )`/backticks signals an injection attempt rather than legitimate use.
+        let argv = shlex::split(&session_def.startup_command).ok_or_else(|| {
+            format!(
+                "invalid startup_command (shell parse failed): {}",
+                &session_def.startup_command
+            )
+        })?;
+        if argv.is_empty() {
+            return Err("startup_command is empty".to_string());
+        }
+        for token in &argv {
+            if token
+                .chars()
+                .any(|c| matches!(c, ';' | '|' | '&' | '`' | '$' | '\n' | '\r'))
+            {
+                return Err(format!(
+                    "startup_command contains forbidden shell metacharacter in token '{}'",
+                    token
+                ));
+            }
+        }
+        let (program, args) = argv.split_first().expect("argv non-empty checked above");
+        let child = PtyCommand::new(program)
+            .args(args)
             .spawn(&pts)
-            .map_err(|e| format!("Failed to spawn '{}': {}", session_def.startup_command, e))?;
+            .map_err(|e| format!("Failed to spawn '{}': {}", program, e))?;
 
         let session_id = format!("session-{}-{}", name, uuid::Uuid::new_v4().as_fields().0);
 

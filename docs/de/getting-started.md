@@ -373,12 +373,14 @@ export OPENROUTER_MODEL="google/gemini-2.0-flash-001"  # optional
 
 #### Standalone Agent-Modus
 
-Einzeiler fuer Cloud-native Agenten mit LLM-Inferenz und Composio-Tool-Zugriff:
+Einzeiler fuer Cloud-native Agenten mit LLM-Inferenz:
 
 ```bash
 cargo build --features standalone-agent
-# Aktiviert: cloud-llm + composio
+# Aktiviert: cloud-llm
 ```
+
+> **Hinweis:** Die Composio-MCP- und SymbiBot-Integration wurden in dieser Version aus Sicherheitsgruenden entfernt -- siehe SECURITY_AUDIT.md C3 fuer den Hintergrund.
 
 #### Erweiterte Reasoning-Primitiven
 
@@ -430,8 +432,7 @@ cd crates/runtime && cargo run --example context_example
 | `http-api` | REST API mit Swagger UI | Nein |
 | `http-input` | Webhook-Server mit JWT-Authentifizierung | Nein |
 | `cloud-llm` | Cloud-LLM-Inferenz (OpenRouter) | Nein |
-| `composio` | Composio MCP-Tool-Integration | Nein |
-| `standalone-agent` | Cloud LLM + Composio Kombination | Nein |
+| `standalone-agent` | Cloud LLM Meta-Feature | Nein |
 | `cedar` | Cedar Policy Engine | Nein |
 | `orga-adaptive` | Erweiterte Reasoning-Primitiven | Nein |
 | `cron` | Persistentes Cron-Scheduling | Nein |
@@ -474,6 +475,20 @@ export SYMBI_RUNTIME_MODE=development
 # MCP-Integration (optional)
 export MCP_SERVER_URLS="http://localhost:8080"
 ```
+
+#### Sicherheitsrelevante Umgebungsvariablen (nach dem v1.13.0-Audit)
+
+| Variable | Standard | Wirkung |
+|---|---|---|
+| `SYMBI_INSECURE_ALLOW_ALL` | nicht gesetzt | Wenn auf `1` gesetzt, verwenden `symbi up` / `symbi run` das permissive Policy-Gate (jeder Tool-Aufruf und jede Delegation ist erlaubt). Entspricht dem Flag `--insecure-allow-all`. Ein deutlicher stderr-Banner wird ausgegeben. **Nur fuer lokale Entwicklung.** Ohne diese Variable ist die Reasoning-Schleife fail-closed und lehnt Tool-Aufrufe sowie Delegationen ab, bis ein explizites Policy-Backend angebunden ist. |
+| `SYMBI_REJECT_LEGACY_API_KEYS` | nicht gesetzt | Wenn auf `1` gesetzt, ueberspringt der API-Key-Validator den veralteten O(n)-Argon2-Scan fuer Schluessel ohne Praefix. Setzen Sie diese Variable unmittelbar nach der Neuausgabe aller Schluessel im Format `keyid.secret`. Der Legacy-Pfad wird im naechsten Minor-Release ohnehin entfernt. |
+| `SYMBI_UNSAFE_NATIVE_SANDBOX` | nicht gesetzt | Erforderlich (zusaetzlich dazu, dass `SYMBI_ENV=production` nicht gesetzt ist), um den `native`-Sandbox-Runner zu konstruieren. Das Cargo-Feature `native-sandbox` schlaegt in Release-Builds zudem beim Kompilieren fehl. Der native Runner bietet keinerlei Isolation und ist ausschliesslich fuer lokales Debugging gedacht. |
+| `SYMBI_TRUSTED_PROXIES` | nicht gesetzt | CIDR-Allowlist fuer vertrauenswuerdige Reverse-Proxies; `X-Forwarded-For` wird nur von diesen Adressen akzeptiert. |
+
+Folgende Umgebungsvariablen wurden **entfernt**:
+
+- `SYMBIONT_ALLOW_NO_JWT_AUDIENCE` -- der JWT-Verifizierer verlangt jetzt immer `aud`. (Im Audit nach v1.13.0 entfernt; war ein unsicherer Notausgang.)
+- `COMPOSIO_API_KEY`, `COMPOSIO_MCP_URL` -- die Composio-MCP-Integration wurde vollstaendig entfernt. Siehe `SECURITY_AUDIT.md` C3.
 
 ### Laufzeitkonfiguration
 

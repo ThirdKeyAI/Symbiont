@@ -34,6 +34,15 @@ Once an agent can call tools, access files, send messages, or invoke external se
 
 Symbiont is built for that layer.
 
+> **Security defaults (post-v1.13.0 audit).** Beginning with this version:
+> - The reasoning-loop policy gate (`symbi up`, `symbi run`) is **fail-closed** by default — tool calls and agent-to-agent delegations are denied unless an explicit policy backend is wired in. The previous permissive default is gated behind `--insecure-allow-all` / `SYMBI_INSECURE_ALLOW_ALL=1` with a loud stderr banner; use it only for local development.
+> - The JWT verifier enforces an algorithm allowlist (ES256/EdDSA for asymmetric paths, HS256 for the HMAC webhook path). RSA-signed JWTs are refused, which neutralizes the `rsa` crate timing-attack advisory (RUSTSEC-2023-0071) on every path operators control. The Microsoft Teams adapter still uses RS256 because the Bot Framework requires it; that surface is bounded to MS-signed tokens.
+> - The `composio` feature flag, the `ComposioToolExecutor`, the `symbiont_mcp add`/`list` CLI subcommands, and the SymbiBot autonomous-posting feature were removed entirely — Composio dispatched LLM-supplied tool names without a static allowlist or TLS pinning. See `SECURITY_AUDIT.md` C3 for the full rationale. Bring your own `ActionExecutor` instead.
+> - `docker-compose.test.yml` now requires `SYMBIONT_API_TOKEN` (no `testtoken123` default) and binds to `127.0.0.1` rather than `0.0.0.0`. A `.env.example` is included.
+> - New env vars are documented in `docs/getting-started.md`: `SYMBI_INSECURE_ALLOW_ALL`, `SYMBI_REJECT_LEGACY_API_KEYS`, `SYMBI_UNSAFE_NATIVE_SANDBOX`. Removed: `SYMBIONT_ALLOW_NO_JWT_AUDIENCE`, `COMPOSIO_API_KEY`, `COMPOSIO_MCP_URL`.
+>
+> Full audit + threat models: `SECURITY_AUDIT.md`. Out-of-band operator items (PAT rotation etc.): `SECURITY-OPS.md`.
+
 ---
 
 ## Quick start

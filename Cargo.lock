@@ -9171,6 +9171,9 @@ dependencies = [
 [[package]]
 name = "symbi-invis-strip"
 version = "0.2.0"
+dependencies = [
+ "unicode-normalization",
+]
 
 [[package]]
 name = "symbi-runtime"
@@ -9234,6 +9237,7 @@ dependencies = [
  "serde_yaml",
  "serial_test",
  "sha2",
+ "shlex",
  "subtle",
  "symbi-dsl",
  "symbi-invis-strip",

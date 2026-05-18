@@ -34,6 +34,15 @@ Uma vez que um agente pode chamar ferramentas, acessar arquivos, enviar mensagen
 
 Symbiont foi construido para essa camada.
 
+> **Padroes de seguranca (apos auditoria v1.13.0).** A partir desta versao:
+> - O policy gate do loop de raciocinio (`symbi up`, `symbi run`) e **fail-closed** por padrao — chamadas de ferramentas e delegacoes entre agentes sao negadas a menos que um backend de politica explicito seja conectado. O comportamento permissivo anterior agora exige `--insecure-allow-all` / `SYMBI_INSECURE_ALLOW_ALL=1` com um banner ruidoso em stderr; use apenas em desenvolvimento local.
+> - O verificador JWT impoe uma allowlist de algoritmos (ES256/EdDSA para caminhos assimetricos, HS256 para o caminho HMAC de webhook). JWTs assinados com RSA sao recusados, o que neutraliza o aviso de timing-attack da crate `rsa` (RUSTSEC-2023-0071) em todo caminho que o operador controla. O adaptador do Microsoft Teams ainda usa RS256 porque o Bot Framework exige; essa superficie e limitada a tokens assinados pela MS.
+> - A feature flag `composio`, o `ComposioToolExecutor`, os subcomandos `symbiont_mcp add`/`list` da CLI e o recurso de postagem autonoma do SymbiBot foram removidos por completo — o Composio despachava nomes de ferramentas fornecidos pelo LLM sem allowlist estatica nem TLS pinning. Veja `SECURITY_AUDIT.md` C3 para o racional completo. Traga seu proprio `ActionExecutor` no lugar.
+> - O `docker-compose.test.yml` agora exige `SYMBIONT_API_TOKEN` (sem default `testtoken123`) e faz bind em `127.0.0.1` em vez de `0.0.0.0`. Um `.env.example` esta incluso.
+> - Novas variaveis de ambiente estao documentadas em `docs/getting-started.md`: `SYMBI_INSECURE_ALLOW_ALL`, `SYMBI_REJECT_LEGACY_API_KEYS`, `SYMBI_UNSAFE_NATIVE_SANDBOX`. Removidas: `SYMBIONT_ALLOW_NO_JWT_AUDIENCE`, `COMPOSIO_API_KEY`, `COMPOSIO_MCP_URL`.
+>
+> Auditoria completa + modelos de ameaca: `SECURITY_AUDIT.md`. Itens operacionais out-of-band (rotacao de PAT etc.): `SECURITY-OPS.md`.
+
 ---
 
 ## Inicio rapido

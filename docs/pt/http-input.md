@@ -131,7 +131,11 @@ let config = HttpInputConfig {
 };
 ```
 
-O verificador JWT carrega uma chave pública Ed25519 do arquivo PEM especificado e valida tokens `Authorization: Bearer <jwt>` recebidos. Apenas o algoritmo **EdDSA** é aceito -- HS256, RS256 e outros algoritmos são rejeitados.
+O verificador JWT carrega uma chave pública Ed25519 do arquivo PEM especificado e valida tokens `Authorization: Bearer <jwt>` recebidos.
+
+**Allowlist de algoritmos (auditoria pós-v1.13.0):** o caminho assimétrico de Bearer-token aceita apenas **ES256** e **EdDSA**. O caminho HMAC de assinatura de webhook (usado por Slack, Mattermost, GitHub etc.) aceita apenas **HS256**. Algoritmos da família RSA (`RS256`, `RS384`, `RS512`, `PS256`, `PS384`, `PS512`) e o algoritmo simbólico `none` são recusados tanto no guard de inspeção de cabeçalho quanto na allowlist `Validation::algorithms`. Isso neutraliza o aviso de timing-attack da crate `rsa` (RUSTSEC-2023-0071) em todo caminho que o operador controla. Veja `SECURITY_AUDIT.md` C4. (O adaptador do Microsoft Teams ainda usa RS256 porque o Bot Framework exige; essa superfície é limitada a tokens assinados pela MS.)
+
+**Audience é obrigatório:** o escape hatch via env var `SYMBIONT_ALLOW_NO_JWT_AUDIENCE` foi removido na auditoria pós-v1.13.0. Todo verificador JWT exige uma configuração `aud` explícita; tokens sem audience correspondente são rejeitados.
 
 #### Endpoint de Saúde
 
@@ -148,7 +152,7 @@ Se você precisar de probes de saúde especificamente para o servidor de Entrada
 ### Controles de Segurança
 
 - **Apenas Loopback por Padrão**: `bind_address` padrão é `127.0.0.1` -- o servidor só aceita conexões locais a menos que configurado explicitamente de outra forma
-- **CORS Desabilitado por Padrão**: `cors_origins` padrão é uma lista vazia, significando que CORS está desabilitado; adicione origens específicas para habilitar acesso cross-origin
+- **CORS Desabilitado por Padrão**: `cors_origins` padrão é uma lista vazia, significando que CORS está desabilitado; adicione origens específicas para habilitar acesso cross-origin. Um `"*"` literal em `cors_origins` é **rejeitado no startup** — o servidor de Entrada HTTP se recusará a iniciar com uma origem curinga. (Adicionado na auditoria pós-v1.13.0; veja `SECURITY_AUDIT.md` M1.)
 - **Limites de Tamanho de Requisição**: Tamanho máximo configurável do corpo previne esgotamento de recursos
 - **Limites de Concorrência**: Semáforo integrado controla processamento de requisições concorrentes
 - **Registro de Auditoria**: Registro estruturado de todas as requisições recebidas quando habilitado

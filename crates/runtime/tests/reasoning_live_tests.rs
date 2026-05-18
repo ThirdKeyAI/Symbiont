@@ -266,7 +266,7 @@ async fn test_multi_turn_tool_calling() {
 
     let runner = match make_live_runner(
         Arc::new(MockToolExecutor::new(canned)),
-        Arc::new(DefaultPolicyGate::permissive()),
+        Arc::new(DefaultPolicyGate::permissive_for_dev_only()),
         circuit_breakers,
         journal.clone(),
     ) {
@@ -406,7 +406,7 @@ async fn test_journal_event_capture() {
 
     let runner = match make_live_runner(
         Arc::new(MockToolExecutor::new(canned)),
-        Arc::new(DefaultPolicyGate::permissive()),
+        Arc::new(DefaultPolicyGate::permissive_for_dev_only()),
         circuit_breakers,
         journal.clone(),
     ) {
@@ -504,7 +504,7 @@ async fn test_circuit_breaker_pre_tripped() {
 
     let runner = match make_live_runner(
         Arc::new(MockToolExecutor::new(canned)),
-        Arc::new(DefaultPolicyGate::permissive()),
+        Arc::new(DefaultPolicyGate::permissive_for_dev_only()),
         circuit_breakers,
         journal.clone(),
     ) {
@@ -576,7 +576,7 @@ async fn test_max_iterations_guardrail() {
 
     let runner = match make_live_runner(
         Arc::new(MockToolExecutor::new(canned)),
-        Arc::new(DefaultPolicyGate::permissive()),
+        Arc::new(DefaultPolicyGate::permissive_for_dev_only()),
         circuit_breakers,
         journal.clone(),
     ) {

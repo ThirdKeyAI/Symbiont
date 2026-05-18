@@ -149,6 +149,8 @@ La imagen se ejecuta como usuario `symbi` (UID 1000) con `WORKDIR=/var/lib/symbi
 
 Por defecto, Symbiont usa **LanceDB** como base de datos vectorial integrada -- no se requieren servicios externos. Si necesita un backend vectorial distribuido para despliegues a escala, puede agregar opcionalmente Qdrant.
 
+> **Valores predeterminados de seguridad (auditoria posterior a v1.13.0).** El `docker-compose.test.yml` incluido ahora exige que `SYMBIONT_API_TOKEN` este definido en el entorno (sin valor por defecto — `testtoken123` fue eliminado) y vincula los puertos publicados a `127.0.0.1` en lugar de `0.0.0.0`. El runtime ademas rechaza cualquier token que sea exactamente `testtoken123` o que comience con `test` y tenga menos de 20 caracteres; esto evita el redespliegue accidental del valor predeterminado historico. Consulta `.env.example` para las variables requeridas y `SECURITY_AUDIT.md` C5 para la justificacion.
+
 ### Minimo (LanceDB predeterminado -- no se necesita Qdrant)
 
 Combinelo con un archivo `.env` que defina `SYMBIONT_MASTER_KEY`:

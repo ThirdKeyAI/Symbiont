@@ -439,17 +439,17 @@ El proveedor de LLM en la nube se integra con el pipeline `execute_actions()` de
 
 #### Modo Agente Autonomo (`standalone-agent`)
 
-Combina inferencia LLM en la nube con acceso a herramientas Composio para agentes nativos de la nube:
+Meta-feature que habilita la inferencia LLM en la nube para agentes nativos de la nube:
 
 ```bash
 cargo build --features standalone-agent
-# Enables: cloud-llm + composio
+# Enables: cloud-llm
 ```
 
 **Variables de Entorno:**
 - `OPENROUTER_API_KEY` — Clave de API de OpenRouter
-- `COMPOSIO_API_KEY` — Clave de API de Composio
-- `COMPOSIO_MCP_URL` — URL del servidor MCP de Composio
+
+> **Note:** Composio MCP and SymbiBot integration were removed in this version due to security concerns — see SECURITY_AUDIT.md C3 for context.
 
 #### Motor de Politicas Cedar (`cedar`)
 

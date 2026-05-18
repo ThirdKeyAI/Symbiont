@@ -34,6 +34,15 @@ Sobald ein Agent Tools aufrufen, auf Dateien zugreifen, Nachrichten senden oder 
 
 Symbiont ist fuer diese Schicht gebaut.
 
+> **Sicherheits-Standardwerte (nach dem v1.13.0-Audit).** Ab dieser Version gilt:
+> - Das Policy-Gate der Reasoning-Schleife (`symbi up`, `symbi run`) ist standardmaessig **fail-closed** -- Tool-Aufrufe und Agent-zu-Agent-Delegationen werden abgelehnt, sofern kein explizites Policy-Backend angebunden ist. Das frueher permissive Standardverhalten ist hinter `--insecure-allow-all` / `SYMBI_INSECURE_ALLOW_ALL=1` mit einem deutlichen stderr-Banner verborgen; nutzen Sie es ausschliesslich fuer lokale Entwicklung.
+> - Der JWT-Verifizierer erzwingt eine Algorithmus-Allowlist (ES256/EdDSA fuer asymmetrische Pfade, HS256 fuer den HMAC-Webhook-Pfad). RSA-signierte JWTs werden abgelehnt, was die Timing-Attack-Schwachstelle der `rsa`-Crate (RUSTSEC-2023-0071) auf jedem vom Betreiber kontrollierten Pfad neutralisiert. Der Microsoft-Teams-Adapter verwendet weiterhin RS256, da das Bot Framework dies vorschreibt; diese Flaeche ist auf MS-signierte Tokens beschraenkt.
+> - Das `composio`-Feature-Flag, der `ComposioToolExecutor`, die CLI-Unterbefehle `symbiont_mcp add`/`list` sowie das autonome SymbiBot-Posting-Feature wurden vollstaendig entfernt -- Composio leitete vom LLM gelieferte Tool-Namen ohne statische Allowlist oder TLS-Pinning weiter. Siehe `SECURITY_AUDIT.md` C3 fuer die vollstaendige Begruendung. Bringen Sie stattdessen Ihren eigenen `ActionExecutor` mit.
+> - `docker-compose.test.yml` setzt nun `SYMBIONT_API_TOKEN` voraus (kein `testtoken123`-Standard mehr) und bindet an `127.0.0.1` statt `0.0.0.0`. Eine `.env.example` liegt bei.
+> - Neue Umgebungsvariablen sind in `docs/getting-started.md` dokumentiert: `SYMBI_INSECURE_ALLOW_ALL`, `SYMBI_REJECT_LEGACY_API_KEYS`, `SYMBI_UNSAFE_NATIVE_SANDBOX`. Entfernt: `SYMBIONT_ALLOW_NO_JWT_AUDIENCE`, `COMPOSIO_API_KEY`, `COMPOSIO_MCP_URL`.
+>
+> Vollstaendiges Audit + Threat-Models: `SECURITY_AUDIT.md`. Out-of-band-Betreiberpunkte (PAT-Rotation usw.): `SECURITY-OPS.md`.
+
 ---
 
 ## Schnellstart

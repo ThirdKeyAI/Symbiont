@@ -333,6 +333,19 @@ let runner = ReasoningLoopRunner::builder()
     .build();
 ```
 
+### Compuerta de Politicas del Bucle de Razonamiento por Defecto (auditoria posterior a v1.13.0)
+
+El bucle de razonamiento en `symbi up` y `symbi run` es **fail-closed** por defecto. `DefaultPolicyGate::new()` devuelve `LoopDecision::Deny` para cada accion `ToolCall` y `Delegate`, con el motivo `"No policy gate configured (DefaultPolicyGate::new is fail-closed; wire OpaPolicyGateBridge or pass --insecure-allow-all)"`. Las acciones `Respond` siguen permitidas para que el agente aun pueda producir salida de texto.
+
+Este cambio cierra la brecha donde el binario de produccion antes codificaba `DefaultPolicyGate::permissive()` y permitia silenciosamente toda accion — consulta `SECURITY_AUDIT.md` C2 para el rastro de auditoria.
+
+Los operadores tienen dos rutas:
+
+1. **Conectar un backend de politicas real** (recomendado): construye `CedarPolicyGate`, `OpaPolicyGateBridge` o tu propia implementacion del trait `ReasoningPolicyGate` y pasala al runner.
+2. **Optar por el modo permisivo para desarrollo local**: pasa `--insecure-allow-all` a `symbi up` / `symbi run`, o establece `SYMBI_INSECURE_ALLOW_ALL=1`. Se imprime un banner de multiples lineas en stderr cada vez que el runtime arranca en este modo, y `tracing::warn!` se dispara en cada accion evaluada.
+
+El constructor heredado `permissive()` fue renombrado a `permissive_for_dev_only()` y marcado como `#[doc(hidden)]` para desalentar el uso incidental en rutas de codigo de produccion.
+
 ### Politica de Comunicacion Inter-Agente
 
 El `CommunicationPolicyGate` aplica reglas de autorizacion para toda la comunicacion inter-agente. Cada llamada a traves de `ask`, `delegate`, `send_to`, `parallel` o `race` se evalua contra las reglas de politica antes de su ejecucion.

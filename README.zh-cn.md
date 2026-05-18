@@ -34,6 +34,15 @@ AI 智能体易于演示，却难以信任。
 
 Symbiont 正是为这一层而构建的。
 
+> **安全默认值（v1.13.0 审计之后）。** 自该版本起：
+> - 推理循环策略门控（`symbi up`、`symbi run`）默认采用**失败即关闭**策略——除非显式接入策略后端，否则工具调用与智能体间委派将被拒绝。之前的宽松默认值现已置于 `--insecure-allow-all` / `SYMBI_INSECURE_ALLOW_ALL=1` 之后，并会打印醒目的 stderr 横幅；仅限本地开发使用。
+> - JWT 验证器强制执行算法白名单（非对称路径仅接受 ES256/EdDSA，HMAC webhook 路径仅接受 HS256）。RSA 签名的 JWT 一律拒绝，从而在运维方可控的所有路径上中和 `rsa` crate 的时序攻击建议（RUSTSEC-2023-0071）。Microsoft Teams 适配器仍使用 RS256，因为 Bot Framework 要求如此；该表面被限定在由 MS 签名的令牌内。
+> - `composio` 特性标志、`ComposioToolExecutor`、`symbiont_mcp add`/`list` CLI 子命令以及 SymbiBot 自动发帖功能已被整体移除——Composio 在没有静态白名单或 TLS 固定的情况下派发 LLM 提供的工具名。完整理由参见 `SECURITY_AUDIT.md` C3。请改为接入您自己的 `ActionExecutor`。
+> - `docker-compose.test.yml` 现在要求设置 `SYMBIONT_API_TOKEN`（不再有 `testtoken123` 默认值），并绑定到 `127.0.0.1` 而非 `0.0.0.0`。附带 `.env.example`。
+> - 新增的环境变量记录在 `docs/getting-started.md` 中：`SYMBI_INSECURE_ALLOW_ALL`、`SYMBI_REJECT_LEGACY_API_KEYS`、`SYMBI_UNSAFE_NATIVE_SANDBOX`。已移除：`SYMBIONT_ALLOW_NO_JWT_AUDIENCE`、`COMPOSIO_API_KEY`、`COMPOSIO_MCP_URL`。
+>
+> 完整审计与威胁模型见 `SECURITY_AUDIT.md`；带外运维事项（PAT 轮换等）见 `SECURITY-OPS.md`。
+
 ---
 
 ## 快速开始

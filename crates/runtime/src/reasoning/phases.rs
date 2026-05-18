@@ -17,7 +17,7 @@ use std::marker::PhantomData;
 use crate::reasoning::circuit_breaker::CircuitBreakerRegistry;
 use crate::reasoning::context_manager::ContextManager;
 use crate::reasoning::executor::ActionExecutor;
-use crate::reasoning::inference::InferenceProvider;
+use crate::reasoning::inference::{InferenceProvider, ToolDefinition};
 use crate::reasoning::loop_types::*;
 use crate::reasoning::policy_bridge::ReasoningPolicyGate;
 
@@ -259,6 +259,52 @@ impl AgentLoop<PolicyCheck> {
         let mut terminal_output = None;
 
         for action in reasoning_output.proposed_actions {
+            // M4 mitigation: validate tool-call arguments against the
+            // declared JSON schema (if any) before handing the action to
+            // the policy gate. The LLM controls `arguments` as a free-form
+            // string, so we treat a schema violation — or anything that
+            // isn't a JSON object — as a policy denial. This closes the
+            // simplest prompt-injection-to-exec path where the model is
+            // coerced into emitting malformed args.
+            //
+            // If no schema is registered for the named tool we still
+            // require the args to parse as a JSON object (the minimum bar
+            // — MCP servers and the local executor both expect an object
+            // payload). Reject strings, numbers, arrays, booleans, etc.
+            // Compute schema-validation result up-front so the immutable
+            // borrow of `action` ends before we (potentially) move it into
+            // `denied`.
+            let schema_check: Option<(String, String, String)> = match &action {
+                ProposedAction::ToolCall {
+                    call_id,
+                    name,
+                    arguments,
+                } => match validate_tool_call_arguments(
+                    name,
+                    arguments,
+                    &self.config.tool_definitions,
+                ) {
+                    Ok(()) => None,
+                    Err(reason) => Some((call_id.clone(), name.clone(), reason)),
+                },
+                _ => None,
+            };
+
+            if let Some((call_id, name, reason)) = schema_check {
+                self.state.conversation.push(
+                    crate::reasoning::conversation::ConversationMessage::tool_result(
+                        call_id,
+                        name,
+                        format!("[Schema validation failed] {}", reason),
+                    ),
+                );
+                self.state
+                    .pending_observations
+                    .push(Observation::policy_denial(&reason));
+                denied.push((action, reason));
+                continue;
+            }
+
             let decision = gate
                 .evaluate_action(&self.state.agent_id, &action, &self.state)
                 .await;
@@ -530,6 +576,92 @@ impl LoopTermination {
             duration: self.state.elapsed().to_std().unwrap_or_default(),
             conversation: self.state.conversation,
         }
+    }
+}
+
+/// Validate an LLM-supplied tool-call argument blob.
+///
+/// `arguments` is a JSON-encoded string controlled by the model, so it
+/// can be malformed, of the wrong shape, or intentionally adversarial.
+/// We enforce two layers of defence:
+///
+/// 1. The string MUST parse as a JSON object. Strings, arrays, numbers
+///    and other primitives are rejected. This is the minimum bar even
+///    when no schema is registered for the named tool — every tool
+///    dispatcher in the runtime (the default executor, the MCP bridge)
+///    expects an object payload.
+/// 2. If the named tool is registered in `tool_definitions` and ships a
+///    JSON Schema, the parsed args are validated against that schema
+///    via the `jsonschema` crate. The first violation is returned as
+///    the denial reason.
+///
+/// On success, returns `Ok(())`. On failure, returns the human-readable
+/// reason that `check_policy` will fold into a `LoopDecision::Deny`.
+fn validate_tool_call_arguments(
+    name: &str,
+    arguments: &str,
+    tool_definitions: &[ToolDefinition],
+) -> Result<(), String> {
+    // Layer 1: parse and require an object.
+    let parsed: serde_json::Value = serde_json::from_str(arguments)
+        .map_err(|e| format!("tool '{}' arguments are not valid JSON: {}", name, e))?;
+    if !parsed.is_object() {
+        return Err(format!(
+            "tool '{}' arguments must be a JSON object, got {}",
+            name,
+            json_type_of(&parsed)
+        ));
+    }
+
+    // Layer 2: schema validation when a definition is registered.
+    if let Some(def) = tool_definitions.iter().find(|d| d.name == name) {
+        // Treat a missing/empty schema the same as "no schema" — the
+        // object-shape check above is the floor in that case.
+        if !def.parameters.is_null() {
+            match jsonschema::validator_for(&def.parameters) {
+                Ok(validator) => {
+                    let errors: Vec<String> = validator
+                        .iter_errors(&parsed)
+                        .map(|e| {
+                            let path = e.instance_path.to_string();
+                            if path.is_empty() {
+                                e.to_string()
+                            } else {
+                                format!("at '{}': {}", path, e)
+                            }
+                        })
+                        .collect();
+                    if !errors.is_empty() {
+                        return Err(format!(
+                            "tool '{}' arguments failed schema validation: {}",
+                            name,
+                            errors.join("; ")
+                        ));
+                    }
+                }
+                Err(e) => {
+                    // A tool with a broken schema shouldn't dispatch
+                    // unvalidated args — fail closed.
+                    return Err(format!(
+                        "tool '{}' has an invalid declared schema (refusing to dispatch): {}",
+                        name, e
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn json_type_of(v: &serde_json::Value) -> &'static str {
+    match v {
+        serde_json::Value::Null => "null",
+        serde_json::Value::Bool(_) => "boolean",
+        serde_json::Value::Number(_) => "number",
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::Object(_) => "object",
     }
 }
 

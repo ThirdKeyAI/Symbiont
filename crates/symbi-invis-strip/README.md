@@ -2,7 +2,11 @@
 
 **Strip invisible / steganographic Unicode code points from strings before they reach a knowledge store, a journal, or a prompt.**
 
-Zero dependencies. One public function. `no_std`-compatible in practice (uses only `String` / `str` / `char::from_u32` / `matches!`).
+One small dependency (`unicode-normalization`, used to NFKC-normalize input before marker detection so fullwidth / math-alphanumeric homoglyph bypasses can't slip past). The core `sanitize_field` / `is_forbidden` surface remains `no_std`-compatible in practice (uses only `String` / `str` / `char::from_u32` / `matches!`).
+
+## Dependencies
+
+- `unicode-normalization` — NFKC pass inside `detect_injection_patterns`. Closes the fullwidth (U+FF00–U+FFEF) and math-alphanumeric (U+1D400–U+1D7FF) homoglyph bypass classes for prompt-injection marker detection.
 
 ## Why
 

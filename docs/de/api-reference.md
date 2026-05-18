@@ -439,17 +439,17 @@ Der Cloud-LLM-Anbieter integriert sich in die `execute_actions()`-Pipeline der R
 
 #### Standalone Agent-Modus (`standalone-agent`)
 
-Kombiniert Cloud-LLM-Inferenz mit Composio-Tool-Zugriff fuer Cloud-native Agenten:
+Meta-Feature, das Cloud-LLM-Inferenz fuer Cloud-native Agenten aktiviert:
 
 ```bash
 cargo build --features standalone-agent
-# Aktiviert: cloud-llm + composio
+# Aktiviert: cloud-llm
 ```
 
 **Umgebungsvariablen:**
 - `OPENROUTER_API_KEY` -- OpenRouter API-Schluessel
-- `COMPOSIO_API_KEY` -- Composio API-Schluessel
-- `COMPOSIO_MCP_URL` -- Composio MCP-Server-URL
+
+> **Note:** Composio MCP and SymbiBot integration were removed in this version due to security concerns — see SECURITY_AUDIT.md C3 for context.
 
 #### Cedar Policy Engine (`cedar`)
 

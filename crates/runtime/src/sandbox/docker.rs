@@ -233,8 +233,15 @@ impl DockerRunner {
         Ok(Self { config })
     }
 
-    /// Build the `docker run` command with all configuration applied
-    fn build_command(&self, code: &str, env: &HashMap<String, String>) -> Command {
+    /// Build the `docker run` command with all configuration applied.
+    /// Returns the command plus an optional env-file handle that MUST be kept
+    /// alive until the child process has been spawned (so the tempfile is not
+    /// deleted before `docker run` reads it).
+    fn build_command(
+        &self,
+        code: &str,
+        env: &HashMap<String, String>,
+    ) -> Result<(Command, Option<tempfile::NamedTempFile>), anyhow::Error> {
         let mut cmd = Command::new(&self.config.docker_binary);
         cmd.arg("run");
 
@@ -270,10 +277,51 @@ impl DockerRunner {
         // Drop all capabilities, add back only what's needed
         cmd.arg("--cap-drop").arg("ALL");
 
-        // Environment variables
-        for (key, value) in env {
-            cmd.arg("-e").arg(format!("{}={}", key, value));
-        }
+        // Environment variables: write to a 0600 tempfile and pass via --env-file
+        // so values never appear on the command line (process listings, audit logs).
+        let env_file_handle = if env.is_empty() {
+            None
+        } else {
+            for key in env.keys() {
+                if key.contains('=')
+                    || key.contains('\n')
+                    || key.contains('\r')
+                    || key.contains('\0')
+                {
+                    anyhow::bail!(
+                        "invalid env key '{}' — contains '=', newline, or NUL (env-file smuggling vector)",
+                        key
+                    );
+                }
+            }
+            for value in env.values() {
+                if value.contains('\n') || value.contains('\r') || value.contains('\0') {
+                    anyhow::bail!(
+                        "invalid env value — contains newline or NUL (env-file smuggling vector)"
+                    );
+                }
+            }
+
+            let mut tmp = tempfile::NamedTempFile::new()
+                .map_err(|e| anyhow::anyhow!("failed to create env tempfile: {e}"))?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o600))
+                    .map_err(|e| anyhow::anyhow!("failed to chmod env-file: {e}"))?;
+            }
+            {
+                use std::io::Write;
+                for (key, value) in env {
+                    writeln!(tmp, "{}={}", key, value)
+                        .map_err(|e| anyhow::anyhow!("failed to write env-file: {e}"))?;
+                }
+                tmp.flush()
+                    .map_err(|e| anyhow::anyhow!("failed to flush env-file: {e}"))?;
+            }
+            cmd.arg("--env-file").arg(tmp.path());
+            Some(tmp)
+        };
 
         // Volume mounts
         for vol in &self.config.volumes {
@@ -296,7 +344,7 @@ impl DockerRunner {
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
 
-        cmd
+        Ok((cmd, env_file_handle))
     }
 
     /// Read output with size limit (same pattern as NativeRunner)
@@ -347,10 +395,12 @@ impl SandboxRunner for DockerRunner {
             env.len()
         );
 
-        let mut command = self.build_command(code, &env);
+        let (mut command, _env_file) = self.build_command(code, &env)?;
         let start = std::time::Instant::now();
         let max_output = self.config.max_output_bytes;
 
+        // _env_file must outlive spawn() so docker can read the env-file before
+        // the tempfile is unlinked on drop.
         let mut child = command.spawn().map_err(|e| {
             anyhow::anyhow!("Failed to spawn docker process: {}. Is Docker running?", e)
         })?;
@@ -519,7 +569,9 @@ mod tests {
         let mut env = HashMap::new();
         env.insert("FOO".to_string(), "bar".to_string());
 
-        let cmd = runner.build_command("echo hello", &env);
+        let cmd = runner
+            .build_command("echo hello", &env)
+            .expect("build_command must succeed for valid env");
         // Verify the command is constructed (we can't easily inspect it,
         // but it shouldn't panic)
         let _ = cmd;

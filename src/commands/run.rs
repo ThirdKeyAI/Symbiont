@@ -74,9 +74,32 @@ pub async fn run(matches: &ArgMatches) {
     use symbi_runtime::reasoning::reasoning_loop::ReasoningLoopRunner;
     use symbi_runtime::types::AgentId;
 
+    // `symbi run` is for trusted local execution. The policy gate defaults
+    // to fail-closed (`DefaultPolicyGate::new()`), which denies every
+    // proposed tool call and delegation. Operators who explicitly want the
+    // unrestricted dev-mode behaviour can opt in via the
+    // `SYMBI_INSECURE_ALLOW_ALL=1` env var (matching `symbi up`).
+    let insecure_allow_all = std::env::var("SYMBI_INSECURE_ALLOW_ALL").as_deref() == Ok("1");
+    let policy_gate: Arc<dyn symbi_runtime::reasoning::policy_bridge::ReasoningPolicyGate> =
+        if insecure_allow_all {
+            eprintln!("\n");
+            eprintln!("================================================================");
+            eprintln!("WARNING: SYMBI_INSECURE_ALLOW_ALL=1 is set");
+            eprintln!("Policy gate is in PERMISSIVE mode for this `symbi run` invocation.");
+            eprintln!("Every LLM-proposed tool call and delegation will be allowed.");
+            eprintln!("This is only safe for local development. Do NOT use in production.");
+            eprintln!("================================================================\n");
+            Arc::new(DefaultPolicyGate::permissive_for_dev_only())
+        } else {
+            tracing::info!(
+                "policy gate: fail-closed default; configure OpaPolicyGateBridge for production policy enforcement"
+            );
+            Arc::new(DefaultPolicyGate::new())
+        };
+
     let runner = ReasoningLoopRunner {
         provider,
-        policy_gate: Arc::new(DefaultPolicyGate::permissive()),
+        policy_gate,
         executor: Arc::new(DefaultActionExecutor::default()),
         context_manager: Arc::new(DefaultContextManager::default()),
         circuit_breakers: Arc::new(CircuitBreakerRegistry::default()),

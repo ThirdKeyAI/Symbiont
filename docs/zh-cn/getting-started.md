@@ -373,12 +373,14 @@ export OPENROUTER_MODEL="google/gemini-2.0-flash-001"  # 可选
 
 #### 独立智能体模式
 
-一行命令启动云原生智能体，支持 LLM 推理和 Composio 工具访问：
+一行命令启动云原生智能体，支持 LLM 推理：
 
 ```bash
 cargo build --features standalone-agent
-# 启用：cloud-llm + composio
+# 启用：cloud-llm
 ```
+
+> **Note:** Composio MCP and SymbiBot integration were removed in this version due to security concerns — see SECURITY_AUDIT.md C3 for context.
 
 #### 高级推理原语
 
@@ -430,8 +432,7 @@ cd crates/runtime && cargo run --example context_example
 | `http-api` | REST API，带 Swagger UI | 否 |
 | `http-input` | Webhook 服务器，带 JWT 身份验证 | 否 |
 | `cloud-llm` | 云端 LLM 推理（OpenRouter） | 否 |
-| `composio` | Composio MCP 工具集成 | 否 |
-| `standalone-agent` | 云端 LLM + Composio 组合 | 否 |
+| `standalone-agent` | 云端 LLM 元特性 | 否 |
 | `cedar` | Cedar 策略引擎 | 否 |
 | `orga-adaptive` | 高级推理原语 | 否 |
 | `cron` | 持久化 cron 调度 | 否 |
@@ -474,6 +475,20 @@ export SYMBI_RUNTIME_MODE=development
 # MCP 集成（可选）
 export MCP_SERVER_URLS="http://localhost:8080"
 ```
+
+#### 安全相关环境变量（v1.13.0 审计之后）
+
+| 变量 | 默认值 | 作用 |
+|---|---|---|
+| `SYMBI_INSECURE_ALLOW_ALL` | 未设置 | 设为 `1` 时，`symbi up` / `symbi run` 会使用宽松策略门控（所有工具调用和委派均被允许）。等同于 `--insecure-allow-all` 标志。会打印醒目的 stderr 横幅。**仅限本地开发使用。** 不设置该变量时，推理循环为失败即关闭，在未接入显式策略后端之前拒绝工具调用和委派。 |
+| `SYMBI_REJECT_LEGACY_API_KEYS` | 未设置 | 设为 `1` 时，API 密钥验证器会短路掉针对无前缀密钥的已弃用 O(n) Argon2 扫描。请在以 `keyid.secret` 格式重新签发所有密钥之后立即启用。无论是否启用，旧路径都将在下一个次要版本中被移除。 |
+| `SYMBI_UNSAFE_NATIVE_SANDBOX` | 未设置 | 构造 `native` 沙箱执行器时必需（且需 `SYMBI_ENV=production` 未设置）。`native-sandbox` Cargo 特性在 release 构建中也会编译失败。原生执行器不提供任何隔离，仅供本地调试使用。 |
+| `SYMBI_TRUSTED_PROXIES` | 未设置 | 受信反向代理的 CIDR 白名单；仅当来自这些地址时才采信 `X-Forwarded-For`。 |
+
+以下环境变量已被**移除**：
+
+- `SYMBIONT_ALLOW_NO_JWT_AUDIENCE` — JWT 验证器现在始终要求 `aud`。（在 v1.13.0 审计之后移除；曾是不安全的逃生通道。）
+- `COMPOSIO_API_KEY`、`COMPOSIO_MCP_URL` — Composio MCP 集成已被整体移除。参见 `SECURITY_AUDIT.md` C3。
 
 ### 运行时配置
 

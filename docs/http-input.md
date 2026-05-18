@@ -131,7 +131,11 @@ let config = HttpInputConfig {
 };
 ```
 
-The JWT verifier loads an Ed25519 public key from the specified PEM file and validates incoming `Authorization: Bearer <jwt>` tokens. Only the **EdDSA** algorithm is accepted — HS256, RS256, and other algorithms are rejected.
+The JWT verifier loads an Ed25519 public key from the specified PEM file and validates incoming `Authorization: Bearer <jwt>` tokens.
+
+**Algorithm allowlist (post-v1.13.0 audit):** the asymmetric Bearer-token path accepts only **ES256** and **EdDSA**. The HMAC webhook-signature path (used by Slack, Mattermost, GitHub etc.) accepts only **HS256**. RSA-family algorithms (`RS256`, `RS384`, `RS512`, `PS256`, `PS384`, `PS512`) and the symbolic `none` algorithm are refused at both the header-inspection guard and the `Validation::algorithms` allowlist. This neutralizes the `rsa` crate timing-attack advisory (RUSTSEC-2023-0071) on every path the operator controls. See `SECURITY_AUDIT.md` C4. (The Microsoft Teams adapter still uses RS256 because the Bot Framework requires it; that surface is bounded to MS-signed tokens.)
+
+**Audience is required:** the `SYMBIONT_ALLOW_NO_JWT_AUDIENCE` env-var escape hatch was removed in the post-v1.13.0 audit. Every JWT verifier requires an explicit `aud` configuration; tokens without a matching audience are rejected.
 
 #### Health Endpoint
 
@@ -148,7 +152,7 @@ If you need health probes for the HTTP Input server specifically, route your loa
 ### Security Controls
 
 - **Loopback-Only Default**: `bind_address` defaults to `127.0.0.1` — the server only accepts local connections unless explicitly configured otherwise
-- **CORS Disabled by Default**: `cors_origins` defaults to an empty list, meaning CORS is disabled; add specific origins to enable cross-origin access
+- **CORS Disabled by Default**: `cors_origins` defaults to an empty list, meaning CORS is disabled; add specific origins to enable cross-origin access. A literal `"*"` in `cors_origins` is **rejected at startup** — the HTTP Input server will refuse to start with a wildcard origin. (Added in the post-v1.13.0 audit; see `SECURITY_AUDIT.md` M1.)
 - **Request Size Limits**: Configurable maximum body size prevents resource exhaustion
 - **Concurrency Limits**: Built-in semaphore controls concurrent request processing
 - **Audit Logging**: Structured logging of all incoming requests when enabled

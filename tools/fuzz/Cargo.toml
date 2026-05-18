@@ -19,7 +19,7 @@ tempfile = "3.0"
 tokio = { version = "1", features = ["rt", "macros"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 symbi-channel-adapter = { path = "../../crates/channel-adapter", package = "symbi-channel-adapter", default-features = false, features = ["slack", "mattermost"] }
-symbi-runtime = { path = "../../crates/runtime", package = "symbi-runtime", default-features = false, features = ["composio", "http-api", "http-input"] }
+symbi-runtime = { path = "../../crates/runtime", package = "symbi-runtime", default-features = false, features = ["http-api", "http-input"] }
 repl-core = { path = "../../crates/repl-core", package = "repl-core" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -87,13 +87,6 @@ bench = false
 [[bin]]
 name = "tool_substitution_detection"
 path = "fuzz_targets/tool_substitution_detection.rs"
-test = false
-doc = false
-bench = false
-
-[[bin]]
-name = "sse_jsonrpc_parsing"
-path = "fuzz_targets/sse_jsonrpc_parsing.rs"
 test = false
 doc = false
 bench = false

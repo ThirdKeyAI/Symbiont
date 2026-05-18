@@ -471,7 +471,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-symbi-runtime = { version = "0.6.0", features = ["http-api"] }
+symbi-runtime = { version = "1.13", features = ["http-api"] }
 ```
 
 Or build with feature flag:

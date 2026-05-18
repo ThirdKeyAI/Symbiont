@@ -6,6 +6,12 @@
 //! **WARNING**: This provides minimal security isolation and should only be used
 //! in trusted development environments. Gated behind the `native-sandbox` feature.
 
+#[cfg(all(feature = "native-sandbox", not(debug_assertions)))]
+compile_error!(
+    "the `native-sandbox` feature provides ZERO isolation and must never be enabled in release builds. \
+     Use Docker, gVisor, Firecracker, or E2B runners in production."
+);
+
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -197,6 +203,24 @@ impl NativeRunner {
                 "SECURITY: Native execution is unconditionally disabled in production. \
                  Use a proper sandbox (Docker or E2B) instead."
             );
+        }
+
+        // Additional explicit opt-in: require SYMBI_UNSAFE_NATIVE_SANDBOX=1 even
+        // outside production. This forces operators to acknowledge that the
+        // native runner provides no isolation, independent of SYMBIONT_ENV.
+        match std::env::var("SYMBI_UNSAFE_NATIVE_SANDBOX").as_deref() {
+            Ok("1") => {
+                tracing::error!(
+                    "SECURITY: SYMBI_UNSAFE_NATIVE_SANDBOX=1 set — native runner bypass acknowledged. \
+                     This runner provides ZERO isolation."
+                );
+            }
+            _ => {
+                anyhow::bail!(
+                    "SECURITY: Native execution requires explicit opt-in via SYMBI_UNSAFE_NATIVE_SANDBOX=1. \
+                     This runner provides ZERO isolation and is intended for trusted local development only."
+                );
+            }
         }
 
         // Always log a prominent warning when native execution is initialized
@@ -518,9 +542,22 @@ impl SandboxRunner for NativeRunner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Once;
+
+    static INIT_TEST_ENV: Once = Once::new();
+
+    /// Ensure tests run with the explicit opt-in env var set. The runtime
+    /// guard added for security-fix H4 requires this; tests acknowledge the
+    /// no-isolation contract by setting it once for the whole module.
+    fn ensure_test_env() {
+        INIT_TEST_ENV.call_once(|| {
+            std::env::set_var("SYMBI_UNSAFE_NATIVE_SANDBOX", "1");
+        });
+    }
 
     /// Helper: create a NativeConfig with bash allowed (most tests need this)
     fn config_with_bash() -> NativeConfig {
+        ensure_test_env();
         NativeConfig {
             executable: "bash".to_string(),
             allowed_executables: vec!["bash".to_string()],
@@ -544,6 +581,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_native_python_execution() {
+        ensure_test_env();
         let config = NativeConfig {
             executable: "python3".to_string(),
             allowed_executables: vec!["python3".to_string()],
@@ -603,6 +641,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_native_execution_timeout() {
+        ensure_test_env();
         let config = NativeConfig {
             executable: "bash".to_string(),
             allowed_executables: vec!["bash".to_string()],
@@ -620,6 +659,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_executable_validation() {
+        ensure_test_env();
         let config = NativeConfig {
             executable: "malicious_exe".to_string(),
             allowed_executables: vec!["bash".to_string(), "python3".to_string()],
@@ -632,6 +672,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_working_directory_validation() {
+        ensure_test_env();
         let config = NativeConfig {
             working_directory: PathBuf::from("relative/path"),
             allowed_executables: vec!["bash".to_string()],
@@ -665,6 +706,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_output_truncation() {
+        ensure_test_env();
         let config = NativeConfig {
             executable: "bash".to_string(),
             allowed_executables: vec!["bash".to_string()],

@@ -373,12 +373,14 @@ export OPENROUTER_MODEL="google/gemini-2.0-flash-001"  # オプション
 
 #### スタンドアロンエージェントモード
 
-LLM推論とComposioツールアクセスを備えたクラウドネイティブエージェントのワンライナー：
+LLM推論を備えたクラウドネイティブエージェントのワンライナー：
 
 ```bash
 cargo build --features standalone-agent
-# 有効化: cloud-llm + composio
+# 有効化: cloud-llm
 ```
+
+> **Note:** Composio MCP and SymbiBot integration were removed in this version due to security concerns — see SECURITY_AUDIT.md C3 for context.
 
 #### 高度な推論プリミティブ
 
@@ -430,8 +432,7 @@ cd crates/runtime && cargo run --example context_example
 | `http-api` | Swagger UI付きREST API | いいえ |
 | `http-input` | JWT認証付きWebhookサーバー | いいえ |
 | `cloud-llm` | クラウドLLM推論（OpenRouter） | いいえ |
-| `composio` | Composio MCPツール統合 | いいえ |
-| `standalone-agent` | クラウドLLM + Composioコンボ | いいえ |
+| `standalone-agent` | クラウドLLM メタフィーチャー | いいえ |
 | `cedar` | Cedarポリシーエンジン | いいえ |
 | `orga-adaptive` | 高度な推論プリミティブ | いいえ |
 | `cron` | 永続cronスケジューリング | いいえ |
@@ -474,6 +475,20 @@ export SYMBI_RUNTIME_MODE=development
 # MCP統合（オプション）
 export MCP_SERVER_URLS="http://localhost:8080"
 ```
+
+#### セキュリティ関連の環境変数（v1.13.0 監査後）
+
+| 変数 | デフォルト | 効果 |
+|---|---|---|
+| `SYMBI_INSECURE_ALLOW_ALL` | 未設定 | `1` に設定すると、`symbi up` / `symbi run` が許可的ポリシーゲート（すべてのツール呼び出しと委任が許可される）を使用します。`--insecure-allow-all` フラグと同等です。目立つ stderr バナーが表示されます。**ローカル開発専用です。** これがない場合、推論ループはフェイルクローズで、明示的なポリシーバックエンドが配線されるまでツール呼び出しと委任を拒否します。 |
+| `SYMBI_REJECT_LEGACY_API_KEYS` | 未設定 | `1` に設定すると、API キーバリデータがプレフィックスなしキー向けの非推奨 O(n) Argon2 スキャンを短絡します。すべてのキーを `keyid.secret` フォーマットで再発行した直後に使用してください。レガシーパスは次のマイナーリリースでいずれにせよ削除されます。 |
+| `SYMBI_UNSAFE_NATIVE_SANDBOX` | 未設定 | `native` サンドボックスランナーを構築するために必須です（`SYMBI_ENV=production` が設定されていないことに加えて）。`native-sandbox` Cargo フィーチャーもリリースビルドではコンパイルに失敗します。ネイティブランナーは隔離を一切提供せず、ローカルデバッグのみを意図しています。 |
+| `SYMBI_TRUSTED_PROXIES` | 未設定 | 信頼されたリバースプロキシ用 CIDR 許可リスト。`X-Forwarded-For` はこれらのアドレスからのみ尊重されます。 |
+
+以下の環境変数は**削除**されました：
+
+- `SYMBIONT_ALLOW_NO_JWT_AUDIENCE` — JWT 検証器は常に `aud` を必須とします。（v1.13.0 監査後に削除。安全でないエスケープハッチでした。）
+- `COMPOSIO_API_KEY`、`COMPOSIO_MCP_URL` — Composio MCP 統合は完全に削除されました。`SECURITY_AUDIT.md` C3 を参照してください。
 
 ### ランタイム設定
 
