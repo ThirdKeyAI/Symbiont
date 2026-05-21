@@ -144,7 +144,12 @@ serial_test = "3.0"
 filetime = "0.2"
 
 [features]
-default = ["keychain", "vector-lancedb"]
+# Cedar ships in the default set so `cargo install symbi` / the published
+# Docker image come with the in-tree policy backend the runtime auto-wires
+# from `policies/*.cedar`. Disable with `--no-default-features` (and re-add
+# the features you want) for builds that pin a different `ReasoningPolicyGate`
+# such as `OpaPolicyGateBridge` or a custom impl.
+default = ["keychain", "vector-lancedb", "cedar"]
 vector-lancedb = ["dep:lancedb", "dep:arrow-array", "dep:arrow-schema"]
 vector-qdrant = ["dep:qdrant-client"]
 embedding-models = ["candle-core", "candle-nn", "candle-transformers", "tokenizers", "hf-hub"]

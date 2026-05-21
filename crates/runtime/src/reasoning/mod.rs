@@ -39,6 +39,8 @@ pub mod metrics;
 pub mod scheduler;
 pub mod tracing_spans;
 
+#[cfg(feature = "cedar")]
+pub use cedar_gate::{CedarPolicy, CedarPolicyGate};
 pub use conversation::{Conversation, ConversationMessage, MessageRole};
 pub use inference::{
     InferenceOptions, InferenceProvider, InferenceResponse, ResponseFormat, ToolCallRequest,

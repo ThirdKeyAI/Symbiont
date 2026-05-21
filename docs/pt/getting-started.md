@@ -394,10 +394,10 @@ Veja o [guia orga-adaptive](/orga-adaptive) para documentação completa.
 
 #### Motor de Políticas Cedar
 
-Autorização formal com a linguagem de políticas Cedar:
+Autorização formal com a linguagem de políticas Cedar. **Habilitado por padrão desde v1.14.x**: os binários `symbi` publicados (crates.io, Docker, tarballs do GitHub Release) incluem o Cedar, e `symbi up` / `symbi run` auto-conectam o `CedarPolicyGate` a partir de arquivos `policies/*.cedar` no startup; se nenhum estiver presente, o runtime recorre ao `DefaultPolicyGate` fail-closed. Para compilar sem o Cedar (por exemplo, quando você pretende conectar o `OpaPolicyGateBridge` ou um `ReasoningPolicyGate` personalizado), use:
 
 ```bash
-cargo build --features cedar
+cargo build --no-default-features --features "keychain,vector-lancedb"  # remove cedar
 ```
 
 #### Banco de Dados Vetorial (Integrado)
@@ -433,7 +433,7 @@ cd crates/runtime && cargo run --example context_example
 | `http-input` | Servidor de webhook com autenticação JWT | Não |
 | `cloud-llm` | Inferência LLM em nuvem (OpenRouter) | Não |
 | `standalone-agent` | Meta-feature Cloud LLM | Não |
-| `cedar` | Motor de políticas Cedar | Não |
+| `cedar` | Motor de políticas Cedar — auto-conecta a partir de `policies/*.cedar` no startup | **Sim** |
 | `orga-adaptive` | Primitivas de raciocínio avançado | Não |
 | `cron` | Agendamento cron persistente | Não |
 | `native-sandbox` | Sandboxing nativo de processos | Não |

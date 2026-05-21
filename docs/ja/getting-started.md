@@ -394,10 +394,10 @@ cargo build --features orga-adaptive
 
 #### Cedarポリシーエンジン
 
-Cedarポリシー言語による正式認可：
+Cedarポリシー言語による正式認可。**v1.14.x 以降デフォルトで有効**: 公開されている `symbi` バイナリ（crates.io、Docker、GitHub Release tarball）には Cedar が含まれており、`symbi up` / `symbi run` は起動時に `policies/*.cedar` ファイルから `CedarPolicyGate` を自動配線します。ファイルが存在しない場合、ランタイムはフェイルクローズドな `DefaultPolicyGate` にフォールバックします。Cedar なしでビルドするには（たとえば代わりに `OpaPolicyGateBridge` やカスタム `ReasoningPolicyGate` を配線する場合）、以下を使用します：
 
 ```bash
-cargo build --features cedar
+cargo build --no-default-features --features "keychain,vector-lancedb"  # drop cedar
 ```
 
 #### ベクトルデータベース（組み込み）
@@ -433,7 +433,7 @@ cd crates/runtime && cargo run --example context_example
 | `http-input` | JWT認証付きWebhookサーバー | いいえ |
 | `cloud-llm` | クラウドLLM推論（OpenRouter） | いいえ |
 | `standalone-agent` | クラウドLLM メタフィーチャー | いいえ |
-| `cedar` | Cedarポリシーエンジン | いいえ |
+| `cedar` | Cedarポリシーエンジン — 起動時に `policies/*.cedar` から自動配線 | **Yes** |
 | `orga-adaptive` | 高度な推論プリミティブ | いいえ |
 | `cron` | 永続cronスケジューリング | いいえ |
 | `native-sandbox` | ネイティブプロセスサンドボックス | いいえ |

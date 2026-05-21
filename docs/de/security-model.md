@@ -315,6 +315,8 @@ pub enum PolicyDecision {
 
 Symbiont integriert die [Cedar-Richtliniensprache](https://www.cedarpolicy.com/) fuer formale Autorisierung. Cedar ermoeglicht feingranulare, auditierbare Zugriffskontrollrichtlinien, die an der Policy-Gate-Phase der Reasoning-Schleife ausgewertet werden.
 
+**Standardmaessig aktiv seit v1.14.x:** Cedar gehoert zum Standard-Feature-Set von `symbi-runtime` und ist in jeder veroeffentlichten Binary enthalten (crates.io, Docker, GitHub-Release-Tarballs). `symbi up` und `symbi run` verdrahten `CedarPolicyGate` beim Start automatisch aus `policies/*.cedar`-Dateien; ist mindestens eine Richtliniendatei vorhanden, wird das Gate mit `deny_by_default()` konstruiert und jede `.cedar`-Datei als benannte Richtlinie geladen. Sind keine Richtliniendateien vorhanden, faellt die Runtime auf den fail-closed `DefaultPolicyGate::new()` zurueck (der jede `ToolCall`- und `Delegate`-Aktion ablehnt). Um Cedar vollstaendig zu deaktivieren — fuer Builds, die `OpaPolicyGateBridge` oder ein eigenes `ReasoningPolicyGate` festlegen — bauen Sie mit `cargo build --no-default-features --features "keychain,vector-lancedb"`.
+
 ```bash
 cargo build --features cedar
 ```

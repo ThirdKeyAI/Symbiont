@@ -311,6 +311,8 @@ pub enum PolicyDecision {
 
 Symbiont 集成了 [Cedar 策略语言](https://www.cedarpolicy.com/)，用于正式授权。Cedar 支持细粒度、可审计的访问控制策略，在推理循环的策略门控阶段进行评估。
 
+**自 v1.14.x 起默认启用：** Cedar 已包含在 `symbi-runtime` 的默认特性集中，并随每一个已发布的二进制文件（crates.io、Docker、GitHub Release tarball）一同分发。`symbi up` 和 `symbi run` 会在启动时从 `policies/*.cedar` 文件自动接线 `CedarPolicyGate`；当至少存在一个策略文件时，门控会以 `deny_by_default()` 构造，并将每个 `.cedar` 文件作为命名策略加载。当不存在任何策略文件时，运行时将回退到失败即关闭的 `DefaultPolicyGate::new()`（其会拒绝所有 `ToolCall` 和 `Delegate` 操作）。若要彻底禁用 Cedar — 用于固定 `OpaPolicyGateBridge` 或自定义 `ReasoningPolicyGate` 的构建 — 请使用 `cargo build --no-default-features --features "keychain,vector-lancedb"` 进行构建。
+
 ```bash
 cargo build --features cedar
 ```

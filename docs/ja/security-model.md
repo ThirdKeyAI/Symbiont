@@ -310,6 +310,8 @@ pub enum PolicyDecision {
 
 Symbiontは正式認可のために[Cedarポリシー言語](https://www.cedarpolicy.com/)を統合しています。Cedarは、推論ループのポリシーゲートで評価される、きめ細かで監査可能なアクセス制御ポリシーを可能にします。
 
+**v1.14.x 以降デフォルトで有効：** Cedar は `symbi-runtime` のデフォルトフィーチャーセットに含まれており、公開されているすべてのバイナリ（crates.io、Docker、GitHub Release tarball）に同梱されています。`symbi up` および `symbi run` は起動時に `policies/*.cedar` ファイルから `CedarPolicyGate` を自動配線します。少なくとも 1 つのポリシーファイルが存在する場合、ゲートは `deny_by_default()` で構築され、各 `.cedar` ファイルが名前付きポリシーとしてロードされます。ポリシーファイルが存在しない場合、ランタイムはフェイルクローズドな `DefaultPolicyGate::new()` にフォールバックします（これはすべての `ToolCall` および `Delegate` アクションを拒否します）。Cedar を完全に無効化するには — `OpaPolicyGateBridge` やカスタム `ReasoningPolicyGate` をピン留めするビルドのために — `cargo build --no-default-features --features "keychain,vector-lancedb"` でビルドします。
+
 ```bash
 cargo build --features cedar
 ```

@@ -417,10 +417,10 @@ See the [orga-adaptive guide](/orga-adaptive) for full documentation.
 
 #### Cedar Policy Engine
 
-Formal authorization with the Cedar policy language:
+Formal authorization with the Cedar policy language. **Default-on since v1.14.x**: published `symbi` binaries (crates.io, Docker, GitHub Release tarballs) include Cedar, and `symbi up` / `symbi run` auto-wire `CedarPolicyGate` from `policies/*.cedar` files at startup; if none are present the runtime falls through to the fail-closed `DefaultPolicyGate`. To build without Cedar (e.g. when you intend to wire `OpaPolicyGateBridge` or a custom `ReasoningPolicyGate` instead), use:
 
 ```bash
-cargo build --features cedar
+cargo build --no-default-features --features "keychain,vector-lancedb"  # drop cedar
 ```
 
 #### Vector Database (Built-in)
@@ -458,7 +458,7 @@ cd crates/runtime && cargo run --example context_example
 | `http-input` | Webhook server with JWT auth | No |
 | `cloud-llm` | Cloud LLM inference (OpenRouter) | No |
 | `standalone-agent` | Cloud LLM meta-feature | No |
-| `cedar` | Cedar policy engine | No |
+| `cedar` | Cedar policy engine — auto-wires from `policies/*.cedar` at startup | **Yes** |
 | `orga-adaptive` | Advanced reasoning primitives | No |
 | `cron` | Persistent cron scheduling | No |
 | `native-sandbox` | Native process sandboxing | No |

@@ -394,10 +394,10 @@ cargo build --features orga-adaptive
 
 #### Cedar 策略引擎
 
-使用 Cedar 策略语言进行正式授权：
+使用 Cedar 策略语言进行正式授权。**自 v1.14.x 起默认启用**：已发布的 `symbi` 二进制文件（crates.io、Docker、GitHub Release tarball）均包含 Cedar，并且 `symbi up` / `symbi run` 会在启动时从 `policies/*.cedar` 文件自动接线 `CedarPolicyGate`；若不存在任何此类文件，运行时将回退到失败即关闭的 `DefaultPolicyGate`。如需在不包含 Cedar 的情况下构建（例如，你打算改为接入 `OpaPolicyGateBridge` 或自定义的 `ReasoningPolicyGate`），请使用：
 
 ```bash
-cargo build --features cedar
+cargo build --no-default-features --features "keychain,vector-lancedb"  # drop cedar
 ```
 
 #### 向量数据库（内置）
@@ -433,7 +433,7 @@ cd crates/runtime && cargo run --example context_example
 | `http-input` | Webhook 服务器，带 JWT 身份验证 | 否 |
 | `cloud-llm` | 云端 LLM 推理（OpenRouter） | 否 |
 | `standalone-agent` | 云端 LLM 元特性 | 否 |
-| `cedar` | Cedar 策略引擎 | 否 |
+| `cedar` | Cedar 策略引擎 — 启动时从 `policies/*.cedar` 自动接线 | **Yes** |
 | `orga-adaptive` | 高级推理原语 | 否 |
 | `cron` | 持久化 cron 调度 | 否 |
 | `native-sandbox` | 原生进程沙箱 | 否 |

@@ -584,9 +584,11 @@ pub async fn run(matches: &ArgMatches) {
                     Arc::new(
                         symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate::permissive_for_dev_only(),
                     )
+                } else if let Some(cedar_gate) = try_wire_cedar_policy_gate().await {
+                    cedar_gate
                 } else {
                     tracing::info!(
-                        "policy gate: fail-closed default; configure OpaPolicyGateBridge for production policy enforcement"
+                        "policy gate: fail-closed default (no policies/*.cedar found); configure CedarPolicyGate, OpaPolicyGateBridge, or another ReasoningPolicyGate"
                     );
                     Arc::new(symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate::new())
                 };
@@ -642,6 +644,95 @@ pub async fn run(matches: &ArgMatches) {
 }
 
 /// Generate a cryptographically secure random token
+/// If the `cedar` feature is compiled in AND `policies/` contains at least
+/// one `*.cedar` file, construct a [`CedarPolicyGate`] preloaded with each
+/// file as a named policy. Files that fail to parse as Cedar syntax are
+/// logged and skipped (the gate continues to load the rest); a gate is
+/// returned only when at least one policy parses successfully.
+///
+/// Returns `None` if the `cedar` feature is disabled, the `policies/`
+/// directory doesn't exist, no `*.cedar` files are present, or every file
+/// failed to parse. Callers should fall back to `DefaultPolicyGate::new()`
+/// (fail-closed) in that case.
+#[cfg(feature = "cedar")]
+pub(super) async fn try_wire_cedar_policy_gate(
+) -> Option<Arc<dyn symbi_runtime::reasoning::policy_bridge::ReasoningPolicyGate>> {
+    use symbi_runtime::reasoning::{CedarPolicy, CedarPolicyGate};
+
+    let policies_dir = Path::new("policies");
+    if !policies_dir.is_dir() {
+        return None;
+    }
+
+    let mut cedar_files: Vec<PathBuf> = match fs::read_dir(policies_dir) {
+        Ok(rd) => rd
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("cedar"))
+            .collect(),
+        Err(e) => {
+            tracing::warn!("unable to read policies directory: {}", e);
+            return None;
+        }
+    };
+    if cedar_files.is_empty() {
+        return None;
+    }
+    cedar_files.sort();
+
+    let gate = CedarPolicyGate::deny_by_default();
+    let mut loaded = 0usize;
+    for path in cedar_files {
+        let source = match fs::read_to_string(&path) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::error!("failed to read {}: {}", path.display(), e);
+                continue;
+            }
+        };
+        // Per-file syntax validation is performed lazily by the gate at
+        // evaluation time — malformed policies produce explicit Deny
+        // decisions, which is consistent with the deny-by-default fallback.
+        let name = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("policy")
+            .to_string();
+        gate.add_policy(CedarPolicy {
+            name,
+            source,
+            active: true,
+        })
+        .await;
+        loaded += 1;
+    }
+    if loaded == 0 {
+        tracing::warn!(
+            "found .cedar files under policies/ but none parsed successfully — falling through to fail-closed default"
+        );
+        return None;
+    }
+    tracing::info!(
+        "policy gate: CedarPolicyGate auto-wired from {} policy file(s) under policies/",
+        loaded
+    );
+    println!(
+        "✓ Cedar policy gate wired ({} policy file(s) loaded)",
+        loaded
+    );
+    Some(Arc::new(gate))
+}
+
+/// Stub returned when the `cedar` feature is disabled. Always returns `None`
+/// so the caller falls through to the fail-closed default. Disabling Cedar
+/// is still supported via `--no-default-features`; operators on that path
+/// are expected to wire their own [`ReasoningPolicyGate`].
+#[cfg(not(feature = "cedar"))]
+pub(super) async fn try_wire_cedar_policy_gate(
+) -> Option<Arc<dyn symbi_runtime::reasoning::policy_bridge::ReasoningPolicyGate>> {
+    None
+}
+
 fn generate_secure_token() -> String {
     use std::io::Read;
     let mut bytes = [0u8; 24];

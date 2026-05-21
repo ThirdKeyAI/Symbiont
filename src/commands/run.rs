@@ -90,9 +90,11 @@ pub async fn run(matches: &ArgMatches) {
             eprintln!("This is only safe for local development. Do NOT use in production.");
             eprintln!("================================================================\n");
             Arc::new(DefaultPolicyGate::permissive_for_dev_only())
+        } else if let Some(cedar_gate) = super::up::try_wire_cedar_policy_gate().await {
+            cedar_gate
         } else {
             tracing::info!(
-                "policy gate: fail-closed default; configure OpaPolicyGateBridge for production policy enforcement"
+                "policy gate: fail-closed default (no policies/*.cedar found); configure CedarPolicyGate, OpaPolicyGateBridge, or another ReasoningPolicyGate"
             );
             Arc::new(DefaultPolicyGate::new())
         };

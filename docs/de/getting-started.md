@@ -394,10 +394,10 @@ Siehe den [orga-adaptive-Leitfaden](/orga-adaptive) fuer die vollstaendige Dokum
 
 #### Cedar Policy Engine
 
-Formale Autorisierung mit der Cedar-Richtliniensprache:
+Formale Autorisierung mit der Cedar-Richtliniensprache. **Standardmaessig aktiv seit v1.14.x**: Veroeffentlichte `symbi`-Binaries (crates.io, Docker, GitHub-Release-Tarballs) enthalten Cedar, und `symbi up` / `symbi run` verdrahten `CedarPolicyGate` beim Start automatisch aus `policies/*.cedar`-Dateien; sind keine vorhanden, faellt die Runtime auf den fail-closed `DefaultPolicyGate` zurueck. Um ohne Cedar zu bauen (z. B. wenn Sie stattdessen `OpaPolicyGateBridge` oder ein eigenes `ReasoningPolicyGate` anbinden moechten), verwenden Sie:
 
 ```bash
-cargo build --features cedar
+cargo build --no-default-features --features "keychain,vector-lancedb"  # cedar weglassen
 ```
 
 #### Vektordatenbank (integriert)
@@ -433,7 +433,7 @@ cd crates/runtime && cargo run --example context_example
 | `http-input` | Webhook-Server mit JWT-Authentifizierung | Nein |
 | `cloud-llm` | Cloud-LLM-Inferenz (OpenRouter) | Nein |
 | `standalone-agent` | Cloud LLM Meta-Feature | Nein |
-| `cedar` | Cedar Policy Engine | Nein |
+| `cedar` | Cedar Policy Engine — verdrahtet sich beim Start automatisch aus `policies/*.cedar` | **Yes** |
 | `orga-adaptive` | Erweiterte Reasoning-Primitiven | Nein |
 | `cron` | Persistentes Cron-Scheduling | Nein |
 | `native-sandbox` | Native Prozess-Sandbox | Nein |
