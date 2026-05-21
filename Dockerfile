@@ -1,8 +1,10 @@
 # Unified Symbi Container - DSL and Runtime
 # Multi-stage build with cargo-chef for deterministic dependency caching
-# Base images are pinned by digest (verified against Docker Hub on 2026-05-17).
+# Base images are pinned by digest (verified against Docker Hub on 2026-05-21).
 # Update the digest alongside any tag bump.
-FROM rust:1.88-slim-bookworm@sha256:38bc5a86d998772d4aec2348656ed21438d20fcdce2795b56ca434cf21430d89 AS chef
+# Bumped 1.88 -> 1.89: cedar-policy (default since v1.14.2) transitively
+# requires smol_str 0.3.5 which mandates rustc 1.89+.
+FROM rust:1.89-slim-bookworm@sha256:d7fc7de78bb8c1469933aeecbf801314d30d7d6e9f0578bba4cfa285bfa37fe6 AS chef
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
