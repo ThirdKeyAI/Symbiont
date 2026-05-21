@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.2] - 2026-05-21
+
+**Closes the v1.14.0 "fail-closed without a policy backend compiled in" trap.** Published `symbi` binaries (crates.io, Docker, GitHub Release tarballs) now ship with Cedar in the default feature set and `symbi up` / `symbi run` auto-wire `CedarPolicyGate` from `policies/*.cedar` files at startup. The fail-closed `DefaultPolicyGate::new()` default introduced in v1.14.0 stays in place as the fallback when no policy files are present; nothing about the security posture regresses.
+
+### Added
+- **Cedar in default features.** `symbi-runtime`'s `default` feature set now includes `cedar`, and the binary crate's `symbi-runtime` feature pin lists `cedar` explicitly. Operators who pin `OpaPolicyGateBridge` or a custom `ReasoningPolicyGate` can still opt out with `cargo build --no-default-features --features "keychain,vector-lancedb"`. (Fixes the v1.14.0 UX where `cargo install symbi` shipped without the only in-tree policy backend, leaving every tool call denied by the fail-closed default.)
+- **`try_wire_cedar_policy_gate()` helper** in `src/commands/up.rs` (`pub(super)`, reused by `src/commands/run.rs`). On startup, when the `cedar` feature is compiled in AND `policies/` contains at least one `*.cedar` file, the helper constructs a `CedarPolicyGate::deny_by_default()` and loads each file as a named policy. If the directory is missing, empty, or every file fails to read, the helper returns `None` and the existing fail-closed `DefaultPolicyGate::new()` fallback is used. `--insecure-allow-all` / `SYMBI_INSECURE_ALLOW_ALL=1` still takes precedence over both. Per-file Cedar syntax validation is deferred to evaluation time; malformed policies produce explicit `LoopDecision::Deny` reasons (consistent with the deny-by-default fallback).
+- **`CedarPolicyGate` and `CedarPolicy` re-exported** from `symbi_runtime::reasoning` (feature-gated) so downstream embedders can wire the gate without reaching into the `cedar_gate` submodule.
+
+### Changed
+- **Docs**: `docs/getting-started.md` feature flag table flips the `cedar` default to **Yes** with the auto-wire description; the "Cedar Policy Engine" subsection now documents the auto-wire contract and the `--no-default-features` opt-out instead of the old `--features cedar` build example. `docs/security-model.md` gains a "Default-on since v1.14.x" paragraph describing the auto-wire base (`deny_by_default`), the `policies/*.cedar` discovery rule, and the fail-closed fallback. All 5 translations (de, es, ja, pt, zh-cn) of both docs updated to match.
+
+### Crate versions
+| Crate | Version |
+|-------|---------|
+| `symbi` | 1.14.2 |
+| `symbi-runtime` | 1.14.2 |
+| `symbi-dsl` | 1.14.2 |
+| `repl-core` | 1.14.2 |
+| `repl-cli` | 1.14.2 |
+| `repl-proto` | 1.14.2 |
+| `repl-lsp` | 1.14.2 |
+| `symbi-shell` | 1.14.2 |
+| `symbi-invis-strip` | 0.3.0 (unchanged) |
+| `symbi-approval-relay` | 0.1.1 (unchanged) |
+| `symbi-channel-adapter` | 0.1.3 (unchanged) |
+
 ## [1.14.1] - 2026-05-18
 
 **Hotfix for v1.14.0 release workflow + integration tests.** v1.14.0's binaries and `cargo publish` to crates.io did not ship: the GitHub Actions workflow YAML captured at the v1.14.0 tag commit had two issues that prevented the tag-triggered jobs from running. v1.14.1 is identical in source-level security posture to v1.14.0 — see the v1.14.0 entry below for the full audit response.
