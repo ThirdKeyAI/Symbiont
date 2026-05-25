@@ -59,7 +59,7 @@ mod parser_tests {
 
         // Check that we have an agent_definition node
         let mut found_agent = false;
-        for i in 0..root.child_count() {
+        for i in 0u32..root.child_count() as u32 {
             if let Some(child) = root.child(i) {
                 if child.kind() == "agent_definition" {
                     found_agent = true;
@@ -279,7 +279,7 @@ mod parser_tests {
 
         // Verify AST structure contains expected nodes
         let mut _found_metadata = false;
-        for i in 0..root.child_count() {
+        for i in 0u32..root.child_count() as u32 {
             if let Some(child) = root.child(i) {
                 if child.kind() == "metadata_block" || child.kind() == "metadata" {
                     _found_metadata = true;
@@ -304,7 +304,7 @@ mod parser_tests {
 
         // Verify AST structure contains expected nodes
         let mut _found_agent = false;
-        for i in 0..root.child_count() {
+        for i in 0u32..root.child_count() as u32 {
             if let Some(child) = root.child(i) {
                 if child.kind() == "agent" || child.kind() == "agent_definition" {
                     _found_agent = true;

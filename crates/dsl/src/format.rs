@@ -65,7 +65,7 @@ impl<'src> Printer<'src> {
     /// Walk all children including anonymous tokens (separators, keywords).
     fn iter_children<'a>(&self, node: Node<'a>) -> Vec<Node<'a>> {
         let mut out = Vec::new();
-        for i in 0..node.child_count() {
+        for i in 0u32..node.child_count() as u32 {
             if let Some(c) = node.child(i) {
                 out.push(c);
             }

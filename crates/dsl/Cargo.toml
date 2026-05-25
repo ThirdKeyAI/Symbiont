@@ -34,12 +34,16 @@ ignored = [
 ]
 
 [dependencies]
-# Tree-sitter core for AST parsing and manipulation
-tree-sitter = "0.20"
-tree-sitter-rust = "0.20"
-tree-sitter-python = "0.20"
-tree-sitter-javascript = "0.20"
-tree-sitter-typescript = "0.20"
+# Tree-sitter core for AST parsing and manipulation.
+# Bumped from 0.20 to 0.26 to align with downstream consumers (e.g.
+# symbi-codered's cartographer crate, which pins 0.26). Older pins caused
+# duplicate C symbol link errors when both versions ended up in the same
+# binary's transitive deps.
+tree-sitter = "0.26"
+tree-sitter-rust = "0.24"
+tree-sitter-python = "0.25"
+tree-sitter-javascript = "0.25"
+tree-sitter-typescript = "0.23"
 
 # Async runtime for agent communication
 tokio = { version = "1.0", features = ["full"] }
