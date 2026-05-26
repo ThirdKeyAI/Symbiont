@@ -196,7 +196,7 @@ impl SessionExecutor {
                 chrono::Utc::now().timestamp(),
                 uuid::Uuid::new_v4().as_fields().0
             );
-            return Ok(serde_json::json!({
+            Ok(serde_json::json!({
                 "status": "success",
                 "scan_id": scan_id,
                 "tool": tool_name,
@@ -211,7 +211,7 @@ impl SessionExecutor {
                     "session_state": handle.state.inferred_state,
                     "interaction_count": handle.state.interaction_count,
                 }
-            }));
+            }))
         }
 
         #[cfg(not(feature = "toolclad-session"))]

@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.3] - 2026-05-25
+
+**Dependency hygiene patch.** Consolidates the workspace onto a single tree-sitter major and clears a transitive OpenSSL CVE. No public API or CLI surface changes; no security-posture regressions.
+
+### Changed
+- **tree-sitter 0.20 → 0.26** (workspace-wide). `crates/dsl` was bumped to align with downstream consumers (notably `symbi-codered`'s cartographer) that pin 0.26, and `crates/symbi-shell` was bumped to match so the workspace no longer ships two tree-sitter majors. Inverse `cargo tree` now shows a single `tree-sitter v0.26.9`. Language crates moved alongside: `tree-sitter-rust 0.20 → 0.24`, `tree-sitter-python 0.20 → 0.25`, `tree-sitter-javascript 0.20 → 0.25`, `tree-sitter-typescript 0.20 → 0.23`. Code edits were the mechanical 0.26 API migration (`Parser::set_language(&Language)`, `Node::child(u32)`); `crates/dsl/src/lib.rs`, `crates/dsl/src/format.rs`, and `crates/dsl/tests/parser_tests.rs` were updated to match.
+
+### Security
+- **openssl 0.10.79 → 0.10.80** (CVE-2026-45784 / GHSA-phqj-4mhp-q6mq). Patches an out-of-bounds write in `CipherCtxRef::cipher_update_inplace` for AES-KW-PAD ciphers. Exposure is transitive only (via `reqwest → hyper-tls → native-tls`); no source under `crates/` or `tools/` invokes the vulnerable code path, so this is hygiene rather than active-exploit remediation. Applied to both the root `Cargo.lock` and `tools/fuzz/Cargo.lock`; closes Dependabot alerts #75 and #76.
+
+### Fixed
+- **`security_tests.rs` build break.** Commit `198aed0` (security hardening) removed the file-level `static ENV_MUTEX: Mutex<()>` while leaving the seven `ENV_MUTEX.lock()` callsites inside `mod native_sandbox_tests`. The mutex is now defined inside that module, restoring `cargo test -p symbi-runtime --test security_tests` to a buildable state. `just check`'s `cargo test --all-features` had been masking this because it runs only the root `symbi` package's tests, not the workspace.
+
+### Known issues
+- Five `sandbox::native::tests::*` lib tests in `symbi-runtime` (`test_native_runner_creation`, `test_native_bash_execution`, `test_native_execution_with_env_vars`, `test_native_execution_timeout`, `test_output_truncation`) fail in local dev environments with `"Working directory '/tmp/symbiont-native' is within blocked host path '/'"`. This is pre-existing on `main` (predates v1.14.3) and stems from the `NativeRunner` working-dir validator considering `/` a blocked host path; the tests need an explicit allowlist that production code paths configure but the test setup does not. Tracked for a follow-up; unrelated to anything in this release.
+
+### Crate versions
+| Crate | Version |
+|-------|---------|
+| `symbi` | 1.14.3 |
+| `symbi-runtime` | 1.14.3 |
+| `symbi-dsl` | 1.14.3 |
+| `repl-core` | 1.14.3 |
+| `repl-cli` | 1.14.3 |
+| `repl-proto` | 1.14.3 |
+| `repl-lsp` | 1.14.3 |
+| `symbi-shell` | 1.14.3 |
+
 ## [1.14.2] - 2026-05-21
 
 **Closes the v1.14.0 "fail-closed without a policy backend compiled in" trap.** Published `symbi` binaries (crates.io, Docker, GitHub Release tarballs) now ship with Cedar in the default feature set and `symbi up` / `symbi run` auto-wire `CedarPolicyGate` from `policies/*.cedar` files at startup. The fail-closed `DefaultPolicyGate::new()` default introduced in v1.14.0 stays in place as the fallback when no policy files are present; nothing about the security posture regresses.

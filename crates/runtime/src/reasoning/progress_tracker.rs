@@ -8,20 +8,15 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// What to do when a step hits its reattempt limit.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub enum LimitAction {
     /// Skip the step and move on.
+    #[default]
     SkipStep,
     /// Abort the entire task.
     AbortTask,
     /// Escalate to a human or external system.
     Escalate,
-}
-
-impl Default for LimitAction {
-    fn default() -> Self {
-        Self::SkipStep
-    }
 }
 
 /// Configuration for per-step iteration limits.

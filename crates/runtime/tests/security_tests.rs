@@ -13,11 +13,22 @@ use std::env;
 // ============================================================================
 
 #[cfg(feature = "native-sandbox")]
+// The tests below acquire ENV_MUTEX (std::sync::Mutex) inside #[tokio::test]
+// async fns, but only hold it across sync env::set_var / NativeRunner::new
+// calls — there is no `.await` between lock acquisition and drop. Clippy
+// can't prove that statically.
+#[allow(clippy::await_holding_lock)]
 mod native_sandbox_tests {
     use super::*;
     use std::path::PathBuf;
+    use std::sync::Mutex;
     use symbi_runtime::sandbox::{NativeConfig, NativeRunner, SandboxRunner};
     use tokio::time::Duration;
+
+    // Serializes tests that mutate process-global env vars (SYMBIONT_ENV,
+    // SYMBIONT_ALLOW_NATIVE_EXECUTION). Without this, `cargo test` runs them
+    // in parallel and they clobber each other's setup.
+    static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
     #[tokio::test]
     async fn test_native_execution_blocked_in_production() {
