@@ -74,6 +74,26 @@ impl CloudInferenceProvider {
                 })
                 .collect();
             body["tools"] = serde_json::Value::Array(tools);
+
+            // OpenAI Chat Completions tool_choice. Only emit when an
+            // explicit choice is supplied; absent the field, OpenAI
+            // defaults to "auto".
+            if let Some(choice) = &options.tool_choice {
+                body["tool_choice"] = match choice {
+                    crate::reasoning::inference::ToolChoice::Auto => {
+                        serde_json::Value::String("auto".into())
+                    }
+                    crate::reasoning::inference::ToolChoice::Any => {
+                        serde_json::Value::String("required".into())
+                    }
+                    crate::reasoning::inference::ToolChoice::Tool { name } => {
+                        serde_json::json!({
+                            "type": "function",
+                            "function": {"name": name}
+                        })
+                    }
+                };
+            }
         }
 
         // Add response_format if not plain text
@@ -138,6 +158,23 @@ impl CloudInferenceProvider {
                 })
                 .collect();
             body["tools"] = serde_json::Value::Array(tools);
+
+            // Anthropic Messages API tool_choice. We emit it only when
+            // an explicit choice is set; absent the field, Anthropic
+            // defaults to {"type":"auto"}.
+            if let Some(choice) = &options.tool_choice {
+                body["tool_choice"] = match choice {
+                    crate::reasoning::inference::ToolChoice::Auto => {
+                        serde_json::json!({"type": "auto"})
+                    }
+                    crate::reasoning::inference::ToolChoice::Any => {
+                        serde_json::json!({"type": "any"})
+                    }
+                    crate::reasoning::inference::ToolChoice::Tool { name } => {
+                        serde_json::json!({"type": "tool", "name": name})
+                    }
+                };
+            }
         }
 
         body
@@ -379,6 +416,16 @@ impl InferenceProvider for CloudInferenceProvider {
             model,
             url
         );
+        // Debug-level fingerprint of the request body. Useful for
+        // diagnosing why an agent terminates early (missing tool_choice,
+        // empty messages array, etc.). Enable with RUST_LOG=symbi_runtime=debug.
+        tracing::debug!(
+            "Cloud request fingerprint: tool_choice={} tools={} system_chars={} msg_count={}",
+            body.get("tool_choice").map(|v| v.to_string()).unwrap_or_else(|| "<absent>".into()),
+            body.get("tools").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0),
+            body.get("system").and_then(|v| v.as_str()).map(|s| s.len()).unwrap_or(0),
+            body.get("messages").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0),
+        );
 
         let start = std::time::Instant::now();
         let response = request_builder.send().await.map_err(|e| {
@@ -407,6 +454,11 @@ impl InferenceProvider for CloudInferenceProvider {
                 .text()
                 .await
                 .unwrap_or_else(|_| "Unknown error".into());
+            tracing::warn!(
+                "Cloud API non-success: status={} body={}",
+                status,
+                error_text.chars().take(400).collect::<String>()
+            );
             return Err(InferenceError::Provider(format!(
                 "API error ({}): {}",
                 status, error_text
@@ -420,6 +472,28 @@ impl InferenceProvider for CloudInferenceProvider {
 
         let latency = start.elapsed();
         tracing::debug!("Cloud inference completed in {:?}", latency);
+        // Debug-level response-shape log. Pairs with the request
+        // fingerprint above for diagnosing loop termination.
+        if is_anthropic {
+            let stop = resp_json
+                .get("stop_reason")
+                .and_then(|v| v.as_str())
+                .unwrap_or("<absent>");
+            let content_types: Vec<&str> = resp_json
+                .get("content")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|c| c.get("type").and_then(|t| t.as_str()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            tracing::debug!(
+                "Cloud response fingerprint: stop_reason={} content_types={:?}",
+                stop,
+                content_types
+            );
+        }
 
         if is_anthropic {
             self.parse_anthropic_response(&resp_json, model)

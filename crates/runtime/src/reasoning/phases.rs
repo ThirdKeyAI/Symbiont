@@ -132,11 +132,28 @@ impl AgentLoop<Reasoning> {
             });
         }
 
-        // Apply context management (truncate conversation to fit budget)
+        // Apply context management (truncate conversation to fit budget).
+        // Debug-level visibility into truncation: fires when the manager
+        // actually drops messages. Useful for spotting "context budget too
+        // small for this workload" (the conversation churns every turn) vs
+        // the healthy case (rare truncation). Debug, not warn — for large
+        // workloads truncation is expected and per-iteration, so warn would
+        // be pure noise.
+        let before_len = self.state.conversation.len();
+        let before_tokens = self.state.conversation.estimate_tokens();
         context_manager.manage_context(
             &mut self.state.conversation,
             self.config.context_token_budget,
         );
+        let after_len = self.state.conversation.len();
+        if after_len != before_len {
+            tracing::debug!(
+                iter = self.state.iteration,
+                before_len, after_len,
+                before_tokens, budget = self.config.context_token_budget,
+                "context_manager truncated conversation"
+            );
+        }
 
         // Drain pending observations. Tool results are already in the conversation
         // (added by dispatch_tools for approved actions, and by check_policy for
@@ -153,6 +170,11 @@ impl AgentLoop<Reasoning> {
                 .min(16384),
             temperature: self.config.temperature,
             tool_definitions: self.config.tool_definitions.clone(),
+            // Propagate the loop's tool_choice preference so providers
+            // honor `LoopConfig::tool_choice` (e.g. ToolChoice::Any to
+            // force tool_use on every turn — required for iterate-until-
+            // done agents).
+            tool_choice: self.config.tool_choice.clone(),
             ..Default::default()
         };
 

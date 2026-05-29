@@ -196,6 +196,12 @@ pub struct LoopConfig {
     /// Tool definitions available during this loop run.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_definitions: Vec<ToolDefinition>,
+    /// Controls whether the model is required to call a tool every
+    /// turn. `None` lets the provider use its default (auto). Set to
+    /// `Some(ToolChoice::Any)` for iterate-until-done agents where the
+    /// loop should never terminate on a plain-text response.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<crate::reasoning::inference::ToolChoice>,
     /// Tool profile for filtering tools visible to the LLM.
     #[cfg(feature = "orga-adaptive")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -231,6 +237,7 @@ impl Default for LoopConfig {
             context_token_budget: 32_000,
             temperature: default_loop_temperature(),
             tool_definitions: Vec::new(),
+            tool_choice: None,
             #[cfg(feature = "orga-adaptive")]
             tool_profile: None,
             #[cfg(feature = "orga-adaptive")]

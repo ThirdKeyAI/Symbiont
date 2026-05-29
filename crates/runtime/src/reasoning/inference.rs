@@ -77,6 +77,35 @@ pub struct Usage {
     pub total_tokens: u32,
 }
 
+/// Controls whether the model is required to call a tool on this turn.
+///
+/// Default is `Auto`, which preserves the historic behavior of letting
+/// the model decide whether to respond with a tool_use block or with
+/// plain text. Callers that drive an iterate-until-done workflow
+/// (research agents, code-execution agents, multi-step planners) should
+/// set `Any` so the model is forced into tool_use mode and the loop
+/// terminates on a sentinel tool rather than on a stray text response.
+///
+/// `Tool { name }` constrains the model to a specific named tool; useful
+/// when the next action is unambiguous (e.g., always start by calling
+/// `read_threat_model`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ToolChoice {
+    /// Model decides whether to call a tool (provider default).
+    Auto,
+    /// Model MUST call some tool — any one of the available definitions.
+    Any,
+    /// Model MUST call this specific named tool.
+    Tool { name: String },
+}
+
+impl Default for ToolChoice {
+    fn default() -> Self {
+        ToolChoice::Auto
+    }
+}
+
 /// Options for an inference call.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InferenceOptions {
@@ -89,6 +118,11 @@ pub struct InferenceOptions {
     /// Tool definitions available for this call.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_definitions: Vec<ToolDefinition>,
+    /// Constraint on whether the model must call a tool this turn.
+    /// `None` defers to the provider default (Anthropic + OpenAI both
+    /// default to "auto"). Set to `Some(Any)` to force tool_use.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<ToolChoice>,
     /// Desired response format.
     #[serde(default = "default_response_format")]
     pub response_format: ResponseFormat,
@@ -118,6 +152,7 @@ impl Default for InferenceOptions {
             max_tokens: default_max_tokens(),
             temperature: default_temperature(),
             tool_definitions: Vec::new(),
+            tool_choice: None,
             response_format: ResponseFormat::Text,
             model: None,
             extra: HashMap::new(),

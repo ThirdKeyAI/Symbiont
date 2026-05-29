@@ -128,6 +128,51 @@ impl ConversationMessage {
     }
 }
 
+/// Group consecutive non-system messages into atomic truncation units.
+///
+/// An assistant message that issues `tool_use` blocks plus the
+/// following `tool_result` messages that satisfy those tool_uses form
+/// one atomic group. A bare user, bare assistant, or any other message
+/// is its own group. Groups must be dropped whole — splitting between
+/// an `assistant{tool_use}` and its matching `tool_result` violates
+/// Anthropic's Messages API pairing invariant.
+///
+/// Returns indices into the input slice. The caller is responsible for
+/// not including the system message in `messages`.
+fn group_for_truncation(messages: &[ConversationMessage]) -> Vec<Vec<usize>> {
+    use std::collections::HashSet;
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    let mut current: Vec<usize> = Vec::new();
+    let mut pending: HashSet<String> = HashSet::new();
+
+    for (i, msg) in messages.iter().enumerate() {
+        current.push(i);
+        if !msg.tool_calls.is_empty() {
+            // Assistant turn with tool_use: open expectations for each
+            // tool_call's matching tool_result.
+            for tc in &msg.tool_calls {
+                pending.insert(tc.id.clone());
+            }
+        } else if msg.role == MessageRole::Tool {
+            // Tool result message: closes one pending expectation.
+            if let Some(id) = &msg.tool_call_id {
+                pending.remove(id);
+            }
+        }
+        // Close the group when all expectations are satisfied.
+        if pending.is_empty() {
+            groups.push(std::mem::take(&mut current));
+        }
+    }
+    // Stragglers: an assistant turn whose tool_results haven't all
+    // arrived yet (the loop is mid-iteration). Keep them as one group
+    // so truncation can't strand them.
+    if !current.is_empty() {
+        groups.push(current);
+    }
+    groups
+}
+
 /// An ordered sequence of conversation messages with serialization helpers.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Conversation {
@@ -349,6 +394,15 @@ impl Conversation {
     ///
     /// Preserves the system message and the most recent messages.
     /// Removes older messages from the middle until the budget is met.
+    ///
+    /// Tool-use/tool-result pairing invariant. Anthropic's Messages API
+    /// rejects any conversation where a `tool_result` block lacks a
+    /// matching `tool_use` block in the immediately preceding assistant
+    /// turn. To preserve that invariant under truncation, this method
+    /// groups consecutive `assistant{tool_calls}` → `tool_result*`
+    /// sequences into atomic units and drops them whole-group rather
+    /// than splitting them. A standalone message (plain user, plain
+    /// assistant text, or system) is its own group.
     pub fn truncate_to_budget(&mut self, max_tokens: usize) {
         if self.estimate_tokens() <= max_tokens {
             return;
@@ -367,21 +421,74 @@ impl Conversation {
         let system_tokens = system_msg.as_ref().map_or(0, |m| m.estimate_tokens());
         let remaining_budget = max_tokens.saturating_sub(system_tokens);
 
-        // Keep messages from the end until we exceed the budget
         let start_idx = if system_msg.is_some() { 1 } else { 0 };
-        let non_system: Vec<ConversationMessage> = self.messages.drain(start_idx..).rev().collect();
+        let non_system: Vec<ConversationMessage> = self.messages.drain(start_idx..).collect();
 
-        let mut kept = Vec::new();
-        let mut used_tokens = 0;
-        for msg in non_system {
-            let msg_tokens = msg.estimate_tokens();
-            if used_tokens + msg_tokens > remaining_budget {
+        // Group consecutive messages so a tool_use assistant turn and
+        // its tool_result followups stay together. The invariant: every
+        // tool_result must be in the same group as the assistant
+        // message that issued the matching tool_use.
+        let groups = group_for_truncation(&non_system);
+
+        // Walk groups from newest to oldest, accepting whole groups
+        // until the next one would exceed budget. The oldest accepted
+        // group anchors the kept window; older groups are dropped.
+        let mut kept_group_indices: Vec<usize> = Vec::new();
+        let mut used_tokens = 0usize;
+        for (gi, group) in groups.iter().enumerate().rev() {
+            let group_tokens: usize = group
+                .iter()
+                .map(|i| non_system[*i].estimate_tokens())
+                .sum();
+            if used_tokens + group_tokens > remaining_budget {
                 break;
             }
-            used_tokens += msg_tokens;
-            kept.push(msg);
+            used_tokens += group_tokens;
+            kept_group_indices.push(gi);
         }
-        kept.reverse();
+        kept_group_indices.reverse();
+
+        // Floor: never produce a conversation with zero non-system
+        // messages — Anthropic rejects `messages: []` outright. If the
+        // most recent group alone exceeds the budget (typical when a
+        // single tool_result is massive — paginated query results,
+        // file dumps, etc.) it's still better to ship that one group
+        // and let the API surface a max-tokens-style error than to
+        // ship an empty conversation that 400s with a misleading
+        // "messages required" complaint. The loss-of-context warning
+        // logged via context_manager makes the situation visible.
+        if kept_group_indices.is_empty() && !groups.is_empty() {
+            kept_group_indices.push(groups.len() - 1);
+            tracing::warn!(
+                most_recent_group_tokens = groups[groups.len() - 1]
+                    .iter()
+                    .map(|i| non_system[*i].estimate_tokens())
+                    .sum::<usize>(),
+                budget = remaining_budget,
+                "truncate_to_budget: most recent group exceeds budget; \
+                 keeping it anyway to preserve conversation structure. \
+                 Caller likely needs to shrink individual tool results."
+            );
+        }
+
+        let mut kept: Vec<ConversationMessage> = Vec::new();
+        for gi in kept_group_indices {
+            for i in &groups[gi] {
+                kept.push(non_system[*i].clone());
+            }
+        }
+
+        // Safety net: if the FIRST kept message is a tool_result (which
+        // can happen if the first group is malformed in caller-supplied
+        // data), strip leading tool_results until the conversation
+        // starts with a non-tool message. Anthropic rejects a leading
+        // user-tool_result with no prior tool_use.
+        while kept
+            .first()
+            .is_some_and(|m| m.role == MessageRole::Tool)
+        {
+            kept.remove(0);
+        }
 
         self.messages.clear();
         if let Some(sys) = system_msg {
@@ -589,6 +696,134 @@ mod tests {
         // System message preserved
         assert_eq!(conv.messages()[0].role, MessageRole::System);
         assert!(conv.estimate_tokens() <= 100);
+    }
+
+    /// Truncation must NEVER strand a `tool_result` whose matching
+    /// `tool_use` (carried in the prior assistant message) got dropped.
+    /// Building a conversation with many assistant→tool_result pairs
+    /// and truncating to a small budget should result in either both
+    /// kept or both dropped for every pair.
+    #[test]
+    fn test_truncate_preserves_tool_use_tool_result_pairing() {
+        let mut conv = Conversation::with_system("sys");
+        // 8 pairs of (user, assistant_tool_call, tool_result, assistant_text)
+        for i in 0..8 {
+            conv.push(ConversationMessage::user(format!(
+                "Ask {} with enough characters to consume tokens for the budget test",
+                i
+            )));
+            conv.push(ConversationMessage::assistant_tool_calls(vec![ToolCall {
+                id: format!("call_{}", i),
+                name: "search".into(),
+                arguments: format!(r#"{{"q":"query {}"}}"#, i),
+            }]));
+            conv.push(ConversationMessage::tool_result(
+                format!("call_{}", i),
+                "search",
+                format!(
+                    "Long result text for tool call {}. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt.",
+                    i
+                ),
+            ));
+            conv.push(ConversationMessage::assistant(format!(
+                "Reasoning for round {} concluding with a summary statement",
+                i
+            )));
+        }
+        // Truncate to a budget that forces dropping multiple groups.
+        conv.truncate_to_budget(400);
+
+        // For every tool_result kept, the matching assistant_tool_call
+        // must also be kept AND appear immediately before it (after
+        // accounting for any text-only assistant interleaving).
+        let messages = conv.messages();
+        let mut available_tool_ids: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+        for msg in messages {
+            if !msg.tool_calls.is_empty() {
+                for tc in &msg.tool_calls {
+                    available_tool_ids.insert(tc.id.clone());
+                }
+            }
+            if msg.role == MessageRole::Tool {
+                let id = msg
+                    .tool_call_id
+                    .as_deref()
+                    .expect("tool_result must carry tool_call_id");
+                assert!(
+                    available_tool_ids.contains(id),
+                    "orphaned tool_result for {id}: matching tool_use was not preserved by truncation"
+                );
+            }
+        }
+        // System message preserved (or absent if truncation nuked it,
+        // which would itself be a regression).
+        assert_eq!(messages[0].role, MessageRole::System);
+    }
+
+    /// Floor: a single oversize group is still preserved rather than
+    /// dropping everything. Returning an empty `messages: []` body to
+    /// Anthropic results in a misleading 400; better to ship the one
+    /// oversize group and let the API report a max-tokens error.
+    #[test]
+    fn test_truncate_keeps_at_least_one_group_even_if_oversize() {
+        let mut conv = Conversation::with_system("sys");
+        // Single user message that alone exceeds the budget by a wide
+        // margin — simulates a query_findings tool_result dumping
+        // hundreds of KB of finding metadata.
+        let big = "X".repeat(50_000);
+        conv.push(ConversationMessage::user(big));
+
+        // Budget far below the message's token count.
+        conv.truncate_to_budget(100);
+
+        // The non-system message must still be present — anything else
+        // would produce `messages: []` and a misleading 400.
+        let non_system_count = conv
+            .messages()
+            .iter()
+            .filter(|m| m.role != MessageRole::System)
+            .count();
+        assert!(
+            non_system_count >= 1,
+            "truncation must keep at least one non-system message even \
+             when the only candidate group exceeds the budget"
+        );
+    }
+
+    /// Edge case: when truncation would drop the assistant_tool_use
+    /// message but keep its tool_result, the safety net should reject
+    /// the leading tool_result rather than ship a malformed conversation.
+    #[test]
+    fn test_truncate_strips_orphaned_leading_tool_results() {
+        let mut conv = Conversation::with_system("sys");
+        // Build a sequence where a budget-driven cut would otherwise
+        // leave a tool_result as the first non-system message.
+        conv.push(ConversationMessage::user("u1 with some longer text"));
+        conv.push(ConversationMessage::assistant_tool_calls(vec![ToolCall {
+            id: "c_old".into(),
+            name: "t".into(),
+            arguments: "{}".into(),
+        }]));
+        conv.push(ConversationMessage::tool_result(
+            "c_old", "t", "old result with substantial text content",
+        ));
+        // Fresh group
+        conv.push(ConversationMessage::user("u2"));
+        conv.push(ConversationMessage::assistant("a2"));
+
+        conv.truncate_to_budget(60);
+
+        let first_non_system = conv
+            .messages()
+            .iter()
+            .find(|m| m.role != MessageRole::System)
+            .expect("expected at least one non-system message");
+        assert_ne!(
+            first_non_system.role,
+            MessageRole::Tool,
+            "post-truncation conversation must not start with an orphaned tool_result"
+        );
     }
 
     #[test]
