@@ -89,21 +89,16 @@ pub struct Usage {
 /// `Tool { name }` constrains the model to a specific named tool; useful
 /// when the next action is unambiguous (e.g., always start by calling
 /// `read_threat_model`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ToolChoice {
     /// Model decides whether to call a tool (provider default).
+    #[default]
     Auto,
     /// Model MUST call some tool — any one of the available definitions.
     Any,
     /// Model MUST call this specific named tool.
     Tool { name: String },
-}
-
-impl Default for ToolChoice {
-    fn default() -> Self {
-        ToolChoice::Auto
-    }
 }
 
 /// Options for an inference call.
