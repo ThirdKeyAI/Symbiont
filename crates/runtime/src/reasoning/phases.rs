@@ -149,8 +149,10 @@ impl AgentLoop<Reasoning> {
         if after_len != before_len {
             tracing::debug!(
                 iter = self.state.iteration,
-                before_len, after_len,
-                before_tokens, budget = self.config.context_token_budget,
+                before_len,
+                after_len,
+                before_tokens,
+                budget = self.config.context_token_budget,
                 "context_manager truncated conversation"
             );
         }

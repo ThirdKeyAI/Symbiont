@@ -436,10 +436,7 @@ impl Conversation {
         let mut kept_group_indices: Vec<usize> = Vec::new();
         let mut used_tokens = 0usize;
         for (gi, group) in groups.iter().enumerate().rev() {
-            let group_tokens: usize = group
-                .iter()
-                .map(|i| non_system[*i].estimate_tokens())
-                .sum();
+            let group_tokens: usize = group.iter().map(|i| non_system[*i].estimate_tokens()).sum();
             if used_tokens + group_tokens > remaining_budget {
                 break;
             }
@@ -483,10 +480,7 @@ impl Conversation {
         // data), strip leading tool_results until the conversation
         // starts with a non-tool message. Anthropic rejects a leading
         // user-tool_result with no prior tool_use.
-        while kept
-            .first()
-            .is_some_and(|m| m.role == MessageRole::Tool)
-        {
+        while kept.first().is_some_and(|m| m.role == MessageRole::Tool) {
             kept.remove(0);
         }
 
@@ -806,7 +800,9 @@ mod tests {
             arguments: "{}".into(),
         }]));
         conv.push(ConversationMessage::tool_result(
-            "c_old", "t", "old result with substantial text content",
+            "c_old",
+            "t",
+            "old result with substantial text content",
         ));
         // Fresh group
         conv.push(ConversationMessage::user("u2"));

@@ -421,10 +421,21 @@ impl InferenceProvider for CloudInferenceProvider {
         // empty messages array, etc.). Enable with RUST_LOG=symbi_runtime=debug.
         tracing::debug!(
             "Cloud request fingerprint: tool_choice={} tools={} system_chars={} msg_count={}",
-            body.get("tool_choice").map(|v| v.to_string()).unwrap_or_else(|| "<absent>".into()),
-            body.get("tools").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0),
-            body.get("system").and_then(|v| v.as_str()).map(|s| s.len()).unwrap_or(0),
-            body.get("messages").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0),
+            body.get("tool_choice")
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "<absent>".into()),
+            body.get("tools")
+                .and_then(|v| v.as_array())
+                .map(|a| a.len())
+                .unwrap_or(0),
+            body.get("system")
+                .and_then(|v| v.as_str())
+                .map(|s| s.len())
+                .unwrap_or(0),
+            body.get("messages")
+                .and_then(|v| v.as_array())
+                .map(|a| a.len())
+                .unwrap_or(0),
         );
 
         let start = std::time::Instant::now();
