@@ -120,8 +120,16 @@ description = "Maximum packets per second"
 | `credential_file` | File path that must exist on disk |
 | `duration` | Integer with suffix (s/m/h), converted to seconds |
 | `regex_match` | Custom regex from the `pattern` field |
+| `agent_summary` | Free text bound for a downstream agent's prompt — strips invisible Unicode and renderer-hidden markup, rejects known injection markers. Best-effort defense-in-depth, **not** a load-bearing control (see [Typed + grounded decisions](#typed--grounded-decisions)) |
 
 All types reject shell metacharacters: `;` `|` `&` `$` `` ` `` `(` `)` `{` `}` `[` `]` `<` `>` `!` `\n` `\r` `\0`
+
+**Optional argument flags:**
+
+| Flag | Meaning |
+|------|---------|
+| `scope_check = true` | Validate the value against the project scope (IP/CIDR/hostname args) |
+| `feeds_decision = true` | This argument's value feeds a privileged downstream decision (routing, escalation, authorization). Free-text types (`string`, `agent_summary`, `regex_match`) marked this way are flagged as an anti-pattern by ToolClad manifest validation — use an `enum` plus Cedar grounding instead (see [Typed + grounded decisions](#typed--grounded-decisions)) |
 
 **Custom types** can be defined in a project-level `toolclad.toml`:
 
@@ -384,8 +392,29 @@ Symbiont ships with four example manifests in `tools/`:
 | `dig_lookup.clad.toml` | DNS record lookup | Oneshot (shell) |
 | `curl_fetch.clad.toml` | HTTP request with scope enforcement | Oneshot (shell) |
 | `nmap_scan.clad.toml` | Network port scanner with evidence capture | Oneshot (shell) |
+| `submit_triage.clad.toml` | Typed + grounded triage decision (reference) | Reference (typed decision) |
 
 These serve as reference implementations for writing your own manifests.
+
+---
+
+## Typed + grounded decisions
+
+When one agent's output drives a **privileged downstream decision** — routing, escalation, or tool authorization — that decision must not be made over the upstream agent's free text. A free-text "summary" spliced into a downstream prompt is an injection surface: a held-out red-team evaluation showed the `agent_summary` marker fence reduces orchestrator-injection escape only from ~28% to ~26% (it does not generalize to novel paraphrases), while moving the decision onto typed fields grounded in trusted context reaches 0%.
+
+The pattern that holds:
+
+1. **Type the decision.** The upstream agent emits an `enum`-constrained decision (e.g. `category`, `severity`), never a free-text instruction. Enum validation makes paraphrase injection structurally inert — there is no instruction channel.
+2. **Ground it in trusted context.** Derive the authoritative facts from trusted input (e.g. severity inferred from the ticket the system received, not from the agent's self-report), and make the decision a [Cedar policy](/security-model) over that trusted context. The lower-trust agent's output is advisory, not authoritative.
+3. **Keep `agent_summary` as defense-in-depth only.** It still strips invisible Unicode / hidden markup and logs injection-shaped attempts, but it is never the load-bearing control for a privileged decision.
+
+Mark any argument that feeds such a decision with `feeds_decision = true`. ToolClad manifest validation flags free-text decision inputs (`string`, `agent_summary`, `regex_match`) as an anti-pattern, steering authors to an `enum` plus Cedar grounding.
+
+Reference implementation:
+
+- `tools/submit_triage.clad.toml` — typed `category`/`severity` enums (`feeds_decision = true`), advisory-only `rationale`
+- `examples/policies/triage_routing.cedar` — grounded escalation policy (`permit … when { context.ticket_severity == "critical" }`)
+- `crates/runtime/src/toolclad/decision.rs` — the Rust derives-facts / Cedar-decides reference (`route_grounded`, `decide_route`)
 
 ---
 

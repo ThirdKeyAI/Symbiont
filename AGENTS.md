@@ -138,6 +138,8 @@ Tools live in `tools/<name>.clad.toml` and are auto-discovered at startup by `sy
 
 The manifest carries everything: binary path, description, risk tier, human-approval flag, Cedar `resource`/`action` for policy evaluation, optional evidence-capture config. Cedar policies are auto-generated from manifest metadata via `crates/runtime/src/toolclad/cedar_gen.rs`. The ORGA Gate phase evaluates these before any tool invocation.
 
+Argument types are validated in `crates/runtime/src/toolclad/validator.rs`. `agent_summary` is a best-effort defense-in-depth sanitizer for free text bound for a downstream prompt — **not** a load-bearing control. For a privileged downstream decision (routing, escalation, authorization), use typed `enum` args grounded in trusted context via Cedar, not free text: see `crates/runtime/src/toolclad/decision.rs` (`route_grounded`/`decide_route`), `tools/submit_triage.clad.toml`, and `examples/policies/triage_routing.cedar`. Mark decision-feeding args with `feeds_decision = true`; ToolClad manifest validation (`validate_toolclad`) flags free-text args that feed a privileged decision.
+
 **Adding a new tool does not require Rust code.** Drop a `.clad.toml` in `tools/`, the runtime picks it up.
 
 ## MCP Server

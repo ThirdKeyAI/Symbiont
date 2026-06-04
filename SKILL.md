@@ -1439,6 +1439,34 @@ agent robust_agent(url: String) -> String {
 }
 ```
 
+### ❌ Anti-Pattern 9: Free-Text Feeding a Privileged Decision
+
+When one agent's output drives a privileged decision (routing, escalation, tool authorization), never make that decision over the upstream agent's free text. A free-text "summary" spliced into a downstream prompt is an injection surface — a held-out red-team evaluation showed a marker/keyword fence reduces orchestrator-injection escape only ~28% → ~26%, while a typed + grounded decision reaches 0%.
+
+```toml
+# BAD: a free-text summary feeds the routing/escalation decision
+[args.summary]
+type = "string"
+feeds_decision = true   # ToolClad manifest validation flags this
+```
+
+✅ **Fix**: type the decision as an `enum` and ground it in trusted context via a Cedar policy; treat the lower-trust agent's output as advisory, not authoritative. The `agent_summary` sanitizer stays as defense-in-depth only, never the load-bearing control.
+
+```toml
+# GOOD: typed enum decision args; the privileged decision is a Cedar policy
+# grounded in trusted facts (see tools/submit_triage.clad.toml,
+# examples/policies/triage_routing.cedar, crates/runtime/src/toolclad/decision.rs)
+[args.category]
+type = "enum"
+allowed = ["ui", "billing", "infra", "account", "other"]
+feeds_decision = true
+
+[args.severity]
+type = "enum"
+allowed = ["low", "medium", "high", "critical"]
+feeds_decision = true
+```
+
 ---
 
 ## Validation Checklist
@@ -1452,6 +1480,7 @@ Before deploying an agent, verify:
 - [ ] **Secrets** referenced via Vault (never hardcoded)
 - [ ] **Input validation** present for all user inputs
 - [ ] **Output sanitization** prevents injection attacks
+- [ ] **Privileged decisions** (routing/escalation/authorization) made over typed `enum` args + Cedar grounding, not free text (`feeds_decision` lint clean)
 - [ ] **No sensitive data** in audit logs
 
 ### Resource Management
