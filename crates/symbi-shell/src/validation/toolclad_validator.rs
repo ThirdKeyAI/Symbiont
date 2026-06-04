@@ -94,6 +94,34 @@ pub fn validate_toolclad(
         }
     }
 
+    // Anti-pattern: a free-text argument that feeds a privileged downstream
+    // decision. Use an enum + Cedar grounding instead (see
+    // crates/runtime/src/toolclad/decision.rs).
+    if let Some(args) = doc.get("args") {
+        if let Some(args_table) = args.as_table() {
+            for (name, arg) in args_table {
+                let feeds = arg
+                    .get("feeds_decision")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                if !feeds {
+                    continue;
+                }
+                let ty = arg.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                if matches!(ty, "string" | "agent_summary" | "regex_match") {
+                    issues.push(ValidationIssue {
+                        severity: Severity::Error,
+                        message: format!(
+                            "Argument '{}' is free-text (type '{}') but feeds a privileged decision; \
+                             use an enum + Cedar grounding (see crates/runtime/src/toolclad/decision.rs)",
+                            name, ty
+                        ),
+                    });
+                }
+            }
+        }
+    }
+
     Ok(issues)
 }
 
@@ -156,5 +184,55 @@ risk_tier = "medium"
         let toml = "this is not { valid toml";
         let issues = validate_toolclad(toml, &test_constraints()).unwrap();
         assert!(issues.iter().any(|i| i.message.contains("TOML parse")));
+    }
+
+    #[test]
+    fn test_freetext_feeds_decision_is_flagged() {
+        let toml = r#"
+[tool]
+name = "triage_bad"
+risk_tier = "low"
+
+[args.summary]
+type = "string"
+feeds_decision = true
+"#;
+        let issues = validate_toolclad(toml, &test_constraints()).unwrap();
+        assert!(issues
+            .iter()
+            .any(|i| i.message.contains("feeds a privileged decision")));
+    }
+
+    #[test]
+    fn test_enum_feeds_decision_is_allowed() {
+        let toml = r#"
+[tool]
+name = "triage_ok"
+risk_tier = "low"
+
+[args.severity]
+type = "enum"
+allowed = ["low", "high", "critical"]
+feeds_decision = true
+"#;
+        let issues = validate_toolclad(toml, &test_constraints()).unwrap();
+        assert!(!issues
+            .iter()
+            .any(|i| i.message.contains("feeds a privileged decision")));
+    }
+
+    #[test]
+    fn test_example_submit_triage_manifest_passes_lint() {
+        let toml = include_str!("../../../../tools/submit_triage.clad.toml");
+        let issues = validate_toolclad(toml, &test_constraints()).unwrap();
+        // Enum decision args + advisory free-text rationale => no
+        // feeds_decision anti-pattern error.
+        assert!(
+            !issues
+                .iter()
+                .any(|i| i.message.contains("feeds a privileged decision")),
+            "unexpected lint errors: {:?}",
+            issues
+        );
     }
 }

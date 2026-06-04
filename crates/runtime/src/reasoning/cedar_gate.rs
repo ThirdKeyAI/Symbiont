@@ -20,6 +20,24 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+/// Build a Cedar `Context` from the loop's trusted context map. Empty map
+/// preserves the previous `Context::empty()` behavior. Trusted context is
+/// runtime-populated only (see `LoopState::trusted_context`).
+fn build_context(trusted: &std::collections::HashMap<String, serde_json::Value>) -> Context {
+    if trusted.is_empty() {
+        return Context::empty();
+    }
+    let map: serde_json::Map<String, serde_json::Value> = trusted.clone().into_iter().collect();
+    let obj = serde_json::Value::Object(map);
+    match Context::from_json_value(obj, None) {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            tracing::warn!("failed to build Cedar context from trusted_context: {e}; using empty");
+            Context::empty()
+        }
+    }
+}
+
 /// A Cedar policy in source form.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CedarPolicy {
@@ -161,7 +179,7 @@ impl CedarPolicyGate {
         policies: &[CedarPolicy],
         agent_id: &AgentId,
         action: &ProposedAction,
-        _state: &LoopState,
+        state: &LoopState,
     ) -> LoopDecision {
         let active_policies: Vec<_> = policies.iter().filter(|p| p.active).collect();
 
@@ -232,8 +250,8 @@ impl CedarPolicyGate {
         };
         let resource = EntityUid::from_type_name_and_id(resource_type, resource_eid);
 
-        let request = match Request::new(principal, cedar_action, resource, Context::empty(), None)
-        {
+        let context = build_context(&state.trusted_context);
+        let request = match Request::new(principal, cedar_action, resource, context, None) {
             Ok(r) => r,
             Err(e) => {
                 tracing::error!("Cedar request construction error: {}", e);
@@ -497,6 +515,44 @@ mod tests {
         let restored: CedarPolicy = serde_json::from_str(&json).unwrap();
         assert_eq!(restored.name, "test");
         assert!(restored.active);
+    }
+
+    #[tokio::test]
+    async fn test_context_grounding_gates_escalation() {
+        let gate = CedarPolicyGate::deny_by_default();
+        gate.add_policy(CedarPolicy {
+            name: "escalate_when_critical".into(),
+            source: r#"permit(principal, action == Action::"tool_call::escalate", resource) when { context.ticket_severity == "critical" };"#.into(),
+            active: true,
+        })
+        .await;
+
+        let agent = AgentId::new();
+        let action = ProposedAction::ToolCall {
+            call_id: "c".into(),
+            name: "escalate".into(),
+            arguments: "{}".into(),
+        };
+
+        // Benign ticket severity -> escalation denied.
+        let mut benign = test_state();
+        benign
+            .trusted_context
+            .insert("ticket_severity".into(), serde_json::json!("low"));
+        assert!(matches!(
+            gate.evaluate_action(&agent, &action, &benign).await,
+            LoopDecision::Deny { .. }
+        ));
+
+        // Critical trusted severity -> escalation permitted.
+        let mut critical = test_state();
+        critical
+            .trusted_context
+            .insert("ticket_severity".into(), serde_json::json!("critical"));
+        assert!(matches!(
+            gate.evaluate_action(&agent, &action, &critical).await,
+            LoopDecision::Allow
+        ));
     }
 
     #[tokio::test]

@@ -128,6 +128,12 @@ pub struct ArgDef {
     pub schemes: Option<Vec<String>>,
     #[serde(default)]
     pub scope_check: bool,
+    /// True if this argument's value feeds a privileged downstream decision
+    /// (routing, escalation, authorization). Free-text args with this flag
+    /// set are flagged by the ToolClad lint — use an enum + Cedar grounding
+    /// (see `crate::toolclad::decision`).
+    #[serde(default)]
+    pub feeds_decision: bool,
 }
 
 /// Command construction definition (oneshot mode).
@@ -438,6 +444,7 @@ pub fn load_custom_types(project_dir: &Path) -> HashMap<String, ArgDef> {
                 clamp,
                 schemes,
                 scope_check,
+                feeds_decision: false,
             },
         );
     }
@@ -601,5 +608,39 @@ type = "object"
         assert_eq!(mcp.server, "my-server");
         assert_eq!(mcp.tool, "upstream_tool");
         assert!(mcp.field_map.is_empty());
+    }
+
+    #[test]
+    fn test_arg_feeds_decision_parses_and_defaults_false() {
+        let toml_str = r#"
+[tool]
+name = "t"
+version = "1.0.0"
+binary = "echo"
+description = "d"
+
+[args.summary]
+position = 1
+required = true
+type = "string"
+feeds_decision = true
+
+[args.plain]
+position = 2
+required = false
+type = "string"
+
+[command]
+template = "echo {summary}"
+
+[output]
+format = "text"
+
+[output.schema]
+type = "object"
+"#;
+        let m: Manifest = toml::from_str(toml_str).unwrap();
+        assert!(m.args["summary"].feeds_decision);
+        assert!(!m.args["plain"].feeds_decision);
     }
 }

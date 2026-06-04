@@ -1,0 +1,64 @@
+# Reference: the typed + grounded inter-agent decision pattern.
+# The worker submits a TYPED triage (enum category + severity). The
+# privileged routing/escalation decision is made by Cedar grounded in the
+# trusted ticket (see examples/policies/triage_routing.cedar and
+# crates/runtime/src/toolclad/decision.rs). `rationale` is advisory only and
+# never enters the decision.
+[tool]
+name = "submit_triage"
+version = "1.0.0"
+binary = "submit_triage"
+description = "Submit a typed support-ticket triage for grounded routing"
+risk_tier = "low"
+timeout_seconds = 30
+
+# No [tool.cedar] block. Unlike the other tools/*.clad.toml manifests, this
+# tool's effect is not shell execution — the privileged routing/escalation
+# decision is made at the runtime level by the grounded Cedar gate
+# (crates/runtime/src/toolclad/decision.rs) against the hand-written policy in
+# examples/policies/triage_routing.cedar, which uses the flat
+# Action::"tool_call::escalate" form. A cedar_gen auto-generated per-manifest
+# baseline policy would use a different namespaced action and is NOT the
+# grounded control, so it is deliberately omitted here.
+
+[args.category]
+position = 1
+required = true
+type = "enum"
+allowed = ["ui", "billing", "infra", "account", "other"]
+feeds_decision = true
+description = "Ticket category (typed; feeds routing)"
+
+[args.severity]
+position = 2
+required = true
+type = "enum"
+allowed = ["low", "medium", "high", "critical"]
+feeds_decision = true
+description = "Claimed severity (typed; capped by trusted ticket severity)"
+
+[args.rationale]
+position = 3
+required = false
+type = "string"
+description = "Free-text rationale — advisory only, NOT used in the decision"
+
+# The command template models how the typed args would be passed to the
+# submit handler. Execution itself is a no-op for routing tools — the
+# decision is made by the grounded Cedar gate, not by this command.
+[command]
+template = "submit_triage {category} {severity}"
+
+[output]
+format = "json"
+
+[output.schema]
+type = "object"
+
+[output.schema.properties.routing_queue]
+type = "string"
+description = "Resolved queue: frontend | billing | infra | exec_escalation"
+
+[output.schema.properties.escalated]
+type = "boolean"
+description = "True when the grounded Cedar policy permitted exec_escalation"

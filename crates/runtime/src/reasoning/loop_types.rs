@@ -141,6 +141,14 @@ pub struct LoopState {
     /// Arbitrary metadata carried across iterations.
     #[serde(default)]
     pub metadata: HashMap<String, serde_json::Value>,
+    /// Trusted, runtime-populated context for grounded policy decisions.
+    /// Populated ONLY by the runtime/caller (e.g. ticket text, caller
+    /// capabilities) — never by model output. Intended to be fed into the
+    /// Cedar `Context` by the policy gate for grounded decisions. Distinct
+    /// from `metadata` precisely because `metadata` can be written by tool
+    /// results and is therefore untrusted.
+    #[serde(default)]
+    pub trusted_context: HashMap<String, serde_json::Value>,
 }
 
 impl LoopState {
@@ -155,6 +163,7 @@ impl LoopState {
             started_at: chrono::Utc::now(),
             current_phase: "initialized".into(),
             metadata: HashMap::new(),
+            trusted_context: HashMap::new(),
         }
     }
 
@@ -639,6 +648,19 @@ mod tests {
         for (idx, entry) in entries.iter().enumerate() {
             assert_eq!(entry.sequence, idx as u64);
         }
+    }
+
+    #[test]
+    fn test_loop_state_trusted_context_defaults_empty_and_is_settable() {
+        let mut state = LoopState::new(AgentId::new(), Conversation::new());
+        assert!(state.trusted_context.is_empty());
+        state
+            .trusted_context
+            .insert("ticket_severity".into(), serde_json::json!("critical"));
+        assert_eq!(
+            state.trusted_context.get("ticket_severity"),
+            Some(&serde_json::json!("critical"))
+        );
     }
 
     #[test]

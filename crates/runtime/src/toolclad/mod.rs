@@ -7,6 +7,7 @@
 pub mod browser_executor;
 pub mod browser_state;
 pub mod cedar_gen;
+pub mod decision;
 pub mod executor;
 pub mod manifest;
 pub mod scope;
