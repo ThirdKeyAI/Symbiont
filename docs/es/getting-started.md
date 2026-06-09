@@ -461,6 +461,7 @@ cd crates/runtime && cargo run --example context_example
 | `cedar` | Motor de politicas Cedar — autocableado desde `policies/*.cedar` al arranque | **Yes** |
 | `orga-adaptive` | Primitivas de razonamiento avanzado | No |
 | `cron` | Programacion cron persistente | No |
+| `cli-executor` | Subprocesos de CLI de IA gobernados (Claude Code, etc.) — Modo B | **Yes** |
 | `native-sandbox` | Sandboxing nativo de procesos | No |
 | `metrics` | Metricas/trazado OpenTelemetry | No |
 | `interactive` | Prompts interactivos para `symbi init` (dialoguer) | Si |
@@ -473,6 +474,78 @@ cargo build --features "cloud-llm,orga-adaptive,cedar"
 # Build with everything
 cargo build --features full
 ```
+
+---
+
+## Plugins para Asistentes de IA
+
+Symbiont proporciona plugins de gobernanza propios para asistentes de programacion con IA populares, con tres niveles progresivos de proteccion:
+
+1. **Awareness** (por defecto) — registro consultivo de todas las llamadas a herramientas que modifican estado
+2. **Protection** — un hook de bloqueo aplica una lista local de denegacion (`.symbiont/local-policy.toml`)
+3. **Governance** — evaluacion de politicas Cedar cuando `symbi` esta en el PATH
+
+La configuracion de la lista de denegacion es agnostica respecto a la herramienta — el mismo `.symbiont/local-policy.toml` funciona con ambos plugins:
+
+```toml
+[deny]
+paths = [".env", ".ssh/", ".aws/"]
+commands = ["rm -rf", "git push --force"]
+branches = ["main", "master", "production"]
+```
+
+### Claude Code
+
+```bash
+# Install from marketplace
+/plugin marketplace add https://github.com/thirdkeyai/symbi-claude-code
+
+# Available skills: /symbi-init, /symbi-policy, /symbi-verify, /symbi-audit, /symbi-dsl
+```
+
+Consulta [symbi-claude-code](https://github.com/thirdkeyai/symbi-claude-code) para mas detalles.
+
+#### Modo B: subproceso gobernado de Claude Code
+
+Mas alla de los hooks integrados en el editor, Symbiont puede ejecutar Claude Code como un *subproceso gobernado* — la ruta del "Modo B" (gestionado por ORGA). Un agente cuyos metadatos declaran `executor = "claude_code"` se ejecuta lanzando Claude Code bajo el `CliExecutor` del runtime en lugar del bucle de razonamiento del LLM. El agente `code_reviewer` incluido es el ejemplo de referencia:
+
+```bash
+# Review a working tree with a governed Claude Code subprocess
+symbi run code_reviewer --target /path/to/repo
+
+# Bounds: --max-turns is the primary (cooperative) limit; --budget-timeout is a
+# hard wall-clock backstop (graceful SIGTERM -> SIGKILL).
+symbi run code_reviewer --target . --max-turns 12 --budget-timeout 15m
+```
+
+En cada ejecucion Symbiont:
+
+- evalua el lanzamiento a traves del **Gate** de politicas (fail-closed — permitelo mediante una politica Cedar, o `SYMBI_INSECURE_ALLOW_ALL=1` para desarrollo local);
+- establece el handshake de entorno (`SYMBIONT_MANAGED=true`, `SYMBIONT_SESSION_ID`, `SYMBIONT_BUDGET_TOKENS`, `SYMBIONT_BUDGET_TIMEOUT`, `CLAUDE_PROJECT_DIR`) para que el plugin symbi-claude-code **delegue** sus hooks al Gate externo;
+- carga el plugin mediante `--plugin-dir` y conecta el canal de retorno stdio `symbi mcp` mediante `--mcp-config --strict-mcp-config`;
+- ejecuta Claude Code en modo headless (`--print --output-format json --permission-mode dontAsk`).
+
+| Variable / flag | Purpose | Default |
+|---|---|---|
+| `SYMBIONT_CLAUDE_PLUGIN_DIR` | Ruta al plugin symbi-claude-code | autodeteccion del repositorio hermano |
+| `--plugin-dir` | Sobrescribe la ruta del plugin para una ejecucion | — |
+| `--target` | Directorio de trabajo sobre el que operar | directorio actual |
+| `--max-turns` | Limite cooperativo primario (turnos agenticos) | 12 |
+| `--budget-timeout` | Backstop de tiempo de reloj, p. ej. `15m` / `900s` | 15m |
+| `--budget-tokens` | Sugerencia de presupuesto de tokens pasada al subproceso (awareness) | 100000 |
+
+> **Auth:** el subproceso utiliza la propia autenticacion de Claude Code — una sesion iniciada (`claude /login`) o `ANTHROPIC_API_KEY`. La funcion `cli-executor` esta activada por defecto.
+
+### Gemini CLI
+
+```bash
+# Install extension
+gemini extensions install https://github.com/thirdkeyai/symbi-gemini-cli
+```
+
+La extension de Gemini CLI proporciona una defensa en profundidad adicional mediante el bloqueo del manifiesto `excludeTools` y la aplicacion nativa de `policies/*.toml` a nivel de plataforma.
+
+Consulta [symbi-gemini-cli](https://github.com/thirdkeyai/symbi-gemini-cli) para mas detalles.
 
 ---
 

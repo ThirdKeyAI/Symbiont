@@ -1,6 +1,6 @@
 [package]
 name = "symbi-runtime"
-version = "1.14.3"
+version = "1.15.0"
 edition = "2021"
 authors = ["Jascha Wanger / ThirdKey.ai"]
 description = "Agent Runtime System for the Symbi platform"
@@ -48,7 +48,7 @@ name = "symbi-eval"
 path = "src/bin/symbi_eval.rs"
 required-features = ["cloud-llm"]
 [dependencies]
-symbi-dsl = { path = "../dsl", version = "1.14.3" }
+symbi-dsl = { path = "../dsl", version = "1.15.0" }
 symbi-invis-strip = { path = "../symbi-invis-strip", version = "0.3.0" }
 tokio = { version = "1.0", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }

@@ -31,6 +31,7 @@ Model output is never treated as execution authority. The runtime controls what 
 | **Audit logging** | Tamper-evident logs with structured records for every policy decision |
 | **Secrets management** | Vault/OpenBao integration, AES-256-GCM encrypted storage, scoped per agent |
 | **MCP integration** | Native Model Context Protocol support with governed tool access |
+| **Governed CLI subprocesses (Mode B)** | Run external AI CLIs (e.g. Claude Code) as governed subprocesses via `CliExecutor` — policy-gated spawn, `SYMBIONT_*` env handshake, and turn/time budgets. See `symbi run code_reviewer`. |
 
 Additional capabilities: threat scanning for tool/skill content, cron scheduling, persistent agent memory, hybrid RAG search (LanceDB/Qdrant), webhook verification, delivery routing, OTLP telemetry, HTTP security hardening, channel adapters (Slack/Teams/Mattermost), and governance plugins for [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) and [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli).
 

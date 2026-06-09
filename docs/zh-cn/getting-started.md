@@ -438,6 +438,7 @@ cd crates/runtime && cargo run --example context_example
 | `cedar` | Cedar 策略引擎 — 启动时从 `policies/*.cedar` 自动接线 | **Yes** |
 | `orga-adaptive` | 高级推理原语 | 否 |
 | `cron` | 持久化 cron 调度 | 否 |
+| `cli-executor` | 受治理的 AI CLI 子进程（Claude Code 等）—— 模式 B | 是 |
 | `native-sandbox` | 原生进程沙箱 | 否 |
 | `metrics` | OpenTelemetry 指标/追踪 | 否 |
 | `interactive` | `symbi init` 的交互式提示（dialoguer） | 默认 |
@@ -450,6 +451,78 @@ cargo build --features "cloud-llm,orga-adaptive,cedar"
 # 使用所有特性构建
 cargo build --features full
 ```
+
+---
+
+## AI 助手插件
+
+Symbiont 为流行的 AI 编码助手提供第一方治理插件，包含三个渐进式保护层级：
+
+1. **Awareness**（默认）—— 对所有修改状态的工具调用进行建议性日志记录
+2. **Protection** —— 阻断式钩子强制执行本地拒绝列表（`.symbiont/local-policy.toml`）
+3. **Governance** —— 当 `symbi` 位于 PATH 上时进行 Cedar 策略评估
+
+拒绝列表配置与工具无关 —— 同一份 `.symbiont/local-policy.toml` 可同时用于两个插件：
+
+```toml
+[deny]
+paths = [".env", ".ssh/", ".aws/"]
+commands = ["rm -rf", "git push --force"]
+branches = ["main", "master", "production"]
+```
+
+### Claude Code
+
+```bash
+# Install from marketplace
+/plugin marketplace add https://github.com/thirdkeyai/symbi-claude-code
+
+# Available skills: /symbi-init, /symbi-policy, /symbi-verify, /symbi-audit, /symbi-dsl
+```
+
+详情请参阅 [symbi-claude-code](https://github.com/thirdkeyai/symbi-claude-code)。
+
+#### 模式 B：受治理的 Claude Code 子进程
+
+除了编辑器内的钩子之外，Symbiont 还可以将 Claude Code 作为*受治理的子进程*运行 —— 即“模式 B”（ORGA 管理）路径。元数据声明了 `executor = "claude_code"` 的智能体，会通过在运行时的 `CliExecutor` 下生成 Claude Code 来运行，而不是使用 LLM 推理循环。捆绑的 `code_reviewer` 智能体是参考示例：
+
+```bash
+# Review a working tree with a governed Claude Code subprocess
+symbi run code_reviewer --target /path/to/repo
+
+# Bounds: --max-turns is the primary (cooperative) limit; --budget-timeout is a
+# hard wall-clock backstop (graceful SIGTERM -> SIGKILL).
+symbi run code_reviewer --target . --max-turns 12 --budget-timeout 15m
+```
+
+每次运行时，Symbiont 会：
+
+- 通过策略 **Gate** 评估该进程的生成（失败即关闭 —— 通过 Cedar 策略允许它，或在本地开发时设置 `SYMBI_INSECURE_ALLOW_ALL=1`）；
+- 设置环境握手（`SYMBIONT_MANAGED=true`、`SYMBIONT_SESSION_ID`、`SYMBIONT_BUDGET_TOKENS`、`SYMBIONT_BUDGET_TIMEOUT`、`CLAUDE_PROJECT_DIR`），以便 symbi-claude-code 插件将其钩子**延迟**交给外层 Gate 处理；
+- 通过 `--plugin-dir` 加载插件，并通过 `--mcp-config --strict-mcp-config` 接通 stdio `symbi mcp` 反向通道；
+- 以无头模式运行 Claude Code（`--print --output-format json --permission-mode dontAsk`）。
+
+| Variable / flag | 用途 | 默认值 |
+|---|---|---|
+| `SYMBIONT_CLAUDE_PLUGIN_DIR` | symbi-claude-code 插件的路径 | 自动检测同级仓库 |
+| `--plugin-dir` | 为单次运行覆盖插件路径 | —— |
+| `--target` | 要操作的工作目录 | 当前目录 |
+| `--max-turns` | 主要协作边界（智能体轮次） | 12 |
+| `--budget-timeout` | 挂钟时间兜底，例如 `15m` / `900s` | 15m |
+| `--budget-tokens` | 传递给子进程的令牌预算提示（建议性） | 100000 |
+
+> **认证：** 子进程使用 Claude Code 自身的认证 —— 已登录的会话（`claude /login`）或 `ANTHROPIC_API_KEY`。`cli-executor` 特性默认开启。
+
+### Gemini CLI
+
+```bash
+# Install extension
+gemini extensions install https://github.com/thirdkeyai/symbi-gemini-cli
+```
+
+Gemini CLI 扩展通过 `excludeTools` 清单阻断以及平台级别的原生 `policies/*.toml` 强制执行，提供了额外的纵深防御。
+
+详情请参阅 [symbi-gemini-cli](https://github.com/thirdkeyai/symbi-gemini-cli)。
 
 ---
 

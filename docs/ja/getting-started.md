@@ -438,6 +438,7 @@ cd crates/runtime && cargo run --example context_example
 | `cedar` | Cedarポリシーエンジン — 起動時に `policies/*.cedar` から自動配線 | **Yes** |
 | `orga-adaptive` | 高度な推論プリミティブ | いいえ |
 | `cron` | 永続cronスケジューリング | いいえ |
+| `cli-executor` | ガバナンス対象のAI CLIサブプロセス（Claude Code など） — Mode B | **はい** |
 | `native-sandbox` | ネイティブプロセスサンドボックス | いいえ |
 | `metrics` | OpenTelemetryメトリクス/トレーシング | いいえ |
 | `interactive` | `symbi init` のインタラクティブプロンプト（dialoguer） | デフォルト |
@@ -450,6 +451,78 @@ cargo build --features "cloud-llm,orga-adaptive,cedar"
 # すべてでビルド
 cargo build --features full
 ```
+
+---
+
+## AIアシスタントプラグイン
+
+Symbiontは、人気のAIコーディングアシスタント向けに、3段階の漸進的な保護ティアを備えたファーストパーティのガバナンスプラグインを提供します：
+
+1. **Awareness**（デフォルト） — 状態を変更するすべてのツール呼び出しを助言的にログ記録
+2. **Protection** — ブロッキングフックがローカルの拒否リスト（`.symbiont/local-policy.toml`）を強制
+3. **Governance** — `symbi` がPATH上にある場合にCedarポリシー評価を実行
+
+拒否リストの設定はツール非依存です — 同じ `.symbiont/local-policy.toml` が両方のプラグインで機能します：
+
+```toml
+[deny]
+paths = [".env", ".ssh/", ".aws/"]
+commands = ["rm -rf", "git push --force"]
+branches = ["main", "master", "production"]
+```
+
+### Claude Code
+
+```bash
+# マーケットプレイスからインストール
+/plugin marketplace add https://github.com/thirdkeyai/symbi-claude-code
+
+# 利用可能なスキル: /symbi-init, /symbi-policy, /symbi-verify, /symbi-audit, /symbi-dsl
+```
+
+詳細は [symbi-claude-code](https://github.com/thirdkeyai/symbi-claude-code) を参照してください。
+
+#### Mode B: ガバナンス対象のClaude Codeサブプロセス
+
+エディタ内フックに加えて、Symbiontは Claude Code を*ガバナンス対象のサブプロセス*として実行できます — これが「Mode B」（ORGA管理）パスです。メタデータで `executor = "claude_code"` を宣言したエージェントは、LLM推論ループの代わりに、ランタイムの `CliExecutor` の下で Claude Code をスポーンして実行されます。同梱の `code_reviewer` エージェントがリファレンス例です：
+
+```bash
+# ガバナンス対象のClaude Codeサブプロセスで作業ツリーをレビュー
+symbi run code_reviewer --target /path/to/repo
+
+# 境界: --max-turns が主要な（協調的な）制限であり、--budget-timeout は
+# ハードな実時間バックストップ（グレースフルな SIGTERM -> SIGKILL）です。
+symbi run code_reviewer --target . --max-turns 12 --budget-timeout 15m
+```
+
+各実行で Symbiont は以下を行います：
+
+- スポーンをポリシー**Gate**を通じて評価します（フェイルクローズド — Cedar ポリシーで許可するか、ローカル開発では `SYMBI_INSECURE_ALLOW_ALL=1` を使用）；
+- env ハンドシェイク（`SYMBIONT_MANAGED=true`、`SYMBIONT_SESSION_ID`、`SYMBIONT_BUDGET_TOKENS`、`SYMBIONT_BUDGET_TIMEOUT`、`CLAUDE_PROJECT_DIR`）を設定し、symbi-claude-code プラグインがそのフックを外側の Gate に**委譲**するようにします；
+- `--plugin-dir` でプラグインを読み込み、`--mcp-config --strict-mcp-config` を介して stdio の `symbi mcp` バックチャネルを配線します；
+- Claude Code をヘッドレスで実行します（`--print --output-format json --permission-mode dontAsk`）。
+
+| Variable / flag | 目的 | デフォルト |
+|---|---|---|
+| `SYMBIONT_CLAUDE_PLUGIN_DIR` | symbi-claude-code プラグインへのパス | 兄弟リポジトリを自動検出 |
+| `--plugin-dir` | 1回の実行に対してプラグインパスを上書き | — |
+| `--target` | 操作対象の作業ディレクトリ | カレントディレクトリ |
+| `--max-turns` | 主要な協調的境界（エージェントターン） | 12 |
+| `--budget-timeout` | 実時間バックストップ、例: `15m` / `900s` | 15m |
+| `--budget-tokens` | サブプロセスに渡されるトークン予算のヒント（認識用） | 100000 |
+
+> **認証:** サブプロセスは Claude Code 自身の認証を使用します — ログイン済みのセッション（`claude /login`）または `ANTHROPIC_API_KEY`。`cli-executor` フィーチャーはデフォルトで有効です。
+
+### Gemini CLI
+
+```bash
+# 拡張機能をインストール
+gemini extensions install https://github.com/thirdkeyai/symbi-gemini-cli
+```
+
+Gemini CLI拡張機能は、`excludeTools` マニフェストによるブロッキングと、プラットフォームレベルでのネイティブ `policies/*.toml` 強制を通じて、追加の多層防御を提供します。
+
+詳細は [symbi-gemini-cli](https://github.com/thirdkeyai/symbi-gemini-cli) を参照してください。
 
 ---
 

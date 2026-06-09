@@ -2,7 +2,7 @@
 name: symbiont
 title: Symbiont
 description: AI-native agent runtime with typestate-enforced ORGA reasoning loop, Cedar policy authorization, CommunicationPolicyGate for inter-agent governance, ToolClad declarative tool contracts, knowledge bridge, zero-trust security, multi-tier sandboxing, webhook verification, markdown memory, skill scanning, metrics, scheduling, symbi init/run/up/shell/repl CLI, interactive TUI (Beta), cross-instance agent messaging, human approval relay, and a declarative DSL
-version: 1.14.3
+version: 1.15.0
 ---
 
 # Symbiont Agent Development Skills Guide
@@ -450,6 +450,28 @@ for agent in agents {
     registry.register_agent(agent.id, agent.metadata).await?;
 }
 ```
+
+---
+
+## Managed CLI agents (Mode B)
+
+An agent whose metadata declares `executor = "claude_code"` runs as a **governed
+subprocess** instead of the ORGA reasoning loop: Symbiont spawns the external AI
+CLI (Claude Code) through `CliExecutor`, gated and bounded by the runtime. The
+reference agent is `agents/code_reviewer.symbi`.
+
+```bash
+# Allow the spawn at the policy Gate (Cedar policy, or dev-only env), then:
+SYMBI_INSECURE_ALLOW_ALL=1 symbi run code_reviewer --target /path/to/repo \
+  --max-turns 12 --budget-timeout 15m
+```
+
+On each run Symbiont evaluates the spawn through the policy **Gate**, injects the
+`SYMBIONT_MANAGED` env handshake (the [symbi-claude-code](https://github.com/thirdkeyai/symbi-claude-code)
+plugin then defers its hooks to the outer Gate), loads the plugin via
+`--plugin-dir`, and wires the stdio `symbi mcp` back-channel. `--max-turns` is the
+primary cooperative bound; `--budget-timeout` is a hard wall-clock backstop
+(graceful SIGTERM → SIGKILL). Requires the `cli-executor` feature (on by default).
 
 ---
 

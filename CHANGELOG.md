@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-06-09
+
+**Feature + security-hardening release.** Adds the Mode B governed-Claude-Code path and typed+grounded inter-agent decisions, and folds in the full remediation of the `symbi-codered` `473178fd` engagement. Several security fixes change default behavior — see **Changed** for upgrade notes.
+
+### Added
+- **Mode B — governed Claude Code subprocess.** An agent whose metadata declares `executor = "claude_code"` now runs by spawning a governed Claude Code subprocess via the runtime's `CliExecutor` instead of the ORGA reasoning loop. `symbi run code_reviewer --target <dir>` evaluates the spawn through the policy Gate, injects the `SYMBIONT_*` env handshake (`SYMBIONT_MANAGED`, `SYMBIONT_SESSION_ID`, `SYMBIONT_BUDGET_TOKENS`/`_TIMEOUT`, `CLAUDE_PROJECT_DIR`) so the `symbi-claude-code` plugin defers its hooks to the outer Gate, loads the plugin via `--plugin-dir`, and wires the stdio `symbi mcp` back-channel via `--mcp-config --strict-mcp-config`. New `symbi run` flags: `--target`, `--max-turns` (primary cooperative bound), `--budget-timeout` (wall-clock backstop), `--budget-tokens`, `--plugin-dir`. New `agents/code_reviewer.symbi` reference agent. The `cli-executor` feature is now **enabled by default** in the `symbi` binary.
+- **Typed + grounded inter-agent decisions.** `LoopState.trusted_context` carries runtime-populated, non-model context into Cedar policy evaluation; `ArgDef.feeds_decision` flags free-text args that feed privileged decisions (now lint-checked); Cedar requests are grounded in trusted context. Includes a typed+grounded triage manifest + Cedar policy reference and a decision-reference module.
+- **Opt-in `tool_choice`** on `InferenceOptions` / `LoopConfig`.
+
+### Changed
+- **Scheduler `LogFile` delivery is now confined to an allowlisted base directory** (`SYMBIONT_LOG_DIR`). Paths escaping it via `..`, absolute paths, or symlinks are refused, and log-file delivery is **fail-closed (disabled) when `SYMBIONT_LOG_DIR` is unset**. *Upgrade note:* set `SYMBIONT_LOG_DIR` to keep using `LogFile` delivery channels.
+- **Browser executor `navigate` now denies by default** when a `[browser]` manifest declares no `scope` (previously fail-open). *Upgrade note:* add an explicit `[browser.scope]` to navigate-capable manifests.
+- **OPA policy engine refuses plaintext HTTP to non-loopback hosts** (fail-closed) unless `SYMBIONT_OPA_ALLOW_INSECURE=1`; sends `SYMBIONT_OPA_AUTH_TOKEN` as bearer auth when set.
+- **E2B sandbox requires `https` to an `e2b.dev` host** (or a host in `SYMBIONT_E2B_ALLOWED_HOSTS`) before shipping code + the API key.
+- **API key store refuses group/other-readable key files** on unix (mirrors `crypto.rs`).
+- **`CliExecutor` process termination is now graceful** (SIGTERM → grace period → SIGKILL) so a killed child can flush output and clean up.
+- **Cedar policy linter relocated** to `.github/scripts/lint-cedar-policies.py` so it survives the OSS sync (was `scripts/`, which is excluded).
+- Conversation truncation preserves `tool_use`/`tool_result` pairing; context-truncation logging lowered from `warn` to `debug`.
+
+### Security
+- **Full remediation of `symbi-codered` engagement `473178fd`** (10 fixed/hardened, 11 verified false positives, 1 accepted risk): scheduler log-file path traversal (CWE-22, PoC-reproduced), browser fail-open scope (SSRF), OPA decision spoofing over plaintext HTTP, E2B arbitrary-endpoint SSRF / key exfiltration, API-key file permissions, SchemaPin fetched-key PEM validation, CI workflow least-privilege (`permissions: contents: read`), Dockerfile `HEALTHCHECK`, and OpenAPI `maxItems` bounds. `// SAFETY:` comments added to audited libc/FFI `unsafe` blocks.
+
+### Fixed
+- Mode B: dropped `--bare` from the spawned `claude` invocation — it skipped reading `~/.claude` (credentials included) and broke subscription-login auth.
+- Derive `Default` for `ToolChoice` (clippy) instead of a manual impl.
+
+### Crate versions
+| Crate | Version |
+|-------|---------|
+| `symbi` | 1.15.0 |
+| `symbi-runtime` | 1.15.0 |
+| `symbi-dsl` | 1.15.0 |
+| `repl-core` | 1.15.0 |
+| `repl-cli` | 1.15.0 |
+| `repl-proto` | 1.15.0 |
+| `repl-lsp` | 1.15.0 |
+| `symbi-shell` | 1.15.0 |
+
 ## [1.14.3] - 2026-05-25
 
 **Dependency hygiene patch.** Consolidates the workspace onto a single tree-sitter major and clears a transitive OpenSSL CVE. No public API or CLI surface changes; no security-posture regressions.
