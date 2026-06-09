@@ -18,6 +18,11 @@ permissions:
 jobs:
   publish:
     name: Publish crates
+    # Restrict CARGO_REGISTRY_TOKEN use to canonical history: a release event
+    # (runs at the tag) or a manual dispatch from `main`. This stops a
+    # workflow_dispatch from an arbitrary branch from publishing untrusted code
+    # to crates.io with the production token.
+    if: github.event_name == 'release' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Free disk space
