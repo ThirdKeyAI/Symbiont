@@ -3,6 +3,9 @@ name: Publish to crates.io
 on:
   release:
     types: [published]
+  # Manual re-run (e.g. after a transient runner failure). Publishes whatever
+  # versions are in the checked-out main; already-published versions are skipped.
+  workflow_dispatch: {}
 
 env:
   CARGO_TERM_COLOR: always
@@ -17,6 +20,14 @@ jobs:
     name: Publish crates
     runs-on: ubuntu-latest
     steps:
+      - name: Free disk space
+        run: |
+          # cargo publish verifies each crate by building its full dependency
+          # tree (incl. the large lance/datafusion/arrow stack) into a shared
+          # target/, which exhausts the runner's disk. Reclaim space first.
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          df -h /
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
