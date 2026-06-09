@@ -72,7 +72,7 @@ name = "native-execution-example"
 required-features = ["native-sandbox"]
 
 [features]
-default = ["cron", "interactive"]
+default = ["cron", "interactive", "cli-executor"]
 interactive = ["dep:dialoguer"]
 cron = ["symbi-runtime/cron", "dep:cron", "dep:chrono", "dep:chrono-tz"]
 cedar = ["symbi-runtime/cedar", "dep:cedar-policy"]

@@ -1,0 +1,51 @@
+metadata {
+    version = "0.1.0"
+    author = "Symbiont Community"
+    description = "Governed code reviewer that runs Claude Code as a Mode B managed subprocess"
+    tags = ["code-review", "claude-code", "mode-b", "managed", "cli-executor"]
+    executor = "claude_code"
+    model = "claude-sonnet-4-5"
+    allowed_tools = "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git status:*)"
+    system_prompt = "You are a senior code reviewer running under Symbiont governance. Review the working tree (prefer the staged and unstaged diff) for correctness bugs, security issues, and clarity problems. Do NOT modify files. Produce a concise, severity-tagged list of findings with file:line references and a one-line summary verdict."
+}
+
+# Mode B (ORGA-managed) agent.
+#
+# `symbi run code_reviewer` reads `executor = "claude_code"` from the metadata
+# above and takes the deterministic CliExecutor path instead of the ORGA
+# reasoning loop. It spawns one governed Claude Code subprocess with:
+#   - the SYMBIONT_* env handshake (SYMBIONT_MANAGED=true + budgets + session id)
+#   - the symbi-claude-code plugin loaded via --plugin-dir, so its hooks detect
+#     managed mode and defer hard enforcement to the outer Gate
+#   - the stdio `symbi mcp` back-channel via --mcp-config (--strict-mcp-config)
+#   - --max-turns as the primary (cooperative) bound; the wall-clock budget
+#     timeout is a hard backstop with graceful SIGTERM -> SIGKILL termination
+#
+# The agent body below documents the intended governance; the managed path
+# enforces it through the policy Gate + the spawned subprocess flags.
+
+agent code_reviewer(target: String) -> Review {
+    capabilities = ["read", "analyze"]
+
+    policy review_only {
+        allow: ["read", "analyze"] if true
+        deny: ["write_data", "execute_code", "network_access"]
+
+        require: {
+            input_sanitization: true
+        }
+
+        audit: {
+            log_level: "info",
+            include_findings: true
+        }
+    }
+
+    with
+        memory = "ephemeral",
+        security = "high",
+        sandbox = "Tier1"
+    {
+        return review(target);
+    }
+}

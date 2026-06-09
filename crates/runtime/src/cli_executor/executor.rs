@@ -23,6 +23,11 @@ use super::watchdog::OutputWatchdog;
 /// sensitive host variables (e.g. credentials, session tokens, internal paths)
 /// into spawned AI CLI tool processes. Only variables needed for basic
 /// operation and explicitly-required API keys are allowed through.
+/// Grace period after SIGTERM before escalating to SIGKILL when terminating a
+/// spawned CLI tool. Lets the child (e.g. Claude Code) flush its JSON result
+/// and clean up the working tree instead of being hard-killed mid-write.
+const KILL_GRACE_PERIOD: Duration = Duration::from_secs(5);
+
 const ENV_ALLOWLIST: &[&str] = &[
     "PATH",
     "HOME",
@@ -358,10 +363,24 @@ impl CliExecutor {
         #[cfg(unix)]
         {
             if let Some(id) = child.id() {
+                // Graceful escalation: SIGTERM the process group first so the
+                // child can flush output and clean up, wait a grace period, then
+                // SIGKILL only if it is still alive.
                 // SAFETY: `id` is the PID of a child we spawned (from
                 // `child.id()`), so the process-group id is valid and owned by
                 // this process. `killpg` is a plain libc syscall wrapper; a stale
                 // PID just yields ESRCH, which is harmless here.
+                unsafe {
+                    libc::killpg(id as i32, libc::SIGTERM);
+                }
+                if tokio::time::timeout(KILL_GRACE_PERIOD, child.wait())
+                    .await
+                    .is_ok()
+                {
+                    return; // exited cleanly after SIGTERM
+                }
+                // SAFETY: same invariant as the SIGTERM above; escalate to
+                // SIGKILL because the child ignored the graceful signal.
                 unsafe {
                     libc::killpg(id as i32, libc::SIGKILL);
                 }

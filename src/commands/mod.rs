@@ -6,6 +6,8 @@ pub mod dsl;
 pub mod fmt;
 pub mod init;
 pub mod logs;
+#[cfg(feature = "cli-executor")]
+pub mod managed_cli;
 pub mod new;
 pub mod policy;
 pub mod run;

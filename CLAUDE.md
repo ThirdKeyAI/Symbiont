@@ -132,6 +132,29 @@ E2B is a separate hosted-cloud backend, **not** a peer of Tier 1/2/3. Code runs 
 |---------|-----------|---------------|-----------|
 | E2B (hosted) | `with { sandbox = "e2b" }` (DSL only — no `--sandbox` flag) | `E2B_API_KEY` env var | Quick-start demos, evaluation without setting up a sandbox host. **Not for production workloads with privacy or compliance requirements.** |
 
+## Managed CLI agents (Mode B)
+
+An agent whose metadata declares `executor = "claude_code"` is run by spawning a
+governed Claude Code subprocess via `crates/runtime/src/cli_executor` (the
+`cli-executor` feature, on by default) instead of the ORGA reasoning loop. The
+reference agent is `agents/code_reviewer.symbi`; the path lives in
+`src/commands/managed_cli.rs`.
+
+`symbi run code_reviewer --target <dir>`:
+- passes the spawn through the policy Gate (fail-closed; allow via Cedar or
+  `SYMBI_INSECURE_ALLOW_ALL=1`);
+- injects the env handshake `SYMBIONT_MANAGED=true`, `SYMBIONT_SESSION_ID`,
+  `SYMBIONT_BUDGET_TOKENS`, `SYMBIONT_BUDGET_TIMEOUT`, `CLAUDE_PROJECT_DIR` (the
+  symbi-claude-code plugin defers its hooks to the outer Gate on `SYMBIONT_MANAGED`);
+- loads the plugin via `--plugin-dir` (resolve order: `--plugin-dir` flag,
+  `SYMBIONT_CLAUDE_PLUGIN_DIR`, then sibling-repo autodetect) and wires the stdio
+  `symbi mcp` back-channel via `--mcp-config --strict-mcp-config`;
+- bounds the run with `--max-turns` (primary, cooperative) and `--budget-timeout`
+  (hard wall-clock backstop; `CliExecutor` kills with graceful SIGTERM → SIGKILL).
+
+Do **not** pass `--bare` to the spawned `claude` — it skips reading `~/.claude`
+(credentials included) and breaks subscription auth.
+
 ## ToolClad Tools
 
 Tools live in `tools/<name>.clad.toml` and are auto-discovered at startup by `symbi up`, the HTTP Input server, and `symbi tools`. The watcher (`crates/runtime/src/toolclad/watcher.rs`) hot-reloads on file changes — no restart needed.

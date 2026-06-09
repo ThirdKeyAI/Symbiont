@@ -461,6 +461,7 @@ cd crates/runtime && cargo run --example context_example
 | `cedar` | Cedar policy engine — auto-wires from `policies/*.cedar` at startup | **Yes** |
 | `orga-adaptive` | Advanced reasoning primitives | No |
 | `cron` | Persistent cron scheduling | No |
+| `cli-executor` | Governed AI CLI subprocesses (Claude Code etc.) — Mode B | **Yes** |
 | `native-sandbox` | Native process sandboxing | No |
 | `metrics` | OpenTelemetry metrics/tracing | No |
 | `interactive` | Interactive prompts for `symbi init` (dialoguer) | Default |
@@ -503,6 +504,47 @@ branches = ["main", "master", "production"]
 ```
 
 See [symbi-claude-code](https://github.com/thirdkeyai/symbi-claude-code) for details.
+
+#### Mode B: governed Claude Code subprocess
+
+Beyond the in-editor hooks, Symbiont can run Claude Code as a *governed
+subprocess* — the "Mode B" (ORGA-managed) path. An agent whose metadata declares
+`executor = "claude_code"` runs by spawning Claude Code under the runtime's
+`CliExecutor` instead of the LLM reasoning loop. The bundled `code_reviewer`
+agent is the reference example:
+
+```bash
+# Review a working tree with a governed Claude Code subprocess
+symbi run code_reviewer --target /path/to/repo
+
+# Bounds: --max-turns is the primary (cooperative) limit; --budget-timeout is a
+# hard wall-clock backstop (graceful SIGTERM -> SIGKILL).
+symbi run code_reviewer --target . --max-turns 12 --budget-timeout 15m
+```
+
+On each run Symbiont:
+
+- evaluates the spawn through the policy **Gate** (fail-closed — allow it via a
+  Cedar policy, or `SYMBI_INSECURE_ALLOW_ALL=1` for local development);
+- sets the env handshake (`SYMBIONT_MANAGED=true`, `SYMBIONT_SESSION_ID`,
+  `SYMBIONT_BUDGET_TOKENS`, `SYMBIONT_BUDGET_TIMEOUT`, `CLAUDE_PROJECT_DIR`) so the
+  symbi-claude-code plugin **defers** its hooks to the outer Gate;
+- loads the plugin via `--plugin-dir` and wires the stdio `symbi mcp` back-channel
+  via `--mcp-config --strict-mcp-config`;
+- runs Claude Code headless (`--print --output-format json --permission-mode dontAsk`).
+
+| Variable / flag | Purpose | Default |
+|---|---|---|
+| `SYMBIONT_CLAUDE_PLUGIN_DIR` | Path to the symbi-claude-code plugin | autodetect sibling repo |
+| `--plugin-dir` | Override the plugin path for one run | — |
+| `--target` | Working directory to operate on | current dir |
+| `--max-turns` | Primary cooperative bound (agentic turns) | 12 |
+| `--budget-timeout` | Wall-clock backstop, e.g. `15m` / `900s` | 15m |
+| `--budget-tokens` | Token budget hint passed to the subprocess (awareness) | 100000 |
+
+> **Auth:** the subprocess uses Claude Code's own authentication — a logged-in
+> session (`claude /login`) or `ANTHROPIC_API_KEY`. The `cli-executor` feature is
+> on by default.
 
 ### Gemini CLI
 

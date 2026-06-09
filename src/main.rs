@@ -261,6 +261,42 @@ async fn main() {
                         .value_name("N")
                         .help("Maximum ORGA loop iterations")
                         .default_value("10"),
+                )
+                .arg(
+                    Arg::new("target")
+                        .long("target")
+                        .value_name("DIR")
+                        .help("Working directory for managed-CLI agents (default: current dir)"),
+                )
+                .arg(
+                    Arg::new("max-turns")
+                        .long("max-turns")
+                        .value_name("N")
+                        .help("Managed CLI: max agentic turns (primary bound, default 12)"),
+                )
+                .arg(
+                    Arg::new("budget-timeout")
+                        .long("budget-timeout")
+                        .value_name("DURATION")
+                        .help(
+                            "Managed CLI: wall-clock budget backstop, e.g. 15m or 900s (default 15m)",
+                        ),
+                )
+                .arg(
+                    Arg::new("budget-tokens")
+                        .long("budget-tokens")
+                        .value_name("N")
+                        .help(
+                            "Managed CLI: token budget hint passed to the subprocess (default 100000)",
+                        ),
+                )
+                .arg(
+                    Arg::new("plugin-dir")
+                        .long("plugin-dir")
+                        .value_name("DIR")
+                        .help(
+                            "Managed CLI: path to the symbi-claude-code plugin (overrides SYMBIONT_CLAUDE_PLUGIN_DIR / autodetect)",
+                        ),
                 ),
         )
         .subcommand(

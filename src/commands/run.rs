@@ -36,13 +36,33 @@ pub async fn run(matches: &ArgMatches) {
         .unwrap_or_else(|| "agent".to_string());
 
     // Parse DSL to extract metadata
-    let description = match dsl::parse_dsl(&dsl_source) {
-        Ok(tree) => {
-            let meta = dsl::extract_metadata(&tree, &dsl_source);
-            meta.get("description").cloned().unwrap_or_default()
-        }
-        Err(_) => String::new(),
+    let meta = match dsl::parse_dsl(&dsl_source) {
+        Ok(tree) => dsl::extract_metadata(&tree, &dsl_source),
+        Err(_) => std::collections::HashMap::new(),
     };
+    let description = meta.get("description").cloned().unwrap_or_default();
+
+    // Managed-CLI agents (metadata `executor = "claude_code"`) take the
+    // deterministic CliExecutor path (Mode B) instead of the ORGA reasoning loop.
+    let executor_kind = meta
+        .get("executor")
+        .map(|v| v.trim().trim_matches('"').to_string());
+    if executor_kind.as_deref() == Some("claude_code") {
+        #[cfg(feature = "cli-executor")]
+        {
+            super::managed_cli::run_claude_code(matches, &agent_name, &meta, &input).await;
+            return;
+        }
+        #[cfg(not(feature = "cli-executor"))]
+        {
+            eprintln!(
+                "✗ agent '{}' uses executor=claude_code, which requires the 'cli-executor' feature.",
+                agent_name
+            );
+            eprintln!("  Rebuild with: cargo build --features cli-executor (on by default).");
+            std::process::exit(1);
+        }
+    }
 
     // Set up inference provider from environment
     let provider =

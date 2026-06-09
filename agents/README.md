@@ -20,6 +20,26 @@ This directory contains ten reusable agent examples that demonstrate core Symbio
 | [SchemaPin Researcher](#schemapin-researcher) | Supply-chain secure research | Only executes cryptographically verified tools and sources |
 | [HITL DevOps](#hitl-devops) | Human-in-the-loop infra | Read-only with cryptographic approval for privilege escalation |
 | [Code Review Pipeline](#code-review-pipeline) | Multi-agent trust boundary | Untrusted developer + AgentPin-authenticated reviewer |
+| [Code Reviewer (Mode B)](#code-reviewer-mode-b) | Governed Claude Code subprocess | `executor = "claude_code"`; spawns Claude Code under CliExecutor with the `SYMBIONT_*` handshake |
+
+### Mode B: Governed Claude Code
+
+**Code Reviewer** (`code_reviewer.symbi`) is the reference *managed-CLI* agent. Its
+metadata declares `executor = "claude_code"`, so `symbi run code_reviewer` spawns
+a governed Claude Code subprocess via the runtime's `CliExecutor` instead of the
+LLM reasoning loop. The spawn passes the policy Gate, sets the `SYMBIONT_MANAGED`
+handshake (the symbi-claude-code plugin then defers its hooks to the outer Gate),
+and wires the stdio `symbi mcp` back-channel.
+
+```bash
+# Allow the spawn at the Gate via a Cedar policy, or for local dev:
+SYMBI_INSECURE_ALLOW_ALL=1 symbi run code_reviewer --target /path/to/repo \
+  --max-turns 12 --budget-timeout 15m
+```
+
+`--max-turns` is the primary cooperative bound; `--budget-timeout` is a hard
+wall-clock backstop. See the "Mode B" section of `docs/getting-started.md` for the
+full env handshake and flag reference.
 
 ### v1.8.0 Governance Examples
 
