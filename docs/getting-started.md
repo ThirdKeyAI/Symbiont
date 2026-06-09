@@ -464,7 +464,7 @@ cd crates/runtime && cargo run --example context_example
 | `native-sandbox` | Native process sandboxing | No |
 | `metrics` | OpenTelemetry metrics/tracing | No |
 | `interactive` | Interactive prompts for `symbi init` (dialoguer) | Default |
-| `full` | All features except enterprise | No |
+| `full` | All optional runtime, vector, and policy features | No |
 
 ```bash
 # Build with specific features
@@ -534,7 +534,7 @@ export SYMBI_LOG_LEVEL=info
 export SYMBI_RUNTIME_MODE=development
 
 # Vector search works out of the box with the built-in LanceDB backend.
-# To use Qdrant instead (optional, enterprise):
+# To use Qdrant instead (optional, enable the `vector-qdrant` feature):
 # export SYMBIONT_VECTOR_BACKEND=qdrant
 # export QDRANT_URL=http://localhost:6333
 

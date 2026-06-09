@@ -163,6 +163,12 @@ impl CliExecutor {
         // Unix: put child in its own process group for clean kill
         #[cfg(unix)]
         {
+            // SAFETY: the `pre_exec` closure runs in the child between fork() and
+            // exec(). In that context only async-signal-safe functions may be
+            // called; `setpgid(0, 0)` is async-signal-safe (POSIX) and merely
+            // moves the child into its own process group. The closure captures
+            // nothing and performs no allocation, so there is no risk of running
+            // non-reentrant code in the forked child.
             unsafe {
                 command.pre_exec(|| {
                     libc::setpgid(0, 0);
@@ -352,6 +358,10 @@ impl CliExecutor {
         #[cfg(unix)]
         {
             if let Some(id) = child.id() {
+                // SAFETY: `id` is the PID of a child we spawned (from
+                // `child.id()`), so the process-group id is valid and owned by
+                // this process. `killpg` is a plain libc syscall wrapper; a stale
+                // PID just yields ESRCH, which is harmless here.
                 unsafe {
                     libc::killpg(id as i32, libc::SIGKILL);
                 }

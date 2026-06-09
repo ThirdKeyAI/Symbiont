@@ -412,7 +412,9 @@ cd crates/runtime && cargo run --example rag_example
 cd crates/runtime && cargo run --example context_example
 ```
 
-> **エンタープライズオプション:** 専用のベクトルデータベースが必要なチームには、Qdrantがオプションのフィーチャーゲート付きバックエンドとして利用可能です。`SYMBIONT_VECTOR_BACKEND=qdrant` と `QDRANT_URL` を設定してください。
+> **最小ビルド:** LanceDBはデフォルトで含まれていますが、より軽量なバイナリのために除外できます: `cargo build --no-default-features`。ランタイムは何もしないベクトルバックエンドへ適切にフォールバックします。
+>
+> **スケール構成のデプロイ:** Qdrantはオプションのバックエンドとして利用可能です。`--features vector-qdrant` でビルドし、`SYMBIONT_VECTOR_BACKEND=qdrant` を設定してください。
 
 **コンテキスト管理機能：**
 - **マルチモーダル検索**: キーワード、時間、類似性、ハイブリッド検索モード
@@ -439,7 +441,7 @@ cd crates/runtime && cargo run --example context_example
 | `native-sandbox` | ネイティブプロセスサンドボックス | いいえ |
 | `metrics` | OpenTelemetryメトリクス/トレーシング | いいえ |
 | `interactive` | `symbi init` のインタラクティブプロンプト（dialoguer） | デフォルト |
-| `full` | エンタープライズ以外のすべての機能 | いいえ |
+| `full` | オプションのランタイム、ベクトル、ポリシー機能のすべて | いいえ |
 
 ```bash
 # 特定の機能でビルド
@@ -468,7 +470,7 @@ export SYMBI_LOG_LEVEL=info
 export SYMBI_RUNTIME_MODE=development
 
 # ベクトル検索は組み込みのLanceDBバックエンドでそのまま動作します。
-# 代わりにQdrantを使用する場合（オプション、エンタープライズ向け）：
+# 代わりにQdrantを使用する場合（オプション、`vector-qdrant` フィーチャーを有効化）：
 # export SYMBIONT_VECTOR_BACKEND=qdrant
 # export QDRANT_URL=http://localhost:6333
 

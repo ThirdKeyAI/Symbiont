@@ -318,6 +318,7 @@ components:
           $ref: '#/components/schemas/SecurityAnalysisSummary'
         audit_trail:
           type: array
+          maxItems: 1000
           items:
             $ref: '#/components/schemas/AuditEvent'
         created_at:
@@ -377,6 +378,7 @@ components:
           format: date-time
         critical_findings:
           type: array
+          maxItems: 100
           items:
             $ref: '#/components/schemas/SecurityFinding'
         risk_score:
@@ -453,6 +455,7 @@ components:
           type: string
         cve_references:
           type: array
+          maxItems: 64
           items:
             type: string
 
@@ -503,10 +506,12 @@ components:
           maximum: 1
         findings:
           type: array
+          maxItems: 1000
           items:
             $ref: '#/components/schemas/SecurityFinding'
         recommendations:
           type: array
+          maxItems: 50
           items:
             type: string
         confidence_score:
@@ -540,10 +545,12 @@ components:
           type: integer
         knowledge_sources_consulted:
           type: array
+          maxItems: 100
           items:
             type: string
         patterns_matched:
           type: array
+          maxItems: 200
           items:
             type: string
         false_positive_likelihood:
@@ -636,6 +643,7 @@ components:
       properties:
         sessions:
           type: array
+          maxItems: 1000
           items:
             $ref: '#/components/schemas/SessionSummary'
         pagination:
@@ -664,6 +672,7 @@ components:
       properties:
         pending_reviews:
           type: array
+          maxItems: 5000
           items:
             $ref: '#/components/schemas/QueueItem'
         queue_stats:
@@ -716,6 +725,7 @@ components:
           $ref: '#/components/schemas/CurrentQueueStats'
         top_security_categories:
           type: array
+          maxItems: 64
           items:
             $ref: '#/components/schemas/CategoryCount'
         time_period:

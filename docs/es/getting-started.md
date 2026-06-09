@@ -435,7 +435,9 @@ cd crates/runtime && cargo run --example rag_example
 cd crates/runtime && cargo run --example context_example
 ```
 
-> **Opcion enterprise:** Para equipos que necesiten una base de datos vectorial dedicada, Qdrant esta disponible como backend opcional con feature gate. Configura `SYMBIONT_VECTOR_BACKEND=qdrant` y `QDRANT_URL` para usarlo.
+> **Compilacion minima:** LanceDB se incluye por defecto, pero puede excluirse para binarios mas ligeros: `cargo build --no-default-features`. El runtime recurre de forma transparente a un backend vectorial no operativo.
+>
+> **Despliegues a escala:** Qdrant esta disponible como backend opcional. Compila con `--features vector-qdrant` y define `SYMBIONT_VECTOR_BACKEND=qdrant`.
 
 **Funciones de Gestion de Contexto:**
 - **Busqueda Multi-Modal**: Modos de busqueda por palabra clave, temporal, similitud e hibrido
@@ -462,7 +464,7 @@ cd crates/runtime && cargo run --example context_example
 | `native-sandbox` | Sandboxing nativo de procesos | No |
 | `metrics` | Metricas/trazado OpenTelemetry | No |
 | `interactive` | Prompts interactivos para `symbi init` (dialoguer) | Si |
-| `full` | Todas las funciones excepto enterprise | No |
+| `full` | Todas las funciones opcionales de runtime, vectoriales y de politicas | No |
 
 ```bash
 # Build with specific features
@@ -490,8 +492,8 @@ export SYMBIONT_MASTER_KEY="..."
 export SYMBI_LOG_LEVEL=info
 export SYMBI_RUNTIME_MODE=development
 
-# Vector search works out of the box with the built-in LanceDB backend.
-# To use Qdrant instead (optional, enterprise):
+# La busqueda vectorial funciona de inmediato con el backend LanceDB integrado.
+# Para usar Qdrant en su lugar (opcional, habilita la feature `vector-qdrant`):
 # export SYMBIONT_VECTOR_BACKEND=qdrant
 # export QDRANT_URL=http://localhost:6333
 

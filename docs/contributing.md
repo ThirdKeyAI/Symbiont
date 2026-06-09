@@ -125,8 +125,6 @@ symbiont/
 │   ├── examples/          # Usage examples
 │   ├── tests/             # Integration tests
 │   └── docs/              # Technical documentation
-├── enterprise/             # Enterprise features
-│   └── src/
 └── docs/                  # Community documentation
 ```
 

@@ -27,3 +27,8 @@ COPY --chown=caddy:caddy Caddyfile /etc/caddy/Caddyfile
 USER caddy:caddy
 
 EXPOSE 3001
+
+# Liveness probe: Caddy serves the UI on :3001. Uses busybox wget (present in
+# the alpine base); no extra packages required.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -q -O /dev/null http://localhost:3001/ || exit 1

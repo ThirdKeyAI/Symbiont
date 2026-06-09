@@ -453,18 +453,9 @@ pub struct AuditEvent {
 - **Zeitstempel-Verifizierung**: Kryptographische Zeitstempel
 - **Batch-Verifizierung**: Effiziente Massenverifizierung
 
-### Compliance-Features
-
-**Regulatorische Unterstützung:**
-- **HIPAA**: Gesundheitsdatenschutz-Compliance
-- **GDPR**: Europäische Datenschutzanforderungen
-- **SOX**: Finanzaudit-Spur-Anforderungen
-- **Angepasst**: Konfigurierbare Compliance-Frameworks
-
 **Audit-Fähigkeiten:**
 - Echtzeit-Event-Streaming
 - Historische Event-Abfragen
-- Compliance-Berichtserstellung
 - Integritätsverifizierung
 
 ---

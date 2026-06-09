@@ -38,6 +38,45 @@ impl E2BSandbox {
     pub fn new_with_default_endpoint(api_key: String) -> Self {
         Self::new(api_key, "https://api.e2b.dev".to_string())
     }
+
+    /// Validate that the configured endpoint is safe to send sandboxed code and
+    /// the bearer API key to.
+    ///
+    /// Defends against endpoint redirection / SSRF and API-key exfiltration
+    /// (codered F-pattern-scout-0004): the endpoint must use `https` (so the key
+    /// is never sent in plaintext) and must be an `e2b.dev` host. Self-hosted
+    /// deployments can allowlist additional hosts via `SYMBIONT_E2B_ALLOWED_HOSTS`
+    /// (comma-separated), which still requires `https`.
+    fn validate_endpoint(endpoint: &str) -> Result<(), String> {
+        let url = url::Url::parse(endpoint)
+            .map_err(|e| format!("invalid endpoint URL '{}': {}", endpoint, e))?;
+        if url.scheme() != "https" {
+            return Err(format!(
+                "endpoint must use https to protect the API key in transit, got '{}'",
+                url.scheme()
+            ));
+        }
+        let host = url
+            .host_str()
+            .ok_or_else(|| "endpoint has no host".to_string())?
+            .to_ascii_lowercase();
+        if host == "e2b.dev" || host.ends_with(".e2b.dev") {
+            return Ok(());
+        }
+        let allowed = std::env::var("SYMBIONT_E2B_ALLOWED_HOSTS").unwrap_or_default();
+        if allowed
+            .split(',')
+            .map(|h| h.trim().to_ascii_lowercase())
+            .any(|h| !h.is_empty() && h == host)
+        {
+            return Ok(());
+        }
+        Err(format!(
+            "endpoint host '{}' is not an allowed E2B host \
+             (set SYMBIONT_E2B_ALLOWED_HOSTS for self-hosted deployments)",
+            host
+        ))
+    }
 }
 
 #[async_trait]
@@ -52,6 +91,10 @@ impl SandboxRunner for E2BSandbox {
             code.len(),
             env.len()
         );
+
+        // Refuse to ship code + the bearer API key to an untrusted endpoint.
+        Self::validate_endpoint(&self.endpoint)
+            .map_err(|e| anyhow::anyhow!("Refusing E2B execution: {}", e))?;
 
         // Create HTTP client with timeout
         let client = reqwest::Client::builder()
@@ -161,6 +204,30 @@ mod tests {
 
         assert_eq!(sandbox.api_key, "test_api_key");
         assert_eq!(sandbox.endpoint, "https://api.e2b.dev");
+    }
+
+    #[test]
+    fn test_validate_endpoint() {
+        // Allowed: https to an e2b.dev host.
+        assert!(E2BSandbox::validate_endpoint("https://api.e2b.dev").is_ok());
+        assert!(E2BSandbox::validate_endpoint("https://test.e2b.dev").is_ok());
+        // Rejected: plaintext http (would leak the bearer key).
+        assert!(E2BSandbox::validate_endpoint("http://api.e2b.dev").is_err());
+        // Rejected: redirection to an attacker host / metadata service.
+        assert!(E2BSandbox::validate_endpoint("https://evil.example.com").is_err());
+        assert!(E2BSandbox::validate_endpoint("http://169.254.169.254").is_err());
+        // Rejected: unparseable.
+        assert!(E2BSandbox::validate_endpoint("not a url").is_err());
+    }
+
+    #[tokio::test]
+    async fn test_execute_refuses_untrusted_endpoint() {
+        let sandbox = E2BSandbox::new("k".to_string(), "http://evil.example.com".to_string());
+        let err = sandbox
+            .execute("print('x')", HashMap::new())
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("Refusing E2B execution"));
     }
 
     #[tokio::test]

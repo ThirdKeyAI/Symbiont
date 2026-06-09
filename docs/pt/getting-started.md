@@ -412,7 +412,9 @@ cd crates/runtime && cargo run --example rag_example
 cd crates/runtime && cargo run --example context_example
 ```
 
-> **Opção enterprise:** Para equipes que precisam de um banco de dados vetorial dedicado, o Qdrant está disponível como backend opcional com feature gate. Defina `SYMBIONT_VECTOR_BACKEND=qdrant` e `QDRANT_URL` para utilizá-lo.
+> **Build mínimo:** O LanceDB é incluído por padrão, mas pode ser excluído para binários mais leves: `cargo build --no-default-features`. O runtime recorre de forma transparente a um backend vetorial no-op.
+>
+> **Implantações em escala:** O Qdrant está disponível como backend opcional. Compile com `--features vector-qdrant` e defina `SYMBIONT_VECTOR_BACKEND=qdrant`.
 
 **Recursos de Gerenciamento de Contexto:**
 - **Busca Multi-Modal**: Modos de busca por palavra-chave, temporal, similaridade e híbrido
@@ -439,7 +441,7 @@ cd crates/runtime && cargo run --example context_example
 | `native-sandbox` | Sandboxing nativo de processos | Não |
 | `metrics` | Métricas/rastreamento OpenTelemetry | Não |
 | `interactive` | Prompts interativos para `symbi init` (dialoguer) | Sim |
-| `full` | Todos os recursos exceto enterprise | Não |
+| `full` | Todos os recursos opcionais de runtime, vetor e política | Não |
 
 ```bash
 # Compilar com features específicas
@@ -468,7 +470,7 @@ export SYMBI_LOG_LEVEL=info
 export SYMBI_RUNTIME_MODE=development
 
 # A busca vetorial funciona automaticamente com o backend LanceDB integrado.
-# Para usar o Qdrant em vez disso (opcional, enterprise):
+# Para usar o Qdrant em vez disso (opcional, habilite a feature `vector-qdrant`):
 # export SYMBIONT_VECTOR_BACKEND=qdrant
 # export QDRANT_URL=http://localhost:6333
 

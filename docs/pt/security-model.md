@@ -529,47 +529,6 @@ impl AuditChain {
 }
 ```
 
-### Recursos de Conformidade
-
-**Suporte Regulatório:**
-
-**HIPAA (Saúde):**
-- Registro de acesso a PHI com identificação do usuário
-- Aplicação de minimização de dados
-- Detecção e notificação de violações
-- Retenção de trilha de auditoria por 6 anos
-
-**GDPR (Privacidade):**
-- Logs de processamento de dados pessoais
-- Rastreamento de verificação de consentimento
-- Aplicação de direitos do titular dos dados
-- Conformidade com política de retenção de dados
-
-**SOX (Financeiro):**
-- Documentação de controles internos
-- Rastreamento de gerenciamento de mudanças
-- Verificação de controles de acesso
-- Proteção de dados financeiros
-
-**Conformidade Personalizada:**
-
-> **Recurso planejado** — A API `ComplianceFramework` mostrada abaixo é parte do roteiro de segurança e ainda não está disponível na versão atual.
-
-```rust
-pub struct ComplianceFramework {
-    pub name: String,
-    pub audit_requirements: Vec<AuditRequirement>,
-    pub retention_policy: RetentionPolicy,
-    pub access_controls: Vec<AccessControl>,
-    pub data_protection: DataProtectionRules,
-}
-
-impl ComplianceFramework {
-    pub fn validate_compliance(&self, audit_trail: &AuditChain) -> ComplianceReport;
-    pub fn generate_compliance_report(&self, period: TimePeriod) -> Report;
-}
-```
-
 ---
 
 ## Relay de Aprovação Humana (`symbi-approval-relay`)
@@ -616,22 +575,19 @@ Ferramentas externas são verificadas usando assinaturas criptográficas:
 sequenceDiagram
     participant Tool as Tool Provider
     participant SP as SchemaPin
-    participant AI as AI Reviewer
     participant Runtime as Symbiont Runtime
     participant Agent as Agent
 
-    Tool->>SP: Submit Tool Schema
-    SP->>AI: Security Analysis
-    AI-->>SP: Analysis Results
-    SP->>SP: Human Review (if needed)
-    SP->>SP: Sign Schema
-    SP-->>Tool: Signed Schema
+    Tool->>Tool: Sign schema with provider private key
+    Tool->>SP: Publish signed schema + public key
 
     Agent->>Runtime: Request Tool Use
-    Runtime->>SP: Verify Tool Schema
-    SP-->>Runtime: Verification Result
+    Runtime->>SP: Verify schema signature against pinned key
+    SP-->>Runtime: Verification Result (valid / invalid / unknown key)
     Runtime-->>Agent: Allow/Deny Tool Use
 ```
+
+> **A verificação do SchemaPin é puramente criptográfica** — validação de assinatura e fixação de chaves (TOFU). Ela não realiza nenhuma revisão de comportamento de ferramentas por IA ou por humanos; essa é uma capacidade separada e planejada, descrita na seção *Revisão de Ferramentas Orientada por IA* mais abaixo.
 
 ### Confiança no Primeiro Uso (TOFU)
 
@@ -836,7 +792,7 @@ A remoção de marcação é apropriada para superfícies onde marcação oculta
 
 ## Linter de Políticas Cedar
 
-`scripts/lint-cedar-policies.py` é um passe de análise estática que roda em cada arquivo `.cedar` no repositório. Ele captura uma classe de ataque na qual um fluxo de autoria malicioso (ou comprometido) escreve uma política que *parece* correta mas contém caracteres que produzem uma decisão de autorização diferente da que o revisor espera.
+`.github/scripts/lint-cedar-policies.py` é um passe de análise estática que roda em cada arquivo `.cedar` no repositório. Ele captura uma classe de ataque na qual um fluxo de autoria malicioso (ou comprometido) escreve uma política que *parece* correta mas contém caracteres que produzem uma decisão de autorização diferente da que o revisor espera.
 
 ### O que ele captura
 

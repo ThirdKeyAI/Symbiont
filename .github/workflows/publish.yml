@@ -7,6 +7,11 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# Least privilege: publishing uses CARGO_REGISTRY_TOKEN, not the GITHUB_TOKEN,
+# so the workflow only needs read access to check out the source.
+permissions:
+  contents: read
+
 jobs:
   publish:
     name: Publish crates

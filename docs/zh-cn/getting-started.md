@@ -412,7 +412,9 @@ cd crates/runtime && cargo run --example rag_example
 cd crates/runtime && cargo run --example context_example
 ```
 
-> **企业选项：** 对于需要专用向量数据库的团队，Qdrant 可作为可选的特性门控后端使用。设置 `SYMBIONT_VECTOR_BACKEND=qdrant` 和 `QDRANT_URL` 即可启用。
+> **最小化构建：** LanceDB 默认包含在内，但可以为更轻量的二进制文件排除它：`cargo build --no-default-features`。运行时会平稳回退到一个无操作的向量后端。
+>
+> **规模化部署：** Qdrant 作为可选后端提供。使用 `--features vector-qdrant` 构建并设置 `SYMBIONT_VECTOR_BACKEND=qdrant`。
 
 **上下文管理功能：**
 - **多模式搜索**：关键词、时间、相似度和混合搜索模式
@@ -439,7 +441,7 @@ cd crates/runtime && cargo run --example context_example
 | `native-sandbox` | 原生进程沙箱 | 否 |
 | `metrics` | OpenTelemetry 指标/追踪 | 否 |
 | `interactive` | `symbi init` 的交互式提示（dialoguer） | 默认 |
-| `full` | 所有特性（企业版除外） | 否 |
+| `full` | 所有可选的运行时、向量和策略特性 | 否 |
 
 ```bash
 # 使用特定特性构建
@@ -468,7 +470,7 @@ export SYMBI_LOG_LEVEL=info
 export SYMBI_RUNTIME_MODE=development
 
 # 向量搜索通过内置的 LanceDB 后端开箱即用。
-# 如需改用 Qdrant（可选，企业版）：
+# 如需改用 Qdrant（可选，启用 `vector-qdrant` 特性）：
 # export SYMBIONT_VECTOR_BACKEND=qdrant
 # export QDRANT_URL=http://localhost:6333
 

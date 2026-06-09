@@ -5,6 +5,10 @@ on:
   pull_request:
     branches: [main]
 
+# Least privilege: this workflow only checks out and builds/tests the code.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -30,7 +34,7 @@ jobs:
         run: |
           files=$(git ls-files '*.cedar' 2>/dev/null || true)
           if [ -n "$files" ]; then
-            python3 scripts/lint-cedar-policies.py $files
+            python3 .github/scripts/lint-cedar-policies.py $files
           else
             echo "No .cedar files tracked — skipping lint."
           fi

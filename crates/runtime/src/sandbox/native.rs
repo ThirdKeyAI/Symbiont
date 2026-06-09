@@ -521,6 +521,10 @@ impl SandboxRunner for NativeRunner {
                 // Kill the entire process group on timeout, then fall back
                 // to killing the immediate child.
                 if let Some(id) = child.id() {
+                    // SAFETY: `id` is the PID of the child we spawned, so the
+                    // process-group id is valid and owned by this process.
+                    // `killpg` is a libc syscall wrapper; a stale PID just
+                    // returns ESRCH, which is harmless.
                     unsafe {
                         libc::killpg(id as i32, libc::SIGKILL);
                     }

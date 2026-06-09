@@ -133,7 +133,7 @@ impl NativeSchemaPinClient {
         if trimmed.starts_with('{') {
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(trimmed) {
                 if let Some(pem) = json.get("public_key_pem").and_then(|v| v.as_str()) {
-                    return Ok(pem.to_string());
+                    return Self::validate_public_key_pem(pem, public_key_url);
                 }
                 return Err(SchemaPinError::IoError {
                     reason: format!(
@@ -144,7 +144,30 @@ impl NativeSchemaPinClient {
             }
         }
 
-        Ok(body)
+        Self::validate_public_key_pem(trimmed, public_key_url)
+    }
+
+    /// Ensure a fetched key is actually a PEM-encoded SPKI public key before it
+    /// is trusted as a verification anchor.
+    ///
+    /// Defense-in-depth for the SchemaPin key fetch (codered F-pattern-scout-0002):
+    /// rejects error pages, accidentally-served private keys, and other non-key
+    /// bodies early with a clear error instead of feeding them to the crypto layer.
+    fn validate_public_key_pem(pem: &str, source: &str) -> Result<String, SchemaPinError> {
+        let trimmed = pem.trim();
+        if trimmed.contains("-----BEGIN PUBLIC KEY-----")
+            && trimmed.contains("-----END PUBLIC KEY-----")
+        {
+            Ok(trimmed.to_string())
+        } else {
+            Err(SchemaPinError::IoError {
+                reason: format!(
+                    "Response from {} is not a PEM-encoded public key \
+                     (missing BEGIN/END PUBLIC KEY markers)",
+                    source
+                ),
+            })
+        }
     }
 
     /// Read file contents from filesystem
@@ -502,6 +525,20 @@ mod tests {
 
         let version = client.get_version().await.unwrap();
         assert!(version.contains("schemapin-native"));
+    }
+
+    #[test]
+    fn test_validate_public_key_pem() {
+        let valid = "-----BEGIN PUBLIC KEY-----\nMFkw...\n-----END PUBLIC KEY-----";
+        assert!(NativeSchemaPinClient::validate_public_key_pem(valid, "src").is_ok());
+        // An HTML error page or other non-PEM body must be refused.
+        assert!(NativeSchemaPinClient::validate_public_key_pem("<html>404</html>", "src").is_err());
+        // A body missing the END marker (e.g. truncated / wrong PEM type) is refused.
+        assert!(NativeSchemaPinClient::validate_public_key_pem(
+            "-----BEGIN PUBLIC KEY-----\nno end",
+            "src"
+        )
+        .is_err());
     }
 
     #[tokio::test]

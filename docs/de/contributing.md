@@ -130,8 +130,6 @@ symbiont/
 │   ├── examples/          # Anwendungsbeispiele
 │   ├── tests/             # Integrationstests
 │   └── docs/              # Technische Dokumentation
-├── enterprise/             # Enterprise-Features
-│   └── src/
 └── docs/                  # Community-Dokumentation
 ```
 

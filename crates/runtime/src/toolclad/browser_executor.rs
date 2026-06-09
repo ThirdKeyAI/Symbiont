@@ -97,13 +97,27 @@ impl BrowserExecutor {
             }
         }
 
-        // Scope check for navigation commands
+        // Scope check for navigation commands.
+        //
+        // Deny-by-default: `navigate` requires an explicit `[browser.scope]`. A
+        // manifest with no scope is treated as "deny all" rather than fail-open
+        // (codered F-pattern-scout-0005) — otherwise a missing scope would let the
+        // agent's browser reach arbitrary URLs (file:///, 169.254.169.254, internal
+        // services), enabling SSRF and credential theft.
         if command_name == "navigate" {
-            if let Some(url_val) = args.get("url") {
-                let url = url_val.as_str().unwrap_or("");
-                if let Some(scope) = &browser_def.scope {
+            let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("");
+            match &browser_def.scope {
+                Some(scope) => {
                     let checker = BrowserScopeChecker::new(scope);
                     checker.check_url(url)?;
+                }
+                None => {
+                    return Err(
+                        "Browser navigate denied: manifest defines no [browser.scope]; \
+                         declare an explicit scope (allowed_domains / allow_external) \
+                         to permit navigation"
+                            .to_string(),
+                    );
                 }
             }
         }
@@ -313,6 +327,51 @@ type = "object"
         );
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not in allowed domains"));
+    }
+
+    #[test]
+    fn test_navigate_denied_when_scope_missing() {
+        // A manifest with no [browser.scope] must deny navigation (deny-by-default),
+        // not fail open. Regression for codered F-pattern-scout-0005.
+        let toml_str = r#"
+[tool]
+name = "noscope_browser"
+mode = "browser"
+version = "1.0.0"
+description = "Browser without scope"
+
+[browser]
+engine = "cdp"
+connect = "launch"
+extract_mode = "accessibility_tree"
+
+[browser.commands.navigate]
+description = "Navigate to URL"
+risk_tier = "medium"
+
+[browser.commands.navigate.args.url]
+position = 0
+type = "url"
+required = true
+schemes = ["https"]
+description = "URL to navigate to"
+
+[output]
+format = "json"
+
+[output.schema]
+type = "object"
+"#;
+        let manifest: Manifest = toml::from_str(toml_str).unwrap();
+        assert!(manifest.browser.as_ref().unwrap().scope.is_none());
+        let executor = BrowserExecutor::new(vec![("noscope_browser".to_string(), manifest)]);
+
+        let result = executor.execute_browser_command(
+            "noscope_browser.navigate",
+            r#"{"url": "https://app.example.com/page"}"#,
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("no [browser.scope]"));
     }
 
     #[test]

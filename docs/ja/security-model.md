@@ -528,47 +528,6 @@ impl AuditChain {
 }
 ```
 
-### コンプライアンス機能
-
-**規制サポート：**
-
-**HIPAA（ヘルスケア）：**
-- ユーザー識別を含むPHIアクセスログ
-- データ最小化適用
-- 侵害検出と通知
-- 6年間の監査証跡保持
-
-**GDPR（プライバシー）：**
-- 個人データ処理ログ
-- 同意検証追跡
-- データ主体権利適用
-- データ保持ポリシーコンプライアンス
-
-**SOX（金融）：**
-- 内部統制文書化
-- 変更管理追跡
-- アクセス制御検証
-- 金融データ保護
-
-**カスタムコンプライアンス：**
-
-> **計画中の機能** — 以下の `ComplianceFramework` APIはセキュリティロードマップの一部であり、現在のリリースではまだ利用できません。
-
-```rust
-pub struct ComplianceFramework {
-    pub name: String,
-    pub audit_requirements: Vec<AuditRequirement>,
-    pub retention_policy: RetentionPolicy,
-    pub access_controls: Vec<AccessControl>,
-    pub data_protection: DataProtectionRules,
-}
-
-impl ComplianceFramework {
-    pub fn validate_compliance(&self, audit_trail: &AuditChain) -> ComplianceReport;
-    pub fn generate_compliance_report(&self, period: TimePeriod) -> Report;
-}
-```
-
 ---
 
 ## 人間承認リレー（`symbi-approval-relay`）
@@ -615,22 +574,19 @@ impl ComplianceFramework {
 sequenceDiagram
     participant Tool as Tool Provider
     participant SP as SchemaPin
-    participant AI as AI Reviewer
     participant Runtime as Symbiont Runtime
     participant Agent as Agent
 
-    Tool->>SP: Submit Tool Schema
-    SP->>AI: Security Analysis
-    AI-->>SP: Analysis Results
-    SP->>SP: Human Review (if needed)
-    SP->>SP: Sign Schema
-    SP-->>Tool: Signed Schema
+    Tool->>Tool: Sign schema with provider private key
+    Tool->>SP: Publish signed schema + public key
 
     Agent->>Runtime: Request Tool Use
-    Runtime->>SP: Verify Tool Schema
-    SP-->>Runtime: Verification Result
+    Runtime->>SP: Verify schema signature against pinned key
+    SP-->>Runtime: Verification Result (valid / invalid / unknown key)
     Runtime-->>Agent: Allow/Deny Tool Use
 ```
+
+> SchemaPinの検証は純粋に暗号学的なものです — 署名の検証とキーピニング（TOFU）のみを行います。ツールの動作に対するAIや人間によるレビューは行いません。それは別の計画中の機能であり、下記の「AI駆動ツールレビュー」セクションで説明されています。
 
 ### 初回使用時信頼（TOFU）
 
@@ -835,7 +791,7 @@ scanner.add_custom_rule(
 
 ## Cedar ポリシーリンター
 
-`scripts/lint-cedar-policies.py` は、リポジトリ内のすべての `.cedar` ファイルに対して実行される静的解析パスです。これは、悪意のある（または侵害された）オーサリングフローが、正しく *見える* が、レビューアが期待するものとは異なる認可決定を生成する文字を含むポリシーを書き込む、というクラスの攻撃を捕捉します。
+`.github/scripts/lint-cedar-policies.py` は、リポジトリ内のすべての `.cedar` ファイルに対して実行される静的解析パスです。これは、悪意のある（または侵害された）オーサリングフローが、正しく *見える* が、レビューアが期待するものとは異なる認可決定を生成する文字を含むポリシーを書き込む、というクラスの攻撃を捕捉します。
 
 ### 検出対象
 

@@ -195,7 +195,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`symbi-approval-relay` crate**: Dual-channel human approval relay.
 - **`symbi schemapin` and `symbi policy` CLI subcommands**.
 - **`symbi-invis-strip` crate**: Zero-dependency Unicode invisible-stripping helper (ASCII C0/DEL, C1, zero-width, bidi overrides, word-joiner/invisible-operator block, BOM, variation selectors, Unicode Tag block, supplementary variation selectors). Opt-in `sanitize_field_with_markup` variant additionally strips `<!-- ... -->` HTML comments and triple-backtick fenced blocks for surfaces where renderer-hidden markup has no legitimate use.
-- **Cedar policy linter** (`scripts/lint-cedar-policies.py`): Detects homoglyph identifiers and invisible control chars in `.cedar` files. Wired to the repo pre-commit hook and CI test job.
+- **Cedar policy linter** (`.github/scripts/lint-cedar-policies.py`): Detects homoglyph identifiers and invisible control chars in `.cedar` files. Wired to the repo pre-commit hook and CI test job.
 - **AgentPin fully wired; SchemaPin enforcement hardened**.
 - **`symbi-e2e` end-to-end test crate**: Covers AgentPin messaging, API auth scope, cross-runtime bus, Docker volumes, messaging ingress, rate limit, and webhook signature verification.
 - **Opt-in OpenRouter app attribution**: Runtime now sets the OpenRouter app-name headers when enabled.

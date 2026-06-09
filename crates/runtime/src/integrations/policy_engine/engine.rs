@@ -126,18 +126,65 @@ impl PolicyEngine for OpaPolicyEngine {
 struct OpaClient {
     base_url: String,
     client: reqwest::Client,
+    auth_token: Option<String>,
+    /// When true, the configured endpoint is plaintext HTTP to a non-loopback
+    /// host without explicit opt-in; every query fails closed (deny).
+    insecure_blocked: bool,
+}
+
+/// True if `url` is plaintext `http://` to a non-loopback host. Such an endpoint
+/// lets an on-path attacker spoof OPA decisions (codered F-pattern-scout-0000),
+/// so authorization queries to it must be refused. Unparseable URLs are treated
+/// as insecure (fail-closed).
+fn is_insecure_remote(url: &str) -> bool {
+    match url::Url::parse(url) {
+        Ok(u) => {
+            if u.scheme() != "http" {
+                return false; // https (or other non-plaintext) is fine
+            }
+            match u.host() {
+                Some(url::Host::Domain(d)) => {
+                    let d = d.to_ascii_lowercase();
+                    !(d == "localhost" || d == "localhost." || d.ends_with(".localhost"))
+                }
+                Some(url::Host::Ipv4(v4)) => !v4.is_loopback(),
+                Some(url::Host::Ipv6(v6)) => !v6.is_loopback(),
+                None => true,
+            }
+        }
+        Err(_) => true,
+    }
 }
 
 impl OpaClient {
     fn new() -> Self {
         let base_url = std::env::var("SYMBIONT_OPA_URL")
             .unwrap_or_else(|_| "http://localhost:8181".to_string());
+        let auth_token = std::env::var("SYMBIONT_OPA_AUTH_TOKEN")
+            .ok()
+            .filter(|t| !t.is_empty());
+        let allow_insecure = std::env::var("SYMBIONT_OPA_ALLOW_INSECURE")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+
+        let insecure_blocked = is_insecure_remote(&base_url) && !allow_insecure;
+        if insecure_blocked {
+            tracing::error!(
+                "SYMBIONT_OPA_URL={} is plaintext HTTP to a non-loopback host; refusing to \
+                 query it (fail-closed). Use https:// (with SYMBIONT_OPA_AUTH_TOKEN) or set \
+                 SYMBIONT_OPA_ALLOW_INSECURE=1 for local testing only.",
+                base_url
+            );
+        }
+
         Self {
             base_url,
             client: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(5))
                 .build()
                 .unwrap_or_default(),
+            auth_token,
+            insecure_blocked,
         }
     }
 
@@ -146,11 +193,24 @@ impl OpaClient {
         query: String,
         input: serde_json::Value,
     ) -> Result<serde_json::Value, PolicyError> {
+        if self.insecure_blocked {
+            tracing::warn!(
+                "OPA query refused: {} is an insecure plaintext endpoint. Denying by default.",
+                self.base_url
+            );
+            return Ok(serde_json::json!(false));
+        }
+
         let query_path = query.replace("data.", "");
         let query_url = format!("{}/v1/data/{}", self.base_url, query_path);
         let body = serde_json::json!({ "input": input });
 
-        match self.client.post(&query_url).json(&body).send().await {
+        let mut request = self.client.post(&query_url).json(&body);
+        if let Some(token) = &self.auth_token {
+            request = request.bearer_auth(token);
+        }
+
+        match request.send().await {
             Ok(resp) => {
                 if resp.status().is_success() {
                     let result: serde_json::Value = resp.json().await.map_err(|e| {
@@ -899,6 +959,21 @@ impl PolicyEnforcementPoint for MockPolicyEnforcementPoint {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn insecure_remote_opa_url_detection() {
+        // Plaintext to a non-loopback host => insecure (must be blocked).
+        assert!(is_insecure_remote("http://opa.internal:8181"));
+        assert!(is_insecure_remote("http://10.0.0.5:8181"));
+        assert!(is_insecure_remote("http://[2001:db8::1]:8181"));
+        assert!(is_insecure_remote("not-a-url"));
+        // Loopback plaintext is allowed (local sidecar).
+        assert!(!is_insecure_remote("http://localhost:8181"));
+        assert!(!is_insecure_remote("http://127.0.0.1:8181"));
+        assert!(!is_insecure_remote("http://[::1]:8181"));
+        // HTTPS is always fine.
+        assert!(!is_insecure_remote("https://opa.internal:8181"));
+    }
 
     #[tokio::test]
     async fn test_default_enforcement_point_creation() {

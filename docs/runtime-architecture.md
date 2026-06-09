@@ -641,18 +641,9 @@ pub struct AuditEvent {
 - **Timestamp Verification**: Cryptographic timestamps
 - **Batch Verification**: Efficient bulk verification
 
-### Compliance Features
-
-**Regulatory Support:**
-- **HIPAA**: Healthcare data protection compliance
-- **GDPR**: European data protection requirements
-- **SOX**: Financial audit trail requirements
-- **Custom**: Configurable compliance frameworks
-
 **Audit Capabilities:**
 - Real-time event streaming
 - Historical event querying
-- Compliance report generation
 - Integrity verification
 
 ---

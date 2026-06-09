@@ -433,6 +433,8 @@ impl TaskManager {
     /// (XDG runtime root style), fall back to <temp>/symbi-<uid>/agent_<id>.
     /// Both modes are created with 0700 perms to avoid cross-user exposure.
     fn resolve_agent_working_dir(agent_id: AgentId) -> Result<std::path::PathBuf, String> {
+        // SAFETY: `getuid()` is an always-safe POSIX syscall that takes no
+        // arguments and cannot fail; it returns the calling process's real UID.
         #[cfg(unix)]
         let uid = unsafe { libc::getuid() };
         #[cfg(not(unix))]

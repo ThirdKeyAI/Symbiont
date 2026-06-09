@@ -92,6 +92,11 @@ pub enum DeliveryChannel {
     /// Print to stdout (useful for dev/debug).
     Stdout,
     /// Append to a log file.
+    ///
+    /// `path` is confined to the router's allowlisted base directory
+    /// (`SYMBIONT_LOG_DIR`); paths that escape it via `..`, absolute paths, or
+    /// symlinks are refused, and log-file delivery is disabled entirely when no
+    /// base directory is configured.
     LogFile { path: String },
     /// POST results to an HTTP endpoint.
     Webhook {

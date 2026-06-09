@@ -472,18 +472,9 @@ pub struct AuditEvent {
 - **Verificação de Timestamp**: Timestamps criptográficos
 - **Verificação em Lote**: Verificação em massa eficiente
 
-### Recursos de Conformidade
-
-**Suporte Regulatório:**
-- **HIPAA**: Conformidade de proteção de dados de saúde
-- **GDPR**: Requisitos europeus de proteção de dados
-- **SOX**: Requisitos de trilha de auditoria financeira
-- **Personalizado**: Frameworks de conformidade configuráveis
-
 **Capacidades de Auditoria:**
 - Streaming de eventos em tempo real
 - Consulta de eventos históricos
-- Geração de relatórios de conformidade
 - Verificação de integridade
 
 ---

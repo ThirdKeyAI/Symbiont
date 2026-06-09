@@ -6,6 +6,7 @@
 use async_trait::async_trait;
 use chrono::Utc;
 use std::collections::HashMap;
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use super::cron_types::{DeliveryChannel, DeliveryConfig, DeliveryReceipt};
@@ -38,13 +39,24 @@ pub trait CustomDeliveryHandler: Send + Sync {
 /// Default implementation that dispatches to built-in channel handlers.
 pub struct DefaultDeliveryRouter {
     custom_handlers: HashMap<String, Arc<dyn CustomDeliveryHandler>>,
+    /// Allowlisted base directory for `LogFile` delivery. When `None`, log-file
+    /// delivery is refused (fail-closed). Initialized from `SYMBIONT_LOG_DIR`.
+    log_base_dir: Option<PathBuf>,
 }
 
 impl DefaultDeliveryRouter {
     pub fn new() -> Self {
         Self {
             custom_handlers: HashMap::new(),
+            log_base_dir: std::env::var_os("SYMBIONT_LOG_DIR").map(PathBuf::from),
         }
+    }
+
+    /// Confine `LogFile` delivery to `dir`. Any configured path that resolves
+    /// outside this directory (via `..`, absolute paths, or symlinks) is refused.
+    pub fn with_log_base_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.log_base_dir = Some(dir.into());
+        self
     }
 
     /// Register a custom delivery handler.
@@ -54,6 +66,63 @@ impl DefaultDeliveryRouter {
         handler: Arc<dyn CustomDeliveryHandler>,
     ) {
         self.custom_handlers.insert(name, handler);
+    }
+
+    /// Resolve a configured `LogFile` path to a concrete, safe target inside the
+    /// allowlisted base directory, or reject it.
+    ///
+    /// Defends against the scheduler-delivery path-traversal vector
+    /// (codered F-pattern-scout-0001): the destination string is data-driven
+    /// (cron job JSON) and must never be allowed to append to arbitrary files
+    /// such as `/etc/cron.d/*` or `~/.ssh/authorized_keys`.
+    fn resolve_log_path(&self, path: &str) -> Result<PathBuf, String> {
+        if path.is_empty() || path.contains('\0') {
+            return Err("invalid log file path".to_string());
+        }
+        let base = self.log_base_dir.as_ref().ok_or_else(|| {
+            "log_file delivery is disabled: set SYMBIONT_LOG_DIR to an allowlisted directory"
+                .to_string()
+        })?;
+        // The base directory must exist and be resolvable; canonicalize collapses
+        // any symlinks so the containment check below is sound.
+        let base_canon = base
+            .canonicalize()
+            .map_err(|e| format!("log base dir {} is not accessible: {}", base.display(), e))?;
+
+        let requested = Path::new(path);
+        let candidate = if requested.is_absolute() {
+            requested.to_path_buf()
+        } else {
+            base_canon.join(requested)
+        };
+
+        // Reject any `..` traversal lexically before touching the filesystem.
+        if candidate
+            .components()
+            .any(|c| matches!(c, Component::ParentDir))
+        {
+            return Err("log file path must not contain '..'".to_string());
+        }
+
+        // Canonicalize the parent (the file itself may not exist yet) so symlink
+        // escapes are resolved, then enforce containment within the base dir.
+        let parent = candidate
+            .parent()
+            .ok_or_else(|| "log file path has no parent directory".to_string())?;
+        let parent_canon = parent.canonicalize().map_err(|e| {
+            format!(
+                "log file directory {} is not accessible: {}",
+                parent.display(),
+                e
+            )
+        })?;
+        if !parent_canon.starts_with(&base_canon) {
+            return Err("log file path escapes the allowlisted log directory".to_string());
+        }
+        let file_name = candidate
+            .file_name()
+            .ok_or_else(|| "log file path has no file name".to_string())?;
+        Ok(parent_canon.join(file_name))
     }
 
     async fn deliver_to_channel(
@@ -132,6 +201,18 @@ impl DefaultDeliveryRouter {
     }
 
     async fn deliver_log_file(&self, payload: &serde_json::Value, path: &str) -> DeliveryReceipt {
+        let resolved = match self.resolve_log_path(path) {
+            Ok(p) => p,
+            Err(reason) => {
+                return DeliveryReceipt {
+                    channel_description: format!("log_file:{}", path),
+                    delivered_at: Utc::now(),
+                    success: false,
+                    status_code: None,
+                    error: Some(format!("rejected: {}", reason)),
+                };
+            }
+        };
         let line = format!(
             "[{}] {}\n",
             Utc::now().to_rfc3339(),
@@ -140,7 +221,7 @@ impl DefaultDeliveryRouter {
         match tokio::fs::OpenOptions::new()
             .create(true)
             .append(true)
-            .open(path)
+            .open(&resolved)
             .await
         {
             Ok(mut file) => {
@@ -454,21 +535,83 @@ mod tests {
     async fn log_file_delivery_creates_file() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.log");
-        let path_str = path.to_str().unwrap().to_string();
 
-        let router = DefaultDeliveryRouter::new();
+        let router = DefaultDeliveryRouter::new().with_log_base_dir(dir.path());
         let payload = serde_json::json!({"result": "pass"});
         let config = DeliveryConfig {
             channels: vec![DeliveryChannel::LogFile {
-                path: path_str.clone(),
+                path: "test.log".to_string(),
             }],
             fail_fast: false,
         };
         let result = router.deliver(&payload, &config).await;
         assert!(result.all_succeeded);
 
-        let content = tokio::fs::read_to_string(&path_str).await.unwrap();
+        let content = tokio::fs::read_to_string(&path).await.unwrap();
         assert!(content.contains("pass"));
+    }
+
+    #[tokio::test]
+    async fn log_file_rejects_parent_dir_traversal() {
+        let dir = tempfile::tempdir().unwrap();
+        let router = DefaultDeliveryRouter::new().with_log_base_dir(dir.path());
+        let payload = serde_json::json!({"x": 1});
+        let config = DeliveryConfig {
+            channels: vec![DeliveryChannel::LogFile {
+                path: "../escape.log".to_string(),
+            }],
+            fail_fast: false,
+        };
+        let result = router.deliver(&payload, &config).await;
+        assert!(!result.all_succeeded);
+        assert!(result.receipts[0]
+            .error
+            .as_ref()
+            .unwrap()
+            .contains("rejected"));
+        // Nothing must be written outside the base dir.
+        assert!(!dir.path().parent().unwrap().join("escape.log").exists());
+    }
+
+    #[tokio::test]
+    async fn log_file_rejects_absolute_escape() {
+        let base = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let evil = outside.path().join("evil.log");
+        let router = DefaultDeliveryRouter::new().with_log_base_dir(base.path());
+        let payload = serde_json::json!({"x": 1});
+        let config = DeliveryConfig {
+            channels: vec![DeliveryChannel::LogFile {
+                path: evil.to_str().unwrap().to_string(),
+            }],
+            fail_fast: false,
+        };
+        let result = router.deliver(&payload, &config).await;
+        assert!(!result.all_succeeded);
+        assert!(!evil.exists());
+    }
+
+    #[tokio::test]
+    async fn log_file_disabled_without_base_dir() {
+        // No base dir configured => fail-closed.
+        let router = DefaultDeliveryRouter {
+            custom_handlers: HashMap::new(),
+            log_base_dir: None,
+        };
+        let payload = serde_json::json!({"x": 1});
+        let config = DeliveryConfig {
+            channels: vec![DeliveryChannel::LogFile {
+                path: "anything.log".to_string(),
+            }],
+            fail_fast: false,
+        };
+        let result = router.deliver(&payload, &config).await;
+        assert!(!result.all_succeeded);
+        assert!(result.receipts[0]
+            .error
+            .as_ref()
+            .unwrap()
+            .contains("disabled"));
     }
 
     #[tokio::test]
@@ -521,19 +664,17 @@ mod tests {
     #[tokio::test]
     async fn multiple_channels_all_succeed() {
         let dir = tempfile::tempdir().unwrap();
-        let path1 = dir.path().join("a.log");
-        let path2 = dir.path().join("b.log");
 
-        let router = DefaultDeliveryRouter::new();
+        let router = DefaultDeliveryRouter::new().with_log_base_dir(dir.path());
         let payload = serde_json::json!({"multi": true});
         let config = DeliveryConfig {
             channels: vec![
                 DeliveryChannel::Stdout,
                 DeliveryChannel::LogFile {
-                    path: path1.to_str().unwrap().to_string(),
+                    path: "a.log".to_string(),
                 },
                 DeliveryChannel::LogFile {
-                    path: path2.to_str().unwrap().to_string(),
+                    path: "b.log".to_string(),
                 },
             ],
             fail_fast: false,

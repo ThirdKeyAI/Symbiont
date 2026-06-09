@@ -529,47 +529,6 @@ impl AuditChain {
 }
 ```
 
-### 合规功能
-
-**监管支持：**
-
-**HIPAA（医疗保健）：**
-- 带有用户身份识别的 PHI 访问记录
-- 数据最小化强制执行
-- 违规检测和通知
-- 6 年审计轨迹保留
-
-**GDPR（隐私）：**
-- 个人数据处理日志
-- 同意验证跟踪
-- 数据主体权利强制执行
-- 数据保留策略合规
-
-**SOX（金融）：**
-- 内部控制文档
-- 变更管理跟踪
-- 访问控制验证
-- 财务数据保护
-
-**自定义合规：**
-
-> **计划功能** — 下方所示的 `ComplianceFramework` API 属于安全路线图的一部分，尚未在当前版本中提供。
-
-```rust
-pub struct ComplianceFramework {
-    pub name: String,
-    pub audit_requirements: Vec<AuditRequirement>,
-    pub retention_policy: RetentionPolicy,
-    pub access_controls: Vec<AccessControl>,
-    pub data_protection: DataProtectionRules,
-}
-
-impl ComplianceFramework {
-    pub fn validate_compliance(&self, audit_trail: &AuditChain) -> ComplianceReport;
-    pub fn generate_compliance_report(&self, period: TimePeriod) -> Report;
-}
-```
-
 ---
 
 ## 人工审批中继（`symbi-approval-relay`）
@@ -616,22 +575,19 @@ impl ComplianceFramework {
 sequenceDiagram
     participant Tool as Tool Provider
     participant SP as SchemaPin
-    participant AI as AI Reviewer
     participant Runtime as Symbiont Runtime
     participant Agent as Agent
 
-    Tool->>SP: Submit Tool Schema
-    SP->>AI: Security Analysis
-    AI-->>SP: Analysis Results
-    SP->>SP: Human Review (if needed)
-    SP->>SP: Sign Schema
-    SP-->>Tool: Signed Schema
+    Tool->>Tool: Sign schema with provider private key
+    Tool->>SP: Publish signed schema + public key
 
     Agent->>Runtime: Request Tool Use
-    Runtime->>SP: Verify Tool Schema
-    SP-->>Runtime: Verification Result
+    Runtime->>SP: Verify schema signature against pinned key
+    SP-->>Runtime: Verification Result (valid / invalid / unknown key)
     Runtime-->>Agent: Allow/Deny Tool Use
 ```
+
+> SchemaPin 验证纯粹是密码学层面的 —— 签名校验和密钥固定（TOFU）。它不对工具行为执行任何 AI 或人工审查；那是一项独立的、计划中的能力，详见下文“AI 驱动的工具审查”一节。
 
 ### 首次使用信任（TOFU）
 
@@ -836,7 +792,7 @@ scanner.add_custom_rule(
 
 ## Cedar 策略 Linter
 
-`scripts/lint-cedar-policies.py` 是对仓库中每个 `.cedar` 文件运行的静态分析过程。它能捕获这样一类攻击：恶意（或被入侵）的编写流程写出一份*看起来*正确但包含产生与评审者预期不同授权决定的字符的策略。
+`.github/scripts/lint-cedar-policies.py` 是对仓库中每个 `.cedar` 文件运行的静态分析过程。它能捕获这样一类攻击：恶意（或被入侵）的编写流程写出一份*看起来*正确但包含产生与评审者预期不同授权决定的字符的策略。
 
 ### 捕获范围
 
