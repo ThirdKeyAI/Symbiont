@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.15.2] - 2026-06-09
+
+**Patch: Cedar policy enforcement is on by default in the `symbi` binary.**
+
+### Fixed
+- **Cedar enabled by default in the `symbi` binary.** The `cedar` feature was in `symbi-runtime`'s defaults but not the binary's, and the binary's `try_wire_cedar_policy_gate` / `symbi policy` are `#[cfg(feature = "cedar")]`. So a default `cargo build` of `symbi` compiled out the Cedar wiring — `symbi up`/`run` fell back to the fail-closed gate and `symbi policy evaluate` was a no-op. Added `cedar` to the binary's `default` features so Cedar policy enforcement is active out of the box.
+
+### Crate versions
+| Crate | Version |
+|-------|---------|
+| `symbi` | 1.15.2 |
+| `symbi-runtime` | 1.15.2 |
+| `symbi-dsl` | 1.15.2 |
+| `repl-core` | 1.15.2 |
+| `repl-cli` | 1.15.2 |
+| `repl-proto` | 1.15.2 |
+| `repl-lsp` | 1.15.2 |
+| `symbi-shell` | 1.15.2 |
+
 ## [1.15.1] - 2026-06-09
 
 **Patch: `symbi init` agent templates now parse cleanly.** The generated agents tripped `symbi dsl` warnings; no runtime/API changes.
