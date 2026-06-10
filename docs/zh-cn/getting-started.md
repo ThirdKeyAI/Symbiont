@@ -2,6 +2,10 @@
 
 本指南将指导您设置 Symbi 并创建您的第一个 AI 智能体。
 
+▶ **观看入门教程视频：**
+
+[![Symbiont — get started](https://img.youtube.com/vi/RPyKpqKz5ik/hqdefault.jpg)](https://www.youtube.com/watch?v=RPyKpqKz5ik)
+
 ## 目录
 
 
@@ -9,13 +13,26 @@
 
 ## 前置要求
 
-在开始使用 Symbi 之前，请确保您已安装以下组件：
+您需要什么取决于您如何安装和运行 Symbi。
 
-### 必需的依赖项
+### 运行预编译二进制文件
 
-- **Docker**（用于容器化开发）
-- **Rust 1.82+**（如果本地构建）
+预编译二进制文件已经编译完成——安装或运行它们**无需** Rust、protobuf 或 Git。可以使用 Homebrew、安装脚本（`curl`）或从 GitHub Releases 手动下载进行安装。
+
+- **Docker** 仅在*运行时*需要，前提是您在默认沙箱层级（`tier1`，基于 Docker）下执行智能体。安装 Symbi 或运行 `symbi init`、`symbi dsl` 或 `symbi --version` 时**不需要**它。
+
+### 从源代码构建
+
+仅当您通过 `cargo install` 安装或自行构建仓库时才需要：
+
+- **Rust 1.82+**
+- **protobuf-compiler**（在 Ubuntu 上使用 `apt install protobuf-compiler`，在 macOS 上使用 `brew install protobuf`）
 - **Git**（用于克隆仓库）
+
+### 可选
+
+- **[symbi-claude-code](https://github.com/thirdkeyai/symbi-claude-code)**（Claude Code 治理插件）
+- **[symbi-gemini-cli](https://github.com/thirdkeyai/symbi-gemini-cli)**（Gemini CLI 治理扩展）
 
 > **注意：** 向量搜索已内置。Symbi 自带 [LanceDB](https://lancedb.com/) 作为嵌入式向量数据库——无需外部服务。
 

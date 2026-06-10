@@ -2,6 +2,10 @@
 
 Esta guia te guiara a traves de la configuracion de Symbi y la creacion de tu primer agente de IA.
 
+▶ **Mira el tutorial de inicio:**
+
+[![Symbiont — get started](https://img.youtube.com/vi/RPyKpqKz5ik/hqdefault.jpg)](https://www.youtube.com/watch?v=RPyKpqKz5ik)
+
 ## Tabla de contenidos
 
 
@@ -9,15 +13,23 @@ Esta guia te guiara a traves de la configuracion de Symbi y la creacion de tu pr
 
 ## Prerrequisitos
 
-Antes de comenzar con Symbi, asegurate de tener lo siguiente instalado:
+Lo que necesitas depende de como instales y ejecutes Symbi.
 
-### Dependencias Requeridas
+### Para ejecutar el binario preconstruido
 
-- **Docker** (para desarrollo containerizado)
-- **Rust 1.82+** (si construyes localmente)
+Los binarios preconstruidos ya estan compilados: **no** necesitas Rust, protobuf ni Git para instalarlos o ejecutarlos. Instala con Homebrew, el script de instalacion (`curl`) o una descarga manual desde GitHub Releases.
+
+- **Docker** solo se necesita en *tiempo de ejecucion* si ejecutas agentes bajo el nivel de sandbox predeterminado (`tier1`, respaldado por Docker). **No** se necesita para instalar Symbi ni para ejecutar `symbi init`, `symbi dsl` o `symbi --version`.
+
+### Para construir desde el codigo fuente
+
+Requerido solo si instalas via `cargo install` o construyes el repositorio tu mismo:
+
+- **Rust 1.82+**
+- **protobuf-compiler** (`apt install protobuf-compiler` en Ubuntu, `brew install protobuf` en macOS)
 - **Git** (para clonar el repositorio)
 
-### Dependencias Opcionales
+### Opcional
 
 - **[symbi-claude-code](https://github.com/thirdkeyai/symbi-claude-code)** (plugin de gobernanza para Claude Code)
 - **[symbi-gemini-cli](https://github.com/thirdkeyai/symbi-gemini-cli)** (extension de gobernanza para Gemini CLI)

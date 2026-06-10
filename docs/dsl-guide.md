@@ -70,10 +70,10 @@ metadata {
     description: "Healthcare data analysis agent with HIPAA compliance"
     license: "Proprietary"
     tags: ["healthcare", "hipaa", "analysis"]
-    min_runtime_version: "1.0.0"
-    dependencies: ["medical_nlp", "privacy_tools"]
 }
 ```
+
+Metadata pairs accept either `=` or `:` as the separator.
 
 ### Metadata Fields
 
@@ -84,8 +84,15 @@ metadata {
 | `description` | String | Yes | Brief description of agent functionality |
 | `license` | String | No | License identifier |
 | `tags` | Array[String] | No | Classification tags |
-| `min_runtime_version` | String | No | Minimum required runtime version |
-| `dependencies` | Array[String] | No | External dependencies |
+
+Managed-CLI agents (Mode B) recognize these additional metadata keys, read by `symbi run` to spawn a governed Claude Code subprocess (see `agents/code_reviewer.symbi`):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `executor` | String | Set to `"claude_code"` to run the agent as a governed Claude Code subprocess instead of the reasoning loop |
+| `model` | String | Model passed to the subprocess (e.g. `"claude-sonnet-4-5"`) |
+| `allowed_tools` | String | Comma-separated tool allowlist for the subprocess (e.g. `"Read,Grep,Glob"`) |
+| `system_prompt` | String | Extra system prompt appended for the subprocess |
 
 ---
 

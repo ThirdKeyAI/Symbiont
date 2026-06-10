@@ -725,26 +725,29 @@ max_concurrent_connections = 100
 ### Environment Variables
 
 ```bash
-# Core runtime
-export SYMBI_LOG_LEVEL=info
-export SYMBI_RUNTIME_MODE=production
-export SYMBI_CONFIG_PATH=/etc/symbi/config.toml
+# Required: 32-byte hex key used to encrypt persistent state.
+# `symbi init` writes one into .env. Generate with: openssl rand -hex 32
+export SYMBIONT_MASTER_KEY=...
 
-# Security
-export SYMBI_CRYPTO_PROVIDER=ring
-export SYMBI_AUDIT_STORAGE=/var/log/symbi/audit
+# LLM provider (set one)
+export ANTHROPIC_API_KEY=...   # or OPENAI_API_KEY / OPENROUTER_API_KEY
 
-# Vector database (LanceDB is the zero-config default)
-export SYMBIONT_VECTOR_BACKEND=lancedb          # or "qdrant"
-export SYMBIONT_VECTOR_DATA_PATH=./data/vectors # LanceDB storage path
+# Policy gate: Cedar is on by default and auto-wires from policies/*.cedar.
+# export SYMBI_INSECURE_ALLOW_ALL=1   # LOCAL DEV ONLY — permissive gate
 
-# Optional: only needed when using Qdrant backend
-# export SYMBIONT_VECTOR_HOST=localhost
-# export SYMBIONT_VECTOR_PORT=6334
+# Scheduler log_file delivery (required for that channel; confined to this dir)
+# export SYMBIONT_LOG_DIR=/var/log/symbiont
 
-# External dependencies
-export OPENAI_API_KEY=your_api_key_here
-export MCP_SERVER_DISCOVERY=enabled
+# Vector search: LanceDB is the zero-config default. To use Qdrant instead:
+# export SYMBIONT_VECTOR_BACKEND=qdrant
+# export QDRANT_URL=http://localhost:6333
+
+# OPA policy backend, if used (https + bearer required for non-loopback hosts):
+# export SYMBIONT_OPA_URL=https://opa.internal:8181
+# export SYMBIONT_OPA_AUTH_TOKEN=...
+
+# Trusted reverse-proxy CIDR allowlist for X-Forwarded-For
+# export SYMBI_TRUSTED_PROXIES=10.0.0.0/8
 ```
 
 ---
@@ -802,7 +805,7 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y ca-certificates
 COPY --from=builder /app/target/release/symbi /usr/local/bin/
 EXPOSE 8080
-CMD ["symbi", "mcp", "--config", "/etc/symbi/config.toml"]
+CMD ["symbi", "up"]
 ```
 
 ### Kubernetes Deployment
@@ -828,8 +831,11 @@ spec:
         ports:
         - containerPort: 8080
         env:
-        - name: SYMBI_RUNTIME_MODE
-          value: "production"
+        - name: SYMBIONT_MASTER_KEY
+          valueFrom:
+            secretKeyRef:
+              name: symbi-secrets
+              key: master-key
         resources:
           requests:
             memory: "1Gi"

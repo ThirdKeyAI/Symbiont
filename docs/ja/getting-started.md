@@ -2,6 +2,10 @@
 
 このガイドでは、Symbiのセットアップと初めてのAIエージェントの作成について説明します。
 
+▶ **入門ウォークスルー動画を見る：**
+
+[![Symbiont — get started](https://img.youtube.com/vi/RPyKpqKz5ik/hqdefault.jpg)](https://www.youtube.com/watch?v=RPyKpqKz5ik)
+
 ## 目次
 
 
@@ -9,13 +13,26 @@
 
 ## 前提条件
 
-Symbiを使い始める前に、以下がインストールされていることを確認してください：
+必要なものは、Symbiのインストールおよび実行方法によって異なります。
 
-### 必須の依存関係
+### ビルド済みバイナリを実行する場合
 
-- **Docker**（コンテナ化開発用）
-- **Rust 1.82+**（ローカルビルドする場合）
+ビルド済みバイナリはすでにコンパイルされているため、インストールや実行に Rust、protobuf、Git は **不要** です。Homebrew、インストールスクリプト（`curl`）、または GitHub Releases からの手動ダウンロードでインストールできます。
+
+- **Docker** は、デフォルトのサンドボックスティア（`tier1`、Docker ベース）でエージェントを実行する場合に *実行時* にのみ必要です。Symbi のインストールや、`symbi init`、`symbi dsl`、`symbi --version` の実行には **不要** です。
+
+### ソースからビルドする場合
+
+`cargo install` でインストールする場合、またはリポジトリを自分でビルドする場合にのみ必要です：
+
+- **Rust 1.82+**
+- **protobuf-compiler**（Ubuntu では `apt install protobuf-compiler`、macOS では `brew install protobuf`）
 - **Git**（リポジトリのクローン用）
+
+### オプション
+
+- **[symbi-claude-code](https://github.com/thirdkeyai/symbi-claude-code)**（Claude Code ガバナンスプラグイン）
+- **[symbi-gemini-cli](https://github.com/thirdkeyai/symbi-gemini-cli)**（Gemini CLI ガバナンス拡張機能）
 
 > **注意:** ベクトル検索は組み込みです。Symbiは[LanceDB](https://lancedb.com/)を組み込みベクトルデータベースとして同梱しており、外部サービスは不要です。
 

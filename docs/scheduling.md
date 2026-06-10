@@ -848,38 +848,13 @@ enable_metrics = true
 default_max_retries = 3
 shutdown_timeout_seconds = 60
 
-[scheduler.delivery]
-# Webhook settings
-webhook_timeout_seconds = 30
-webhook_retry_attempts = 3
-
-# Slack settings
-slack_api_token = "${SLACK_API_TOKEN}"
-slack_default_channel = "#ops"
-
-# Email settings
-smtp_host = "smtp.example.com"
-smtp_port = 587
-smtp_username = "${SMTP_USER}"
-smtp_password = "${SMTP_PASS}"
-email_from = "symbiont@example.com"
 ```
 
-### Environment Variables
+### Delivery channels
 
-```bash
-# Scheduler settings
-SYMBI_SCHEDULER_MAX_JITTER=30
-SYMBI_SCHEDULER_MAX_CONCURRENT=20
+Delivery channels (`stdout`, `log_file`, `webhook`, `slack`, `email`, …) are configured **per schedule** in that schedule's `delivery` block (see the examples above), not via a global `[scheduler.delivery]` config section.
 
-# Delivery settings
-SYMBI_SLACK_TOKEN=xoxb-...
-SYMBI_WEBHOOK_AUTH_HEADER="Bearer secret-token"
-
-# AgentPin verification
-SYMBI_AGENTPIN_REQUIRED=true
-SYMBI_AGENTPIN_DOMAIN=agent.example.com
-```
+> **`log_file` delivery requires `SYMBIONT_LOG_DIR`.** The destination path is confined to that allowlisted directory — paths that escape it via `..`, absolute paths, or symlinks are rejected, and log-file delivery is fail-closed (disabled) when `SYMBIONT_LOG_DIR` is unset.
 
 ## Observability
 

@@ -2,6 +2,10 @@
 
 Dieser Leitfaden fuehrt Sie durch die Einrichtung von Symbi und die Erstellung Ihres ersten KI-Agenten.
 
+▶ **Zum Einstieg das Walkthrough-Video ansehen:**
+
+[![Symbiont — get started](https://img.youtube.com/vi/RPyKpqKz5ik/hqdefault.jpg)](https://www.youtube.com/watch?v=RPyKpqKz5ik)
+
 ## Inhaltsverzeichnis
 
 
@@ -9,13 +13,26 @@ Dieser Leitfaden fuehrt Sie durch die Einrichtung von Symbi und die Erstellung I
 
 ## Voraussetzungen
 
-Bevor Sie mit Symbi beginnen, stellen Sie sicher, dass Sie Folgendes installiert haben:
+Was Sie benoetigen, haengt davon ab, wie Sie Symbi installieren und ausfuehren.
 
-### Erforderliche Abhaengigkeiten
+### Zur Ausfuehrung der vorkompilierten Binaerdatei
 
-- **Docker** (fuer containerisierte Entwicklung)
-- **Rust 1.82+** (wenn Sie lokal kompilieren)
+Die vorkompilierten Binaerdateien sind bereits fertig kompiliert -- Sie benoetigen **kein** Rust, protobuf oder Git, um sie zu installieren oder auszufuehren. Installieren Sie sie mit Homebrew, dem Installationsskript (`curl`) oder per manuellem Download von GitHub Releases.
+
+- **Docker** wird nur zur *Laufzeit* benoetigt, wenn Sie Agenten in der Standard-Sandbox-Stufe (`tier1`, Docker-basiert) ausfuehren. Es wird **nicht** benoetigt, um Symbi zu installieren oder um `symbi init`, `symbi dsl` oder `symbi --version` auszufuehren.
+
+### Zum Erstellen aus dem Quellcode
+
+Nur erforderlich, wenn Sie ueber `cargo install` installieren oder das Repository selbst bauen:
+
+- **Rust 1.82+**
+- **protobuf-compiler** (`apt install protobuf-compiler` unter Ubuntu, `brew install protobuf` unter macOS)
 - **Git** (zum Klonen des Repositories)
+
+### Optional
+
+- **[symbi-claude-code](https://github.com/thirdkeyai/symbi-claude-code)** (Claude Code Governance-Plugin)
+- **[symbi-gemini-cli](https://github.com/thirdkeyai/symbi-gemini-cli)** (Gemini CLI Governance-Erweiterung)
 
 > **Hinweis:** Vektorsuche ist integriert. Symbi wird mit [LanceDB](https://lancedb.com/) als eingebetteter Vektordatenbank ausgeliefert -- kein externer Dienst erforderlich.
 

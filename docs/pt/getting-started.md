@@ -2,6 +2,10 @@
 
 Este guia irá orientá-lo na configuração do Symbi e na criação do seu primeiro agente de IA.
 
+▶ **Assista ao tutorial de introdução:**
+
+[![Symbiont — get started](https://img.youtube.com/vi/RPyKpqKz5ik/hqdefault.jpg)](https://www.youtube.com/watch?v=RPyKpqKz5ik)
+
 ## Índice
 
 
@@ -9,13 +13,26 @@ Este guia irá orientá-lo na configuração do Symbi e na criação do seu prim
 
 ## Pré-requisitos
 
-Antes de começar com o Symbi, certifique-se de ter o seguinte instalado:
+O que você precisa depende de como instala e executa o Symbi.
 
-### Dependências Obrigatórias
+### Para executar o binário pré-compilado
 
-- **Docker** (para desenvolvimento containerizado)
-- **Rust 1.82+** (se compilando localmente)
+Os binários pré-compilados já estão compilados — você **não** precisa de Rust, protobuf ou Git para instalá-los ou executá-los. Instale com o Homebrew, o script de instalação (`curl`) ou um download manual a partir do GitHub Releases.
+
+- **Docker** só é necessário em *tempo de execução* se você executar agentes sob o sandbox tier padrão (`tier1`, baseado em Docker). **Não** é necessário para instalar o Symbi ou para executar `symbi init`, `symbi dsl` ou `symbi --version`.
+
+### Para compilar a partir do código-fonte
+
+Necessário apenas se você instalar via `cargo install` ou compilar o repositório você mesmo:
+
+- **Rust 1.82+**
+- **protobuf-compiler** (`apt install protobuf-compiler` no Ubuntu, `brew install protobuf` no macOS)
 - **Git** (para clonar o repositório)
+
+### Opcional
+
+- **[symbi-claude-code](https://github.com/thirdkeyai/symbi-claude-code)** (plugin de governança do Claude Code)
+- **[symbi-gemini-cli](https://github.com/thirdkeyai/symbi-gemini-cli)** (extensão de governança do Gemini CLI)
 
 > **Nota:** A busca vetorial é integrada. O Symbi inclui o [LanceDB](https://lancedb.com/) como banco de dados vetorial embutido -- nenhum serviço externo é necessário.
 
