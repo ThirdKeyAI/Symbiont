@@ -58,6 +58,10 @@ Symbiont conforms to **OATS Extended** (C1–C7 + E1–E8). The empirical compar
 
 ## Quick start
 
+▶ **Watch the get-started walkthrough:**
+
+[![Symbiont — get started](https://img.youtube.com/vi/RPyKpqKz5ik/hqdefault.jpg)](https://www.youtube.com/watch?v=RPyKpqKz5ik)
+
 ### Prerequisites
 
 * Docker (recommended) or Rust 1.82+

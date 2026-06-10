@@ -58,6 +58,10 @@ Symbiont cumple con **OATS Extended** (C1–C7 + E1–E8). La comparación empí
 
 ## Inicio rápido
 
+▶ **Mira el tutorial de inicio:**
+
+[![Symbiont — get started](https://img.youtube.com/vi/RPyKpqKz5ik/hqdefault.jpg)](https://www.youtube.com/watch?v=RPyKpqKz5ik)
+
 ### Prerrequisitos
 
 * Docker (recomendado) o Rust 1.82+

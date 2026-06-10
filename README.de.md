@@ -58,6 +58,10 @@ Symbiont entspricht **OATS Extended** (C1-C7 + E1-E8). Der empirische Vergleich 
 
 ## Schnellstart
 
+▶ **Einstiegs-Walkthrough ansehen:**
+
+[![Symbiont — get started](https://img.youtube.com/vi/RPyKpqKz5ik/hqdefault.jpg)](https://www.youtube.com/watch?v=RPyKpqKz5ik)
+
 ### Voraussetzungen
 
 * Docker (empfohlen) oder Rust 1.82+
