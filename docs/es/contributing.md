@@ -52,10 +52,6 @@ git remote add upstream https://github.com/thirdkeyai/symbiont.git
 rustup update
 rustup component add rustfmt clippy
 
-# Install pre-commit hooks
-cargo install pre-commit
-pre-commit install
-
 # Build the project
 cargo build
 ```
@@ -66,21 +62,24 @@ cargo build
 cargo test --workspace
 
 # Run specific test suites
-cargo test --package symbiont-dsl
+cargo test --package symbi-dsl
 cargo test --package symbi-runtime
 
 # Run with coverage
 cargo tarpaulin --out html
 ```
 
-4. **Iniciar Servicios de Desarrollo**
+4. **Formatear y lint antes de hacer commit**
 ```bash
-# Start required services with Docker Compose
-docker-compose up -d redis postgres
-
-# Verify services are running
-cargo run --example basic_agent
+cargo fmt
+cargo clippy --workspace -- -D warnings
+# O ejecutar el barrido completo previo al lanzamiento (fmt, clippy, test, machete, audit, deny):
+just check
 ```
+
+> No se requieren servicios externos para el desarrollo. Symbi usa LanceDB embebido
+> (busqueda vectorial) y SQLite de forma predeterminada — no hay Redis/PostgreSQL obligatorio.
+> Verifica tu configuracion con `cargo run --example basic_agent`.
 
 ---
 

@@ -1,367 +1,176 @@
 # Symbiont DSL Specification
 
+> This specification reflects the actual grammar in
+> [`crates/dsl/tree-sitter-symbiont/grammar.js`](https://github.com/thirdkeyai/symbiont/blob/main/crates/dsl/tree-sitter-symbiont/grammar.js), which is the source of truth. For a practical,
+> example-driven walkthrough see the [DSL Guide](dsl-guide.md). Agent files use the
+> `.symbi` extension (legacy `.dsl` is still recognized). Validate any file with
+> `symbi dsl -f agents/<name>.symbi`.
+
 ## Overview
 
-The Symbiont DSL (Domain-Specific Language) provides a declarative syntax for defining agent behaviors, configurations, and interactions within the Symbiont runtime environment. The DSL is designed to be expressive, safe, and easily parseable while enabling sophisticated agent automation scenarios.
+The Symbiont DSL is a declarative language for defining governed agents, their
+policies, supporting types, and runtime integrations (schedules, channels,
+memory, webhooks). A program is a sequence of top-level items.
 
-## Core Language Constructs
+## Top-level items
 
-### 1. Agent Definition
+A program is any number of:
 
-```rust
-agent MyAgent {
-    name: "My Test Agent"
-    version: "1.0.0"
-    author: "Developer"
-    description: "A sample agent for demonstration"
-    
-    // Resource requirements
-    resources {
-        memory: 512MB
-        cpu: 1000ms
-        network: allow
-        storage: 100MB
-    }
-    
-    // Security configuration
-    security {
-        tier: Tier1
-        capabilities: [FileSystem.Read, Network.Http]
-        sandbox: strict
-    }
-    
-    // Policies
-    policies {
-        execution_timeout: 30s
-        retry_count: 3
-        failure_action: terminate
-    }
+- `metadata { ... }` — document metadata
+- `agent name(params) -> Type { ... }` — an agent definition
+- `policy name { ... }` — a named policy
+- `type Name = ...` — a type alias or struct
+- `function name(params) -> Type { ... }` — a free function
+- `schedule name { ... }` — a cron schedule
+- `channel name { ... }` — an inter-agent channel
+- `memory name { ... }` — a persistent memory store
+- `webhook name { ... }` — webhook ingestion
+- comments
+
+## Metadata
+
+```
+metadata {
+    version = "1.0.0"
+    author = "ThirdKey"
+    description = "..."
+    tags = ["category", "use-case"]
 }
 ```
 
-### 2. Behavior Definitions
+Each pair is `identifier` `=` (or `:`) `value`, where a value is a string,
+number, boolean, identifier, array, or record. Managed-CLI (Mode B) agents also
+recognize `executor`, `model`, `allowed_tools`, and `system_prompt` — see the
+[DSL Guide](dsl-guide.md).
 
-```rust
-behavior ProcessFiles {
-    input {
-        directory: string
-        pattern: string = "*.txt"
+## Agent definition
+
+```
+agent name(param: Type, ...) -> ReturnType {
+    capabilities = ["read", "analyze"]
+
+    policy policy_name {
+        allow: read(input) if true
+        deny: write(any)
     }
-    
-    output {
-        processed_count: number
-        results: list<string>
-    }
-    
-    steps {
-        // Variable binding
-        let files = fs.list(directory, pattern)
-        
-        // Conditional logic
-        if files.length == 0 {
-            log.warn("No files found in directory: {directory}")
-            return { processed_count: 0, results: [] }
-        }
-        
-        // Iteration
-        let results = []
-        for file in files {
-            // Capability-gated operation
-            require capability FileSystem.Read
-            let content = fs.read(file)
-            
-            // Function call
-            let processed = process_content(content)
-            results.push(processed)
-            
-            // Progress reporting
-            emit progress { file: file, status: "completed" }
-        }
-        
-        return { 
-            processed_count: files.length, 
-            results: results 
-        }
+
+    with memory = "ephemeral", sandbox = "tier1" {
+        result = process(input);
+        return result;
     }
 }
 ```
 
-### 3. Function Definitions
+The parameter list and `-> ReturnType` are optional. The only items allowed
+inside an agent body are: `capabilities`, `policy`, `function`, `with` blocks,
+and comments.
 
-```rust
-function process_content(content: string) -> string {
-    // String operations
-    let lines = content.split("\n")
-    let filtered = lines.filter(line -> line.trim().length > 0)
-    let processed = filtered.map(line -> line.upper())
-    return processed.join("\n")
+### Capabilities
+
+```
+capabilities = ["read", "write", "analyze"]
+```
+
+An array of strings (the separator may be `=` or `:`).
+
+## Policies
+
+```
+policy name {
+    allow:   <expr> [if <expr>]
+    deny:    <expr> [if <expr>]
+    require: <expr> [if <expr>]
+    audit:   <expr> [if <expr>]
 }
 ```
 
-### 4. Event Handling
+Each rule is one of `allow` / `deny` / `require` / `audit`, then `:`, then an
+expression, then an optional `if <expr>` guard. Policies may also appear at the
+top level and inside `channel` blocks.
 
-```rust
-on file_changed(path: string) {
-    log.info("File changed: {path}")
-    
-    // Trigger behavior
-    let result = invoke ProcessFiles {
-        directory: path.parent()
-        pattern: path.basename()
-    }
-    
-    // Emit results
-    emit file_processed { path: path, result: result }
-}
+## `with` blocks
 
-on timer(interval: 5m) {
-    log.debug("Periodic health check")
-    emit heartbeat { timestamp: now() }
+```
+with memory = "persistent", sandbox = "tier1", timeout = "30m" {
+    // statements
 }
 ```
 
-### 5. Variable and Data Types
+Zero or more `identifier = value` (or array) attributes, comma-separated,
+followed by a block. Attributes the runtime understands include `sandbox`
+(`docker`/`tier1`, `gvisor`/`tier2`, `firecracker`/`tier3`, `e2b`), `timeout`,
+`memory`, `security`, and others; unrecognized attributes parse but are ignored.
 
-```rust
-// Primitive types
-let name: string = "example"
-let count: number = 42
-let active: boolean = true
-let timestamp: datetime = now()
+## Functions
 
-// Collections
-let items: list<string> = ["a", "b", "c"]
-let config: map<string, any> = {
-    "host": "localhost",
-    "port": 8080,
-    "enabled": true
-}
-
-// Optional types
-let optional_value: string? = null
-
-// Custom types (structs)
-struct FileInfo {
-    path: string
-    size: number
-    modified: datetime
+```
+function name(param: Type) -> Type {
+    // statements
 }
 ```
 
-### 6. Control Flow
+## Types
 
-```rust
-// Conditional statements
-if condition {
-    // if block
-} else if other_condition {
-    // else if block
-} else {
-    // else block
+Built-in types: `String`, `int`, `float`, `bool`. Generics use angle brackets
+and may take multiple arguments: `Map<K, V>`, `Result<T, E>`. User-defined types:
+
+```
+type FileInfo = {
+    path: String,
+    size: int,
 }
 
-// Pattern matching
-match file_type {
-    "txt" -> process_text_file(file)
-    "json" -> parse_json_file(file)
-    "csv" -> process_csv_file(file)
-    _ -> log.warn("Unknown file type: {file_type}")
-}
-
-// Loops
-for item in collection {
-    process(item)
-}
-
-while condition {
-    // loop body
-}
-
-// Error handling
-try {
-    let result = risky_operation()
-    log.info("Success: {result}")
-} catch error {
-    log.error("Failed: {error}")
-    return null
-}
+type AgentId = String   // alias
 ```
 
-### 7. Built-in Libraries
+## Statements
 
-#### File System (fs)
-```rust
-fs.read(path: string) -> string
-fs.write(path: string, content: string) -> void
-fs.exists(path: string) -> boolean
-fs.list(directory: string, pattern: string = "*") -> list<string>
-fs.delete(path: string) -> void
-fs.create_directory(path: string) -> void
-```
+Statements appear inside blocks. **Most statements must end with `;`**:
 
-#### HTTP Client (http)
-```rust
-http.get(url: string, headers: map<string, string> = {}) -> HttpResponse
-http.post(url: string, body: string, headers: map<string, string> = {}) -> HttpResponse
-http.put(url: string, body: string, headers: map<string, string> = {}) -> HttpResponse
-http.delete(url: string, headers: map<string, string> = {}) -> HttpResponse
-```
+- `let x = <expr>;`
+- assignment: `x = <expr>;` (also `+=`, `-=`, `*=`, `/=`, `%=`; the left side may be a member/index expression)
+- `return <expr>;` (the expression is optional)
+- expression statement: `<expr>;`
+- `if <expr> { ... } else { ... }` — also `if let pattern = <expr> { ... }`; `else` may chain another `if` or a block
+- `for x in <expr> { ... }`
+- `match <expr> { pattern => result, _ => result }`
+- `try { ... } catch (e) { ... }` (one or more `catch` clauses; a catch binds an identifier)
 
-#### Logging (log)
-```rust
-log.debug(message: string, context: map<string, any> = {}) -> void
-log.info(message: string, context: map<string, any> = {}) -> void
-log.warn(message: string, context: map<string, any> = {}) -> void
-log.error(message: string, context: map<string, any> = {}) -> void
-```
+A block may end with a trailing expression (no `;`), which becomes the block's
+value. There is no `while` loop.
 
-#### Time (time)
-```rust
-time.now() -> datetime
-time.sleep(duration: duration) -> void
-time.format(dt: datetime, format: string) -> string
-time.parse(input: string, format: string) -> datetime
-```
+## Expressions
 
-### 8. Agent Lifecycle Commands
+Precedence, lowest to highest: `||`, `&&`, equality (`==`, `!=`, `in`),
+comparison (`<`, `>`, `<=`, `>=`), additive (`+`, `-`), multiplicative
+(`*`, `/`, `%`), unary (`!`, `not`, `-`), postfix, primary.
 
-```rust
-// Agent management
-agent.start(config: AgentConfig) -> AgentId
-agent.stop(id: AgentId) -> void
-agent.restart(id: AgentId) -> void
-agent.status(id: AgentId) -> AgentStatus
+- **Boolean operators are `&&` and `||`** — `and`/`or` are not keywords.
+  Negation is `!` or `not`.
+- Postfix: member access `a.b`, function call `f(x, y)`, indexing `a[i]`.
+- Calls accept positional and named arguments: `f(a, name = b)` (named-arg
+  separator may be `=` or `:`).
+- Record / struct literals: `TypeName { field: expr, ... }` or `{ field: expr }`.
+- Lambda: `x => expr`.
+- `if <expr> { ... } else { ... }` is also usable as an expression.
+- Grouping `( <expr> )`, arrays `[a, b]`, and vault references `vault://path/to/secret`.
 
-// Behavior invocation
-let result = invoke BehaviorName {
-    param1: value1
-    param2: value2
-}
+## Literals
 
-// Event emission
-emit event_name { data: value }
+- **String**: `"..."` with `\` escapes. (No string interpolation.)
+- **Number**: `42`, `1_000`, `3.14`.
+- **Boolean**: `true`, `false`.
+- **Duration**: `30s`, `5m`, `2h`, `7d`, `1w`, `6months`, `1y`, and the
+  `N.seconds` / `N.minutes` / `N.hours` forms.
+- **Identifier**: `[a-zA-Z_][a-zA-Z0-9_]*`.
 
-// Policy checks
-require capability CapabilityName
-check policy PolicyName
-```
+## Comments
 
-### 9. REPL Commands
+Both `//` and `#` introduce line comments. (There is no block-comment syntax.)
 
-```rust
-// Agent lifecycle
-:create agent MyAgent
-:start agent MyAgent
-:stop agent <agent_id>
-:list agents
-:status agent <agent_id>
+## Notes
 
-// Behavior execution
-:run behavior ProcessFiles { directory: "/tmp", pattern: "*.log" }
-:invoke MyAgent.ProcessFiles { directory: "/home" }
-
-// Debugging
-:debug on
-:trace agent <agent_id>
-:breakpoint set ProcessFiles:10
-:step
-:continue
-
-// Inspection
-:inspect agent <agent_id>
-:memory agent <agent_id>
-:events agent <agent_id>
-:logs agent <agent_id>
-
-// Snapshots and sessions
-:snapshot save session1
-:snapshot restore session1
-:snapshot list
-```
-
-## Syntax Rules
-
-### Comments
-```rust
-// Single-line comment
-/* Multi-line
-   comment */
-```
-
-### String Interpolation
-```rust
-let name = "World"
-let greeting = "Hello, {name}!"  // Result: "Hello, World!"
-```
-
-### Duration Literals
-```rust
-let timeout = 30s      // 30 seconds
-let interval = 5m      // 5 minutes
-let deadline = 2h      // 2 hours
-let period = 1d        // 1 day
-```
-
-### Size Literals
-```rust
-let small_file = 1KB
-let medium_file = 10MB
-let large_file = 1GB
-```
-
-## Error Handling
-
-The DSL provides structured error handling with try-catch blocks and automatic error propagation:
-
-```rust
-function safe_operation() -> Result<string, Error> {
-    try {
-        let result = risky_call()
-        return Ok(result)
-    } catch error {
-        return Err(error)
-    }
-}
-
-// Automatic error propagation with ?
-function chained_operations() -> Result<string, Error> {
-    let step1 = operation1()?
-    let step2 = operation2(step1)?
-    let final_result = operation3(step2)?
-    return Ok(final_result)
-}
-```
-
-## Security Model
-
-The DSL enforces capability-based security at the language level:
-
-```rust
-behavior SecureFileOperation {
-    steps {
-        // This will fail at runtime if FileSystem.Read capability is not granted
-        require capability FileSystem.Read
-        let content = fs.read("/sensitive/file.txt")
-        
-        // Multiple capabilities can be required
-        require capabilities [FileSystem.Write, Network.Http]
-        
-        // Conditional capability checking
-        if has_capability(FileSystem.Write) {
-            fs.write("/output/result.txt", content)
-        } else {
-            log.warn("Write capability not available")
-        }
-    }
-}
-```
-
-## Execution Model
-
-- **Deterministic**: All operations use seeded randomness and controlled time
-- **Sandboxed**: Agents run in isolated environments with resource limits
-- **Policy-Enforced**: All operations are subject to policy evaluation
-- **Observable**: All agent actions can be monitored and traced
-- **Recoverable**: Agent state can be snapshotted and restored
-
-This DSL specification provides a foundation for implementing sophisticated agent behaviors while maintaining security, observability, and determinism within the Symbiont runtime environment.
+- The grammar file is the authoritative reference; this document summarizes it.
+- For real, parse-tested examples see the agents under
+  [`agents/`](https://github.com/thirdkeyai/symbiont/tree/main/agents) and the
+  [DSL Guide](dsl-guide.md).

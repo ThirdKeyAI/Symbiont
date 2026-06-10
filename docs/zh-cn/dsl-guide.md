@@ -72,10 +72,10 @@ metadata {
     description: "Healthcare data analysis agent with HIPAA compliance"
     license: "Proprietary"
     tags: ["healthcare", "hipaa", "analysis"]
-    min_runtime_version: "1.0.0"
-    dependencies: ["medical_nlp", "privacy_tools"]
 }
 ```
+
+元数据键值对可使用 `=` 或 `:` 作为分隔符。
 
 ### 元数据字段
 
@@ -86,8 +86,15 @@ metadata {
 | `description` | String | 是 | 智能体功能的简要描述 |
 | `license` | String | 否 | 许可证标识符 |
 | `tags` | Array[String] | 否 | 分类标签 |
-| `min_runtime_version` | String | 否 | 所需的最低运行时版本 |
-| `dependencies` | Array[String] | 否 | 外部依赖项 |
+
+托管 CLI 智能体（Mode B）还能识别以下额外的元数据键，由 `symbi run` 读取以启动一个受治理的 Claude Code 子进程（参见 `agents/code_reviewer.symbi`）：
+
+| 字段 | 类型 | 描述 |
+|-------|------|-------------|
+| `executor` | String | 设为 `"claude_code"` 可将智能体作为受治理的 Claude Code 子进程运行，而非使用推理循环 |
+| `model` | String | 传递给子进程的模型（例如 `"claude-sonnet-4-5"`） |
+| `allowed_tools` | String | 子进程的逗号分隔工具允许列表（例如 `"Read,Grep,Glob"`） |
+| `system_prompt` | String | 为子进程追加的额外系统提示 |
 
 ---
 

@@ -52,10 +52,6 @@ git remote add upstream https://github.com/thirdkeyai/symbiont.git
 rustup update
 rustup component add rustfmt clippy
 
-# Install pre-commit hooks
-cargo install pre-commit
-pre-commit install
-
 # Build the project
 cargo build
 ```
@@ -66,21 +62,24 @@ cargo build
 cargo test --workspace
 
 # Run specific test suites
-cargo test --package symbiont-dsl
+cargo test --package symbi-dsl
 cargo test --package symbi-runtime
 
 # Run with coverage
 cargo tarpaulin --out html
 ```
 
-4. **启动开发服务**
+4. **提交前格式化与静态检查**
 ```bash
-# Start required services with Docker Compose
-docker-compose up -d redis postgres
-
-# Verify services are running
-cargo run --example basic_agent
+cargo fmt
+cargo clippy --workspace -- -D warnings
+# 或运行完整的发布前检查（fmt、clippy、test、machete、audit、deny）：
+just check
 ```
+
+> 开发不需要任何外部服务。Symbi 默认使用嵌入式 LanceDB
+> （向量搜索）和 SQLite —— 不强制依赖 Redis/PostgreSQL。
+> 可通过 `cargo run --example basic_agent` 验证您的环境配置。
 
 ---
 

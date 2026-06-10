@@ -352,6 +352,10 @@ Betreiber haben zwei Pfade:
 
 Der bisherige Konstruktor `permissive()` wurde in `permissive_for_dev_only()` umbenannt und mit `#[doc(hidden)]` markiert, um eine versehentliche Verwendung in Produktionscodepfaden zu verhindern.
 
+#### Transport-Haertung des OPA-Backends
+
+Bei Verwendung von `OpaPolicyGateBridge` mit `SYMBIONT_OPA_URL` **verweigert der Client unverschluesseltes HTTP zu einem Nicht-Loopback-Host** und faellt fail-closed aus (verweigert) -- ein Angreifer auf dem Pfad koennte andernfalls eine `allow`-Entscheidung faelschen. Klartext ist nur fuer Loopback (ein lokaler OPA-Sidecar) erlaubt oder wenn `SYMBIONT_OPA_ALLOW_INSECURE=1` gesetzt ist (nur lokale Tests). Setzen Sie `SYMBIONT_OPA_AUTH_TOKEN`, um bei jeder Autorisierungsabfrage ein Bearer-Token mitzusenden. Verwenden Sie `https://` fuer jeden entfernten OPA-Endpunkt.
+
 ### Inter-Agent-Kommunikationsrichtlinie
 
 Das `CommunicationPolicyGate` erzwingt Autorisierungsregeln fuer die gesamte Inter-Agent-Kommunikation. Jeder Aufruf ueber `ask`, `delegate`, `send_to`, `parallel` oder `race` wird vor der Ausfuehrung gegen Richtlinienregeln ausgewertet.

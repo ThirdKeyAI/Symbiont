@@ -348,6 +348,10 @@ let runner = ReasoningLoopRunner::builder()
 
 旧的 `permissive()` 构造函数被重命名为 `permissive_for_dev_only()` 并标记为 `#[doc(hidden)]`，以阻止在生产代码路径中无意使用。
 
+#### OPA 后端传输加固
+
+在配合 `SYMBIONT_OPA_URL` 使用 `OpaPolicyGateBridge` 时，客户端**拒绝向非环回主机发送明文 HTTP**，并故障关闭（拒绝）—— 否则路径上的攻击者可能伪造 `allow` 决策。仅在环回（本地 OPA sidecar）或设置了 `SYMBIONT_OPA_ALLOW_INSECURE=1`（仅限本地测试）时才允许明文。设置 `SYMBIONT_OPA_AUTH_TOKEN` 可在每次授权查询中发送 bearer 令牌。任何远程 OPA 端点都应使用 `https://`。
+
 ### 智能体间通信策略
 
 `CommunicationPolicyGate` 为所有智能体间通信强制执行授权规则。通过 `ask`、`delegate`、`send_to`、`parallel` 或 `race` 发起的每次调用都会在执行前经过策略规则评估。

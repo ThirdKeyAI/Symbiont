@@ -33,25 +33,22 @@ symbi repl --stdio
 
 ```rust
 # エージェントを定義
-agent GreetingAgent {
-  name: "Greeting Agent"
-  version: "1.0.0"
-  description: "A simple greeting agent"
+metadata {
+  version = "1.0.0"
+  description = "A simple greeting agent"
 }
 
-# ビヘイビアを定義
-behavior Greet {
-  input { name: string }
-  output { greeting: string }
-  steps {
-    let greeting = format("Hello, {}!", name)
-    return greeting
+agent greeter(name: String) -> String {
+  capabilities = ["greet"]
+
+  policy safe {
+    allow: read(name) if true
+  }
+
+  with memory = "ephemeral" {
+    return greet(name);
   }
 }
-
-# 式を実行
-let message = "Welcome to Symbiont"
-print(message)
 ```
 
 ## REPLコマンド
@@ -118,54 +115,30 @@ print(message)
 ### エージェント定義
 
 ```rust
-agent DataAnalyzer {
-  name: "Data Analysis Agent"
-  version: "2.1.0"
-  description: "Analyzes datasets with privacy protection"
+metadata {
+  version = "2.1.0"
+  description = "Analyzes datasets with privacy protection"
+}
 
-  security {
-    capabilities: ["data_read", "analysis"]
-    sandbox: true
+agent data_analyzer(data: DataSet, options: AnalysisOptions) -> AnalysisResults {
+  capabilities = ["data_read", "analysis"]
+
+  policy privacy {
+    allow: read(data) if true
+    deny: write(any)
   }
 
-  resources {
-    memory: 512MB
-    cpu: 2
-    storage: 1GB
+  with memory = "ephemeral", sandbox = "tier1" {
+    return analyze(data, options);
   }
 }
 ```
 
-### ビヘイビア定義
-
-```rust
-behavior AnalyzeData {
-  input {
-    data: DataSet
-    options: AnalysisOptions
-  }
-  output {
-    results: AnalysisResults
-  }
-
-  steps {
-    # データプライバシー要件を確認
-    require capability("data_read")
-
-    if (data.contains_pii) {
-      return error("Cannot process data with PII")
-    }
-
-    # 分析を実行
-    # 注意：analyze()は計画中の組み込み関数です（まだ実装されていません）。
-    # この例は意図されたビヘイビア定義パターンを示しています。
-    let results = analyze(data, options)
-    emit analysis_completed { results: results }
-
-    return results
-  }
-}
-```
+エージェントのビヘイビアはエージェントの `with` ブロック（および `function` 定義）の中に
+記述します — 独立した `behavior` 構文は存在しません。ポリシールール
+（`allow` / `deny` / `require` / `audit`）がエージェントに許可される操作を制御します。
+完全な文法については [DSLガイド](dsl-guide.md) と
+[DSL仕様](dsl-specification.md) を参照してください。
 
 ### 組み込み関数
 

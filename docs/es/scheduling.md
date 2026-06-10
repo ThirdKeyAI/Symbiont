@@ -849,38 +849,13 @@ enable_metrics = true
 default_max_retries = 3
 shutdown_timeout_seconds = 60
 
-[scheduler.delivery]
-# Configuracion de webhook
-webhook_timeout_seconds = 30
-webhook_retry_attempts = 3
-
-# Configuracion de Slack
-slack_api_token = "${SLACK_API_TOKEN}"
-slack_default_channel = "#ops"
-
-# Configuracion de correo electronico
-smtp_host = "smtp.example.com"
-smtp_port = 587
-smtp_username = "${SMTP_USER}"
-smtp_password = "${SMTP_PASS}"
-email_from = "symbiont@example.com"
 ```
 
-### Variables de Entorno
+### Canales de entrega
 
-```bash
-# Configuracion del programador
-SYMBI_SCHEDULER_MAX_JITTER=30
-SYMBI_SCHEDULER_MAX_CONCURRENT=20
+Los canales de entrega (`stdout`, `log_file`, `webhook`, `slack`, `email`, ...) se configuran **por programacion** en el bloque `delivery` de esa programacion (ver los ejemplos anteriores), no mediante una seccion de configuracion global `[scheduler.delivery]`.
 
-# Configuracion de entrega
-SYMBI_SLACK_TOKEN=xoxb-...
-SYMBI_WEBHOOK_AUTH_HEADER="Bearer secret-token"
-
-# Verificacion de AgentPin
-SYMBI_AGENTPIN_REQUIRED=true
-SYMBI_AGENTPIN_DOMAIN=agent.example.com
-```
+> **La entrega `log_file` requiere `SYMBIONT_LOG_DIR`.** La ruta de destino esta confinada a ese directorio en lista blanca — las rutas que escapan de el mediante `..`, rutas absolutas o symlinks son rechazadas, y la entrega de archivos de log es fail-closed (deshabilitada) cuando `SYMBIONT_LOG_DIR` no esta definido.
 
 ## Observabilidad
 

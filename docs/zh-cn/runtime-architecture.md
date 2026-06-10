@@ -537,26 +537,29 @@ max_concurrent_connections = 100
 ### 环境变量
 
 ```bash
-# Core runtime
-export SYMBI_LOG_LEVEL=info
-export SYMBI_RUNTIME_MODE=production
-export SYMBI_CONFIG_PATH=/etc/symbi/config.toml
+# 必需：用于加密持久化状态的 32 字节十六进制密钥。
+# `symbi init` 会将一个密钥写入 .env。可用以下命令生成：openssl rand -hex 32
+export SYMBIONT_MASTER_KEY=...
 
-# Security
-export SYMBI_CRYPTO_PROVIDER=ring
-export SYMBI_AUDIT_STORAGE=/var/log/symbi/audit
+# LLM 提供方（设置其中之一）
+export ANTHROPIC_API_KEY=...   # 或 OPENAI_API_KEY / OPENROUTER_API_KEY
 
-# 向量数据库（LanceDB 是零配置的默认选项）
-export SYMBIONT_VECTOR_BACKEND=lancedb          # 或 "qdrant"
-export SYMBIONT_VECTOR_DATA_PATH=./data/vectors # LanceDB 存储路径
+# 策略门：Cedar 默认开启，并从 policies/*.cedar 自动接入。
+# export SYMBI_INSECURE_ALLOW_ALL=1   # 仅限本地开发 —— 宽松门
 
-# 可选：仅在使用 Qdrant 后端时需要
-# export SYMBIONT_VECTOR_HOST=localhost
-# export SYMBIONT_VECTOR_PORT=6334
+# 调度器 log_file 交付（该通道必需；被限制在此目录内）
+# export SYMBIONT_LOG_DIR=/var/log/symbiont
 
-# 外部依赖
-export OPENAI_API_KEY=your_api_key_here
-export MCP_SERVER_DISCOVERY=enabled
+# 向量搜索：LanceDB 是零配置的默认选项。若改用 Qdrant：
+# export SYMBIONT_VECTOR_BACKEND=qdrant
+# export QDRANT_URL=http://localhost:6333
+
+# OPA 策略后端（如使用；非环回主机需要 https 与 bearer）：
+# export SYMBIONT_OPA_URL=https://opa.internal:8181
+# export SYMBIONT_OPA_AUTH_TOKEN=...
+
+# 用于 X-Forwarded-For 的受信反向代理 CIDR 允许列表
+# export SYMBI_TRUSTED_PROXIES=10.0.0.0/8
 ```
 
 ---
@@ -614,7 +617,7 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y ca-certificates
 COPY --from=builder /app/target/release/symbi /usr/local/bin/
 EXPOSE 8080
-CMD ["symbi", "mcp", "--config", "/etc/symbi/config.toml"]
+CMD ["symbi", "up"]
 ```
 
 ### Kubernetes 部署
@@ -640,8 +643,11 @@ spec:
         ports:
         - containerPort: 8080
         env:
-        - name: SYMBI_RUNTIME_MODE
-          value: "production"
+        - name: SYMBIONT_MASTER_KEY
+          valueFrom:
+            secretKeyRef:
+              name: symbi-secrets
+              key: master-key
         resources:
           requests:
             memory: "1Gi"

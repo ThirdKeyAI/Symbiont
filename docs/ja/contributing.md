@@ -52,10 +52,6 @@ git remote add upstream https://github.com/thirdkeyai/symbiont.git
 rustup update
 rustup component add rustfmt clippy
 
-# pre-commitフックをインストール
-cargo install pre-commit
-pre-commit install
-
 # プロジェクトをビルド
 cargo build
 ```
@@ -66,21 +62,24 @@ cargo build
 cargo test --workspace
 
 # 特定のテストスイートを実行
-cargo test --package symbiont-dsl
+cargo test --package symbi-dsl
 cargo test --package symbi-runtime
 
 # カバレッジ付きで実行
 cargo tarpaulin --out html
 ```
 
-4. **開発サービスの起動**
+4. **コミット前のフォーマットとリント**
 ```bash
-# Docker Composeで必要なサービスを起動
-docker-compose up -d redis postgres
-
-# サービスが実行中であることを確認
-cargo run --example basic_agent
+cargo fmt
+cargo clippy --workspace -- -D warnings
+# または、リリース前の一括チェック（fmt、clippy、test、machete、audit、deny）を実行：
+just check
 ```
+
+> 開発に外部サービスは不要です。Symbi はデフォルトで組み込みの LanceDB
+> （ベクトル検索）と SQLite を使用するため、Redis/PostgreSQL は必須ではありません。
+> `cargo run --example basic_agent` でセットアップを確認できます。
 
 ---
 

@@ -853,38 +853,13 @@ enable_metrics = true
 default_max_retries = 3
 shutdown_timeout_seconds = 60
 
-[scheduler.delivery]
-# Webhook-Einstellungen
-webhook_timeout_seconds = 30
-webhook_retry_attempts = 3
-
-# Slack-Einstellungen
-slack_api_token = "${SLACK_API_TOKEN}"
-slack_default_channel = "#ops"
-
-# E-Mail-Einstellungen
-smtp_host = "smtp.example.com"
-smtp_port = 587
-smtp_username = "${SMTP_USER}"
-smtp_password = "${SMTP_PASS}"
-email_from = "symbiont@example.com"
 ```
 
-### Umgebungsvariablen
+### Zustellungskanaele
 
-```bash
-# Scheduler-Einstellungen
-SYMBI_SCHEDULER_MAX_JITTER=30
-SYMBI_SCHEDULER_MAX_CONCURRENT=20
+Zustellungskanaele (`stdout`, `log_file`, `webhook`, `slack`, `email`, ...) werden **pro Schedule** im `delivery`-Block des jeweiligen Schedules konfiguriert (siehe die Beispiele oben), nicht ueber einen globalen `[scheduler.delivery]`-Konfigurationsabschnitt.
 
-# Zustellungseinstellungen
-SYMBI_SLACK_TOKEN=xoxb-...
-SYMBI_WEBHOOK_AUTH_HEADER="Bearer secret-token"
-
-# AgentPin-Verifizierung
-SYMBI_AGENTPIN_REQUIRED=true
-SYMBI_AGENTPIN_DOMAIN=agent.example.com
-```
+> **`log_file`-Zustellung erfordert `SYMBIONT_LOG_DIR`.** Der Zielpfad ist auf dieses zugelassene Verzeichnis beschraenkt -- Pfade, die es ueber `..`, absolute Pfade oder Symlinks verlassen, werden abgelehnt, und die log_file-Zustellung ist fail-closed (deaktiviert), wenn `SYMBIONT_LOG_DIR` nicht gesetzt ist.
 
 ## Beobachtbarkeit
 

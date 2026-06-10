@@ -537,26 +537,29 @@ max_concurrent_connections = 100
 ### Umgebungsvariablen
 
 ```bash
-# Core runtime
-export SYMBI_LOG_LEVEL=info
-export SYMBI_RUNTIME_MODE=production
-export SYMBI_CONFIG_PATH=/etc/symbi/config.toml
+# Erforderlich: 32-Byte-Hex-Schluessel zur Verschluesselung des persistenten Zustands.
+# `symbi init` schreibt einen in .env. Generieren mit: openssl rand -hex 32
+export SYMBIONT_MASTER_KEY=...
 
-# Security
-export SYMBI_CRYPTO_PROVIDER=ring
-export SYMBI_AUDIT_STORAGE=/var/log/symbi/audit
+# LLM-Anbieter (einen setzen)
+export ANTHROPIC_API_KEY=...   # oder OPENAI_API_KEY / OPENROUTER_API_KEY
 
-# Vektordatenbank (LanceDB ist der konfigurationsfreie Standard)
-export SYMBIONT_VECTOR_BACKEND=lancedb          # oder "qdrant"
-export SYMBIONT_VECTOR_DATA_PATH=./data/vectors # LanceDB-Speicherpfad
+# Policy-Gate: Cedar ist standardmaessig aktiv und verdrahtet sich automatisch aus policies/*.cedar.
+# export SYMBI_INSECURE_ALLOW_ALL=1   # NUR FUER LOKALE ENTWICKLUNG -- permissives Gate
 
-# Optional: nur erforderlich bei Verwendung des Qdrant-Backends
-# export SYMBIONT_VECTOR_HOST=localhost
-# export SYMBIONT_VECTOR_PORT=6334
+# Scheduler-log_file-Zustellung (fuer diesen Kanal erforderlich; auf dieses Verzeichnis beschraenkt)
+# export SYMBIONT_LOG_DIR=/var/log/symbiont
 
-# Externe Abhängigkeiten
-export OPENAI_API_KEY=your_api_key_here
-export MCP_SERVER_DISCOVERY=enabled
+# Vektorsuche: LanceDB ist der konfigurationsfreie Standard. Um stattdessen Qdrant zu verwenden:
+# export SYMBIONT_VECTOR_BACKEND=qdrant
+# export QDRANT_URL=http://localhost:6333
+
+# OPA-Policy-Backend, falls verwendet (https + Bearer erforderlich fuer Nicht-Loopback-Hosts):
+# export SYMBIONT_OPA_URL=https://opa.internal:8181
+# export SYMBIONT_OPA_AUTH_TOKEN=...
+
+# Zulassungsliste vertrauenswuerdiger Reverse-Proxy-CIDRs fuer X-Forwarded-For
+# export SYMBI_TRUSTED_PROXIES=10.0.0.0/8
 ```
 
 ---
@@ -614,7 +617,7 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y ca-certificates
 COPY --from=builder /app/target/release/symbi /usr/local/bin/
 EXPOSE 8080
-CMD ["symbi", "mcp", "--config", "/etc/symbi/config.toml"]
+CMD ["symbi", "up"]
 ```
 
 ### Kubernetes-Deployment
@@ -640,8 +643,11 @@ spec:
         ports:
         - containerPort: 8080
         env:
-        - name: SYMBI_RUNTIME_MODE
-          value: "production"
+        - name: SYMBIONT_MASTER_KEY
+          valueFrom:
+            secretKeyRef:
+              name: symbi-secrets
+              key: master-key
         resources:
           requests:
             memory: "1Gi"

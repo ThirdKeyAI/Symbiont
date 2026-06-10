@@ -347,6 +347,10 @@ let runner = ReasoningLoopRunner::builder()
 
 レガシーの `permissive()` コンストラクタは `permissive_for_dev_only()` に名前変更され、本番コードパスでの偶発的な使用を抑制するために `#[doc(hidden)]` がマークされました。
 
+#### OPA バックエンドのトランスポート強化
+
+`SYMBIONT_OPA_URL` を指定して `OpaPolicyGateBridge` を使用する場合、クライアントは**非ループバックホストへの平文 HTTP を拒否し**、フェイルクローズ（拒否）します — そうしなければ、経路上の攻撃者が `allow` 判定を偽装できる可能性があります。平文が許可されるのは、ループバック（ローカルの OPA サイドカー）の場合、または `SYMBIONT_OPA_ALLOW_INSECURE=1` が設定されている場合（ローカルテスト専用）のみです。各認可クエリで bearer トークンを送信するには `SYMBIONT_OPA_AUTH_TOKEN` を設定します。リモートの OPA エンドポイントには `https://` を使用してください。
+
 ### エージェント間通信ポリシー
 
 `CommunicationPolicyGate` はすべてのエージェント間通信に対する認可ルールを実行します。`ask`、`delegate`、`send_to`、`parallel`、`race` を通じたすべての呼び出しは、実行前にポリシールールに対して評価されます。

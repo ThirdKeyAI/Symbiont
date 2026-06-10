@@ -37,25 +37,22 @@ symbi repl --stdio
 
 ```rust
 # Einen Agenten definieren
-agent GreetingAgent {
-  name: "Greeting Agent"
-  version: "1.0.0"
-  description: "A simple greeting agent"
+metadata {
+  version = "1.0.0"
+  description = "A simple greeting agent"
 }
 
-# Ein Verhalten definieren
-behavior Greet {
-  input { name: string }
-  output { greeting: string }
-  steps {
-    let greeting = format("Hello, {}!", name)
-    return greeting
+agent greeter(name: String) -> String {
+  capabilities = ["greet"]
+
+  policy safe {
+    allow: read(name) if true
+  }
+
+  with memory = "ephemeral" {
+    return greet(name);
   }
 }
-
-# Ausdruecke ausfuehren
-let message = "Welcome to Symbiont"
-print(message)
 ```
 
 ## REPL-Befehle
@@ -122,54 +119,30 @@ print(message)
 ### Agenten-Definitionen
 
 ```rust
-agent DataAnalyzer {
-  name: "Data Analysis Agent"
-  version: "2.1.0"
-  description: "Analyzes datasets with privacy protection"
+metadata {
+  version = "2.1.0"
+  description = "Analyzes datasets with privacy protection"
+}
 
-  security {
-    capabilities: ["data_read", "analysis"]
-    sandbox: true
+agent data_analyzer(data: DataSet, options: AnalysisOptions) -> AnalysisResults {
+  capabilities = ["data_read", "analysis"]
+
+  policy privacy {
+    allow: read(data) if true
+    deny: write(any)
   }
 
-  resources {
-    memory: 512MB
-    cpu: 2
-    storage: 1GB
+  with memory = "ephemeral", sandbox = "tier1" {
+    return analyze(data, options);
   }
 }
 ```
 
-### Verhaltensdefinitionen
-
-```rust
-behavior AnalyzeData {
-  input {
-    data: DataSet
-    options: AnalysisOptions
-  }
-  output {
-    results: AnalysisResults
-  }
-
-  steps {
-    # Datenschutzanforderungen pruefen
-    require capability("data_read")
-
-    if (data.contains_pii) {
-      return error("Cannot process data with PII")
-    }
-
-    # Analyse durchfuehren
-    # HINWEIS: analyze() ist eine geplante eingebaute Funktion (noch nicht implementiert).
-    # Dieses Beispiel veranschaulicht das beabsichtigte Verhaltensdefinitionsmuster.
-    let results = analyze(data, options)
-    emit analysis_completed { results: results }
-
-    return results
-  }
-}
-```
+Das Agentenverhalten lebt im `with`-Block des Agenten (und in `function`-Definitionen) --
+es gibt kein separates `behavior`-Konstrukt. Richtlinienregeln (`allow` / `deny` /
+`require` / `audit`) steuern, was der Agent tun darf. Siehe den
+[DSL-Leitfaden](dsl-guide.md) und die [DSL-Spezifikation](dsl-specification.md) fuer die
+vollstaendige Grammatik.
 
 ### Eingebaute Funktionen
 

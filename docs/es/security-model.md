@@ -348,6 +348,10 @@ Los operadores tienen dos rutas:
 
 El constructor heredado `permissive()` fue renombrado a `permissive_for_dev_only()` y marcado como `#[doc(hidden)]` para desalentar el uso incidental en rutas de codigo de produccion.
 
+#### Endurecimiento del transporte del backend OPA
+
+Al usar `OpaPolicyGateBridge` con `SYMBIONT_OPA_URL`, el cliente **rechaza HTTP en texto plano hacia un host no-loopback** y falla en cerrado (deniega) — de lo contrario un atacante en la ruta podria falsificar una decision `allow`. El texto plano solo se permite para loopback (un sidecar OPA local) o cuando `SYMBIONT_OPA_ALLOW_INSECURE=1` esta establecido (solo pruebas locales). Establece `SYMBIONT_OPA_AUTH_TOKEN` para enviar un token bearer con cada consulta de autorizacion. Usa `https://` para cualquier endpoint OPA remoto.
+
 ### Politica de Comunicacion Inter-Agente
 
 El `CommunicationPolicyGate` aplica reglas de autorizacion para toda la comunicacion inter-agente. Cada llamada a traves de `ask`, `delegate`, `send_to`, `parallel` o `race` se evalua contra las reglas de politica antes de su ejecucion.

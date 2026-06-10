@@ -33,25 +33,22 @@ symbi repl --stdio
 
 ```rust
 # Define an agent
-agent GreetingAgent {
-  name: "Greeting Agent"
-  version: "1.0.0"
-  description: "A simple greeting agent"
+metadata {
+  version = "1.0.0"
+  description = "A simple greeting agent"
 }
 
-# Define a behavior
-behavior Greet {
-  input { name: string }
-  output { greeting: string }
-  steps {
-    let greeting = format("Hello, {}!", name)
-    return greeting
+agent greeter(name: String) -> String {
+  capabilities = ["greet"]
+
+  policy safe {
+    allow: read(name) if true
+  }
+
+  with memory = "ephemeral" {
+    return greet(name);
   }
 }
-
-# Execute expressions
-let message = "Welcome to Symbiont"
-print(message)
 ```
 
 ## REPL Commands
@@ -118,54 +115,30 @@ print(message)
 ### Agent Definitions
 
 ```rust
-agent DataAnalyzer {
-  name: "Data Analysis Agent"
-  version: "2.1.0"
-  description: "Analyzes datasets with privacy protection"
-  
-  security {
-    capabilities: ["data_read", "analysis"]
-    sandbox: true
+metadata {
+  version = "2.1.0"
+  description = "Analyzes datasets with privacy protection"
+}
+
+agent data_analyzer(data: DataSet, options: AnalysisOptions) -> AnalysisResults {
+  capabilities = ["data_read", "analysis"]
+
+  policy privacy {
+    allow: read(data) if true
+    deny: write(any)
   }
-  
-  resources {
-    memory: 512MB
-    cpu: 2
-    storage: 1GB
+
+  with memory = "ephemeral", sandbox = "tier1" {
+    return analyze(data, options);
   }
 }
 ```
 
-### Behavior Definitions
-
-```rust
-behavior AnalyzeData {
-  input { 
-    data: DataSet
-    options: AnalysisOptions 
-  }
-  output { 
-    results: AnalysisResults 
-  }
-  
-  steps {
-    # Check data privacy requirements
-    require capability("data_read")
-
-    if (data.contains_pii) {
-      return error("Cannot process data with PII")
-    }
-
-    # Perform analysis
-    # NOTE: analyze() is a planned built-in function (not yet implemented).
-    # This example illustrates the intended behavior definition pattern.
-    let results = analyze(data, options)
-    emit analysis_completed { results: results }
-
-    return results
-  }
-}
-```
+Agent behavior lives in the agent's `with` block (and in `function` definitions) —
+there is no separate `behavior` construct. Policy rules (`allow` / `deny` /
+`require` / `audit`) gate what the agent may do. See the
+[DSL Guide](dsl-guide.md) and [DSL Specification](dsl-specification.md) for the
+full grammar.
 
 ### Built-in Functions
 

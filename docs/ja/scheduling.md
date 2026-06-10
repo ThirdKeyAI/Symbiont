@@ -848,38 +848,13 @@ enable_metrics = true
 default_max_retries = 3
 shutdown_timeout_seconds = 60
 
-[scheduler.delivery]
-# Webhook設定
-webhook_timeout_seconds = 30
-webhook_retry_attempts = 3
-
-# Slack設定
-slack_api_token = "${SLACK_API_TOKEN}"
-slack_default_channel = "#ops"
-
-# メール設定
-smtp_host = "smtp.example.com"
-smtp_port = 587
-smtp_username = "${SMTP_USER}"
-smtp_password = "${SMTP_PASS}"
-email_from = "symbiont@example.com"
 ```
 
-### 環境変数
+### 配信チャネル
 
-```bash
-# スケジューラー設定
-SYMBI_SCHEDULER_MAX_JITTER=30
-SYMBI_SCHEDULER_MAX_CONCURRENT=20
+配信チャネル（`stdout`、`log_file`、`webhook`、`slack`、`email` など）は、グローバルな `[scheduler.delivery]` 設定セクションではなく、各スケジュールの `delivery` ブロック内で**スケジュールごとに**設定します（上記の例を参照）。
 
-# 配信設定
-SYMBI_SLACK_TOKEN=xoxb-...
-SYMBI_WEBHOOK_AUTH_HEADER="Bearer secret-token"
-
-# AgentPin検証
-SYMBI_AGENTPIN_REQUIRED=true
-SYMBI_AGENTPIN_DOMAIN=agent.example.com
-```
+> **`log_file` 配信には `SYMBIONT_LOG_DIR` が必要です。** 出力先パスはその許可ディレクトリ内に限定されます。`..` による相対脱出、絶対パス、シンボリックリンクで外部に出るパスは拒否され、`SYMBIONT_LOG_DIR` が未設定の場合、ログファイル配信はフェイルクローズ（無効化）されます。
 
 ## 可観測性
 

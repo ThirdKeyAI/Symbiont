@@ -849,38 +849,13 @@ enable_metrics = true
 default_max_retries = 3
 shutdown_timeout_seconds = 60
 
-[scheduler.delivery]
-# Webhook 设置
-webhook_timeout_seconds = 30
-webhook_retry_attempts = 3
-
-# Slack 设置
-slack_api_token = "${SLACK_API_TOKEN}"
-slack_default_channel = "#ops"
-
-# 邮件设置
-smtp_host = "smtp.example.com"
-smtp_port = 587
-smtp_username = "${SMTP_USER}"
-smtp_password = "${SMTP_PASS}"
-email_from = "symbiont@example.com"
 ```
 
-### 环境变量
+### 交付通道
 
-```bash
-# 调度器设置
-SYMBI_SCHEDULER_MAX_JITTER=30
-SYMBI_SCHEDULER_MAX_CONCURRENT=20
+交付通道（`stdout`、`log_file`、`webhook`、`slack`、`email` 等）是在每个调度自身的 `delivery` 块中**按调度**配置的（参见上文示例），而非通过全局的 `[scheduler.delivery]` 配置节。
 
-# 交付设置
-SYMBI_SLACK_TOKEN=xoxb-...
-SYMBI_WEBHOOK_AUTH_HEADER="Bearer secret-token"
-
-# AgentPin 验证
-SYMBI_AGENTPIN_REQUIRED=true
-SYMBI_AGENTPIN_DOMAIN=agent.example.com
-```
+> **`log_file` 交付需要设置 `SYMBIONT_LOG_DIR`。** 目标路径被限制在该允许列表目录内 —— 通过 `..`、绝对路径或符号链接逃逸该目录的路径都会被拒绝；当 `SYMBIONT_LOG_DIR` 未设置时，日志文件交付为故障关闭（禁用）。
 
 ## 可观测性
 

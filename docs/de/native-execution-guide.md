@@ -19,6 +19,8 @@ Symbiont unterstuetzt den Betrieb von Agenten ohne Docker oder Container-Isolati
 - Keine Durchsetzung von Ressourcenlimits
 - Direkter Zugriff auf das Hostsystem
 
+> **Das `native-sandbox`-Feature laesst sich in Release-Builds nicht kompilieren.** Es ist durch ein `compile_error!` unter `not(debug_assertions)` geschuetzt, sodass ein Release-Binary niemals den nativen Runner ausliefern kann. Es ist eine Entwicklungshilfe nur fuer Debug-Builds.
+
 **NUR VERWENDEN FUER**:
 - Lokale Entwicklung mit vertrauenswuerdigem Code
 - Kontrollierte Umgebungen mit vertrauenswuerdigen Agenten
@@ -167,21 +169,21 @@ export SYMBIONT_NATIVE_WORKING_DIR=/tmp/symbiont-native
 ### Option 3: Konfiguration auf Agentenebene
 
 ```symbi
-agent NativeWorker {
-  metadata {
-    name: "Local Development Agent"
-    version: "1.0.0"
+metadata {
+  version = "1.0.0"
+  description = "Local Development Agent"
+}
+
+agent native_worker(task: String) -> String {
+  capabilities = ["local_filesystem", "network"]
+
+  policy dev_only {
+    allow: ["local_filesystem", "network"] if true
   }
 
-  security {
-    tier: None
-    sandbox: Permissive
-    capabilities: ["local_filesystem", "network"]
-  }
-
-  on trigger "local_processing" {
-    // Wird direkt auf dem Host ausgefuehrt
-    execute_native("python3 process.py")
+  # tier 0 = keine Sandbox (Host-Ausfuehrung); erfordert die oben genannten Opt-ins
+  with sandbox = "none" {
+    return process(task);
   }
 }
 ```
@@ -214,20 +216,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### Beispiel 2: CLI-Flag
+### Beispiel 2: Bauen und Ausfuehren mit dem nativen Runner
+
+Es gibt kein `--native`-CLI-Flag. Native (Host-)Ausfuehrung erfordert drei explizite Opt-ins:
+
+1. **Mit dem `native-sandbox`-Feature bauen -- nur Debug-Builds.** Das Feature bietet keinerlei Isolation und ist durch ein `compile_error!` in Release-Builds geschuetzt:
+
+   ```bash
+   cargo build --features native-sandbox    # nur Debug; Release laesst sich nicht kompilieren
+   ```
+
+2. **Beide Laufzeit-Schutzmechanismen bestaetigen:**
+
+   ```bash
+   export SYMBI_UNSAFE_NATIVE_SANDBOX=1   # den nativen Runner bestaetigen
+   export SYMBIONT_ALLOW_UNISOLATED=1     # SandboxTier::None in Nicht-Dev-Laeufen erlauben
+   ```
+
+3. **Stufe 0 (keine Sandbox) im Agenten-DSL waehlen:**
+
+   ```
+   with sandbox = "none" {
+       // ...
+   }
+   ```
+
+   Ressourcenlimits (Speicher/CPU/Timeout) stammen aus dem `with`-Block / der Konfiguration (siehe oben), nicht aus CLI-Flags.
+
+Dann normal ausfuehren:
 
 ```bash
-# Mit nativer Ausfuehrung starten
-symbiont run agent.symbi --native
-
-# Oder mit expliziter Stufe
-symbiont run agent.symbi --sandbox-tier=none
-
-# Mit Ressourcenlimits
-symbiont run agent.symbi --native \
-  --max-memory=1024 \
-  --max-cpu=2.0 \
-  --timeout=300
+symbi run agent.symbi
 ```
 
 ### Beispiel 3: Gemischte Ausfuehrung
@@ -323,7 +342,7 @@ Auf Unix-Systemen kann die native Ausfuehrung dennoch einige Limits durchsetzen:
 
 # Direkte Ausfuehrung
 cargo build --release
-./target/release/symbiont run agent.symbi
+./target/release/symbi run agent.symbi
 ```
 
 ### Hybridansatz
@@ -353,7 +372,9 @@ Docker hat Umgebungsvariablen automatisch isoliert. Bei nativer Ausfuehrung mues
 ```bash
 export AGENT_API_KEY="xxx"
 export AGENT_DB_URL="postgresql://..."
-symbiont run agent.symbi --native
+export SYMBI_UNSAFE_NATIVE_SANDBOX=1
+export SYMBIONT_ALLOW_UNISOLATED=1
+symbi run agent.symbi   # Agent muss deklarieren: with sandbox = "none" { ... }
 ```
 
 ## Performance-Vergleich

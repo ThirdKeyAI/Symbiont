@@ -76,10 +76,10 @@ metadata {
     description: "Healthcare data analysis agent with HIPAA compliance"
     license: "Proprietary"
     tags: ["healthcare", "hipaa", "analysis"]
-    min_runtime_version: "1.0.0"
-    dependencies: ["medical_nlp", "privacy_tools"]
 }
 ```
+
+Metadaten-Paare akzeptieren entweder `=` oder `:` als Trennzeichen.
 
 ### Metadatenfelder
 
@@ -90,8 +90,15 @@ metadata {
 | `description` | String | Ja | Kurze Beschreibung der Agent-Funktionalitaet |
 | `license` | String | Nein | Lizenzidentifikator |
 | `tags` | Array[String] | Nein | Klassifizierungs-Tags |
-| `min_runtime_version` | String | Nein | Minimal erforderliche Runtime-Version |
-| `dependencies` | Array[String] | Nein | Externe Abhaengigkeiten |
+
+Verwaltete-CLI-Agenten (Modus B) erkennen diese zusaetzlichen Metadaten-Schluessel, die von `symbi run` gelesen werden, um einen kontrollierten Claude-Code-Subprozess zu starten (siehe `agents/code_reviewer.symbi`):
+
+| Feld | Typ | Beschreibung |
+|-------|------|-------------|
+| `executor` | String | Auf `"claude_code"` setzen, um den Agenten als kontrollierten Claude-Code-Subprozess statt ueber die Reasoning-Schleife auszufuehren |
+| `model` | String | Modell, das an den Subprozess uebergeben wird (z.B. `"claude-sonnet-4-5"`) |
+| `allowed_tools` | String | Kommagetrennte Tool-Zulassungsliste fuer den Subprozess (z.B. `"Read,Grep,Glob"`) |
+| `system_prompt` | String | Zusaetzlicher System-Prompt, der fuer den Subprozess angehaengt wird |
 
 ---
 

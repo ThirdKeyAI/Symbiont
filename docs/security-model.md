@@ -346,6 +346,10 @@ Operators have two paths:
 
 The legacy `permissive()` constructor was renamed `permissive_for_dev_only()` and marked `#[doc(hidden)]` to discourage incidental use in production code paths.
 
+#### OPA backend transport hardening
+
+When using `OpaPolicyGateBridge` with `SYMBIONT_OPA_URL`, the client **refuses plaintext HTTP to a non-loopback host** and fails closed (denies) — an on-path attacker could otherwise spoof an `allow` decision. Plaintext is permitted only for loopback (a local OPA sidecar) or when `SYMBIONT_OPA_ALLOW_INSECURE=1` is set (local testing only). Set `SYMBIONT_OPA_AUTH_TOKEN` to send a bearer token with each authorization query. Use `https://` for any remote OPA endpoint.
+
 ### Inter-Agent Communication Policy
 
 The `CommunicationPolicyGate` enforces authorization rules for all inter-agent communication. Every call through `ask`, `delegate`, `send_to`, `parallel`, or `race` is evaluated against policy rules before execution.

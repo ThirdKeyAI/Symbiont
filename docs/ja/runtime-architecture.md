@@ -552,26 +552,29 @@ max_concurrent_connections = 100
 ### 環境変数
 
 ```bash
-# Core runtime
-export SYMBI_LOG_LEVEL=info
-export SYMBI_RUNTIME_MODE=production
-export SYMBI_CONFIG_PATH=/etc/symbi/config.toml
+# 必須: 永続状態の暗号化に使用する32バイトのhexキー。
+# `symbi init` が .env に書き込みます。生成方法: openssl rand -hex 32
+export SYMBIONT_MASTER_KEY=...
 
-# Security
-export SYMBI_CRYPTO_PROVIDER=ring
-export SYMBI_AUDIT_STORAGE=/var/log/symbi/audit
+# LLMプロバイダー（いずれか1つを設定）
+export ANTHROPIC_API_KEY=...   # または OPENAI_API_KEY / OPENROUTER_API_KEY
 
-# ベクトルデータベース（LanceDBがゼロコンフィグのデフォルト）
-export SYMBIONT_VECTOR_BACKEND=lancedb          # または "qdrant"
-export SYMBIONT_VECTOR_DATA_PATH=./data/vectors # LanceDBストレージパス
+# ポリシーゲート: Cedar はデフォルトで有効で、policies/*.cedar から自動的に配線されます。
+# export SYMBI_INSECURE_ALLOW_ALL=1   # ローカル開発専用 — 全許可ゲート
 
-# オプション: Qdrantバックエンド使用時のみ必要
-# export SYMBIONT_VECTOR_HOST=localhost
-# export SYMBIONT_VECTOR_PORT=6334
+# スケジューラーの log_file 配信（そのチャネルに必須。このディレクトリ内に限定）
+# export SYMBIONT_LOG_DIR=/var/log/symbiont
 
-# 外部依存関係
-export OPENAI_API_KEY=your_api_key_here
-export MCP_SERVER_DISCOVERY=enabled
+# ベクトル検索: LanceDB がゼロコンフィグのデフォルト。代わりに Qdrant を使う場合:
+# export SYMBIONT_VECTOR_BACKEND=qdrant
+# export QDRANT_URL=http://localhost:6333
+
+# OPA ポリシーバックエンド（使用する場合。非ループバックホストには https + bearer が必須）:
+# export SYMBIONT_OPA_URL=https://opa.internal:8181
+# export SYMBIONT_OPA_AUTH_TOKEN=...
+
+# X-Forwarded-For 用の信頼されたリバースプロキシ CIDR 許可リスト
+# export SYMBI_TRUSTED_PROXIES=10.0.0.0/8
 ```
 
 ---
@@ -629,7 +632,7 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y ca-certificates
 COPY --from=builder /app/target/release/symbi /usr/local/bin/
 EXPOSE 8080
-CMD ["symbi", "mcp", "--config", "/etc/symbi/config.toml"]
+CMD ["symbi", "up"]
 ```
 
 ### Kubernetesデプロイメント
@@ -655,8 +658,11 @@ spec:
         ports:
         - containerPort: 8080
         env:
-        - name: SYMBI_RUNTIME_MODE
-          value: "production"
+        - name: SYMBIONT_MASTER_KEY
+          valueFrom:
+            secretKeyRef:
+              name: symbi-secrets
+              key: master-key
         resources:
           requests:
             memory: "1Gi"

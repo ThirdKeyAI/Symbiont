@@ -72,10 +72,10 @@ metadata {
     description: "Healthcare data analysis agent with HIPAA compliance"
     license: "Proprietary"
     tags: ["healthcare", "hipaa", "analysis"]
-    min_runtime_version: "1.0.0"
-    dependencies: ["medical_nlp", "privacy_tools"]
 }
 ```
+
+メタデータのペアは区切り文字として `=` または `:` のいずれかを使用できます。
 
 ### メタデータフィールド
 
@@ -86,8 +86,15 @@ metadata {
 | `description` | String | はい | エージェント機能の簡潔な説明 |
 | `license` | String | いいえ | ライセンス識別子 |
 | `tags` | Array[String] | いいえ | 分類タグ |
-| `min_runtime_version` | String | いいえ | 必要な最小ランタイムバージョン |
-| `dependencies` | Array[String] | いいえ | 外部依存関係 |
+
+マネージドCLIエージェント（モードB）は、以下の追加メタデータキーを認識します。これらは `symbi run` によって読み取られ、ガバナンス下の Claude Code サブプロセスを起動するために使用されます（`agents/code_reviewer.symbi` を参照）：
+
+| フィールド | 型 | 説明 |
+|-------|------|-------------|
+| `executor` | String | `"claude_code"` に設定すると、推論ループの代わりに、エージェントをガバナンス下の Claude Code サブプロセスとして実行します |
+| `model` | String | サブプロセスに渡されるモデル（例：`"claude-sonnet-4-5"`） |
+| `allowed_tools` | String | サブプロセス向けのカンマ区切りツール許可リスト（例：`"Read,Grep,Glob"`） |
+| `system_prompt` | String | サブプロセスに追加される追加システムプロンプト |
 
 ---
 
