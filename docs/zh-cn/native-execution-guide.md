@@ -318,23 +318,31 @@ impl NativeRunner {
 ### 步骤 1：更新配置
 
 ```diff
-# config.toml
+# symbiont.toml
 [security]
-- default_sandbox_tier = "Tier1"
-+ default_sandbox_tier = "None"
 + allow_native_execution = true
++
+++ [native_execution]
+++ enabled = true
 ```
 
-### 步骤 2：移除 Docker 依赖
+然后在 DSL 中为每个智能体选择第 0 层（无沙箱）：
+
+```
+with sandbox = "none" { ... }
+```
+
+### 步骤 2：构建并运行（仅限 debug）
 
 ```bash
 # No longer required
 # docker build -t symbi:latest .
 # docker run ...
 
-# Direct execution
-cargo build --release
-./target/release/symbi run agent.symbi
+# native-sandbox 特性仅限 debug（release 构建中会触发 compile_error!）：
+cargo build --features native-sandbox
+SYMBI_UNSAFE_NATIVE_SANDBOX=1 SYMBIONT_ALLOW_UNISOLATED=1 \
+  ./target/debug/symbi run agent.symbi
 ```
 
 ### 混合方案

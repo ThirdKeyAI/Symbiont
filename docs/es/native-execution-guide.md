@@ -322,23 +322,31 @@ En sistemas Unix, la ejecucion nativa puede aplicar algunos limites:
 ### Paso 1: Actualizar la Configuracion
 
 ```diff
-# config.toml
+# symbiont.toml
 [security]
-- default_sandbox_tier = "Tier1"
-+ default_sandbox_tier = "None"
 + allow_native_execution = true
+
++ [native_execution]
++ enabled = true
 ```
 
-### Paso 2: Eliminar Dependencias de Docker
+Luego selecciona el nivel 0 (sin sandbox) por agente en el DSL:
+
+```
+with sandbox = "none" { ... }
+```
+
+### Paso 2: Compilar y ejecutar (solo debug)
 
 ```bash
-# No longer required
+# Ya no es necesario
 # docker build -t symbi:latest .
 # docker run ...
 
-# Direct execution
-cargo build --release
-./target/release/symbi run agent.symbi
+# La caracteristica native-sandbox es solo de debug (compile_error! en compilaciones release):
+cargo build --features native-sandbox
+SYMBI_UNSAFE_NATIVE_SANDBOX=1 SYMBIONT_ALLOW_UNISOLATED=1 \
+  ./target/debug/symbi run agent.symbi
 ```
 
 ### Enfoque Hibrido
