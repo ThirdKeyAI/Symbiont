@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.15.1] - 2026-06-09
+
+**Patch: `symbi init` agent templates now parse cleanly.** The generated agents tripped `symbi dsl` warnings; no runtime/API changes.
+
+### Fixed
+- **Missing statement terminators.** All four `symbi init` templates (`assistant`, `dev`, `coordinator`, `worker`) omitted the `;` the grammar requires, producing MISSING-token parse errors (`Parse errors in …`) on the generated agents. Semicolons added.
+- **`dev` template invalid DSL.** It used an `executor { }` block (not a valid agent item), the `and` keyword (grammar uses `&&`), and `audit: … with signature` (policy rules accept only an optional `if`). The executor config now uses the Mode B metadata convention (`executor = "claude_code"`, `model`, `allowed_tools`), and the policy syntax is corrected — so `dev-agent` is a functional managed agent.
+- **Sandbox tier aliases.** `WithBlock::parse_sandbox_tier` now accepts `tier1`/`tier2`/`tier3` (→ `docker`/`gvisor`/`firecracker`), matching the docs and example agents; this clears the `Invalid sandbox tier` extraction warning on `data_validator.symbi` and others.
+
+### Added
+- Regression test asserting every `init` template parses without errors and exposes an extractable sandbox tier.
+
+### Crate versions
+| Crate | Version |
+|-------|---------|
+| `symbi` | 1.15.1 |
+| `symbi-runtime` | 1.15.1 |
+| `symbi-dsl` | 1.15.1 |
+| `repl-core` | 1.15.1 |
+| `repl-cli` | 1.15.1 |
+| `repl-proto` | 1.15.1 |
+| `repl-lsp` | 1.15.1 |
+| `symbi-shell` | 1.15.1 |
+
 ## [1.15.0] - 2026-06-09
 
 **Feature + security-hardening release.** Adds the Mode B governed-Claude-Code path and typed+grounded inter-agent decisions, and folds in the full remediation of the `symbi-codered` `473178fd` engagement. Several security fixes change default behavior — see **Changed** for upgrade notes.

@@ -172,13 +172,16 @@ impl WithBlock {
     pub fn parse_sandbox_tier(value: &str) -> Result<SandboxTier, String> {
         // Remove quotes if present
         let cleaned_value = value.trim_matches('"');
+        // Accept both backend names and the tier-number aliases used throughout
+        // the docs and example agents (tier1=Docker, tier2=gVisor, tier3=Firecracker).
         match cleaned_value.to_lowercase().as_str() {
-            "docker" => Ok(SandboxTier::Docker),
-            "gvisor" => Ok(SandboxTier::GVisor),
-            "firecracker" => Ok(SandboxTier::Firecracker),
+            "docker" | "tier1" => Ok(SandboxTier::Docker),
+            "gvisor" | "tier2" => Ok(SandboxTier::GVisor),
+            "firecracker" | "tier3" => Ok(SandboxTier::Firecracker),
             "e2b" => Ok(SandboxTier::E2B),
             _ => Err(format!(
-                "Invalid sandbox tier: {}. Valid options are: docker, gvisor, firecracker, e2b",
+                "Invalid sandbox tier: {}. Valid options are: docker (tier1), \
+                 gvisor (tier2), firecracker (tier3), e2b",
                 value
             )),
         }
@@ -1263,6 +1266,24 @@ mod tests {
             Ok(SandboxTier::Firecracker)
         );
         assert_eq!(WithBlock::parse_sandbox_tier("e2b"), Ok(SandboxTier::E2B));
+
+        // Tier-number aliases (case-insensitive) used by docs + example agents.
+        assert_eq!(
+            WithBlock::parse_sandbox_tier("tier1"),
+            Ok(SandboxTier::Docker)
+        );
+        assert_eq!(
+            WithBlock::parse_sandbox_tier("Tier1"),
+            Ok(SandboxTier::Docker)
+        );
+        assert_eq!(
+            WithBlock::parse_sandbox_tier("tier2"),
+            Ok(SandboxTier::GVisor)
+        );
+        assert_eq!(
+            WithBlock::parse_sandbox_tier("Tier3"),
+            Ok(SandboxTier::Firecracker)
+        );
 
         // Test with quotes
         assert_eq!(

@@ -67,8 +67,8 @@ agent assistant(input: Query) -> Response {
     }
 
     with memory = "session", sandbox = "tier1" {
-        result = process(input)
-        return result
+        result = process(input);
+        return result;
     }
 }
 "#;
@@ -77,30 +77,27 @@ const DEV_AGENT_DSL: &str = r#"metadata {
     version = "1.0.0"
     description = "Governed development agent"
     author = ""
+    executor = "claude_code"
+    model = "claude-sonnet-4-5"
+    allowed_tools = "Bash,Read,Write,Edit"
 }
 
 agent dev(task: String) -> Result {
     capabilities = ["read", "write", "execute", "test"]
-
-    executor {
-        type = "cli_executor"
-        allowed_tools = ["Bash", "Read", "Write", "Edit"]
-        model = "claude-sonnet-4-20250514"
-    }
 
     policy dev_safety {
         allow: read(any) if true
         allow: write(file) if file.in_project == true
         deny: write(file) if file.path.starts_with("/etc")
         deny: write(file) if file.path.starts_with("/usr")
-        deny: execute(cmd) if cmd.contains("--force") and cmd.contains("push")
+        deny: execute(cmd) if cmd.contains("--force") && cmd.contains("push")
         deny: execute(cmd) if cmd.contains("rm -rf /")
-        audit: all_operations with signature
+        audit: all_operations
     }
 
     with memory = "persistent", sandbox = "tier1", timeout = "30m" {
-        result = execute(task)
-        return result
+        result = execute(task);
+        return result;
     }
 }
 "#;
@@ -144,9 +141,9 @@ agent coordinator(task: String) -> Result {
     }
 
     with memory = "persistent", sandbox = "tier1" {
-        subtasks = decompose(task)
-        results = parallel_map(subtasks, delegate_to_worker)
-        return aggregate(results)
+        subtasks = decompose(task);
+        results = parallel_map(subtasks, delegate_to_worker);
+        return aggregate(results);
     }
 }
 "#;
@@ -167,8 +164,8 @@ agent worker(subtask: String) -> Result {
     }
 
     with memory = "session", sandbox = "tier1", timeout = "10m" {
-        result = process(subtask)
-        return result
+        result = process(subtask);
+        return result;
     }
 }
 "#;
@@ -1226,13 +1223,40 @@ mod firecracker_init_tests {
     fn test_dev_agent_dsl_has_metadata() {
         assert!(DEV_AGENT_DSL.contains("Governed development agent"));
         assert!(DEV_AGENT_DSL.contains("agent dev"));
-        assert!(DEV_AGENT_DSL.contains("cli_executor"));
+        assert!(DEV_AGENT_DSL.contains(r#"executor = "claude_code""#));
     }
 
     #[test]
     fn test_coordinator_dsl_has_metadata() {
         assert!(COORDINATOR_DSL.contains("Multi-agent coordinator"));
         assert!(COORDINATOR_DSL.contains("agent coordinator"));
+    }
+
+    #[test]
+    fn test_init_templates_parse_without_errors() {
+        // Every generated agent template must parse cleanly (no MISSING/ERROR
+        // nodes — e.g. statements need terminating `;`) and expose an
+        // extractable sandbox tier. Regression guard: the v1.15.0 templates
+        // shipped without semicolons and with a tier value the extractor rejected.
+        for (name, src) in [
+            ("assistant", ASSISTANT_DSL),
+            ("dev", DEV_AGENT_DSL),
+            ("coordinator", COORDINATOR_DSL),
+            ("worker", WORKER_DSL),
+        ] {
+            let tree = dsl::parse_dsl(src)
+                .unwrap_or_else(|e| panic!("{name} template failed to parse: {e}"));
+            assert!(
+                !tree.root_node().has_error(),
+                "{name} template has parse errors (missing statement semicolons?)"
+            );
+            let blocks = dsl::extract_with_blocks(&tree, src)
+                .unwrap_or_else(|e| panic!("{name} with-block extraction failed: {e}"));
+            assert!(
+                blocks.iter().any(|b| b.sandbox_tier.is_some()),
+                "{name} template should declare an extractable sandbox tier"
+            );
+        }
     }
 
     #[test]
