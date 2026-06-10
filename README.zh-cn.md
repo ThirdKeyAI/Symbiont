@@ -6,6 +6,7 @@
 [![Crates.io](https://img.shields.io/crates/v/symbi)](https://crates.io/crates/symbi)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-online-brightgreen)](https://docs.symbiont.dev)
+[![YouTube](https://img.shields.io/badge/YouTube-%40ThirdKeyAI-FF0000?logo=youtube&logoColor=white)](https://www.youtube.com/@ThirdKeyAI)
 
 [![OATS Reference Implementation](https://img.shields.io/badge/OATS-Reference%20Implementation-1f6feb)](https://openagenttruststack.org)
 [![DOI Typestate Loops](https://zenodo.org/badge/DOI/10.5281/zenodo.19896446.svg)](https://doi.org/10.5281/zenodo.19896446)
