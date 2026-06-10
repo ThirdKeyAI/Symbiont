@@ -65,26 +65,22 @@ graph LR
 ### Option 1: TOML Configuration
 
 ```toml
-# config.toml
+# symbiont.toml
 
 [security]
 # Allow native execution (default: false)
 allow_native_execution = true
-# Default sandbox tier
-default_sandbox_tier = "None"  # or "Tier1", "Tier2", "Tier3"
 
-[security.native_execution]
-# Apply resource limits even in native mode
-enforce_resource_limits = true
-# Maximum memory in MB
-max_memory_mb = 2048
-# Maximum CPU cores
-max_cpu_cores = 4.0
-# Maximum execution time in seconds
-max_execution_time_seconds = 300
-# Working directory for native execution
+# Native execution is its own top-level section (not nested under [security]).
+[native_execution]
+enabled = true
+default_executable = "python3"
 working_directory = "/tmp/symbiont-native"
-# Allowed commands/executables
+# Apply OS resource limits even in native mode
+enforce_resource_limits = true
+max_memory_mb = 2048              # Option<u64>
+max_cpu_seconds = 300             # Option<u64> — CPU time, not core count
+max_execution_time_seconds = 300  # wall-clock timeout
 allowed_executables = ["python3", "node", "bash"]
 ```
 
@@ -101,13 +97,13 @@ timeout_seconds = 30
 max_body_size = 10485760
 
 [database]
-# Default: LanceDB embedded (zero-config, no external services needed)
-vector_backend = "lancedb"
-vector_data_path = "./data/vector_db"
+# Embedding vector dimension. LanceDB (the default embedded backend) needs no
+# further config. The backend is chosen at build time via the `vector-lancedb`
+# (default) or `vector-qdrant` Cargo feature — there is no `vector_backend`
+# config key; use the SYMBIONT_VECTOR_BACKEND env var to switch at runtime.
 vector_dimension = 384
 
-# Optional: Qdrant (uncomment to use Qdrant instead of LanceDB)
-# vector_backend = "qdrant"
+# Used when running with the Qdrant backend (SYMBIONT_VECTOR_BACKEND=qdrant):
 # qdrant_url = "http://localhost:6333"
 # qdrant_collection = "symbiont"
 
@@ -152,14 +148,17 @@ allowed_executables = ["python3", "python", "node", "bash", "sh"]
 | `max_execution_time_seconds` | u64 | `300` | Wall-clock timeout |
 | `allowed_executables` | Vec<String> | `[bash, python3, etc.]` | Executable whitelist |
 
-### Option 2: Environment Variables
+### Option 2: Runtime safety guards (environment)
+
+There are no `SYMBIONT_NATIVE_*` / `SYMBIONT_ALLOW_NATIVE_EXECUTION` /
+`SYMBIONT_DEFAULT_SANDBOX_TIER` settings — native execution is configured through
+the `[native_execution]` config section above. The only native-related
+environment variables are the two runtime safety guards, both of which must be
+set to actually run the native (zero-isolation) runner:
 
 ```bash
-export SYMBIONT_ALLOW_NATIVE_EXECUTION=true
-export SYMBIONT_DEFAULT_SANDBOX_TIER=None
-export SYMBIONT_NATIVE_MAX_MEMORY_MB=2048
-export SYMBIONT_NATIVE_MAX_CPU_CORES=4.0
-export SYMBIONT_NATIVE_WORKING_DIR=/tmp/symbiont-native
+export SYMBI_UNSAFE_NATIVE_SANDBOX=1   # acknowledge the native runner
+export SYMBIONT_ALLOW_UNISOLATED=1     # permit SandboxTier::None
 ```
 
 ### Option 3: Agent-Level Configuration
@@ -196,8 +195,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Enable native execution for development
     let mut config = Config::default();
     config.security.allow_native_execution = true;
-    config.security.default_sandbox_tier = SecurityTier::None;
-    
+
     let orchestrator = SandboxOrchestrator::new(config)?;
     
     // Execute code natively

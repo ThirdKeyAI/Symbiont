@@ -65,26 +65,22 @@ graph LR
 ### 选项 1：TOML 配置
 
 ```toml
-# config.toml
+# symbiont.toml
 
 [security]
-# Allow native execution (default: false)
+# 允许原生执行（默认值：false）
 allow_native_execution = true
-# Default sandbox tier
-default_sandbox_tier = "None"  # or "Tier1", "Tier2", "Tier3"
 
-[security.native_execution]
-# Apply resource limits even in native mode
-enforce_resource_limits = true
-# Maximum memory in MB
-max_memory_mb = 2048
-# Maximum CPU cores
-max_cpu_cores = 4.0
-# Maximum execution time in seconds
-max_execution_time_seconds = 300
-# Working directory for native execution
+# 原生执行是其自身的顶级配置节（并非嵌套在 [security] 之下）。
+[native_execution]
+enabled = true
+default_executable = "python3"
 working_directory = "/tmp/symbiont-native"
-# Allowed commands/executables
+# 即使在原生模式下也应用操作系统资源限制
+enforce_resource_limits = true
+max_memory_mb = 2048              # Option<u64>
+max_cpu_seconds = 300             # Option<u64> —— CPU 时间，而非核心数量
+max_execution_time_seconds = 300  # 挂钟超时
 allowed_executables = ["python3", "node", "bash"]
 ```
 
@@ -101,13 +97,12 @@ timeout_seconds = 30
 max_body_size = 10485760
 
 [database]
-# Default: LanceDB embedded (zero-config, no external services needed)
-vector_backend = "lancedb"
-vector_data_path = "./data/vector_db"
+# 嵌入向量维度。LanceDB（默认的嵌入式后端）无需进一步配置。
+# 后端在构建时通过 `vector-lancedb`（默认）或 `vector-qdrant` Cargo 功能选择，
+# 不存在 `vector_backend` 配置键；可使用 SYMBIONT_VECTOR_BACKEND 环境变量在运行时切换。
 vector_dimension = 384
 
-# Optional: Qdrant (uncomment to use Qdrant instead of LanceDB)
-# vector_backend = "qdrant"
+# 在使用 Qdrant 后端（SYMBIONT_VECTOR_BACKEND=qdrant）时使用：
 # qdrant_url = "http://localhost:6333"
 # qdrant_collection = "symbiont"
 
@@ -152,14 +147,16 @@ allowed_executables = ["python3", "python", "node", "bash", "sh"]
 | `max_execution_time_seconds` | u64 | `300` | 挂钟超时 |
 | `allowed_executables` | Vec<String> | `[bash, python3, etc.]` | 可执行文件白名单 |
 
-### 选项 2：环境变量
+### 选项 2：运行时安全守卫（环境变量）
+
+不存在 `SYMBIONT_NATIVE_*` / `SYMBIONT_ALLOW_NATIVE_EXECUTION` /
+`SYMBIONT_DEFAULT_SANDBOX_TIER` 等设置——原生执行通过上文的
+`[native_execution]` 配置节进行配置。唯一与原生相关的环境变量是这两项运行时安全守卫，
+二者都必须设置才能实际运行原生（零隔离）运行器：
 
 ```bash
-export SYMBIONT_ALLOW_NATIVE_EXECUTION=true
-export SYMBIONT_DEFAULT_SANDBOX_TIER=None
-export SYMBIONT_NATIVE_MAX_MEMORY_MB=2048
-export SYMBIONT_NATIVE_MAX_CPU_CORES=4.0
-export SYMBIONT_NATIVE_WORKING_DIR=/tmp/symbiont-native
+export SYMBI_UNSAFE_NATIVE_SANDBOX=1   # acknowledge the native runner
+export SYMBIONT_ALLOW_UNISOLATED=1     # permit SandboxTier::None
 ```
 
 ### 选项 3：智能体级别配置
@@ -196,7 +193,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Enable native execution for development
     let mut config = Config::default();
     config.security.allow_native_execution = true;
-    config.security.default_sandbox_tier = SecurityTier::None;
 
     let orchestrator = SandboxOrchestrator::new(config)?;
 

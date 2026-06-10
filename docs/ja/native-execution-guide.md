@@ -65,26 +65,22 @@ graph LR
 ### オプション1：TOML設定
 
 ```toml
-# config.toml
+# symbiont.toml
 
 [security]
 # ネイティブ実行を許可（デフォルト：false）
 allow_native_execution = true
-# デフォルトのサンドボックスティア
-default_sandbox_tier = "None"  # または "Tier1"、"Tier2"、"Tier3"
 
-[security.native_execution]
-# ネイティブモードでもリソース制限を適用
-enforce_resource_limits = true
-# 最大メモリ（MB）
-max_memory_mb = 2048
-# 最大CPUコア数
-max_cpu_cores = 4.0
-# 最大実行時間（秒）
-max_execution_time_seconds = 300
-# ネイティブ実行の作業ディレクトリ
+# ネイティブ実行は独立したトップレベルセクションです（[security] の下にネストしません）。
+[native_execution]
+enabled = true
+default_executable = "python3"
 working_directory = "/tmp/symbiont-native"
-# 許可されたコマンド/実行ファイル
+# ネイティブモードでもOSリソース制限を適用
+enforce_resource_limits = true
+max_memory_mb = 2048              # Option<u64>
+max_cpu_seconds = 300             # Option<u64> — コア数ではなくCPU時間
+max_execution_time_seconds = 300  # ウォールクロックタイムアウト
 allowed_executables = ["python3", "node", "bash"]
 ```
 
@@ -101,13 +97,14 @@ timeout_seconds = 30
 max_body_size = 10485760
 
 [database]
-# デフォルト：LanceDB 組み込み（ゼロ設定、外部サービス不要）
-vector_backend = "lancedb"
-vector_data_path = "./data/vector_db"
+# 埋め込みベクトルの次元数。LanceDB（デフォルトの組み込みバックエンド）は
+# これ以上の設定を必要としません。バックエンドはビルド時に `vector-lancedb`
+# （デフォルト）または `vector-qdrant` Cargo フィーチャーで選択されます。
+# `vector_backend` という設定キーはありません。実行時に切り替えるには
+# SYMBIONT_VECTOR_BACKEND 環境変数を使用してください。
 vector_dimension = 384
 
-# オプション：Qdrant（LanceDBの代わりにQdrantを使用する場合はコメント解除）
-# vector_backend = "qdrant"
+# Qdrant バックエンドで実行する場合に使用（SYMBIONT_VECTOR_BACKEND=qdrant）：
 # qdrant_url = "http://localhost:6333"
 # qdrant_collection = "symbiont"
 
@@ -152,14 +149,17 @@ allowed_executables = ["python3", "python", "node", "bash", "sh"]
 | `max_execution_time_seconds` | u64 | `300` | ウォールクロックタイムアウト |
 | `allowed_executables` | Vec<String> | `[bash, python3, etc.]` | 実行ファイルホワイトリスト |
 
-### オプション2：環境変数
+### オプション2：実行時の安全ガード（環境変数）
+
+`SYMBIONT_NATIVE_*` / `SYMBIONT_ALLOW_NATIVE_EXECUTION` /
+`SYMBIONT_DEFAULT_SANDBOX_TIER` といった設定は存在しません。ネイティブ実行は
+上記の `[native_execution]` 設定セクションを通じて構成します。ネイティブ関連の
+環境変数は2つの実行時安全ガードのみであり、ネイティブ（ゼロ分離）ランナーを
+実際に実行するには、その両方を設定する必要があります：
 
 ```bash
-export SYMBIONT_ALLOW_NATIVE_EXECUTION=true
-export SYMBIONT_DEFAULT_SANDBOX_TIER=None
-export SYMBIONT_NATIVE_MAX_MEMORY_MB=2048
-export SYMBIONT_NATIVE_MAX_CPU_CORES=4.0
-export SYMBIONT_NATIVE_WORKING_DIR=/tmp/symbiont-native
+export SYMBI_UNSAFE_NATIVE_SANDBOX=1   # ネイティブランナーを承認
+export SYMBIONT_ALLOW_UNISOLATED=1     # SandboxTier::None を許可
 ```
 
 ### オプション3：エージェントレベルの設定
@@ -196,7 +196,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 開発用にネイティブ実行を有効化
     let mut config = Config::default();
     config.security.allow_native_execution = true;
-    config.security.default_sandbox_tier = SecurityTier::None;
 
     let orchestrator = SandboxOrchestrator::new(config)?;
 
