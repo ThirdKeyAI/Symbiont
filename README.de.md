@@ -18,6 +18,10 @@
 **Richtliniengesteuerte Agenten-Laufzeitumgebung fuer den Produktionseinsatz.**
 *Derselbe Agent. Sichere Laufzeitumgebung.*
 
+![A Cedar policy denies a live agent's privileged tool call](https://raw.githubusercontent.com/ThirdKeyAI/Symbiont/main/docs/media/cedar-demo.gif)
+
+> **Was Sie hier sehen:** ein echtes Modell (`claude-haiku-4.5`) fordert die Auflistung der Agentenflotte an. Eine Cedar-`forbid`-Regel verweigert den Aufruf bei **jedem erneuten Versuch** -- keine Code-Aenderung, nur policy. [Reproduzieren Sie es mit einem einzigen Befehl ↓](#das-policy-gate-verweigert-ein-tool----ein-befehl-kein-setup) · [▶ Vollstaendiger Walkthrough](https://www.youtube.com/watch?v=RPyKpqKz5ik)
+
 Symbiont ist eine Rust-native Laufzeitumgebung fuer die Ausfuehrung von KI-Agenten und Tools unter expliziter Richtlinien-, Identitaets- und Audit-Kontrolle.
 
 Die meisten Agenten-Frameworks konzentrieren sich auf Orchestrierung. Symbiont konzentriert sich darauf, was passiert, wenn Agenten in realen Umgebungen mit echten Risiken ausgefuehrt werden muessen: nicht vertrauenswuerdige Tools, sensible Daten, Genehmigungsgrenzen, Audit-Anforderungen und wiederholbare Durchsetzung.
@@ -58,9 +62,36 @@ Symbiont entspricht **OATS Extended** (C1-C7 + E1-E8). Der empirische Vergleich 
 
 ## Schnellstart
 
-▶ **Einstiegs-Walkthrough ansehen:**
+### Das Policy-Gate verweigert ein Tool -- ein Befehl, kein Setup
 
-[![Symbiont — get started](https://img.youtube.com/vi/RPyKpqKz5ik/hqdefault.jpg)](https://www.youtube.com/watch?v=RPyKpqKz5ik)
+Ein Cedar-`forbid` blockiert ein privilegiertes Tool, waehrend ein sicheres durchgelassen wird. Kopieren Sie dies und fuehren Sie es gegen das veroeffentlichte Image aus (kein Klon, kein Build):
+
+```bash
+docker run --rm --entrypoint sh ghcr.io/thirdkeyai/symbi:latest -c '
+mkdir -p /tmp/p && cat > /tmp/p/policy.cedar <<EOF
+forbid(principal, action == Symbi::Action::"tool_call::list_agents",   resource);
+permit(principal, action == Symbi::Action::"tool_call::system_health", resource);
+EOF
+echo "{\"tool_name\":\"list_agents\"}"   | symbi policy evaluate --stdin --policies /tmp/p --json
+echo "{\"tool_name\":\"system_health\"}" | symbi policy evaluate --stdin --policies /tmp/p --json'
+```
+
+```json
+{"decision":"deny","reason":"deny policies matched: policy_0","tool":"list_agents", ...}
+{"decision":"allow","reason":"allow policies matched: policy_1","tool":"system_health", ...}
+```
+
+Das ist dasselbe Cedar-Gate, das die Laufzeitumgebung in die Live-Reasoning-Schleife einbindet -- genau die Ablehnung, die in der Demo oben gezeigt wird.
+
+### CLI installieren
+
+```bash
+# Linux / macOS — installs the `symbi` binary to /usr/local/bin
+curl -fsSL https://symbiont.dev/install.sh | bash
+symbi --help
+```
+
+Der Installer laedt das vorgefertigte Release-Binary fuer Ihre Plattform herunter. Fixieren Sie eine Version mit `bash -s -- --version v1.15.2` oder aendern Sie das Zielverzeichnis mit `--dir`. Bevorzugen Sie Docker oder das [Erstellen aus Quellcode](#aus-quellcode-erstellen)? Beides finden Sie weiter unten.
 
 ### Voraussetzungen
 

@@ -18,6 +18,10 @@
 **Runtime de agentes governado por politicas para producao.**
 *Mesmo agente. Runtime seguro.*
 
+![A Cedar policy denies a live agent's privileged tool call](https://raw.githubusercontent.com/ThirdKeyAI/Symbiont/main/docs/media/cedar-demo.gif)
+
+> **O que voce esta vendo:** um modelo real (`claude-haiku-4.5`) pede para listar a frota de agentes. Uma regra Cedar `forbid` nega a chamada em **toda nova tentativa** — sem alteracao de codigo, apenas policy. [Reproduza em um comando ↓](#veja-o-policy-gate-negar-uma-ferramenta--um-comando-sem-configuração) · [▶ Walkthrough completo](https://www.youtube.com/watch?v=RPyKpqKz5ik)
+
 Symbiont e um runtime nativo em Rust para executar agentes de IA e ferramentas sob controles explicitos de politica, identidade e auditoria.
 
 A maioria dos frameworks de agentes foca em orquestracao. Symbiont foca no que acontece quando agentes precisam rodar em ambientes reais com riscos reais: ferramentas nao confiaveis, dados sensiveis, limites de aprovacao, requisitos de auditoria e aplicacao repetivel de regras.
@@ -58,9 +62,36 @@ Symbiont esta em conformidade com **OATS Extended** (C1–C7 + E1–E8). A compa
 
 ## Inicio rapido
 
-▶ **Assista ao tutorial de introdução:**
+### Veja o policy gate negar uma ferramenta — um comando, sem configuração
 
-[![Symbiont — get started](https://img.youtube.com/vi/RPyKpqKz5ik/hqdefault.jpg)](https://www.youtube.com/watch?v=RPyKpqKz5ik)
+Um `forbid` Cedar bloqueia uma ferramenta privilegiada enquanto uma segura passa. Copie e cole isto contra a imagem publicada (sem clone, sem build):
+
+```bash
+docker run --rm --entrypoint sh ghcr.io/thirdkeyai/symbi:latest -c '
+mkdir -p /tmp/p && cat > /tmp/p/policy.cedar <<EOF
+forbid(principal, action == Symbi::Action::"tool_call::list_agents",   resource);
+permit(principal, action == Symbi::Action::"tool_call::system_health", resource);
+EOF
+echo "{\"tool_name\":\"list_agents\"}"   | symbi policy evaluate --stdin --policies /tmp/p --json
+echo "{\"tool_name\":\"system_health\"}" | symbi policy evaluate --stdin --policies /tmp/p --json'
+```
+
+```json
+{"decision":"deny","reason":"deny policies matched: policy_0","tool":"list_agents", ...}
+{"decision":"allow","reason":"allow policies matched: policy_1","tool":"system_health", ...}
+```
+
+E o mesmo gate Cedar que o runtime conecta ao loop de raciocinio ao vivo — exatamente a negacao mostrada na demo acima.
+
+### Instale o CLI
+
+```bash
+# Linux / macOS — installs the `symbi` binary to /usr/local/bin
+curl -fsSL https://symbiont.dev/install.sh | bash
+symbi --help
+```
+
+O instalador baixa o binario de release pre-compilado para a sua plataforma. Fixe uma versao com `bash -s -- --version v1.15.2` ou altere o destino com `--dir`. Prefere Docker ou [compilar a partir do codigo-fonte](#compilar-a-partir-do-codigo-fonte)? Ambos estao abaixo.
 
 ### Pre-requisitos
 

@@ -18,6 +18,10 @@
 **Runtime de agentes gobernado por políticas para producción.**
 *El mismo agente. Runtime seguro.*
 
+![A Cedar policy denies a live agent's privileged tool call](https://raw.githubusercontent.com/ThirdKeyAI/Symbiont/main/docs/media/cedar-demo.gif)
+
+> **Lo que estás viendo:** un modelo real (`claude-haiku-4.5`) pide listar la flota de agentes. Una regla `forbid` de Cedar deniega la llamada en **cada reintento** — sin cambios de código, solo política. [Reprodúcelo en un solo comando ↓](#mira-la-compuerta-de-políticas-denegar-una-herramienta--un-solo-comando-sin-configuración) · [▶ Tutorial completo](https://www.youtube.com/watch?v=RPyKpqKz5ik)
+
 Symbiont es un runtime nativo de Rust para ejecutar agentes de IA y herramientas bajo controles explícitos de políticas, identidad y auditoría.
 
 La mayoría de los frameworks de agentes se centran en la orquestación. Symbiont se centra en lo que sucede cuando los agentes necesitan ejecutarse en entornos reales con riesgo real: herramientas no confiables, datos sensibles, límites de aprobación, requisitos de auditoría y aplicación repetible de reglas.
@@ -58,9 +62,36 @@ Symbiont cumple con **OATS Extended** (C1–C7 + E1–E8). La comparación empí
 
 ## Inicio rápido
 
-▶ **Mira el tutorial de inicio:**
+### Mira la compuerta de políticas: denegar una herramienta — un solo comando, sin configuración
 
-[![Symbiont — get started](https://img.youtube.com/vi/RPyKpqKz5ik/hqdefault.jpg)](https://www.youtube.com/watch?v=RPyKpqKz5ik)
+Un `forbid` de Cedar bloquea una herramienta privilegiada mientras una segura pasa. Copia y pega esto contra la imagen publicada (sin clonar, sin compilar):
+
+```bash
+docker run --rm --entrypoint sh ghcr.io/thirdkeyai/symbi:latest -c '
+mkdir -p /tmp/p && cat > /tmp/p/policy.cedar <<EOF
+forbid(principal, action == Symbi::Action::"tool_call::list_agents",   resource);
+permit(principal, action == Symbi::Action::"tool_call::system_health", resource);
+EOF
+echo "{\"tool_name\":\"list_agents\"}"   | symbi policy evaluate --stdin --policies /tmp/p --json
+echo "{\"tool_name\":\"system_health\"}" | symbi policy evaluate --stdin --policies /tmp/p --json'
+```
+
+```json
+{"decision":"deny","reason":"deny policies matched: policy_0","tool":"list_agents", ...}
+{"decision":"allow","reason":"allow policies matched: policy_1","tool":"system_health", ...}
+```
+
+Esa es la misma compuerta Cedar que el runtime conecta al bucle de razonamiento en vivo — exactamente la denegación que se muestra en la demo de arriba.
+
+### Instala la CLI
+
+```bash
+# Linux / macOS — installs the `symbi` binary to /usr/local/bin
+curl -fsSL https://symbiont.dev/install.sh | bash
+symbi --help
+```
+
+El instalador descarga el binario de release precompilado para tu plataforma. Fija una versión con `bash -s -- --version v1.15.2` o cambia el destino con `--dir`. ¿Prefieres Docker o [compilar desde el código fuente](#construir-desde-código-fuente)? Ambos están más abajo.
 
 ### Prerrequisitos
 

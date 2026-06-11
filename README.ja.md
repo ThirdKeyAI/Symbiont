@@ -18,6 +18,10 @@
 **本番環境向けポリシー制御エージェントランタイム。**
 *同じエージェント。安全なランタイム。*
 
+![A Cedar policy denies a live agent's privileged tool call](https://raw.githubusercontent.com/ThirdKeyAI/Symbiont/main/docs/media/cedar-demo.gif)
+
+> **ここで見えているもの：** 実際のモデル (`claude-haiku-4.5`) がエージェントフリートの一覧表示を要求します。Cedar の `forbid` ルールが**毎回のリトライで**その呼び出しを拒否します — コード変更は不要、ポリシーだけです。[コマンド1つで再現する ↓](#ポリシーゲートがツールを拒否する様子を見る--セットアップ不要コマンド1つ) · [▶ 完全なウォークスルー](https://www.youtube.com/watch?v=RPyKpqKz5ik)
+
 Symbiont は、明示的なポリシー、アイデンティティ、監査制御の下で AI エージェントとツールを実行するための Rust ネイティブランタイムです。
 
 多くのエージェントフレームワークはオーケストレーションに注力しています。Symbiont は、エージェントが実際のリスクを伴う実環境で動作する場面に注力しています：信頼されていないツール、機密データ、承認境界、監査要件、再現可能な適用。
@@ -58,9 +62,36 @@ Symbiont は **OATS Extended**（C1–C7 + E1–E8）に準拠しています。
 
 ## クイックスタート
 
-▶ **入門ウォークスルー動画を見る：**
+### ポリシーゲートがツールを拒否する様子を見る — セットアップ不要、コマンド1つ
 
-[![Symbiont — get started](https://img.youtube.com/vi/RPyKpqKz5ik/hqdefault.jpg)](https://www.youtube.com/watch?v=RPyKpqKz5ik)
+Cedar の `forbid` が特権ツールをブロックする一方、安全なツールは通過します。公開イメージに対してこれをコピー＆ペーストしてください（クローン不要、ビルド不要）：
+
+```bash
+docker run --rm --entrypoint sh ghcr.io/thirdkeyai/symbi:latest -c '
+mkdir -p /tmp/p && cat > /tmp/p/policy.cedar <<EOF
+forbid(principal, action == Symbi::Action::"tool_call::list_agents",   resource);
+permit(principal, action == Symbi::Action::"tool_call::system_health", resource);
+EOF
+echo "{\"tool_name\":\"list_agents\"}"   | symbi policy evaluate --stdin --policies /tmp/p --json
+echo "{\"tool_name\":\"system_health\"}" | symbi policy evaluate --stdin --policies /tmp/p --json'
+```
+
+```json
+{"decision":"deny","reason":"deny policies matched: policy_0","tool":"list_agents", ...}
+{"decision":"allow","reason":"allow policies matched: policy_1","tool":"system_health", ...}
+```
+
+これは、ランタイムがライブの推論ループに組み込むのと同じ Cedar ゲートです — まさに上のデモで示された拒否そのものです。
+
+### CLI をインストール
+
+```bash
+# Linux / macOS — installs the `symbi` binary to /usr/local/bin
+curl -fsSL https://symbiont.dev/install.sh | bash
+symbi --help
+```
+
+インストーラーはお使いのプラットフォーム向けにビルド済みのリリースバイナリを取得します。`bash -s -- --version v1.15.2` でバージョンを固定したり、`--dir` でインストール先を変更したりできます。Docker または[ソースからのビルド](#ソースからビルド)をお好みですか？どちらも以下にあります。
 
 ### 前提条件
 

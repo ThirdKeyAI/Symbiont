@@ -18,6 +18,10 @@
 **面向生产环境的策略治理智能体运行时。**
 *同一个智能体。安全的运行时。*
 
+![A Cedar policy denies a live agent's privileged tool call](https://raw.githubusercontent.com/ThirdKeyAI/Symbiont/main/docs/media/cedar-demo.gif)
+
+> **你看到的是：** 一个真实模型（`claude-haiku-4.5`）请求列出智能体集群。一条 Cedar `forbid` 规则在**每次重试**时都拒绝该调用 —— 无需更改代码，只需策略。[用一条命令复现 ↓](#观看策略门拒绝工具调用--一条命令无需配置) · [▶ 完整演示](https://www.youtube.com/watch?v=RPyKpqKz5ik)
+
 Symbiont 是一个 Rust 原生运行时，用于在显式策略、身份和审计控制下执行 AI 智能体和工具。
 
 大多数智能体框架侧重于编排。Symbiont 侧重于智能体在真实环境中运行时面临的真实风险：不可信工具、敏感数据、审批边界、审计要求和可重复的执行控制。
@@ -58,9 +62,36 @@ Symbiont 符合 **OATS Extended**（C1–C7 + E1–E8）。为该规范提供依
 
 ## 快速开始
 
-▶ **观看入门教程视频：**
+### 观看策略门拒绝工具调用 —— 一条命令，无需配置
 
-[![Symbiont — get started](https://img.youtube.com/vi/RPyKpqKz5ik/hqdefault.jpg)](https://www.youtube.com/watch?v=RPyKpqKz5ik)
+一条 Cedar `forbid` 阻止特权工具，而安全工具则放行。直接对已发布镜像复制粘贴运行（无需克隆、无需构建）：
+
+```bash
+docker run --rm --entrypoint sh ghcr.io/thirdkeyai/symbi:latest -c '
+mkdir -p /tmp/p && cat > /tmp/p/policy.cedar <<EOF
+forbid(principal, action == Symbi::Action::"tool_call::list_agents",   resource);
+permit(principal, action == Symbi::Action::"tool_call::system_health", resource);
+EOF
+echo "{\"tool_name\":\"list_agents\"}"   | symbi policy evaluate --stdin --policies /tmp/p --json
+echo "{\"tool_name\":\"system_health\"}" | symbi policy evaluate --stdin --policies /tmp/p --json'
+```
+
+```json
+{"decision":"deny","reason":"deny policies matched: policy_0","tool":"list_agents", ...}
+{"decision":"allow","reason":"allow policies matched: policy_1","tool":"system_health", ...}
+```
+
+这正是运行时接入实时推理循环的同一个 Cedar 策略门 —— 与上方演示中展示的拒绝完全一致。
+
+### 安装 CLI
+
+```bash
+# Linux / macOS — installs the `symbi` binary to /usr/local/bin
+curl -fsSL https://symbiont.dev/install.sh | bash
+symbi --help
+```
+
+安装程序会为你的平台获取预构建的发布二进制文件。可用 `bash -s -- --version v1.15.2` 固定版本，或用 `--dir` 更改目标路径。更喜欢 Docker 或[从源代码构建](#从源代码构建)？两者都在下方。
 
 ### 前提条件
 
