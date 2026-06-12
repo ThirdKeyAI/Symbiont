@@ -38,7 +38,7 @@ Uma vez que um agente pode chamar ferramentas, acessar arquivos, enviar mensagen
 * **Verificação de ferramentas** para que a execução não seja confiança cega — verificação criptográfica [SchemaPin](https://github.com/ThirdKeyAI/SchemaPin) de ferramentas MCP
 * **Contratos de ferramentas** para regular como as ferramentas executam — [ToolClad](https://github.com/ThirdKeyAI/ToolClad) com validação declarativa de argumentos, aplicação de escopo e prevenção de injeção
 * **Identidade de agente** para saber quem está agindo — identidade ES256 ancorada em domínio [AgentPin](https://github.com/ThirdKeyAI/AgentPin)
-* **Sandboxing** para cargas de trabalho arriscadas — isolamento Docker com limites de recursos
+* **Sandboxing** para cargas de trabalho arriscadas — escolha Docker, gVisor (`runsc`) ou microVM Firecracker por agente
 * **Trilhas de auditoria** para o que aconteceu e por quê — logs criptograficamente à prova de adulteração
 * **Gates de aprovação** para ações sensíveis — revisão humana antes da execução quando a política exigir
 
@@ -97,17 +97,34 @@ O instalador baixa o binário de release pré-compilado para a sua plataforma. F
 
 * Docker (recomendado) ou Rust 1.82+
 
-### Executar com Docker
+### Crie e execute um projeto (Docker, ~60 segundos)
 
 ```bash
-# Iniciar o runtime (API em :8080, HTTP input em :8081)
+# 1. Create the project in the current directory.
+#    Generates symbiont.toml, agents/, policies/, docker-compose.yml, and
+#    a .env with a freshly generated SYMBIONT_MASTER_KEY.
+docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest \
+  init --profile assistant --no-interact --dir /workspace
+
+# 2. Start the runtime. Reads .env automatically.
+docker compose up
+```
+
+É isso — Runtime API em `http://localhost:8080`, HTTP Input em `http://localhost:8081`.
+Use `symbi init --catalog list` (ou o equivalente em Docker) para navegar pelos agentes pré-construídos.
+
+### Outras receitas com Docker
+
+```bash
+# Ad-hoc runtime without a project (ephemeral, no master key)
 docker run --rm -p 8080:8080 -p 8081:8081 ghcr.io/thirdkeyai/symbi:latest up
 
-# Executar apenas o servidor MCP
+# MCP server only
 docker run --rm -p 8080:8080 ghcr.io/thirdkeyai/symbi:latest mcp
 
-# Analisar um arquivo DSL de agente
-docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest dsl parse /workspace/agent.dsl
+# Parse an agent definition (`.symbi`; legacy `.dsl` also accepted)
+docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest \
+  dsl -f /workspace/agent.symbi
 ```
 
 ### Compilar a partir do código-fonte
@@ -116,11 +133,9 @@ docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest dsl parse /
 cargo build --release
 ./target/release/symbi --help
 
-# Executar o runtime
-cargo run -- up
-
-# REPL interativo
-cargo run -- repl
+# Scaffold a project locally, then start the runtime
+./target/release/symbi init --profile assistant --no-interact
+./target/release/symbi up
 ```
 
 > Para implantações em produção, revise `SECURITY.md` e o [guia de implantação](https://docs.symbiont.dev/getting-started) antes de habilitar execução de ferramentas não confiáveis.
@@ -170,6 +185,8 @@ agent secure_analyst(input: DataSet) -> Result {
 
 Consulte o [guia do DSL](https://docs.symbiont.dev/dsl-guide) para a gramática completa incluindo blocos `metadata`, `schedule`, `webhook` e `channel`.
 
+> **Extensão de arquivo:** As definições de agentes do Symbiont usam `.symbi` como sua extensão canônica (ex.: `agents/assistant.symbi`). A extensão legada `.dsl` continua sendo analisada indefinidamente para compatibilidade retroativa, mas novos projetos criados com `symbi init` e todos os exemplos neste repositório usam `.symbi`.
+
 ---
 
 ## Capacidades principais
@@ -181,7 +198,7 @@ Consulte o [guia do DSL](https://docs.symbiont.dev/dsl-guide) para a gramática 
 | **Contratos de ferramentas** | Contratos declarativos [ToolClad](https://github.com/ThirdKeyAI/ToolClad) com validação de argumentos, aplicação de escopo e geração de políticas Cedar |
 | **Identidade de agente** | Identidade ES256 ancorada em domínio [AgentPin](https://github.com/ThirdKeyAI/AgentPin) para agentes e tarefas agendadas |
 | **Ciclo de raciocínio** | Ciclo Observe-Reason-Gate-Act com enforcement de typestate, gates de política e circuit breakers |
-| **Sandboxing** | Isolamento baseado em Docker com limites de recursos para cargas de trabalho não confiáveis |
+| **Sandboxing** | Docker, gVisor (`runsc`) ou microVM Firecracker — selecionável por agente via o bloco DSL `with { sandbox = ... }` |
 | **Log de auditoria** | Logs à prova de adulteração com registros estruturados para cada decisão de política |
 | **Gerenciamento de segredos** | Integração Vault/OpenBao, armazenamento criptografado AES-256-GCM, escopo por agente |
 | **Integração MCP** | Suporte nativo ao Model Context Protocol com acesso governado a ferramentas |
@@ -201,7 +218,7 @@ Ações passam por controles do runtime:
 * **Zero trust** — todas as entradas de agentes são não confiáveis por padrão
 * **Verificações de política** — autorização Cedar antes de cada chamada de ferramenta e acesso a recurso
 * **Verificação de ferramentas** — verificação criptográfica SchemaPin de schemas de ferramentas
-* **Limites de sandbox** — isolamento Docker para execução não confiável
+* **Limites de sandbox** — Docker (padrão), gVisor (filtro de syscalls `runsc`) ou Firecracker (microVM)
 * **Aprovação do operador** — gates de revisão humana para ações sensíveis
 * **Controle de segredos** — backends Vault/OpenBao, armazenamento local criptografado, namespaces de agentes
 * **Log de auditoria** — registros criptograficamente à prova de adulteração de cada decisão
@@ -242,19 +259,21 @@ Se você está avaliando Symbiont para produção, comece pela documentação do
 
 ## SDKs
 
-SDKs oficiais para integrar o runtime do Symbiont a partir da sua aplicação:
+SDKs cliente oficiais para integração com o runtime do Symbiont a partir da sua aplicação:
 
 | Linguagem | Pacote | Repositório |
 |-----------|--------|-------------|
 | **JavaScript/TypeScript** | [symbiont-sdk-js](https://www.npmjs.com/package/symbiont-sdk-js) | [GitHub](https://github.com/ThirdKeyAI/symbiont-sdk-js) |
 | **Python** | [symbiont-sdk](https://pypi.org/project/symbiont-sdk/) | [GitHub](https://github.com/ThirdKeyAI/symbiont-sdk-python) |
 
+> **Recomendação para produção:** Os SDKs de JS e Python são clientes HTTP destinados à integração de aplicações e à prototipagem. Para cargas de trabalho de agentes em produção, recomendamos construir diretamente sobre a **implementação em Rust** para aproveitar todas as garantias de segurança baseadas em typestate do Symbiont — autorização de capacidades, aplicação de políticas e invariantes de ciclo de vida garantidos em tempo de compilação em vez de em tempo de execução. Clientes em linguagens dinâmicas só podem verificar essas propriedades depois que uma requisição cruza a fronteira do runtime.
+
 ---
 
 ## Licença
 
 * **Community Edition** (Apache 2.0): Runtime principal, DSL, policy engine, verificação de ferramentas, sandboxing, memória de agentes, agendamento, integração MCP, RAG, log de auditoria e todas as ferramentas CLI/REPL.
-* **Enterprise Edition** (comercial): Backends avançados de sandbox, exportações de auditoria de conformidade, revisão de ferramentas com IA, colaboração multi-agente criptografada, dashboards de monitoramento e suporte dedicado.
+* **Enterprise Edition** (comercial): Exportações de auditoria de conformidade, revisão de ferramentas com IA, colaboração multi-agente criptografada, dashboards de monitoramento e suporte dedicado. (Todos os três backends de sandbox — Docker, gVisor e Firecracker — são OSS.)
 
 Entre em contato com [ThirdKey](https://thirdkey.ai) para licenciamento empresarial.
 
