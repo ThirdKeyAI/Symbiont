@@ -23,6 +23,12 @@
 
 	# Security headers
 	header {
+		# Defense-in-depth against XSS: no inline/eval scripts, no plugins, no
+		# framing. The app's own JS is same-origin; API/WS are same-origin via
+		# the /api and /ws reverse proxies above. Google Fonts is the only
+		# cross-origin asset. Inline styles are allowed (Lit/Tailwind dynamic
+		# styles); script injection — the actual XSS risk — is not.
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 		X-Content-Type-Options nosniff
 		X-Frame-Options DENY
 		X-XSS-Protection "1; mode=block"

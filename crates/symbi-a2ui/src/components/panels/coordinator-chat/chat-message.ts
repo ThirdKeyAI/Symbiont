@@ -2,6 +2,7 @@ import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 
 export interface ToolTrace {
   call_id: string;
@@ -246,7 +247,12 @@ export class ChatMessage extends LitElement {
   }
 
   private _renderMarkdown(text: string): string {
-    return marked.parse(text, { async: false }) as string;
+    // Chat content is agent/coordinator/tool output — untrusted. `marked` does
+    // NOT sanitize, and the result is fed to `unsafeHTML`, so sanitize the
+    // generated HTML (strips <script>, on* handlers, javascript: URIs, etc.)
+    // before it reaches the DOM.
+    const rawHtml = marked.parse(text, { async: false }) as string;
+    return DOMPurify.sanitize(rawHtml);
   }
 
   render() {
