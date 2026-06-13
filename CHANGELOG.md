@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **`symbi` now auto-loads a project-local `.env`.** On startup the CLI reads `.env` from the working directory (additively — real environment variables still take precedence and are never overridden), printing `Loaded environment from <path>` to stderr. This closes the `init` → `up` loop: the `SYMBIONT_MASTER_KEY` that `symbi init` generates in `.env` is now picked up automatically by a local `symbi up`/`run`, instead of requiring a manual `source .env`.
+- **`symbi init` output polish.** The "Next steps" block now prints last (after `.env` and `docker-compose.yml` are written) instead of mid-output, and presents clearer guidance: `Validate` / `Run` (with `docker compose up` recommended for the default Docker tier, and `symbi up` noted to load `.env`) / `Update`.
+
 ## [1.15.2] - 2026-06-09
 
 **Patch: Cedar policy enforcement is on by default in the `symbi` binary.**

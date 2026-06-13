@@ -655,20 +655,49 @@ fn init_project(
         "import" => {}
         _ => unreachable!("profile validated before reaching init_project"),
     }
+}
+
+/// Whether a canonical Docker Compose file exists in `dir`.
+fn compose_file_present(dir: &Path) -> bool {
+    [
+        "docker-compose.yml",
+        "docker-compose.yaml",
+        "compose.yml",
+        "compose.yaml",
+    ]
+    .iter()
+    .any(|f| dir.join(f).exists())
+}
+
+/// Print the closing "Next steps" guidance. Called once, last, after every
+/// file (including `.env` and the compose file) has been written — so it is
+/// the final thing the user sees and reflects what actually got generated.
+fn print_next_steps(dir: &Path, profile: &str, docker_compose_enabled: bool) {
+    let compose = docker_compose_enabled && compose_file_present(dir);
+    let validate_target = match profile {
+        "minimal" | "import" => None,
+        "dev-agent" => Some("agents/dev.symbi"),
+        "multi-agent" => Some("agents/coordinator.symbi"),
+        _ => Some("agents/assistant.symbi"),
+    };
 
     println!();
     println!("Next steps:");
-    match profile {
-        "minimal" | "import" => {}
-        "dev-agent" => println!("  symbi dsl -f agents/dev.symbi          # validate your agent"),
-        "multi-agent" => {
-            println!("  symbi dsl -f agents/coordinator.symbi  # validate your agents");
-        }
-        _ => println!("  symbi dsl -f agents/assistant.symbi   # validate your agent"),
+    if let Some(target) = validate_target {
+        println!("  Validate   symbi dsl -f {target}");
     }
-    println!("  symbi up                             # start the runtime");
-    if profile != "minimal" && profile != "import" {
-        println!("  symbi agents-md generate             # regenerate AGENTS.md after changes");
+    if compose {
+        println!(
+            "  Run        docker compose up   # Docker \u{2014} reads .env automatically (recommended)"
+        );
+        println!("             symbi up            # or run the local binary (also loads .env)");
+    } else {
+        println!("  Run        symbi up            # loads .env automatically");
+    }
+    if validate_target.is_some() {
+        println!(
+            "  Update     symbi agents-md generate   # regenerate AGENTS.md after editing agents"
+        );
     }
 }
 
@@ -797,9 +826,6 @@ fn write_docker_compose(dir: &Path, profile: &str) {
     match std::fs::write(&compose_path, compose) {
         Ok(()) => {
             println!("\u{2713} Created docker-compose.yml");
-            println!(
-                "  \u{2192} docker compose up    # start the runtime in Docker (reads .env automatically)"
-            );
         }
         Err(e) => eprintln!("\u{26a0} Failed to write docker-compose.yml: {}", e),
     }
@@ -977,6 +1003,10 @@ pub async fn run(matches: &ArgMatches) {
     if !no_docker_compose {
         write_docker_compose(&target_dir, &profile);
     }
+
+    // Closing guidance — printed last so it's the final thing on screen and
+    // reflects everything that was actually generated above.
+    print_next_steps(&target_dir, &profile, !no_docker_compose);
 }
 
 fn resolve_target_dir(matches: &ArgMatches) -> PathBuf {

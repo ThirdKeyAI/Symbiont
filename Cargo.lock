@@ -9056,6 +9056,7 @@ dependencies = [
  "clap",
  "cron",
  "dialoguer",
+ "dotenvy",
  "hex",
  "reqwest",
  "rmcp",

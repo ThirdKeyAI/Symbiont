@@ -726,7 +726,9 @@ max_concurrent_connections = 100
 
 ```bash
 # Required: 32-byte hex key used to encrypt persistent state.
-# `symbi init` writes one into .env. Generate with: openssl rand -hex 32
+# `symbi init` writes one into .env, and `symbi` auto-loads .env from the
+# working directory — so the manual export below is only for ad-hoc shells.
+# Generate with: openssl rand -hex 32
 export SYMBIONT_MASTER_KEY=...
 
 # LLM provider (set one)

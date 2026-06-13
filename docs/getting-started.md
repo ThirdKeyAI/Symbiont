@@ -577,7 +577,9 @@ Set up your environment for optimal performance:
 ```bash
 # Required: 32-byte hex key used to encrypt persistent state.
 # Generate with: openssl rand -hex 32
-# `symbi init` writes one into .env automatically.
+# `symbi init` writes one into .env automatically, and `symbi` auto-loads
+# .env from the working directory — so in a scaffolded project you don't
+# need to export it by hand. The line below is only for ad-hoc shells.
 export SYMBIONT_MASTER_KEY="..."
 
 # Basic configuration

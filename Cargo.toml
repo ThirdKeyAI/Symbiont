@@ -65,6 +65,7 @@ tempfile = "3.0"
 dialoguer = { version = "0.11", optional = true }
 sha2 = "0.10"
 hex = "0.4"
+dotenvy = "0.15"
 cedar-policy = { version = "4", optional = true }
 
 [[example]]

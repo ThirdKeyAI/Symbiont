@@ -9,6 +9,15 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[tokio::main]
 async fn main() {
+    // Load a project-local `.env` (e.g. the one `symbi init` generates with
+    // SYMBIONT_MASTER_KEY) before anything reads the environment. Variables
+    // already set in the real environment take precedence — dotenvy never
+    // overrides them — so this is additive and safe. We announce it on stderr
+    // rather than loading secrets silently.
+    if let Ok(path) = dotenvy::dotenv() {
+        eprintln!("Loaded environment from {}", path.display());
+    }
+
     let matches = Command::new("symbi")
         .version(VERSION)
         .about("Symbiont - AI Agent Runtime and DSL")
