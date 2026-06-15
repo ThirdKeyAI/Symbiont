@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Human-in-the-loop approvals.** A runtime held-action escalation queue holds agent actions that require human approval (block-with-timeout, fail-closed) and lets operators approve/deny them in real time via a new REST API (`/api/v1/approvals`), the new **Gate panel** in `symbi-shell` (`/gate`, `Ctrl+G`), or chat (`/symbi gate approve|deny <id>` over Slack/Teams/Mattermost, allowlist-authorized). Config: `[escalation]` + `SYMBIONT_ESCALATION_TIMEOUT` / `SYMBIONT_REQUIRE_APPROVAL_TOOLS`.
+
 ### Changed
 - **`symbi` now auto-loads a project-local `.env`.** On startup the CLI reads `.env` from the working directory (additively — real environment variables still take precedence and are never overridden), printing `Loaded environment from <path>` to stderr. This closes the `init` → `up` loop: the `SYMBIONT_MASTER_KEY` that `symbi init` generates in `.env` is now picked up automatically by a local `symbi up`/`run`, instead of requiring a manual `source .env`.
 - **`symbi init` output polish.** The "Next steps" block now prints last (after `.env` and `docker-compose.yml` are written) instead of mid-output, and presents clearer guidance: `Validate` / `Run` (with `docker compose up` recommended for the default Docker tier, and `symbi up` noted to load `.env`) / `Update`.

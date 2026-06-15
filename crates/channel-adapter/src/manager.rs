@@ -13,6 +13,7 @@ use crate::config::{ChannelConfig, PlatformSettings};
 use crate::error::ChannelAdapterError;
 use crate::logging::BasicInteractionLogger;
 use crate::traits::{ChannelAdapter, InboundHandler};
+use crate::types::ChatDeliveryReceipt;
 use crate::types::{ChatPlatform, InboundMessage, OutboundMessage};
 
 #[cfg(feature = "slack")]
@@ -49,6 +50,7 @@ pub struct ChannelAdapterManager {
     adapters: HashMap<String, Arc<dyn ChannelAdapter>>,
     invoker: Arc<dyn AgentInvoker>,
     logger: Arc<BasicInteractionLogger>,
+    interceptor: Option<Arc<dyn crate::traits::InboundCommandInterceptor>>,
     #[cfg(feature = "enterprise-hooks")]
     enterprise_hooks: Option<Arc<dyn crate::traits::EnterpriseChannelHooks>>,
 }
@@ -59,9 +61,16 @@ impl ChannelAdapterManager {
             adapters: HashMap::new(),
             invoker,
             logger,
+            interceptor: None,
             #[cfg(feature = "enterprise-hooks")]
             enterprise_hooks: None,
         }
+    }
+
+    /// Set the inbound command interceptor. Must be called before `register_adapter`,
+    /// since each handler is built at registration time.
+    pub fn set_interceptor(&mut self, icpt: Arc<dyn crate::traits::InboundCommandInterceptor>) {
+        self.interceptor = Some(icpt);
     }
 
     #[cfg(feature = "enterprise-hooks")]
@@ -84,6 +93,7 @@ impl ChannelAdapterManager {
                     logger: self.logger.clone(),
                     adapter: tokio::sync::RwLock::new(None),
                     default_agent: slack_config.default_agent.clone(),
+                    interceptor: self.interceptor.clone(),
                     #[cfg(feature = "enterprise-hooks")]
                     enterprise_hooks: self.enterprise_hooks.clone(),
                 });
@@ -106,6 +116,7 @@ impl ChannelAdapterManager {
                     logger: self.logger.clone(),
                     adapter: tokio::sync::RwLock::new(None),
                     default_agent: teams_config.default_agent.clone(),
+                    interceptor: self.interceptor.clone(),
                     #[cfg(feature = "enterprise-hooks")]
                     enterprise_hooks: self.enterprise_hooks.clone(),
                 });
@@ -121,6 +132,7 @@ impl ChannelAdapterManager {
                     logger: self.logger.clone(),
                     adapter: tokio::sync::RwLock::new(None),
                     default_agent: mm_config.default_agent.clone(),
+                    interceptor: self.interceptor.clone(),
                     #[cfg(feature = "enterprise-hooks")]
                     enterprise_hooks: self.enterprise_hooks.clone(),
                 });
@@ -177,6 +189,20 @@ impl ChannelAdapterManager {
             .map(|(name, adapter)| (name.clone(), adapter.platform()))
             .collect()
     }
+
+    /// Send a message to the first adapter matching `platform`.
+    pub async fn send_to(
+        &self,
+        platform: ChatPlatform,
+        msg: OutboundMessage,
+    ) -> Result<ChatDeliveryReceipt, ChannelAdapterError> {
+        let adapter = self
+            .adapters
+            .values()
+            .find(|a| a.platform() == platform)
+            .ok_or_else(|| ChannelAdapterError::SendFailed("no adapter for platform".into()))?;
+        adapter.send_response(msg).await
+    }
 }
 
 /// Internal handler that routes inbound messages to agents and sends responses.
@@ -187,6 +213,7 @@ struct ManagerInboundHandler {
     /// Set after adapter creation via `set_adapter()`.
     adapter: tokio::sync::RwLock<Option<Arc<dyn ChannelAdapter>>>,
     default_agent: Option<String>,
+    interceptor: Option<Arc<dyn crate::traits::InboundCommandInterceptor>>,
     #[cfg(feature = "enterprise-hooks")]
     #[allow(dead_code)]
     enterprise_hooks: Option<Arc<dyn crate::traits::EnterpriseChannelHooks>>,
@@ -203,6 +230,26 @@ impl ManagerInboundHandler {
 #[async_trait]
 impl InboundHandler for ManagerInboundHandler {
     async fn handle_message(&self, message: InboundMessage) -> Result<(), ChannelAdapterError> {
+        // Check interceptor first; if it handles the message, skip agent invocation.
+        if let Some(icpt) = &self.interceptor {
+            if let Some(reply) = icpt.try_handle(&message).await {
+                if let Some(adapter) = self.adapter.read().await.as_ref() {
+                    let _ = adapter
+                        .send_response(OutboundMessage {
+                            channel_id: message.channel_id.clone(),
+                            thread_id: message.thread_id.clone(),
+                            content: reply,
+                            blocks: None,
+                            ephemeral: true,
+                            user_id: Some(message.sender_id.clone()),
+                            metadata: None,
+                        })
+                        .await;
+                }
+                return Ok(());
+            }
+        }
+
         let start = std::time::Instant::now();
 
         // Extract agent name from command or use default
@@ -423,6 +470,7 @@ mod tests {
             logger: logger.clone(),
             adapter: tokio::sync::RwLock::new(None),
             default_agent: Some("echo".to_string()),
+            interceptor: None,
             #[cfg(feature = "enterprise-hooks")]
             enterprise_hooks: None,
         };
@@ -454,6 +502,7 @@ mod tests {
             logger: logger.clone(),
             adapter: tokio::sync::RwLock::new(None),
             default_agent: Some("broken".to_string()),
+            interceptor: None,
             #[cfg(feature = "enterprise-hooks")]
             enterprise_hooks: None,
         };
@@ -484,5 +533,92 @@ mod tests {
         let logger = Arc::new(BasicInteractionLogger::new(None));
         let manager = ChannelAdapterManager::new(invoker, logger);
         assert!(manager.list_adapters().is_empty());
+    }
+}
+
+#[cfg(test)]
+impl ManagerInboundHandler {
+    pub(crate) fn for_test(
+        invoker: Arc<dyn AgentInvoker>,
+        interceptor: Option<Arc<dyn crate::traits::InboundCommandInterceptor>>,
+    ) -> Self {
+        Self {
+            invoker,
+            logger: Arc::new(BasicInteractionLogger::new(None)),
+            adapter: tokio::sync::RwLock::new(None),
+            default_agent: None,
+            interceptor,
+            #[cfg(feature = "enterprise-hooks")]
+            enterprise_hooks: None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod interceptor_tests {
+    use super::*;
+    use crate::types::{ChatPlatform, InboundMessage};
+    use std::sync::{Arc, Mutex};
+
+    struct CountingInvoker {
+        calls: Mutex<usize>,
+    }
+
+    #[async_trait]
+    impl AgentInvoker for CountingInvoker {
+        async fn invoke(&self, _agent: &str, _input: &str) -> Result<String, String> {
+            *self.calls.lock().unwrap() += 1;
+            Ok("agent".into())
+        }
+    }
+
+    struct ShortCircuit;
+
+    #[async_trait]
+    impl crate::traits::InboundCommandInterceptor for ShortCircuit {
+        async fn try_handle(&self, _m: &InboundMessage) -> Option<String> {
+            Some("handled".into())
+        }
+    }
+
+    fn msg() -> InboundMessage {
+        InboundMessage {
+            id: "m".into(),
+            platform: ChatPlatform::Slack,
+            workspace_id: "w".into(),
+            channel_id: "C".into(),
+            thread_id: None,
+            sender_id: "U".into(),
+            sender_name: "U".into(),
+            content: "hello".into(),
+            command: None,
+            timestamp: chrono::Utc::now(),
+            raw_payload: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn interceptor_short_circuits_agent() {
+        let invoker = Arc::new(CountingInvoker {
+            calls: Mutex::new(0),
+        });
+        let handler =
+            ManagerInboundHandler::for_test(invoker.clone(), Some(Arc::new(ShortCircuit)));
+        handler.handle_message(msg()).await.unwrap();
+        assert_eq!(
+            *invoker.calls.lock().unwrap(),
+            0,
+            "agent must not be invoked when interceptor handles"
+        );
+    }
+
+    #[tokio::test]
+    async fn no_interceptor_invokes_agent() {
+        let invoker = Arc::new(CountingInvoker {
+            calls: Mutex::new(0),
+        });
+        let handler = ManagerInboundHandler::for_test(invoker.clone(), None);
+        let _ = handler.handle_message(msg()).await;
+        assert_eq!(*invoker.calls.lock().unwrap(), 1);
     }
 }

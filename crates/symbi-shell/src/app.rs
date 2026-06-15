@@ -215,6 +215,21 @@ pub struct App {
     /// viewport model: historical entries live in terminal scrollback,
     /// the viewport only paints the input line + popup + footer.
     pub output_flushed: usize,
+    /// Whether the Gate panel (held-action escalation queue) is shown.
+    pub gate_visible: bool,
+    /// Held actions currently displayed in the Gate panel.
+    pub gate_items: Vec<crate::ui::widgets::gate_panel::HeldActionView>,
+    /// Index of the selected held action in the Gate panel.
+    pub gate_selected: usize,
+    /// In-flight poll of `GET /api/v1/approvals`, resolved on tick.
+    gate_poll: Option<
+        tokio::sync::oneshot::Receiver<
+            Result<Vec<crate::ui::widgets::gate_panel::HeldActionView>, String>,
+        >,
+    >,
+    /// Wall-clock of the last Gate poll dispatch, used to throttle
+    /// re-polling to ~1s (the tick rate is far faster).
+    gate_last_poll: Option<std::time::Instant>,
 }
 
 impl App {
@@ -262,6 +277,67 @@ impl App {
             session_id: uuid::Uuid::new_v4().to_string(),
             journal_seen: 0,
             output_flushed: 0,
+            gate_visible: false,
+            gate_items: Vec::new(),
+            gate_selected: 0,
+            gate_poll: None,
+            gate_last_poll: None,
+        }
+    }
+
+    /// Kick off an async poll of the runtime's held-action queue. The
+    /// result is consumed in `on_tick`. No-op when not attached.
+    pub fn gate_refresh(&mut self) {
+        let remote = match self.remote.clone() {
+            Some(r) => r,
+            None => return,
+        };
+        let (tx, rx) = oneshot::channel();
+        self.gate_poll = Some(rx);
+        self.gate_last_poll = Some(std::time::Instant::now());
+        tokio::spawn(async move {
+            let res = remote
+                .list_approvals()
+                .await
+                .map_err(|e| e.to_string())
+                .map(|v| {
+                    v.as_array()
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(
+                                    crate::ui::widgets::gate_panel::HeldActionView::from_json,
+                                )
+                                .collect()
+                        })
+                        .unwrap_or_default()
+                });
+            let _ = tx.send(res);
+        });
+    }
+
+    /// Approve (`approve == true`) or deny the currently selected held
+    /// action, then drop it from the local list optimistically.
+    pub fn gate_resolve_selected(&mut self, approve: bool) {
+        let id = match self.gate_items.get(self.gate_selected) {
+            Some(i) => i.id.clone(),
+            None => return,
+        };
+        let remote = match self.remote.clone() {
+            Some(r) => r,
+            None => return,
+        };
+        tokio::spawn(async move {
+            let _ = if approve {
+                remote.approve_held(&id, None).await
+            } else {
+                remote.deny_held(&id, None).await
+            };
+        });
+        if self.gate_selected < self.gate_items.len() {
+            self.gate_items.remove(self.gate_selected);
+        }
+        if self.gate_selected > 0 && self.gate_selected >= self.gate_items.len() {
+            self.gate_selected -= 1;
         }
     }
 
@@ -609,6 +685,33 @@ impl App {
                     self.busy_label.clear();
                 }
             }
+        }
+
+        // Consume a completed Gate poll, then re-arm the poll while the
+        // panel stays open so the queue + countdown refresh ~each second.
+        if let Some(rx) = self.gate_poll.as_mut() {
+            match rx.try_recv() {
+                Ok(Ok(items)) => {
+                    self.gate_items = items;
+                    if self.gate_selected >= self.gate_items.len() {
+                        self.gate_selected = 0;
+                    }
+                    self.gate_poll = None;
+                }
+                Ok(Err(_)) | Err(oneshot::error::TryRecvError::Closed) => {
+                    self.gate_poll = None;
+                }
+                Err(oneshot::error::TryRecvError::Empty) => {}
+            }
+        }
+        if self.gate_visible
+            && self.gate_poll.is_none()
+            && self
+                .gate_last_poll
+                .map(|t| t.elapsed() >= std::time::Duration::from_secs(1))
+                .unwrap_or(true)
+        {
+            self.gate_refresh();
         }
     }
 

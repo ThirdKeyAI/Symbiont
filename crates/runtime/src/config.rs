@@ -52,6 +52,8 @@ pub struct Config {
     /// CLI executor configuration (optional, requires `cli-executor` feature)
     #[cfg(feature = "cli-executor")]
     pub cli_executor: Option<CliExecutorConfigToml>,
+    /// Escalation configuration (optional)
+    pub escalation: Option<EscalationConfig>,
 }
 
 /// API configuration.
@@ -246,6 +248,42 @@ pub struct AdapterConfigToml {
     pub allowed_tools: Option<Vec<String>>,
     /// Disallowed tools list (adapter-specific).
     pub disallowed_tools: Option<Vec<String>>,
+}
+
+/// Approval channel for escalation requests.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApprovalChannelConfig {
+    /// Chat platform identifier ("slack", "teams", "mattermost").
+    pub platform: String,
+    /// Platform-specific channel identifier.
+    pub channel_id: String,
+    /// Allowlisted sender IDs; empty list means fail-closed.
+    #[serde(default)]
+    pub approvers: Vec<String>,
+}
+
+/// Escalation configuration for operator approval flows.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EscalationConfig {
+    /// Seconds to wait for an approval response before timing out.
+    #[serde(default = "default_escalation_timeout")]
+    pub timeout_seconds: u64,
+    /// Chat channels that may approve escalated actions.
+    #[serde(default)]
+    pub approval_channels: Vec<ApprovalChannelConfig>,
+}
+
+fn default_escalation_timeout() -> u64 {
+    120
+}
+
+impl Default for EscalationConfig {
+    fn default() -> Self {
+        Self {
+            timeout_seconds: 120,
+            approval_channels: vec![],
+        }
+    }
 }
 
 /// Storage configuration
@@ -1710,5 +1748,36 @@ mod tests {
                 token
             );
         }
+    }
+
+    #[test]
+    fn parses_escalation_section() {
+        let toml = r#"
+[escalation]
+timeout_seconds = 90
+
+[[escalation.approval_channels]]
+platform = "slack"
+channel_id = "C0APPROVERS"
+approvers = ["U0ALICE", "U0BOB"]
+"#;
+        #[derive(serde::Deserialize)]
+        struct Wrapper {
+            escalation: Option<EscalationConfig>,
+        }
+        let cfg: EscalationConfig = toml::from_str::<Wrapper>(toml).unwrap().escalation.unwrap();
+        assert_eq!(cfg.timeout_seconds, 90);
+        assert_eq!(cfg.approval_channels.len(), 1);
+        assert_eq!(cfg.approval_channels[0].channel_id, "C0APPROVERS");
+        assert_eq!(
+            cfg.approval_channels[0].approvers,
+            vec!["U0ALICE".to_string(), "U0BOB".to_string()]
+        );
+    }
+
+    #[test]
+    fn escalation_defaults() {
+        assert_eq!(EscalationConfig::default().timeout_seconds, 120);
+        assert!(EscalationConfig::default().approval_channels.is_empty());
     }
 }

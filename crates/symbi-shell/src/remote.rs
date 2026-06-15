@@ -182,6 +182,27 @@ impl RemoteConnection {
     pub async fn metrics(&self) -> Result<Value> {
         self.get("/api/v1/metrics").await
     }
+
+    // ─── Approval queue ───
+
+    /// List pending held actions awaiting approval.
+    pub async fn list_approvals(&self) -> Result<Value> {
+        self.get("/api/v1/approvals").await
+    }
+
+    /// Approve a held action by id, with an optional reason.
+    pub async fn approve_held(&self, id: &str, reason: Option<&str>) -> Result<Value> {
+        let body = reason.map(|r| serde_json::json!({ "reason": r }));
+        self.post(&format!("/api/v1/approvals/{}/approve", id), body)
+            .await
+    }
+
+    /// Deny a held action by id, with an optional reason.
+    pub async fn deny_held(&self, id: &str, reason: Option<&str>) -> Result<Value> {
+        let body = reason.map(|r| serde_json::json!({ "reason": r }));
+        self.post(&format!("/api/v1/approvals/{}/deny", id), body)
+            .await
+    }
 }
 
 #[cfg(test)]
@@ -206,5 +227,18 @@ mod tests {
         let debug_str = format!("{:?}", conn);
         assert!(!debug_str.contains("secret"));
         assert!(debug_str.contains("has_token: true"));
+    }
+
+    #[test]
+    fn test_approval_url_format() {
+        let id = "abc-123";
+        assert_eq!(
+            format!("/api/v1/approvals/{}/approve", id),
+            "/api/v1/approvals/abc-123/approve"
+        );
+        assert_eq!(
+            format!("/api/v1/approvals/{}/deny", id),
+            "/api/v1/approvals/abc-123/deny"
+        );
     }
 }

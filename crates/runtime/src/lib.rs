@@ -9,6 +9,7 @@ pub mod context;
 pub mod crypto;
 pub mod env;
 pub mod error_handler;
+pub mod escalation;
 pub mod integrations;
 pub mod lifecycle;
 pub mod logging;

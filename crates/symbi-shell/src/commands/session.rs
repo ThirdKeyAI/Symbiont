@@ -16,7 +16,8 @@ Ops:        /status /monitor /logs /doctor /audit
 Cron:       /cron [add|pause|resume|run|history]
 Tools:      /tools [validate|test] /skills [verify] /verify
 Channels:   /channels /connect /disconnect
-Secrets:    /secrets [list|set|delete]"#
+Secrets:    /secrets [list|set|delete]
+Remote:     /attach /detach /gate (Ctrl+G)"#
             .to_string(),
     )
 }

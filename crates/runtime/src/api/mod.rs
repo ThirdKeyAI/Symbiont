@@ -37,6 +37,9 @@ pub mod coordinator;
 pub mod ws_handler;
 
 #[cfg(feature = "http-api")]
+pub mod escalation_routes;
+
+#[cfg(feature = "http-api")]
 pub use server::HttpApiServer;
 
 #[cfg(feature = "http-api")]

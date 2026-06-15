@@ -207,6 +207,7 @@ pub struct HttpApiServer {
     start_time: Instant,
     api_key_store: Option<Arc<super::api_keys::ApiKeyStore>>,
     coordinator_state: Option<Arc<super::coordinator::CoordinatorState>>,
+    escalation_queue: Option<Arc<crate::escalation::EscalationQueue>>,
 }
 
 #[cfg(feature = "http-api")]
@@ -219,6 +220,7 @@ impl HttpApiServer {
             start_time: Instant::now(),
             api_key_store: None,
             coordinator_state: None,
+            escalation_queue: None,
         }
     }
 
@@ -234,6 +236,12 @@ impl HttpApiServer {
         coordinator_state: Arc<super::coordinator::CoordinatorState>,
     ) -> Self {
         self.coordinator_state = Some(coordinator_state);
+        self
+    }
+
+    /// Attach the escalation queue so REST callers can list, approve, and deny held actions.
+    pub fn with_escalation_queue(mut self, queue: Arc<crate::escalation::EscalationQueue>) -> Self {
+        self.escalation_queue = Some(queue);
         self
     }
 
@@ -467,6 +475,29 @@ impl HttpApiServer {
                 .route("/ws/chat", get(super::ws_handler::ws_chat_handler))
                 .with_state(coordinator_state.clone());
             router = router.merge(ws_router);
+        }
+
+        // Escalation queue REST endpoints (list / approve / deny held actions).
+        if let Some(queue) = &self.escalation_queue {
+            use super::middleware::auth_middleware;
+            use axum::middleware;
+
+            let escalation_router = Router::new()
+                .route(
+                    "/api/v1/approvals",
+                    get(super::escalation_routes::list_approvals),
+                )
+                .route(
+                    "/api/v1/approvals/:id/approve",
+                    axum::routing::post(super::escalation_routes::approve),
+                )
+                .route(
+                    "/api/v1/approvals/:id/deny",
+                    axum::routing::post(super::escalation_routes::deny),
+                )
+                .layer(axum::Extension(queue.clone()))
+                .layer(middleware::from_fn(auth_middleware));
+            router = router.merge(escalation_router);
         }
 
         // Mount Swagger UI + OpenAPI spec only if explicitly enabled and not

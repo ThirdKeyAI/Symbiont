@@ -41,6 +41,14 @@ pub trait InboundHandler: Send + Sync {
     async fn handle_message(&self, message: InboundMessage) -> Result<(), ChannelAdapterError>;
 }
 
+/// First-look hook for inbound messages. If it returns `Some(reply)`, the manager
+/// sends that reply and does NOT invoke an agent. Used for control commands like
+/// `/symbi gate approve <id>`.
+#[async_trait]
+pub trait InboundCommandInterceptor: Send + Sync {
+    async fn try_handle(&self, message: &InboundMessage) -> Option<String>;
+}
+
 /// Extension point for enterprise governance layer.
 ///
 /// Community edition runs without these hooks. When present, the manager calls

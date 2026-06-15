@@ -27,6 +27,29 @@ use ratatui::Frame;
 /// may move back when we add a sidebar-capable mode later.
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let area = frame.area();
+
+    // Gate panel mode: live tail above, the held-action queue in a fixed
+    // region, then footer + input.
+    if app.gate_visible {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(1),     // live tail
+                Constraint::Length(10), // gate panel
+                Constraint::Length(1),  // footer
+                Constraint::Length(1),  // input
+            ])
+            .split(area);
+        content::draw_live_tail(frame, app, chunks[0]);
+        frame.render_widget(
+            widgets::gate_panel::GatePanel::new(&app.gate_items, app.gate_selected),
+            chunks[1],
+        );
+        footer::draw(frame, app, chunks[2]);
+        input::draw(frame, app, chunks[3]);
+        return;
+    }
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([

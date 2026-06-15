@@ -603,6 +603,8 @@ export MCP_SERVER_URLS="http://localhost:8080"
 | `SYMBI_REJECT_LEGACY_API_KEYS` | unset | When set to `1`, the API-key validator short-circuits the deprecated O(n) Argon2 scan for unprefixed keys. Use this immediately after re-issuing every key in `keyid.secret` format. The legacy path will be removed in the next minor release regardless. |
 | `SYMBI_UNSAFE_NATIVE_SANDBOX` | unset | Required (in addition to `SYMBI_ENV=production`-not-set) to construct the `native` sandbox runner. The `native-sandbox` Cargo feature also fails to compile in release builds. The native runner provides zero isolation and is intended only for local debugging. |
 | `SYMBI_TRUSTED_PROXIES` | unset | CIDR allowlist for trusted reverse proxies; `X-Forwarded-For` is only honored from these addresses. |
+| `SYMBIONT_ESCALATION_TIMEOUT` | `120` | Seconds a held action waits for human approval before failing closed (deny). |
+| `SYMBIONT_REQUIRE_APPROVAL_TOOLS` | unset | Comma-separated tool names that require human approval before execution (e.g. `http_post,delete_file`). |
 
 The following environment variables were **removed**:
 
@@ -641,6 +643,28 @@ enabled = true
 backend = "lancedb"              # default; also supports "qdrant"
 collection_name = "symbi_knowledge"
 # url = "http://localhost:6333"  # only needed when backend = "qdrant"
+```
+
+### Human-in-the-loop approvals
+
+When a tool listed in `SYMBIONT_REQUIRE_APPROVAL_TOOLS` (or a policy that escalates)
+holds an agent action, the runtime queues it and waits (up to the escalation
+timeout, fail-closed). Operators resolve held actions in real time via:
+
+- **REST:** `GET /api/v1/approvals`, `POST /api/v1/approvals/{id}/approve`, `.../deny`
+- **The `symbi-shell` Gate panel:** open with `/gate` or `Ctrl+G`; `↑/↓` select, `a` approve, `d` deny.
+- **Chat:** reply `/symbi gate approve <id>` or `/symbi gate deny <id> [reason]` in a configured approval channel (allowlisted senders only).
+
+Configure the timeout and chat approval channels in `symbiont.toml`:
+
+```toml
+[escalation]
+timeout_seconds = 120
+
+[[escalation.approval_channels]]
+platform   = "slack"
+channel_id = "C0APPROVERS"
+approvers  = ["U0ALICE", "U0BOB"]   # allowlisted sender ids; empty = nobody may approve via chat
 ```
 
 ---

@@ -2,6 +2,7 @@ pub mod agents;
 pub mod authoring;
 pub mod channels;
 pub mod deploy;
+pub mod gate;
 pub mod operations;
 pub mod orchestration;
 pub mod registry;
@@ -195,6 +196,7 @@ pub fn dispatch(app: &mut App, command: &str, args: &str) -> Option<CommandResul
         // Remote attach
         "/attach" => Some(remote::attach(app, args)),
         "/detach" => Some(remote::detach(app)),
+        "/gate" => Some(gate::gate(app, args)),
 
         // Context management
         "/compact" => Some(session::compact(app, args)),

@@ -476,6 +476,39 @@ async fn handle_key(app: &mut App, key: KeyEvent) {
         return;
     }
 
+    // Gate panel captures navigation/approval keys before they reach the
+    // input line. Ctrl+G (toggle) and other global chords still fall
+    // through to the main match below.
+    if app.gate_visible {
+        match key.code {
+            KeyCode::Up => {
+                if app.gate_selected > 0 {
+                    app.gate_selected -= 1;
+                }
+                return;
+            }
+            KeyCode::Down => {
+                if app.gate_selected + 1 < app.gate_items.len() {
+                    app.gate_selected += 1;
+                }
+                return;
+            }
+            KeyCode::Char('a') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                app.gate_resolve_selected(true);
+                return;
+            }
+            KeyCode::Char('d') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                app.gate_resolve_selected(false);
+                return;
+            }
+            KeyCode::Esc => {
+                app.gate_visible = false;
+                return;
+            }
+            _ => {}
+        }
+    }
+
     match (key.code, key.modifiers) {
         // Quit
         (KeyCode::Char('d'), KeyModifiers::CONTROL) => app.should_quit = true,
@@ -565,6 +598,14 @@ async fn handle_key(app: &mut App, key: KeyEvent) {
         // "… +N more (ctrl+o)" hint rendered in collapsed card bodies.
         (KeyCode::Char('o'), KeyModifiers::CONTROL) => {
             app.toggle_last_tool_card();
+        }
+
+        // Toggle the Gate panel (held-action escalation queue).
+        (KeyCode::Char('g'), KeyModifiers::CONTROL) => {
+            app.gate_visible = !app.gate_visible;
+            if app.gate_visible {
+                app.gate_refresh();
+            }
         }
 
         // Tab — also accepts completion (alternative to Enter)

@@ -15,6 +15,17 @@ use symbi_runtime::AgentRuntime;
 use symbi_runtime::RuntimeConfig;
 use symbi_runtime::SecretsConfig;
 
+/// Map an approval-channel platform string to a [`ChatPlatform`].
+/// Returns `None` for unrecognised platform identifiers.
+fn parse_platform(s: &str) -> Option<ChatPlatform> {
+    match s.to_lowercase().as_str() {
+        "slack" => Some(ChatPlatform::Slack),
+        "teams" => Some(ChatPlatform::Teams),
+        "mattermost" => Some(ChatPlatform::Mattermost),
+        _ => None,
+    }
+}
+
 /// Resolve the per-agent `SecurityTier` by parsing the DSL `with { sandbox
 /// = ... }` block. Falls back to `default_tier` when the DSL doesn't
 /// specify one.
@@ -334,9 +345,35 @@ pub async fn run(matches: &ArgMatches) {
         (rt, _) => rt,
     };
 
+    // Build the escalation queue (one shared instance) and read its config.
+    // Escalation config is sourced from symbi.toml / symbi.quick.toml when present;
+    // parse failures fall back to defaults (no approval channels).
+    let escalation_cfg = ["symbi.toml", "symbi.quick.toml"]
+        .iter()
+        .filter(|p| Path::new(p).exists())
+        .find_map(|p| symbi_runtime::config::Config::from_file(p).ok())
+        .and_then(|c| c.escalation)
+        .unwrap_or_default();
+    let escalation_queue = Arc::new(symbi_runtime::escalation::EscalationQueue::new());
+    let escalation_timeout = std::time::Duration::from_secs(
+        std::env::var("SYMBIONT_ESCALATION_TIMEOUT")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(escalation_cfg.timeout_seconds),
+    );
+    let require_approval_tools: Vec<String> = std::env::var("SYMBIONT_REQUIRE_APPROVAL_TOOLS")
+        .ok()
+        .map(|s| {
+            s.split(',')
+                .map(|x| x.trim().to_string())
+                .filter(|x| !x.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+
     // Start chat adapters if any are configured
     let any_adapter = slack_token.is_some() || teams_tenant_id.is_some() || mm_server_url.is_some();
-    let mut channel_manager: Option<ChannelAdapterManager> = None;
+    let mut channel_manager: Option<Arc<ChannelAdapterManager>> = None;
 
     if any_adapter {
         // Build the AgentInvoker bridge (shared across all adapters)
@@ -354,6 +391,35 @@ pub async fn run(matches: &ArgMatches) {
 
         let logger = Arc::new(BasicInteractionLogger::new(None));
         let mut manager = ChannelAdapterManager::new(invoker, logger);
+
+        // Wire the escalation command interceptor BEFORE registering any adapter
+        // (adapter command handlers are built at register time). Authorization is
+        // scoped per (platform, channel_id): a sender may only resolve held actions
+        // from a configured approval channel that lists them — never cross-channel
+        // or from an arbitrary channel the bot also reads.
+        if !escalation_cfg.approval_channels.is_empty() {
+            let mut channel_approvers: symbi_runtime::escalation::ChannelApprovers =
+                std::collections::HashMap::new();
+            for c in &escalation_cfg.approval_channels {
+                if let Some(platform) = parse_platform(&c.platform) {
+                    channel_approvers
+                        .entry((platform, c.channel_id.clone()))
+                        .or_default()
+                        .extend(c.approvers.iter().cloned());
+                } else {
+                    eprintln!(
+                        "⚠️  escalation.approval_channels: unknown platform '{}' (channel {}) — skipped",
+                        c.platform, c.channel_id
+                    );
+                }
+            }
+            manager.set_interceptor(Arc::new(
+                symbi_runtime::escalation::EscalationCommandInterceptor::new(
+                    escalation_queue.clone(),
+                    channel_approvers,
+                ),
+            ));
+        }
 
         // Register Slack adapter if --slack.token is provided
         if let Some(token) = slack_token {
@@ -542,6 +608,27 @@ pub async fn run(matches: &ArgMatches) {
             }
         }
 
+        // Adapters are registered; share the manager and subscribe one chat
+        // notifier per approval channel so held actions are announced.
+        let manager = Arc::new(manager);
+        for ch in &escalation_cfg.approval_channels {
+            if let Some(platform) = parse_platform(&ch.platform) {
+                escalation_queue
+                    .subscribe(Arc::new(
+                        symbi_runtime::escalation::ChatEscalationNotifier::new(
+                            manager.clone(),
+                            platform,
+                            ch.channel_id.clone(),
+                        ),
+                    ))
+                    .await;
+            } else {
+                eprintln!(
+                    "⚠️  Unknown approval channel platform '{}' — notifier skipped",
+                    ch.platform
+                );
+            }
+        }
         channel_manager = Some(manager);
     }
 
@@ -564,7 +651,8 @@ pub async fn run(matches: &ArgMatches) {
         serve_agents_md,
     };
 
-    let mut api_server = HttpApiServer::new(api_config);
+    let mut api_server =
+        HttpApiServer::new(api_config).with_escalation_queue(escalation_queue.clone());
     if let Some(ref rt) = runtime {
         api_server = api_server.with_runtime_provider(rt.clone());
 
@@ -593,6 +681,17 @@ pub async fn run(matches: &ArgMatches) {
                     Arc::new(symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate::new())
                 };
 
+            // Wrap the policy gate so flagged tool calls are held for human approval.
+            let policy_gate: Arc<dyn symbi_runtime::reasoning::policy_bridge::ReasoningPolicyGate> =
+                Arc::new(symbi_runtime::escalation::EscalationGate::new(
+                    policy_gate,
+                    escalation_queue.clone(),
+                    symbi_runtime::escalation::EscalationGateConfig {
+                        require_approval_tools: require_approval_tools.clone(),
+                        timeout: escalation_timeout,
+                    },
+                ));
+
             let coordinator_state =
                 Arc::new(symbi_runtime::api::coordinator::CoordinatorState::new(
                     Arc::new(cloud_provider),
@@ -616,13 +715,28 @@ pub async fn run(matches: &ArgMatches) {
         _ = tokio::signal::ctrl_c() => {}
     }
 
-    // Shutdown Slack adapter
-    if let Some(ref mut manager) = channel_manager {
-        let results = manager.shutdown().await;
-        for (name, result) in results {
-            match result {
-                Ok(()) => println!("✓ {} adapter stopped", name),
-                Err(e) => eprintln!("⚠️  {} adapter stop error: {}", name, e),
+    // Shutdown chat adapters. We try to reclaim unique ownership of the manager
+    // for the `&mut` shutdown. Note: when approval channels are configured, the
+    // escalation queue (still held by the running api_server / coordinator) keeps
+    // notifier Arc clones of the manager alive, so `try_unwrap` will fail and the
+    // adapters stop on process exit instead — graceful cleanup only, not required
+    // for correctness. The no-chat / no-approval-channel path reclaims cleanly.
+    drop(escalation_queue);
+    if let Some(manager) = channel_manager.take() {
+        match Arc::try_unwrap(manager) {
+            Ok(mut manager) => {
+                let results = manager.shutdown().await;
+                for (name, result) in results {
+                    match result {
+                        Ok(()) => println!("✓ {} adapter stopped", name),
+                        Err(e) => eprintln!("⚠️  {} adapter stop error: {}", name, e),
+                    }
+                }
+            }
+            Err(_) => {
+                eprintln!(
+                    "⚠️  Channel manager still referenced — adapters will stop on process exit"
+                );
             }
         }
     }
