@@ -23,6 +23,8 @@ pub mod routing;
 pub mod sandbox;
 pub mod scheduler;
 pub mod secrets;
+#[cfg(feature = "session")]
+pub mod session;
 pub mod skills;
 pub mod toolclad;
 pub mod types;

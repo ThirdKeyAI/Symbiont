@@ -26,4 +26,9 @@ tracing = "0.1"
 futures = "0.3"
 bytes = "1.0"
 symbi-runtime = { path = "../runtime", version = "1.15.2", features = ["http-input"] }
+symbi-session = { path = "../symbi-session", version = "1.15.2", optional = true }
+
+[features]
+# Experimental: multiparty session-type protocol monitor (off by default).
+session = ["dep:symbi-session", "symbi-runtime/session"]
 

@@ -36,6 +36,12 @@ pub struct ReasoningBuiltinContext {
     /// should install [`OpaPolicyGateBridge`] or another concrete gate
     /// instead of relying on the default.
     pub reasoning_policy_gate: Option<Arc<dyn ReasoningPolicyGate + Send + Sync>>,
+    /// Active session id (shared cell; settable after the context is frozen).
+    #[cfg(feature = "session")]
+    pub active_session: std::sync::Arc<std::sync::Mutex<Option<symbi_session::monitor::SessionId>>>,
+    /// Session monitor for label derivation. Always present once a bridge exists.
+    #[cfg(feature = "session")]
+    pub session_monitor: Option<std::sync::Arc<symbi_session::monitor::SessionMonitor>>,
 }
 
 /// Execute the `reason` builtin: runs a full reasoning loop.
@@ -280,12 +286,14 @@ pub async fn builtin_delegate(
     };
     let sender_id = ctx.sender_agent_id.unwrap_or_default();
     let request_id = RequestId::new();
+    let plabel = optional_protocol_label(args);
 
     check_comm_policy(
         ctx,
         sender_id,
         recipient_id,
         MessageType::Request(request_id),
+        plabel.as_deref(),
     )?;
     log_comm_message(
         ctx,
@@ -382,6 +390,23 @@ fn parse_reason_args(args: &[DslValue]) -> Result<(String, String, u32, u32)> {
             "reason requires (system: string, user: string, [max_iterations?, max_tokens?])".into(),
         )),
     }
+}
+
+/// Extract an optional `protocol_label` string from a DSL argument list.
+///
+/// Named args arrive as a single `DslValue::Map`. This helper looks up the
+/// `"protocol_label"` key in that map and returns its value when it is a
+/// `DslValue::String`. Returns `None` when the key is absent, has the wrong
+/// type, or the args are positional-only (no map present).
+pub(crate) fn optional_protocol_label(args: &[DslValue]) -> Option<String> {
+    for arg in args {
+        if let DslValue::Map(map) = arg {
+            if let Some(DslValue::String(label)) = map.get("protocol_label") {
+                return Some(label.clone());
+            }
+        }
+    }
+    None
 }
 
 /// Convert a serde_json::Value to a DslValue.
@@ -530,5 +555,38 @@ mod tests {
 
         let args = vec![DslValue::Map(map)];
         assert!(parse_reason_args(&args).is_err());
+    }
+
+    #[test]
+    fn extracts_optional_protocol_label_named_arg() {
+        // Named-arg map containing protocol_label alongside agent/message
+        let mut map_with = HashMap::new();
+        map_with.insert("agent".into(), DslValue::String("Worker".into()));
+        map_with.insert("message".into(), DslValue::String("go".into()));
+        map_with.insert("protocol_label".into(), DslValue::String("fast".into()));
+        let with = vec![DslValue::Map(map_with)];
+        assert_eq!(optional_protocol_label(&with), Some("fast".to_string()));
+
+        // Positional-only — no protocol_label
+        let without = vec![
+            DslValue::String("Worker".into()),
+            DslValue::String("go".into()),
+        ];
+        assert_eq!(optional_protocol_label(&without), None);
+
+        // Named-arg map without protocol_label key
+        let mut map_absent = HashMap::new();
+        map_absent.insert("agent".into(), DslValue::String("Bot".into()));
+        map_absent.insert("message".into(), DslValue::String("hi".into()));
+        let no_label = vec![DslValue::Map(map_absent)];
+        assert_eq!(optional_protocol_label(&no_label), None);
+
+        // Wrong type for protocol_label — treated as absent
+        let mut map_wrong = HashMap::new();
+        map_wrong.insert("agent".into(), DslValue::String("Bot".into()));
+        map_wrong.insert("message".into(), DslValue::String("hi".into()));
+        map_wrong.insert("protocol_label".into(), DslValue::Integer(42));
+        let wrong_type = vec![DslValue::Map(map_wrong)];
+        assert_eq!(optional_protocol_label(&wrong_type), None);
     }
 }

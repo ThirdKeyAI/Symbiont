@@ -39,5 +39,9 @@ dirs = "5"
 tempfile = "3"
 similar = "2"
 
+[features]
+# Experimental: multiparty session-type protocol monitor (off by default).
+session = ["repl-core/session"]
+
 [dev-dependencies]
 serial_test = "3"

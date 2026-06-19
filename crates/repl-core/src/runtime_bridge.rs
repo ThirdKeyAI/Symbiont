@@ -27,6 +27,12 @@ pub struct RuntimeBridge {
     comm_bus: Arc<Mutex<Option<Arc<dyn CommunicationBus + Send + Sync>>>>,
     /// Communication policy gate (deny-by-default; replaced via set_comm_policy).
     comm_policy: Arc<Mutex<Arc<CommunicationPolicyGate>>>,
+    /// Active session id shared across all clones of the reasoning context.
+    #[cfg(feature = "session")]
+    active_session: Arc<Mutex<Option<symbi_session::monitor::SessionId>>>,
+    /// Registry that owns the SessionMonitor; minted once per bridge.
+    #[cfg(feature = "session")]
+    session_registry: Arc<symbi_runtime::session::SessionRegistry>,
 }
 
 impl Default for RuntimeBridge {
@@ -75,6 +81,10 @@ impl RuntimeBridge {
             agent_registry,
             comm_bus,
             comm_policy,
+            #[cfg(feature = "session")]
+            active_session: Arc::new(Mutex::new(None)),
+            #[cfg(feature = "session")]
+            session_registry: Arc::new(symbi_runtime::session::SessionRegistry::new()),
         }
     }
 
@@ -118,6 +128,10 @@ impl RuntimeBridge {
             // (production-default). Callers embedding the runtime should
             // install their concrete gate directly via the SDK.
             reasoning_policy_gate: None,
+            #[cfg(feature = "session")]
+            active_session: self.active_session.clone(),
+            #[cfg(feature = "session")]
+            session_monitor: Some(self.session_registry.monitor()),
         }
     }
 
@@ -214,6 +228,39 @@ impl RuntimeBridge {
         Ok(())
     }
 
+    /// Open a session: establish the protocol on the registry, attach the monitor to
+    /// the shared communication gate, and set the active session so the DSL builtins
+    /// tag + enforce subsequent inter-agent messages.
+    ///
+    /// NOTE (v1a): the gate is rebuilt as permissive + monitor; merging pre-existing
+    /// per-message rules with the session monitor is a documented v1b refinement.
+    /// v1a also assumes a single active session per bridge — calling this again
+    /// overwrites the active-session cell (the prior session's FSMs remain in the
+    /// registry but are no longer the active one). Multi-session support is v1b.
+    #[cfg(feature = "session")]
+    pub fn open_session(
+        &self,
+        global: &symbi_session::Global,
+        binding: symbi_runtime::session::RoleBinding,
+        ttl: std::time::Duration,
+    ) -> Result<symbi_session::monitor::SessionId, symbi_runtime::session::RegistryError> {
+        let sid = self.session_registry.open(global, binding, ttl)?;
+        let gate = symbi_runtime::communication::policy_gate::CommunicationPolicyGate::permissive()
+            .with_session_monitor(self.session_registry.monitor())
+            .with_transcript(self.session_registry.transcript());
+        self.set_comm_policy(std::sync::Arc::new(gate));
+        *self.active_session.lock().unwrap() = Some(sid.clone());
+        Ok(sid)
+    }
+
+    /// The protocol transcript for this bridge's session(s) — offline-verifiable.
+    #[cfg(feature = "session")]
+    pub fn session_transcript(
+        &self,
+    ) -> std::sync::Arc<std::sync::Mutex<symbi_runtime::session::SessionTranscript>> {
+        self.session_registry.transcript()
+    }
+
     /// Emit an event from an agent (stub implementation)
     pub async fn emit_event(
         &self,
@@ -229,6 +276,15 @@ impl RuntimeBridge {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "session")]
+    #[test]
+    fn reasoning_context_has_no_session_by_default() {
+        let bridge = RuntimeBridge::new_permissive_for_dev();
+        let ctx = bridge.reasoning_context();
+        assert!(ctx.active_session.lock().unwrap().is_none());
+        assert!(ctx.session_monitor.is_some()); // monitor always available; no session open yet
+    }
 
     #[tokio::test]
     async fn test_reasoning_context_before_init_has_no_bus() {
@@ -252,6 +308,8 @@ mod tests {
             recipient,
             message_type: MessageType::Direct(recipient),
             topic: None,
+            session_id: None,
+            protocol_label: None,
         };
         assert!(
             policy.evaluate(&request).is_err(),
@@ -271,6 +329,8 @@ mod tests {
             recipient,
             message_type: MessageType::Direct(recipient),
             topic: None,
+            session_id: None,
+            protocol_label: None,
         };
         assert!(policy.evaluate(&request).is_ok());
     }
@@ -309,5 +369,62 @@ mod tests {
         let ctx = bridge.reasoning_context();
         let retrieved = ctx.comm_policy.expect("policy should be set");
         assert!(Arc::ptr_eq(&retrieved, &new_policy));
+    }
+
+    #[cfg(feature = "session")]
+    #[test]
+    fn open_session_records_conforming_messages_to_transcript() {
+        use crate::dsl::agent_composition::check_comm_policy;
+        use std::time::Duration;
+        use symbi_runtime::session::RoleBinding;
+        use symbi_runtime::types::communication::MessageType;
+        use symbi_runtime::types::AgentId;
+        use symbi_session::examples::coordinator_pipeline;
+
+        let bridge = RuntimeBridge::new_permissive_for_dev();
+        let (g, _r) = coordinator_pipeline();
+        let (c, v, p) = (AgentId::new(), AgentId::new(), AgentId::new());
+        let rb = RoleBinding::new()
+            .bind(c, "Coordinator")
+            .bind(v, "Validator")
+            .bind(p, "Processor");
+        let _sid = bridge
+            .open_session(&g, rb, Duration::from_secs(60))
+            .unwrap();
+        let ctx = bridge.reasoning_context();
+
+        check_comm_policy(&ctx, c, v, MessageType::Direct(v), None).unwrap();
+        check_comm_policy(&ctx, v, c, MessageType::Direct(c), None).unwrap();
+
+        let t = bridge.session_transcript();
+        let guard = t.lock().unwrap();
+        assert!(
+            guard.len() >= 2,
+            "transcript should have the conforming transitions"
+        );
+        assert!(guard.verify());
+    }
+
+    #[cfg(feature = "session")]
+    #[test]
+    fn open_session_attaches_monitor_and_sets_active_session() {
+        use std::time::Duration;
+        use symbi_runtime::session::RoleBinding;
+        use symbi_runtime::types::AgentId;
+        use symbi_session::examples::coordinator_pipeline;
+
+        let bridge = RuntimeBridge::new_permissive_for_dev();
+        let (g, _r) = coordinator_pipeline();
+        let (c, v, p) = (AgentId::new(), AgentId::new(), AgentId::new());
+        let rb = RoleBinding::new()
+            .bind(c, "Coordinator")
+            .bind(v, "Validator")
+            .bind(p, "Processor");
+        let sid = bridge
+            .open_session(&g, rb, Duration::from_secs(60))
+            .unwrap();
+        let ctx = bridge.reasoning_context();
+        assert_eq!(ctx.active_session.lock().unwrap().as_ref(), Some(&sid));
+        assert!(ctx.session_monitor.is_some());
     }
 }

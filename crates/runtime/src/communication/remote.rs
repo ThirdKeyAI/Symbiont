@@ -189,6 +189,8 @@ pub fn parse_envelope(m: &Value) -> Result<SecureMessage, CommunicationError> {
         },
         ttl: Duration::from_secs(ttl_seconds),
         timestamp,
+        session_id: None,
+        protocol_label: None,
     })
 }
 
@@ -606,6 +608,8 @@ impl CommunicationBus for RemoteCommunicationBus {
             },
             ttl,
             timestamp: SystemTime::now(),
+            session_id: None,
+            protocol_label: None,
         }
     }
 }

@@ -19,3 +19,7 @@ chrono = { version = "0.4", features = ["serde"] }
 repl-core = { path = "../repl-core", version = "1.15.2" }
 repl-proto = { path = "../repl-proto", version = "1.15.2" }
 symbi-runtime = { path = "../runtime", version = "1.15.2", features = ["http-input", "cloud-llm"] }
+
+[features]
+# Experimental: multiparty session-type protocol monitor (off by default).
+session = ["repl-core/session"]

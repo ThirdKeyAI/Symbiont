@@ -4,6 +4,10 @@
 //! Default behavior is allow-all (backward compatible).
 
 use crate::types::{AgentId, CommunicationError, MessageType};
+#[cfg(feature = "session")]
+use std::sync::{Arc, Mutex};
+#[cfg(feature = "session")]
+use symbi_session::monitor::SessionMonitor;
 
 /// A request to communicate between agents, evaluated by the policy gate.
 #[derive(Debug, Clone)]
@@ -12,6 +16,11 @@ pub struct CommunicationRequest {
     pub recipient: AgentId,
     pub message_type: MessageType,
     pub topic: Option<String>,
+    /// Optional session this message belongs to. When set together with
+    /// `protocol_label`, the gate's session monitor checks message ordering.
+    pub session_id: Option<String>,
+    /// Optional protocol message label used to step the session FSMs.
+    pub protocol_label: Option<String>,
 }
 
 /// Condition that determines when a rule applies.
@@ -48,6 +57,14 @@ pub struct CommunicationPolicyRule {
 pub struct CommunicationPolicyGate {
     rules: Vec<CommunicationPolicyRule>,
     default_allow: bool,
+    /// Optional multiparty session monitor. When present, requests carrying a
+    /// `session_id` + `protocol_label` are also checked for legal ordering.
+    #[cfg(feature = "session")]
+    session_monitor: Option<Arc<SessionMonitor>>,
+    /// Optional protocol transcript. When present, every session transition is
+    /// recorded (allowed or denied) for offline-verifiable audit.
+    #[cfg(feature = "session")]
+    transcript: Option<Arc<Mutex<crate::session::SessionTranscript>>>,
 }
 
 impl CommunicationPolicyGate {
@@ -56,6 +73,10 @@ impl CommunicationPolicyGate {
         Self {
             rules,
             default_allow: false,
+            #[cfg(feature = "session")]
+            session_monitor: None,
+            #[cfg(feature = "session")]
+            transcript: None,
         }
     }
 
@@ -63,7 +84,27 @@ impl CommunicationPolicyGate {
         Self {
             rules: Vec::new(),
             default_allow: true,
+            #[cfg(feature = "session")]
+            session_monitor: None,
+            #[cfg(feature = "session")]
+            transcript: None,
         }
+    }
+
+    /// Attach a session monitor; requests carrying session metadata will be
+    /// checked for legal message ordering in addition to the policy rules.
+    #[cfg(feature = "session")]
+    pub fn with_session_monitor(mut self, m: Arc<SessionMonitor>) -> Self {
+        self.session_monitor = Some(m);
+        self
+    }
+
+    /// Attach a protocol transcript; each session transition is recorded (allowed
+    /// or denied) for offline-verifiable audit.
+    #[cfg(feature = "session")]
+    pub fn with_transcript(mut self, t: Arc<Mutex<crate::session::SessionTranscript>>) -> Self {
+        self.transcript = Some(t);
+        self
     }
 
     pub fn deny_by_default(rules: Vec<CommunicationPolicyRule>) -> Self {
@@ -73,6 +114,17 @@ impl CommunicationPolicyGate {
     }
 
     pub fn evaluate(&self, request: &CommunicationRequest) -> Result<(), CommunicationError> {
+        // First, the existing rule-based authorization decision.
+        self.authorize(request)?;
+        // Then, if a session monitor is attached and the request carries session
+        // metadata, enforce legal message ordering for the choreography.
+        #[cfg(feature = "session")]
+        self.check_session(request)?;
+        Ok(())
+    }
+
+    /// The rule-based allow/deny decision (unchanged behavior).
+    fn authorize(&self, request: &CommunicationRequest) -> Result<(), CommunicationError> {
         for rule in &self.rules {
             if self.matches_condition(&rule.condition, request) {
                 return match &rule.effect {
@@ -90,6 +142,54 @@ impl CommunicationPolicyGate {
                 reason: "No matching rule and default is deny".into(),
             })
         }
+    }
+
+    /// Step the session monitor for this message, if applicable. No-op when no
+    /// monitor is attached or the request carries no session metadata.
+    #[cfg(feature = "session")]
+    fn check_session(&self, request: &CommunicationRequest) -> Result<(), CommunicationError> {
+        let (Some(monitor), Some(sid_str), Some(label)) = (
+            self.session_monitor.as_ref(),
+            request.session_id.as_ref(),
+            request.protocol_label.as_ref(),
+        ) else {
+            return Ok(());
+        };
+        let session_id = symbi_session::monitor::SessionId(sid_str.clone());
+        let sender = request.sender.to_string();
+        let recipient = request.recipient.to_string();
+        let result = monitor.observe(&session_id, &sender, &recipient, label);
+
+        if let Some(transcript) = &self.transcript {
+            let (decision, reason) = match &result {
+                Ok(()) => (crate::session::TranscriptDecision::Allowed, None),
+                Err(e) => (
+                    crate::session::TranscriptDecision::Denied,
+                    Some(e.to_string()),
+                ),
+            };
+            transcript
+                .lock()
+                .expect("transcript mutex poisoned")
+                .record(
+                    &session_id.to_string(),
+                    &sender,
+                    &recipient,
+                    label,
+                    decision,
+                    reason,
+                );
+        }
+
+        result.map_err(|e| CommunicationError::PolicyDenied {
+            reason: match e {
+                symbi_session::monitor::SessionError::Illegal { transition, .. } => {
+                    format!("session: illegal transition — {}", transition.diagnose())
+                }
+                other => format!("session: {other}"),
+            }
+            .into(),
+        })
     }
 
     fn matches_condition(
@@ -116,12 +216,51 @@ mod tests {
     use super::*;
     use crate::types::RequestId;
 
+    #[cfg(feature = "session")]
+    #[test]
+    fn session_label_mismatch_message_names_the_label() {
+        use crate::types::AgentId;
+        use crate::types::MessageType;
+        use std::collections::HashMap;
+        use std::sync::Arc;
+        use symbi_session::examples::coordinator_pipeline;
+        use symbi_session::monitor::{SessionId, SessionMonitor};
+
+        let (g, _r) = coordinator_pipeline();
+        let monitor = Arc::new(SessionMonitor::new());
+        let (coord, validator, processor) = (AgentId::new(), AgentId::new(), AgentId::new());
+        let sid = SessionId("gt1".into());
+        let mut assign = HashMap::new();
+        assign.insert(coord.to_string(), "Coordinator".to_string());
+        assign.insert(validator.to_string(), "Validator".to_string());
+        assign.insert(processor.to_string(), "Processor".to_string());
+        monitor.establish(sid.clone(), &g, assign).unwrap();
+
+        // permissive() sets default_allow = true, so only the session monitor governs
+        let gate = CommunicationPolicyGate::permissive().with_session_monitor(monitor);
+
+        let req = CommunicationRequest {
+            sender: coord,
+            recipient: validator,
+            message_type: MessageType::Direct(validator),
+            topic: None,
+            session_id: Some(sid.to_string()),
+            protocol_label: Some("validate".to_string()), // right target, wrong label
+        };
+        let err = gate.evaluate(&req).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("label 'task'"), "got: {msg}");
+        assert!(msg.contains("validate"), "got: {msg}");
+    }
+
     fn make_request(sender: AgentId, recipient: AgentId) -> CommunicationRequest {
         CommunicationRequest {
             sender,
             recipient,
             message_type: MessageType::Request(RequestId::new()),
             topic: None,
+            session_id: None,
+            protocol_label: None,
         }
     }
 
@@ -251,5 +390,56 @@ mod tests {
         assert!(gate.evaluate(&make_request(agent_b, recipient)).is_err());
         // agent_c doesn't match -> default allow (permissive gate)
         assert!(gate.evaluate(&make_request(agent_c, recipient)).is_ok());
+    }
+
+    #[cfg(feature = "session")]
+    #[test]
+    fn gate_records_allowed_and_denied_transitions() {
+        use crate::session::{SessionTranscript, TranscriptDecision};
+        use crate::types::{communication::MessageType, AgentId};
+        use std::collections::HashMap;
+        use std::sync::{Arc, Mutex};
+        use symbi_session::examples::coordinator_pipeline;
+        use symbi_session::monitor::{SessionId, SessionMonitor};
+
+        let (g, _r) = coordinator_pipeline();
+        let monitor = Arc::new(SessionMonitor::new());
+        let (c, v, p) = (AgentId::new(), AgentId::new(), AgentId::new());
+        let sid = SessionId("tr1".into());
+        let mut assign = HashMap::new();
+        assign.insert(c.to_string(), "Coordinator".to_string());
+        assign.insert(v.to_string(), "Validator".to_string());
+        assign.insert(p.to_string(), "Processor".to_string());
+        monitor.establish(sid.clone(), &g, assign).unwrap();
+        let transcript = Arc::new(Mutex::new(SessionTranscript::new_ephemeral()));
+
+        let gate = CommunicationPolicyGate::permissive()
+            .with_session_monitor(monitor)
+            .with_transcript(transcript.clone());
+
+        let ok = CommunicationRequest {
+            sender: c,
+            recipient: v,
+            message_type: MessageType::Direct(v),
+            topic: None,
+            session_id: Some(sid.to_string()),
+            protocol_label: Some("task".into()),
+        };
+        assert!(gate.evaluate(&ok).is_ok());
+        let bad = CommunicationRequest {
+            sender: c,
+            recipient: p,
+            message_type: MessageType::Direct(p),
+            topic: None,
+            session_id: Some(sid.to_string()),
+            protocol_label: Some("task".into()),
+        };
+        assert!(gate.evaluate(&bad).is_err());
+
+        let t = transcript.lock().unwrap();
+        assert_eq!(t.len(), 2);
+        assert!(t.verify());
+        assert_eq!(t.entries()[0].decision, TranscriptDecision::Allowed);
+        assert_eq!(t.entries()[1].decision, TranscriptDecision::Denied);
     }
 }

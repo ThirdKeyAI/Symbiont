@@ -854,6 +854,8 @@ impl CommunicationBus for DefaultCommunicationBus {
             signature,
             ttl,
             timestamp: SystemTime::now(),
+            session_id: None,
+            protocol_label: None,
         }
     }
 }
@@ -1022,6 +1024,8 @@ mod tests {
             },
             ttl: Duration::from_secs(3600),
             timestamp: SystemTime::now(),
+            session_id: None,
+            protocol_label: None,
         }
     }
 

@@ -36,6 +36,7 @@ members = [
     "crates/symbi-shell",
     "crates/approval-relay",
     "crates/symbi-invis-strip",
+    "crates/symbi-session",
     "tests/e2e",
 ]
 
@@ -80,6 +81,8 @@ cedar = ["symbi-runtime/cedar", "dep:cedar-policy"]
 native-sandbox = ["symbi-runtime/native-sandbox"]
 cli-executor = ["symbi-runtime/cli-executor"]
 vendored-openssl = ["symbi-runtime/vendored-openssl"]
+# Experimental: multiparty session-type protocol monitor (off by default).
+session = ["symbi-runtime/session"]
 
 [dev-dependencies]
 tracing = "0.1"

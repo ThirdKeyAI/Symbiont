@@ -138,6 +138,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             timestamp: std::time::SystemTime::now(),
             ttl: Duration::from_secs(300),
             message_type: MessageType::Direct(receiver_id),
+            session_id: None,
+            protocol_label: None,
         };
 
         let message_id = comm_bus.send_message(message).await?;

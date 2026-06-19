@@ -1,0 +1,13 @@
+[package]
+name = "symbi-session"
+version = "1.15.2"
+edition = "2021"
+license = "Apache-2.0"
+description = "Multiparty session-type projection and runtime FSM (spike)"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+proptest = "1"
+serde_json = "1.0"

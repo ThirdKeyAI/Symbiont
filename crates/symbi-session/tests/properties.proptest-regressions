@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 88c0e4fcfce450753842e7c08e792610f5e7f20db87beae3eb3e308d14e66e8e # shrinks to g = Choice { chooser: "B", to: "A", branches: [("opt0", End), ("opt1", Message { from: "A", to: "B", label: "m0", cont: Message { from: "A", to: "C", label: "m0", cont: End } })] }

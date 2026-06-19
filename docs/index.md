@@ -200,6 +200,7 @@ See the [Security Model](/security-model) guide for full details.
 - [API Reference](/api-reference) — HTTP API endpoints and configuration
 - [Scheduling](/scheduling) — Cron engine, delivery routing, dead-letter queues
 - [HTTP Input](/http-input) — Webhook server, auth, rate limiting
+- [Session Types](/session-types) (Experimental) — Inter-agent protocol conformance monitoring
 
 ---
 

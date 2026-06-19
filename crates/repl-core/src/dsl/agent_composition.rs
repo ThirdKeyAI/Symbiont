@@ -5,7 +5,7 @@
 //! `parallel`, and `race`.
 
 use crate::dsl::evaluator::DslValue;
-use crate::dsl::reasoning_builtins::ReasoningBuiltinContext;
+use crate::dsl::reasoning_builtins::{optional_protocol_label, ReasoningBuiltinContext};
 use crate::error::{ReplError, Result};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -69,12 +69,14 @@ pub async fn builtin_ask(args: &[DslValue], ctx: &ReasoningBuiltinContext) -> Re
     let recipient_id = resolve_agent_id(&agent_name, ctx).await?;
     let sender_id = ctx.sender_agent_id.unwrap_or_default();
     let request_id = RequestId::new();
+    let plabel = optional_protocol_label(args);
 
     check_comm_policy(
         ctx,
         sender_id,
         recipient_id,
         MessageType::Request(request_id),
+        plabel.as_deref(),
     )?;
     log_comm_message(
         ctx,
@@ -133,6 +135,7 @@ pub async fn builtin_send_to(args: &[DslValue], ctx: &ReasoningBuiltinContext) -
         sender_id,
         recipient_id,
         MessageType::Direct(recipient_id),
+        None,
     )?;
     log_comm_message(
         ctx,
@@ -208,6 +211,7 @@ pub async fn builtin_parallel(
             sender_id,
             recipient_id,
             MessageType::Request(request_id),
+            None,
         )?;
         checked_tasks.push((
             agent_name.clone(),
@@ -316,6 +320,7 @@ pub async fn builtin_race(args: &[DslValue], ctx: &ReasoningBuiltinContext) -> R
             sender_id,
             recipient_id,
             MessageType::Request(request_id),
+            None,
         )?;
         checked_tasks.push((
             agent_name.clone(),
@@ -406,18 +411,79 @@ pub(crate) async fn resolve_agent_id(name: &str, ctx: &ReasoningBuiltinContext) 
 }
 
 /// Check communication policy. Returns Ok(()) if allowed or if no policy gate is configured.
+///
+/// When a session is active in `ctx`, the protocol label is auto-derived from
+/// the monitor using `legal_labels_to`. If the label is unambiguous (exactly
+/// one legal option), it is used automatically and the session FSMs are stepped
+/// by the gate. Pass `explicit_label` to resolve ambiguity when multiple labels
+/// are legal for the same sender→recipient pair.
+///
+/// v1a note: only `ask` and `delegate` thread an `explicit_label` (via the
+/// optional `protocol_label` named arg). The fire-and-forget / fan-out
+/// primitives (`send_to`, `parallel`, `race`) pass `None`, so they rely on
+/// unambiguous auto-derivation; an ambiguous edge reached through them will
+/// error. Wiring the escape hatch for those primitives is a v1b refinement.
 pub(crate) fn check_comm_policy(
     ctx: &ReasoningBuiltinContext,
     sender: AgentId,
     recipient: AgentId,
     message_type: MessageType,
+    explicit_label: Option<&str>,
 ) -> Result<()> {
+    #[cfg(feature = "session")]
+    let (session_id, protocol_label) = match (
+        ctx.active_session.lock().unwrap().clone(),
+        ctx.session_monitor.as_ref(),
+    ) {
+        (Some(sid), Some(mon)) => {
+            let labels = mon
+                .legal_labels_to(&sid, &sender.to_string(), &recipient.to_string())
+                .map_err(|e| ReplError::Execution(format!("session: {e}")))?;
+            let label = match labels.len() {
+                1 => labels.into_iter().next().unwrap(),
+                0 => {
+                    let opts = mon
+                        .legal_next(&sid, &sender.to_string())
+                        .map(|evs| {
+                            evs.iter()
+                                .map(|e| e.to_string())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        })
+                        .unwrap_or_default();
+                    return Err(ReplError::Execution(format!(
+                        "session: no legal message to this recipient now; legal next: {opts}"
+                    )));
+                }
+                _ => match explicit_label {
+                    Some(l) if labels.iter().any(|x| x == l) => l.to_string(),
+                    _ => {
+                        return Err(ReplError::Execution(format!(
+                            "session: ambiguous label to this recipient; specify protocol_label \
+                             as one of: {}",
+                            labels.join(", ")
+                        )));
+                    }
+                },
+            };
+            (Some(sid.to_string()), Some(label))
+        }
+        _ => (None, None),
+    };
+    #[cfg(not(feature = "session"))]
+    let (session_id, protocol_label): (Option<String>, Option<String>) = {
+        let _ = explicit_label; // unused without the session feature
+        (None, None)
+    };
+
     if let Some(policy) = &ctx.comm_policy {
         let request = CommunicationRequest {
             sender,
             recipient,
             message_type,
             topic: None,
+            session_id,
+            protocol_label,
         };
         policy
             .evaluate(&request)
@@ -748,5 +814,95 @@ mod tests {
         let res = parse_parallel_args(&args);
         std::env::remove_var("SYMBIONT_MAX_PARALLEL_TASKS");
         assert!(res.is_ok(), "override must widen the cap");
+    }
+
+    #[cfg(feature = "session")]
+    #[tokio::test]
+    async fn check_comm_policy_auto_derives_label_and_enforces_order() {
+        use crate::dsl::reasoning_builtins::ReasoningBuiltinContext;
+        use std::sync::{Arc, Mutex};
+        use symbi_runtime::communication::policy_gate::CommunicationPolicyGate;
+        use symbi_runtime::types::AgentId;
+        use symbi_runtime::types::MessageType;
+        use symbi_session::examples::coordinator_pipeline;
+        use symbi_session::monitor::{SessionId, SessionMonitor};
+
+        let (g, _r) = coordinator_pipeline();
+        let monitor = Arc::new(SessionMonitor::new());
+        let (coord, validator, processor) = (AgentId::new(), AgentId::new(), AgentId::new());
+        let sid = SessionId("cp1".into());
+        let mut assign = std::collections::HashMap::new();
+        assign.insert(coord.to_string(), "Coordinator".to_string());
+        assign.insert(validator.to_string(), "Validator".to_string());
+        assign.insert(processor.to_string(), "Processor".to_string());
+        monitor.establish(sid.clone(), &g, assign).unwrap();
+
+        let gate =
+            Arc::new(CommunicationPolicyGate::permissive().with_session_monitor(monitor.clone()));
+        let ctx = ReasoningBuiltinContext {
+            comm_policy: Some(gate),
+            session_monitor: Some(monitor.clone()),
+            active_session: Arc::new(Mutex::new(Some(sid.clone()))),
+            ..Default::default()
+        };
+
+        // Conforming first step (label auto-derived to "task"); explicit_label None.
+        check_comm_policy(&ctx, coord, validator, MessageType::Direct(validator), None).unwrap();
+        // Out-of-order: no legal send to Processor yet -> denied with guidance.
+        let err = check_comm_policy(&ctx, coord, processor, MessageType::Direct(processor), None)
+            .unwrap_err();
+        let msg = format!("{err}").to_lowercase();
+        assert!(
+            msg.contains("session") || msg.contains("legal"),
+            "got: {msg}"
+        );
+    }
+
+    #[cfg(feature = "session")]
+    #[test]
+    fn dsl_path_enforces_pipeline_with_autoderived_labels() {
+        use crate::runtime_bridge::RuntimeBridge;
+        use std::time::Duration;
+        use symbi_runtime::session::RoleBinding;
+        use symbi_runtime::types::AgentId;
+        use symbi_runtime::types::MessageType;
+        use symbi_session::examples::coordinator_pipeline;
+
+        let bridge = RuntimeBridge::new_permissive_for_dev();
+        let (g, _r) = coordinator_pipeline();
+        let (c, v, p) = (AgentId::new(), AgentId::new(), AgentId::new());
+        let rb = RoleBinding::new()
+            .bind(c, "Coordinator")
+            .bind(v, "Validator")
+            .bind(p, "Processor");
+        let _sid = bridge
+            .open_session(&g, rb, Duration::from_secs(60))
+            .unwrap();
+        let ctx = bridge.reasoning_context();
+
+        // Fully auto-derived labels — the caller never names a label (explicit_label = None):
+        check_comm_policy(&ctx, c, v, MessageType::Direct(v), None).unwrap(); // -> "task"
+        check_comm_policy(&ctx, v, c, MessageType::Direct(c), None).unwrap(); // -> "ok"
+        check_comm_policy(&ctx, c, p, MessageType::Direct(p), None).unwrap(); // -> "task"
+        check_comm_policy(&ctx, p, c, MessageType::Direct(c), None).unwrap(); // -> "done"
+
+        // Fresh session: out-of-order first move denied with guidance.
+        let bridge2 = RuntimeBridge::new_permissive_for_dev();
+        let (g2, _r2) = coordinator_pipeline();
+        let (c2, v2, p2) = (AgentId::new(), AgentId::new(), AgentId::new());
+        let rb2 = RoleBinding::new()
+            .bind(c2, "Coordinator")
+            .bind(v2, "Validator")
+            .bind(p2, "Processor");
+        bridge2
+            .open_session(&g2, rb2, Duration::from_secs(60))
+            .unwrap();
+        let ctx2 = bridge2.reasoning_context();
+        let err = check_comm_policy(&ctx2, c2, p2, MessageType::Direct(p2), None).unwrap_err();
+        let msg = format!("{err}").to_lowercase();
+        assert!(
+            msg.contains("session") || msg.contains("legal"),
+            "got: {msg}"
+        );
     }
 }

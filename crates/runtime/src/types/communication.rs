@@ -18,6 +18,17 @@ pub struct SecureMessage {
     pub timestamp: SystemTime,
     pub ttl: Duration,
     pub message_type: MessageType,
+    /// Optional session this message belongs to (multiparty session-type
+    /// monitoring). Absent for messages outside any tracked session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Session this message belongs to, as the raw session-id string. Typed as a
+    /// plain `String` (not `SessionId`) so the carrier does not depend on the
+    /// optional `symbi-session` crate; the monitor re-wraps it internally.
+    pub session_id: Option<String>,
+    /// Optional protocol message label used by the session monitor to step the
+    /// per-role FSMs. Absent when `session_id` is absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol_label: Option<String>,
 }
 
 /// Types of messages in the communication system
