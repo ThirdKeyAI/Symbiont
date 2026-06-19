@@ -1,5 +1,5 @@
 use anyhow::Result;
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use ratatui::prelude::*;
 use ratatui::{TerminalOptions, Viewport};
@@ -442,7 +442,10 @@ async fn run_loop(
         let timeout = TICK_RATE.saturating_sub(last_tick.elapsed());
         if event::poll(timeout)? {
             match event::read()? {
-                Event::Key(key) => handle_key(app, key).await,
+                // Windows reports both Press and Release for every keystroke
+                // (Unix reports only Press); handle Press/Repeat and drop
+                // Release, otherwise every character is processed twice.
+                Event::Key(key) if key.kind != KeyEventKind::Release => handle_key(app, key).await,
                 // Resize: ratatui's inline viewport needs an explicit
                 // clear+redraw to re-anchor below the new screen
                 // height, otherwise a shrink leaves the viewport
