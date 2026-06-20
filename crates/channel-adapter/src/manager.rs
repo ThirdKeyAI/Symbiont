@@ -12,9 +12,13 @@ use async_trait::async_trait;
 use crate::config::{ChannelConfig, PlatformSettings};
 use crate::error::ChannelAdapterError;
 use crate::logging::BasicInteractionLogger;
-use crate::traits::{ChannelAdapter, InboundHandler};
+use crate::traits::ChannelAdapter;
+#[cfg(any(feature = "slack", feature = "teams", feature = "mattermost"))]
+use crate::traits::InboundHandler;
 use crate::types::ChatDeliveryReceipt;
-use crate::types::{ChatPlatform, InboundMessage, OutboundMessage};
+#[cfg(any(feature = "slack", feature = "teams", feature = "mattermost"))]
+use crate::types::InboundMessage;
+use crate::types::{ChatPlatform, OutboundMessage};
 
 #[cfg(feature = "slack")]
 use crate::adapters::slack::api::format_agent_response as format_slack_response;
@@ -48,7 +52,18 @@ pub trait AgentInvoker: Send + Sync {
 /// and sends responses back through the originating adapter.
 pub struct ChannelAdapterManager {
     adapters: HashMap<String, Arc<dyn ChannelAdapter>>,
+    // Consumed only when constructing platform adapter handlers (`ManagerInboundHandler`),
+    // which are gated behind the platform features. Stored unconditionally so `new()`
+    // keeps a stable signature across all build configurations.
+    #[cfg_attr(
+        not(any(feature = "slack", feature = "teams", feature = "mattermost")),
+        allow(dead_code)
+    )]
     invoker: Arc<dyn AgentInvoker>,
+    #[cfg_attr(
+        not(any(feature = "slack", feature = "teams", feature = "mattermost")),
+        allow(dead_code)
+    )]
     logger: Arc<BasicInteractionLogger>,
     interceptor: Option<Arc<dyn crate::traits::InboundCommandInterceptor>>,
     #[cfg(feature = "enterprise-hooks")]
@@ -79,6 +94,24 @@ impl ChannelAdapterManager {
     }
 
     /// Register and start an adapter from configuration.
+    ///
+    /// When no platform feature is compiled in, this is a lib-only surface with no
+    /// adapter implementations available, so registration always fails with a
+    /// configuration error mirroring the per-platform "not enabled" errors.
+    #[cfg(not(any(feature = "slack", feature = "teams", feature = "mattermost")))]
+    pub async fn register_adapter(
+        &mut self,
+        config: ChannelConfig,
+    ) -> Result<(), ChannelAdapterError> {
+        match config.settings {
+            PlatformSettings::Slack(_) => Err(ChannelAdapterError::Config(
+                "Slack adapter not enabled (compile with 'slack' feature)".to_string(),
+            )),
+        }
+    }
+
+    /// Register and start an adapter from configuration.
+    #[cfg(any(feature = "slack", feature = "teams", feature = "mattermost"))]
     pub async fn register_adapter(
         &mut self,
         config: ChannelConfig,
@@ -206,6 +239,11 @@ impl ChannelAdapterManager {
 }
 
 /// Internal handler that routes inbound messages to agents and sends responses.
+///
+/// Only constructed by `register_adapter` for a concrete platform adapter, so it is
+/// compiled only when at least one platform feature is enabled. The `#[cfg(test)]`
+/// blocks below also rely on a platform feature being active (default = `slack`).
+#[cfg(any(feature = "slack", feature = "teams", feature = "mattermost"))]
 struct ManagerInboundHandler {
     invoker: Arc<dyn AgentInvoker>,
     logger: Arc<BasicInteractionLogger>,
@@ -219,6 +257,7 @@ struct ManagerInboundHandler {
     enterprise_hooks: Option<Arc<dyn crate::traits::EnterpriseChannelHooks>>,
 }
 
+#[cfg(any(feature = "slack", feature = "teams", feature = "mattermost"))]
 impl ManagerInboundHandler {
     /// Set the adapter reference after construction (needed because the adapter
     /// and handler have a circular dependency at creation time).
@@ -227,6 +266,7 @@ impl ManagerInboundHandler {
     }
 }
 
+#[cfg(any(feature = "slack", feature = "teams", feature = "mattermost"))]
 #[async_trait]
 impl InboundHandler for ManagerInboundHandler {
     async fn handle_message(&self, message: InboundMessage) -> Result<(), ChannelAdapterError> {
@@ -369,6 +409,10 @@ impl InboundHandler for ManagerInboundHandler {
 }
 
 /// Build a platform-appropriate outbound message with formatted content.
+///
+/// Used only by `ManagerInboundHandler`, so it is compiled only when a platform
+/// feature is enabled.
+#[cfg(any(feature = "slack", feature = "teams", feature = "mattermost"))]
 fn build_platform_response(
     message: &InboundMessage,
     content: &str,
@@ -453,8 +497,10 @@ mod tests {
         }
     }
 
+    #[cfg(any(feature = "slack", feature = "teams", feature = "mattermost"))]
     struct FailInvoker;
 
+    #[cfg(any(feature = "slack", feature = "teams", feature = "mattermost"))]
     #[async_trait]
     impl AgentInvoker for FailInvoker {
         async fn invoke(&self, _agent_name: &str, _input: &str) -> Result<String, String> {
@@ -462,6 +508,7 @@ mod tests {
         }
     }
 
+    #[cfg(any(feature = "slack", feature = "teams", feature = "mattermost"))]
     #[tokio::test]
     async fn manager_inbound_handler_success() {
         let logger = Arc::new(BasicInteractionLogger::new(None));
@@ -494,6 +541,7 @@ mod tests {
         assert_eq!(logger.interaction_count().await, 1);
     }
 
+    #[cfg(any(feature = "slack", feature = "teams", feature = "mattermost"))]
     #[tokio::test]
     async fn manager_inbound_handler_agent_failure() {
         let logger = Arc::new(BasicInteractionLogger::new(None));
@@ -537,6 +585,7 @@ mod tests {
 }
 
 #[cfg(test)]
+#[cfg(any(feature = "slack", feature = "teams", feature = "mattermost"))]
 impl ManagerInboundHandler {
     pub(crate) fn for_test(
         invoker: Arc<dyn AgentInvoker>,
@@ -555,6 +604,7 @@ impl ManagerInboundHandler {
 }
 
 #[cfg(test)]
+#[cfg(any(feature = "slack", feature = "teams", feature = "mattermost"))]
 mod interceptor_tests {
     use super::*;
     use crate::types::{ChatPlatform, InboundMessage};
