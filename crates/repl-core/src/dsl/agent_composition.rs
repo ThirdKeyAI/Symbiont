@@ -45,53 +45,55 @@ pub async fn builtin_spawn_agent(
     Ok(DslValue::Map(result))
 }
 
-/// Execute the `ask` builtin: send a message to a named agent and wait for response.
-///
-/// Arguments:
-/// - agent: string — agent name
-/// - message: string
-///
-/// Returns the agent's response as a string.
-pub async fn builtin_ask(args: &[DslValue], ctx: &ReasoningBuiltinContext) -> Result<DslValue> {
+/// Governed single-turn delegation: resolve the target agent, run the
+/// communication policy gate (and session conformance when a session is open),
+/// log both messages, and return the agent's reply text. This is the typed core
+/// shared by the `ask` DSL builtin and the shell orchestrator's `delegate` tool.
+pub async fn governed_ask(
+    ctx: &ReasoningBuiltinContext,
+    target: &str,
+    message: &str,
+    explicit_label: Option<&str>,
+) -> Result<String> {
     let registry = ctx
         .agent_registry
         .as_ref()
         .ok_or_else(|| ReplError::Execution("No agent registry configured".into()))?;
+
+    // Resolve the target before requiring a provider: discovering that the
+    // target does not exist does not need an inference provider, and surfacing
+    // that error first is strictly more useful to callers.
+    let recipient_id = resolve_agent_id(target, ctx).await?;
 
     let provider = ctx
         .provider
         .as_ref()
         .ok_or_else(|| ReplError::Execution("No inference provider configured".into()))?;
 
-    let (agent_name, message) = parse_ask_args(args)?;
-
-    // Communication bus wiring: policy check + message logging
-    let recipient_id = resolve_agent_id(&agent_name, ctx).await?;
     let sender_id = ctx.sender_agent_id.unwrap_or_default();
     let request_id = RequestId::new();
-    let plabel = optional_protocol_label(args);
 
     check_comm_policy(
         ctx,
         sender_id,
         recipient_id,
         MessageType::Request(request_id),
-        plabel.as_deref(),
+        explicit_label,
     )?;
     log_comm_message(
         ctx,
         sender_id,
         recipient_id,
-        &message,
+        message,
         MessageType::Request(request_id),
         Duration::from_secs(30),
     )
     .await;
 
     let response = registry
-        .ask_agent(&agent_name, &message, provider.as_ref())
+        .ask_agent(target, message, provider.as_ref())
         .await
-        .map_err(|e| ReplError::Execution(format!("ask({}) failed: {}", agent_name, e)))?;
+        .map_err(|e| ReplError::Execution(format!("ask({}) failed: {}", target, e)))?;
 
     log_comm_message(
         ctx,
@@ -103,6 +105,56 @@ pub async fn builtin_ask(args: &[DslValue], ctx: &ReasoningBuiltinContext) -> Re
     )
     .await;
 
+    Ok(response)
+}
+
+/// Governed multi-turn delegation: resolve `target`, run the comm-policy gate,
+/// then complete `conversation` (which already contains the agent's system
+/// message + prior turns + the new user message) against the provider. Returns
+/// the reply text. Shares target resolution + the gate with `governed_ask`.
+pub async fn governed_ask_conversation(
+    ctx: &ReasoningBuiltinContext,
+    target: &str,
+    conversation: &symbi_runtime::reasoning::conversation::Conversation,
+) -> Result<String> {
+    // Resolve the target before requiring a provider (same ordering as
+    // `governed_ask`): an unknown-agent error is strictly more useful than a
+    // "no provider" error, and does not need an inference provider to surface.
+    let recipient_id = resolve_agent_id(target, ctx).await?;
+
+    let provider = ctx
+        .provider
+        .as_ref()
+        .ok_or_else(|| ReplError::Execution("No inference provider configured".into()))?;
+
+    let sender_id = ctx.sender_agent_id.unwrap_or_default();
+    let request_id = RequestId::new();
+    check_comm_policy(
+        ctx,
+        sender_id,
+        recipient_id,
+        MessageType::Request(request_id),
+        None,
+    )?;
+    let options = symbi_runtime::reasoning::inference::InferenceOptions::default();
+    let response = provider
+        .complete(conversation, &options)
+        .await
+        .map_err(|e| ReplError::Execution(format!("ask({}) failed: {}", target, e)))?;
+    Ok(response.content)
+}
+
+/// Execute the `ask` builtin: send a message to a named agent and wait for response.
+///
+/// Arguments:
+/// - agent: string — agent name
+/// - message: string
+///
+/// Returns the agent's response as a string.
+pub async fn builtin_ask(args: &[DslValue], ctx: &ReasoningBuiltinContext) -> Result<DslValue> {
+    let (agent_name, message) = parse_ask_args(args)?;
+    let plabel = optional_protocol_label(args);
+    let response = governed_ask(ctx, &agent_name, &message, plabel.as_deref()).await?;
     Ok(DslValue::String(response))
 }
 

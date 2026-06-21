@@ -7,6 +7,7 @@ use std::io::stdout;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+mod agents;
 mod app;
 mod commands;
 mod completion;
@@ -20,8 +21,21 @@ mod ui;
 mod validation;
 
 use app::App;
+use symbi_runtime::reasoning::cedar_gate::{CedarPolicy, CedarPolicyGate};
+use symbi_runtime::reasoning::policy_bridge::{DefaultPolicyGate, ReasoningPolicyGate};
 
 const TICK_RATE: Duration = Duration::from_millis(100);
+
+/// Mutating tools that require human approval before the orchestrator may run
+/// them. `edit_file` is always gated; `shell` is gated (and only reachable at
+/// all) when the operator opted in with `--allow-shell`.
+fn approval_tools(allow_shell: bool) -> Vec<String> {
+    let mut tools = vec!["edit_file".to_string()];
+    if allow_shell {
+        tools.push("shell".to_string());
+    }
+    tools
+}
 
 /// Parsed CLI flags — kept minimal so we don't drag in clap for the
 /// handful of flags the shell exposes.
@@ -50,6 +64,10 @@ struct ShellArgs {
     /// `--theme <name>` — select a built-in theme. User TOML at
     /// `$HOME/.symbi[-<profile>]/theme.toml` still wins if present.
     theme: Option<String>,
+    /// `--allow-shell` — enable the orchestrator's `shell` tool, which runs
+    /// arbitrary commands in the project root (still gated by human approval).
+    /// Off by default; the tool is neither advertised nor executable without it.
+    allow_shell: bool,
 }
 
 fn parse_args() -> Result<ShellArgs> {
@@ -61,6 +79,7 @@ fn parse_args() -> Result<ShellArgs> {
     let mut profile: Option<String> = None;
     let mut auto_approve = false;
     let mut theme: Option<String> = None;
+    let mut allow_shell = false;
 
     let mut iter = std::env::args().skip(1);
     while let Some(arg) = iter.next() {
@@ -77,6 +96,7 @@ fn parse_args() -> Result<ShellArgs> {
             "--cleanup-sessions" => cleanup_sessions = true,
             "--dry-run" => dry_run = true,
             "-y" | "--yes" => auto_approve = true,
+            "--allow-shell" => allow_shell = true,
             "--resume" => {
                 resume =
                     Some(iter.next().ok_or_else(|| {
@@ -129,6 +149,7 @@ fn parse_args() -> Result<ShellArgs> {
         profile,
         auto_approve,
         theme,
+        allow_shell,
     })
 }
 
@@ -156,6 +177,9 @@ fn print_help() {
              --theme <name>         Select a built-in theme (default-dark,\n\
                                     solarized-dark, high-contrast). A user file at\n\
                                     $HOME/.symbi[-<profile>]/theme.toml overrides this.\n\
+             --allow-shell          Enable the orchestrator 'shell' tool (runs commands\n\
+                                    in the project root, still gated by approval). Off\n\
+                                    by default.\n\
              --version              Print version and exit.\n\
          -h, --help                 Show this help and exit.\n\
          \n\
@@ -261,6 +285,17 @@ async fn main() -> Result<()> {
         .unwrap_or_default(),
     );
 
+    // Shared synchronous mirror of the loaded agent fleet. The same `Arc` is
+    // handed to the orchestrator's executor (for the `delegate` tool's fleet
+    // description), to `App` (footer count), and used below to auto-load
+    // `./agents` into the runtime registry. It is created here — before the
+    // executor — so all three share one handle.
+    let agent_cards = std::sync::Arc::new(tokio::sync::RwLock::new(Vec::new()));
+
+    // Startup notices collected before `App` exists; flushed into the
+    // transcript once `app` is constructed below.
+    let mut startup_notices: Vec<String> = Vec::new();
+
     // Auto-detect inference provider and create ORGA-governed orchestrator
     let orch = if let Some(provider) =
         symbi_runtime::reasoning::providers::cloud::CloudInferenceProvider::from_env()
@@ -274,18 +309,146 @@ async fn main() -> Result<()> {
         let executor = Arc::new(orchestrator_executor::OrchestratorExecutor::new(
             Arc::clone(&constraints),
             engine,
+            Arc::clone(&runtime_bridge),
+            Arc::clone(&agent_cards),
+            args.allow_shell,
         ));
 
-        Some(orchestrator::Orchestrator::new(
-            provider,
-            executor,
-            args.auto_approve,
-        ))
+        // One escalation queue shared between the reasoning `EscalationGate`
+        // (which enqueues held actions) and the `App` Gate panel (which
+        // approves/denies them). Same `Arc` on both sides → in-process HITL.
+        let escalation_queue =
+            std::sync::Arc::new(symbi_runtime::escalation::EscalationQueue::new());
+
+        // Inner reasoning gate (Phase 3A): load a Cedar policy from
+        // `policies/orchestrator.cedar` that permits the safe read-only /
+        // validation tools and denies everything else. If the policy is
+        // missing or fails to load we fall back to the fail-closed
+        // `DefaultPolicyGate` — NEVER allow-all. We keep a typed
+        // `CedarPolicyGate` so we can `add_policy` for `shell` under opt-in.
+        let inner_gate: Arc<dyn ReasoningPolicyGate> = {
+            let policy_path = std::path::Path::new("policies/orchestrator.cedar");
+            if policy_path.exists() {
+                let gate = CedarPolicyGate::deny_by_default();
+                match gate.reload_policies_from_file(policy_path).await {
+                    Ok(n) => {
+                        startup_notices.push(format!(
+                            "Loaded {n} orchestrator policy rule(s) from policies/orchestrator.cedar"
+                        ));
+                        // `shell` is permitted ONLY under explicit operator opt-in.
+                        if args.allow_shell {
+                            gate.add_policy(CedarPolicy {
+                                name: "allow_shell".to_string(),
+                                source:
+                                    "permit(principal, action == Action::\"tool_call::shell\", resource);"
+                                        .to_string(),
+                                active: true,
+                            })
+                            .await;
+                            startup_notices.push(
+                                "Shell tool ENABLED (--allow-shell): requires approval per call"
+                                    .to_string(),
+                            );
+                        }
+                        Arc::new(gate)
+                    }
+                    Err(e) => {
+                        startup_notices.push(format!(
+                            "Failed to load policies/orchestrator.cedar ({e}) — orchestrator tools fail-closed"
+                        ));
+                        Arc::new(DefaultPolicyGate::new())
+                    }
+                }
+            } else {
+                startup_notices.push(
+                    "No policies/orchestrator.cedar found — orchestrator tools fail-closed (all denied)"
+                        .to_string(),
+                );
+                Arc::new(DefaultPolicyGate::new())
+            }
+        };
+
+        // Approval-gated mutating tools (HITL): edit_file always, shell only
+        // when the operator opted in with --allow-shell.
+        let approve = approval_tools(args.allow_shell);
+        let policy_gate: Arc<dyn ReasoningPolicyGate> =
+            Arc::new(symbi_runtime::escalation::EscalationGate::new(
+                inner_gate,
+                escalation_queue.clone(),
+                symbi_runtime::escalation::EscalationGateConfig {
+                    require_approval_tools: approve,
+                    timeout: std::time::Duration::from_secs(120),
+                },
+            ));
+
+        let orch =
+            orchestrator::Orchestrator::new(provider, executor, args.auto_approve, policy_gate);
+        Some((orch, escalation_queue))
     } else {
         None
     };
 
-    let mut app = App::new(runtime_bridge, orch);
+    // Split the orchestrator from its shared escalation queue (if any) so we
+    // can hand the SAME queue `Arc` to the App's Gate panel below.
+    let (orch, escalation_queue) = match orch {
+        Some((o, q)) => (Some(o), Some(q)),
+        None => (None, None),
+    };
+
+    // `App::new` moves the bridge into its `ReplEngine`; keep an `Arc` clone so
+    // the startup fleet load can register agents against the same registry.
+    let bridge_for_agents = Arc::clone(&runtime_bridge);
+    let mut app = App::new(runtime_bridge, orch, Arc::clone(&agent_cards));
+
+    // Wire the SAME escalation queue Arc the reasoning gate enqueues into, so
+    // the local Gate panel resolves the orchestrator's held actions in-process.
+    app.escalation_queue = escalation_queue;
+
+    // Flush startup notices (e.g. orchestrator policy-gate status) into the
+    // transcript now that `app` exists.
+    for notice in startup_notices {
+        app.output.push(app::OutputEntry {
+            source: app::EntrySource::System,
+            content: notice,
+        });
+    }
+
+    // Ingest the local agent fleet (./agents) so the orchestrator can delegate.
+    {
+        let report = agents::load_agents_into(
+            std::path::Path::new("agents"),
+            &bridge_for_agents,
+            &app.agent_cards,
+        )
+        .await;
+        if report.loaded > 0 {
+            app.output.push(app::OutputEntry {
+                source: app::EntrySource::System,
+                content: format!("Loaded {} agent(s) from ./agents", report.loaded),
+            });
+        }
+        if report.deferred_symbi > 0 {
+            app.output.push(app::OutputEntry {
+                source: app::EntrySource::System,
+                content: format!(
+                    "{} .symbi agent(s) detected — full DSL-agent execution is deferred to a later release; not loaded",
+                    report.deferred_symbi
+                ),
+            });
+        }
+        for c in &report.collisions {
+            app.output.push(app::OutputEntry {
+                source: app::EntrySource::System,
+                content: format!("agent name collision (last wins): {c}"),
+            });
+        }
+        for e in &report.errors {
+            app.output.push(app::OutputEntry {
+                source: app::EntrySource::System,
+                content: format!("skipped {}: {}", e.path.display(), e.message),
+            });
+        }
+    }
 
     // Make the flags we're running under visible in the transcript so
     // the user can confirm they took effect without digging in docs.
@@ -713,5 +876,27 @@ fn format_age(secs: u64) -> String {
         format!("{}h ago", secs / 3600)
     } else {
         format!("{}d ago", secs / 86_400)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::approval_tools;
+
+    #[test]
+    fn approval_tools_always_includes_edit_file() {
+        let tools = approval_tools(false);
+        assert!(tools.contains(&"edit_file".to_string()));
+        assert!(
+            !tools.contains(&"shell".to_string()),
+            "shell must NOT be approval-gated (nor reachable) without --allow-shell"
+        );
+    }
+
+    #[test]
+    fn approval_tools_includes_shell_only_with_allow_shell() {
+        let tools = approval_tools(true);
+        assert!(tools.contains(&"edit_file".to_string()));
+        assert!(tools.contains(&"shell".to_string()));
     }
 }

@@ -31,16 +31,29 @@ fn draw_project_info(frame: &mut Frame, app: &App, area: Rect) {
             .fg(t.footer_accent)
             .add_modifier(Modifier::BOLD),
     )));
-    if app.active_agents == 0 {
+    // Source the fleet count + names from the synchronous mirror so the
+    // sidebar agrees with the footer and `/status`.
+    let agent_names: Vec<String> = app
+        .agent_cards
+        .try_read()
+        .map(|c| c.iter().map(|card| card.name.clone()).collect())
+        .unwrap_or_default();
+    if agent_names.is_empty() {
         lines.push(Line::from(Span::styled(
             "   (none)",
             Style::default().fg(t.dim),
         )));
     } else {
         lines.push(Line::from(Span::styled(
-            format!("   {} active", app.active_agents),
+            format!("   {} loaded", agent_names.len()),
             Style::default().fg(t.success),
         )));
+        for name in &agent_names {
+            lines.push(Line::from(Span::styled(
+                format!("   • {}", name),
+                Style::default().fg(t.dim),
+            )));
+        }
     }
 
     lines.push(Line::from(""));

@@ -430,10 +430,3 @@ impl ErrorContext {
 
 /// Result type with error context
 pub type RuntimeResult<T> = Result<T, RuntimeError>;
-
-/// Trait for error recovery
-pub trait ErrorRecovery {
-    fn get_recovery_strategy(&self, error: &RuntimeError) -> RecoveryStrategy;
-    fn should_retry(&self, error: &RuntimeError, attempts: u32) -> bool;
-    fn escalate_error(&self, error: &RuntimeError, context: &ErrorContext);
-}

@@ -199,6 +199,13 @@ impl Conversation {
         self.messages.push(message);
     }
 
+    /// Remove and return the last message, if any. Used to roll back a
+    /// speculative user turn when a delegated request fails, so a retry
+    /// starts from a clean thread.
+    pub fn pop(&mut self) -> Option<ConversationMessage> {
+        self.messages.pop()
+    }
+
     /// Get the messages in the conversation.
     pub fn messages(&self) -> &[ConversationMessage] {
         &self.messages

@@ -136,6 +136,21 @@ pub fn format_response_meta(response: &OrchestratorResponse) -> String {
     )
 }
 
+/// Parse an `@<agent> <message>` mention into `(agent, message)`.
+///
+/// Returns `None` when either the agent name or the message is empty,
+/// so the caller can surface a usage hint. The leading `@` is required.
+pub fn parse_mention(text: &str) -> Option<(String, String)> {
+    let rest = text.strip_prefix('@')?;
+    let mut it = rest.splitn(2, char::is_whitespace);
+    let name = it.next().unwrap_or("").trim().to_string();
+    let msg = it.next().unwrap_or("").trim().to_string();
+    if name.is_empty() || msg.is_empty() {
+        return None;
+    }
+    Some((name, msg))
+}
+
 fn format_thousands(n: u64) -> String {
     let s = n.to_string();
     let mut out = String::with_capacity(s.len() + s.len() / 3);
@@ -172,12 +187,19 @@ pub struct App {
     pub should_quit: bool,
     /// Active agent count (for footer).
     pub active_agents: usize,
+    /// Synchronous mirror of the loaded agent fleet (name + description), shared
+    /// with the orchestrator executor for the `delegate` tool description.
+    pub agent_cards: std::sync::Arc<tokio::sync::RwLock<Vec<crate::agents::AgentCard>>>,
     /// Current model name (for footer).
     pub model_name: String,
     /// Token usage this session (for footer).
     pub tokens_used: u64,
     /// DSL evaluation engine.
     pub engine: ReplEngine,
+    /// Shared handle to the runtime bridge. Cloned before the bridge is
+    /// moved into `engine` so fleet management commands (`/agents load`)
+    /// can register agents against the same registry.
+    runtime_bridge: Arc<RuntimeBridge>,
     /// Completion popup state.
     pub completion_candidates: Vec<completion::Candidate>,
     /// Selected index in completion popup.
@@ -192,6 +214,11 @@ pub struct App {
     pub orchestrator: Option<Arc<tokio::sync::Mutex<Orchestrator>>>,
     /// Remote connection to a running symbi up instance (when attached).
     pub remote: Option<crate::remote::RemoteConnection>,
+    /// In-process held-action escalation queue. When set, the Gate panel
+    /// approves/denies the orchestrator's own escalations locally (the SAME
+    /// `Arc` is wired into the reasoning `EscalationGate` in `main.rs`), so no
+    /// runtime attach is needed for HITL approval of `edit_file` / `shell`.
+    pub escalation_queue: Option<std::sync::Arc<symbi_runtime::escalation::EscalationQueue>>,
     /// Scroll offset for content area (0 = bottom/latest).
     pub scroll_offset: u16,
     /// Throbber state for loading animation.
@@ -230,10 +257,25 @@ pub struct App {
     /// Wall-clock of the last Gate poll dispatch, used to throttle
     /// re-polling to ~1s (the tick rate is far faster).
     gate_last_poll: Option<std::time::Instant>,
+    /// Active direct addressee; None = ORCH. Set via `/agent use`.
+    pub focus_agent: Option<String>,
+    /// Per-agent multi-turn conversation threads (keyed by agent name).
+    pub agent_threads:
+        std::collections::HashMap<String, symbi_runtime::reasoning::conversation::Conversation>,
+    /// Pending async result from a direct agent turn: (agent name, receiver).
+    pub pending_agent: Option<(
+        String,
+        tokio::sync::oneshot::Receiver<Result<String, String>>,
+    )>,
 }
 
 impl App {
-    pub fn new(runtime_bridge: Arc<RuntimeBridge>, orchestrator: Option<Orchestrator>) -> Self {
+    pub fn new(
+        runtime_bridge: Arc<RuntimeBridge>,
+        orchestrator: Option<Orchestrator>,
+        agent_cards: std::sync::Arc<tokio::sync::RwLock<Vec<crate::agents::AgentCard>>>,
+    ) -> Self {
+        let runtime_bridge_handle = Arc::clone(&runtime_bridge);
         let engine = ReplEngine::new(runtime_bridge);
         let model_name = orchestrator
             .as_ref()
@@ -260,9 +302,11 @@ impl App {
             memory_content: None,
             should_quit: false,
             active_agents: 0,
+            agent_cards,
             model_name,
             tokens_used: 0,
             engine,
+            runtime_bridge: runtime_bridge_handle,
             completion_candidates: Vec::new(),
             completion_index: 0,
             completion_visible: false,
@@ -270,6 +314,7 @@ impl App {
             entities: Vec::new(),
             orchestrator,
             remote: None,
+            escalation_queue: None,
             scroll_offset: 0,
             throbber_state: ThrobberState::default(),
             pending_result: None,
@@ -282,12 +327,37 @@ impl App {
             gate_selected: 0,
             gate_poll: None,
             gate_last_poll: None,
+            focus_agent: None,
+            agent_threads: std::collections::HashMap::new(),
+            pending_agent: None,
         }
     }
 
     /// Kick off an async poll of the runtime's held-action queue. The
     /// result is consumed in `on_tick`. No-op when not attached.
     pub fn gate_refresh(&mut self) {
+        // Local-first: when the in-process escalation queue is wired
+        // (orchestrator HITL gate), poll it directly. The Gate panel then
+        // approves/denies the orchestrator's own held actions in-process,
+        // no runtime attach required.
+        if let Some(queue) = self.escalation_queue.clone() {
+            let (tx, rx) = oneshot::channel();
+            self.gate_poll = Some(rx);
+            self.gate_last_poll = Some(std::time::Instant::now());
+            tokio::spawn(async move {
+                let pending = queue.list_pending_async().await;
+                let views: Vec<crate::ui::widgets::gate_panel::HeldActionView> = pending
+                    .iter()
+                    .filter_map(|action| {
+                        let json = serde_json::to_value(action).ok()?;
+                        crate::ui::widgets::gate_panel::HeldActionView::from_json(&json)
+                    })
+                    .collect();
+                let _ = tx.send(Ok(views));
+            });
+            return;
+        }
+
         let remote = match self.remote.clone() {
             Some(r) => r,
             None => return,
@@ -322,6 +392,32 @@ impl App {
             Some(i) => i.id.clone(),
             None => return,
         };
+
+        // Local-first: resolve against the in-process queue when wired.
+        if let Some(queue) = self.escalation_queue.clone() {
+            use symbi_runtime::escalation::{Approver, Decision, Surface};
+            let decision = if approve {
+                Decision::Approve { reason: None }
+            } else {
+                Decision::Deny { reason: None }
+            };
+            let approver = Approver {
+                surface: Surface::Tui,
+                id: "local".into(),
+                display: "Local operator".into(),
+            };
+            tokio::spawn(async move {
+                let _ = queue.resolve_async(&id, decision, approver).await;
+            });
+            if self.gate_selected < self.gate_items.len() {
+                self.gate_items.remove(self.gate_selected);
+            }
+            if self.gate_selected > 0 && self.gate_selected >= self.gate_items.len() {
+                self.gate_selected -= 1;
+            }
+            return;
+        }
+
         let remote = match self.remote.clone() {
             Some(r) => r,
             None => return,
@@ -386,6 +482,13 @@ impl App {
     /// Access the DSL evaluation engine.
     pub fn engine(&self) -> &ReplEngine {
         &self.engine
+    }
+
+    /// Clone the shared runtime-bridge handle. Used by fleet management
+    /// commands (`/agents load|reload`) to register agents against the
+    /// same registry the engine and orchestrator share.
+    pub fn runtime_bridge_handle(&self) -> Arc<RuntimeBridge> {
+        Arc::clone(&self.runtime_bridge)
     }
 
     /// Insert or update a tool-call card keyed on `call_id`.
@@ -616,12 +719,20 @@ impl App {
 
     /// Whether the app is waiting for an async operation.
     pub fn is_busy(&self) -> bool {
-        self.pending_result.is_some()
+        self.pending_result.is_some() || self.pending_agent.is_some()
     }
 
     /// Cancel a pending async operation.
     pub fn cancel_pending(&mut self) {
-        if self.pending_result.take().is_some() {
+        let mut cancelled = self.pending_result.take().is_some();
+        if let Some((name, _)) = self.pending_agent.take() {
+            // Roll back the speculative user turn so a retry starts clean.
+            if let Some(thread) = self.agent_threads.get_mut(&name) {
+                thread.pop();
+            }
+            cancelled = true;
+        }
+        if cancelled {
             self.busy_label.clear();
             self.output.push(OutputEntry {
                 source: EntrySource::System,
@@ -682,6 +793,58 @@ impl App {
                         content: "Request was dropped".to_string(),
                     });
                     self.pending_result = None;
+                    self.busy_label.clear();
+                }
+            }
+        }
+
+        // Check if a pending direct-agent result has arrived. Mirrors the
+        // orchestrator poll above: oneshot try_recv, render on the
+        // EntrySource::Agent feed, clear busy_label to stop the spinner.
+        if let Some((name, rx)) = self.pending_agent.as_mut() {
+            let name = name.clone();
+            match rx.try_recv() {
+                Ok(Ok(reply)) => {
+                    if let Some(thread) = self.agent_threads.get_mut(&name) {
+                        thread.push(
+                            symbi_runtime::reasoning::conversation::ConversationMessage::assistant(
+                                &reply,
+                            ),
+                        );
+                    }
+                    self.output.push(OutputEntry {
+                        source: EntrySource::Agent(name),
+                        content: reply,
+                    });
+                    self.pending_agent = None;
+                    self.busy_label.clear();
+                    self.scroll_to_bottom();
+                }
+                Ok(Err(e)) => {
+                    self.output.push(OutputEntry {
+                        source: EntrySource::Error,
+                        content: format!("Agent '{}' error: {}", name, e),
+                    });
+                    // Roll back the speculative user turn so a retry starts
+                    // from a clean thread.
+                    if let Some(thread) = self.agent_threads.get_mut(&name) {
+                        thread.pop();
+                    }
+                    self.pending_agent = None;
+                    self.busy_label.clear();
+                }
+                Err(oneshot::error::TryRecvError::Empty) => {
+                    // Still waiting
+                }
+                Err(oneshot::error::TryRecvError::Closed) => {
+                    self.output.push(OutputEntry {
+                        source: EntrySource::Error,
+                        content: "Request was dropped".to_string(),
+                    });
+                    if let Some(thread) = self.agent_threads.get_mut(&name) {
+                        thread.pop();
+                    }
+                    self.pending_agent = None;
                     self.busy_label.clear();
                 }
             }
@@ -873,6 +1036,28 @@ impl App {
             return;
         }
 
+        // Direct @mention: route to a fleet agent over its own thread.
+        if text.starts_with('@') {
+            match parse_mention(text) {
+                Some((name, msg)) => {
+                    self.send_to_agent(&name, &msg);
+                }
+                None => {
+                    self.output.push(OutputEntry {
+                        source: EntrySource::Error,
+                        content: "Usage: @<agent> <message>".to_string(),
+                    });
+                }
+            }
+            return;
+        }
+
+        // Focus mode: plain text goes to the focused agent (set via `/agent use`).
+        if let Some(name) = self.focus_agent.clone() {
+            self.send_to_agent(&name, text);
+            return;
+        }
+
         // Orchestrator mode: send to LLM (async, non-blocking)
         self.send_to_orchestrator(text, "Thinking...");
     }
@@ -901,6 +1086,66 @@ impl App {
             let mut orch = orchestrator.lock().await;
             let result = orch.send(&message).await.map_err(|e| e.to_string());
             let _ = tx.send(result);
+        });
+        true
+    }
+
+    /// Send a message directly to a fleet agent over a governed, per-agent
+    /// threaded conversation. The reply arrives via `on_tick()` polling
+    /// `pending_agent`. Returns false if no provider is configured or the
+    /// agent is unknown (in which case no thread is created).
+    pub fn send_to_agent(&mut self, name: &str, message: &str) -> bool {
+        if self.orchestrator.is_none() {
+            self.output.push(OutputEntry {
+                source: EntrySource::Error,
+                content: "No inference provider configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or OPENROUTER_API_KEY.".to_string(),
+            });
+            return false;
+        }
+        let bridge = self.runtime_bridge_handle();
+        let name = name.to_string();
+        if !self.agent_threads.contains_key(&name) {
+            let sys = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(bridge.agent_system_prompt(&name))
+            });
+            match sys {
+                Some(s) => {
+                    self.agent_threads.insert(
+                        name.clone(),
+                        symbi_runtime::reasoning::conversation::Conversation::with_system(&s),
+                    );
+                }
+                None => {
+                    let fleet = self
+                        .agent_cards
+                        .try_read()
+                        .map(|c| {
+                            c.iter()
+                                .map(|a| a.name.clone())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        })
+                        .unwrap_or_default();
+                    self.output.push(OutputEntry {
+                        source: EntrySource::Error,
+                        content: format!("No agent '{name}'. Loaded: {fleet}"),
+                    });
+                    return false;
+                }
+            }
+        }
+        let thread = self.agent_threads.get_mut(&name).unwrap();
+        thread.push(symbi_runtime::reasoning::conversation::ConversationMessage::user(message));
+        let conv = thread.clone();
+        let (tx, rx) = oneshot::channel();
+        self.busy_label = format!("Asking {name}...");
+        self.pending_agent = Some((name.clone(), rx));
+        tokio::spawn(async move {
+            let r = bridge
+                .delegate_threaded(&name, &conv)
+                .await
+                .map_err(|e| e.to_string());
+            let _ = tx.send(r);
         });
         true
     }
@@ -939,6 +1184,10 @@ impl App {
 
     /// Trigger completion based on current input.
     pub fn trigger_completion(&mut self) {
+        // Refresh entities (DSL builtins + loaded fleet) so `@`-completion sees
+        // agents loaded/reloaded this session. ponytail: per-trigger refresh of
+        // an in-memory list — cache on fleet-change if it ever shows up in a profile.
+        self.refresh_entities();
         let dsl_mode = self.mode == InputMode::Dsl;
         let (start, candidates) =
             completion::complete(&self.input, self.cursor, &self.entities, dsl_mode);
@@ -1018,10 +1267,23 @@ impl App {
             Ok(h) => h,
             Err(_) => return,
         };
-        let items = tokio::task::block_in_place(|| rt.block_on(self.engine.completion_items()));
+        let cards = self.agent_cards.clone();
+        let (items, fleet) = tokio::task::block_in_place(|| {
+            rt.block_on(async {
+                let items = self.engine.completion_items().await;
+                let fleet: Vec<(String, String)> = cards
+                    .read()
+                    .await
+                    .iter()
+                    .map(|c| (c.name.clone(), "agent".to_string()))
+                    .collect();
+                (items, fleet)
+            })
+        });
         self.entities = items
             .into_iter()
             .map(|(name, kind)| (name, kind.to_string()))
+            .chain(fleet)
             .collect();
     }
 }
@@ -1065,7 +1327,11 @@ mod tests {
     use super::*;
 
     fn test_app() -> App {
-        App::new(Arc::new(RuntimeBridge::new_permissive_for_dev()), None)
+        App::new(
+            Arc::new(RuntimeBridge::new_permissive_for_dev()),
+            None,
+            Arc::new(tokio::sync::RwLock::new(Vec::new())),
+        )
     }
 
     #[test]
@@ -1113,6 +1379,65 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn local_gate_approves_in_process_held_action() {
+        use std::time::Duration;
+        use symbi_runtime::escalation::{
+            Decision, EscalationQueue, EscalationRequest, HeldActionKind,
+        };
+
+        let queue = Arc::new(EscalationQueue::new());
+        let mut app = test_app();
+        app.escalation_queue = Some(queue.clone());
+
+        // Enqueue a held action in the background; this blocks until the
+        // local Gate panel resolves it (mirrors the EscalationGate path).
+        let q2 = queue.clone();
+        let held = tokio::spawn(async move {
+            q2.enqueue(
+                EscalationRequest {
+                    agent_id: "orch".to_string(),
+                    kind: HeldActionKind::ToolCall,
+                    summary: "tool_call edit_file".to_string(),
+                    reason: "policy requires human approval".to_string(),
+                    context_snapshot: None,
+                },
+                Duration::from_secs(5),
+            )
+            .await
+        });
+
+        // Wait until it is actually pending in the queue.
+        loop {
+            if !queue.list_pending_async().await.is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+
+        // Local-first refresh dispatches an async poll of the in-process
+        // queue; drain it via on_tick (same path the live loop uses).
+        app.gate_refresh();
+        for _ in 0..200 {
+            app.on_tick().await;
+            if !app.gate_items.is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert_eq!(app.gate_items.len(), 1, "one held action should be listed");
+
+        // Approve the selected action; the blocked enqueue should resolve.
+        app.gate_selected = 0;
+        app.gate_resolve_selected(true);
+
+        let decision = held.await.unwrap();
+        assert!(
+            matches!(decision, Decision::Approve { .. }),
+            "local approval should resolve the held action with Approve"
+        );
+    }
+
+    #[tokio::test]
     async fn test_handle_input_dsl_toggle() {
         let mut app = test_app();
         app.handle_input("/dsl").await;
@@ -1146,6 +1471,75 @@ mod tests {
         let user_entry = &app.output[1];
         assert_eq!(user_entry.source, EntrySource::User);
         assert_eq!(user_entry.content, "hello");
+    }
+
+    // ── @mention parsing + routing ────────────────────────────────────
+
+    #[test]
+    fn parse_mention_splits_name_and_message() {
+        assert_eq!(
+            parse_mention("@worker fix the build"),
+            Some(("worker".to_string(), "fix the build".to_string()))
+        );
+    }
+
+    #[test]
+    fn parse_mention_trims_whitespace() {
+        assert_eq!(
+            parse_mention("@worker    hello world  "),
+            Some(("worker".to_string(), "hello world".to_string()))
+        );
+    }
+
+    #[test]
+    fn parse_mention_rejects_empty_message() {
+        assert_eq!(parse_mention("@worker"), None);
+        assert_eq!(parse_mention("@worker   "), None);
+    }
+
+    #[test]
+    fn parse_mention_rejects_missing_at() {
+        assert_eq!(parse_mention("worker hi"), None);
+    }
+
+    #[tokio::test]
+    async fn mention_with_empty_message_shows_usage() {
+        let mut app = test_app();
+        app.handle_input("@worker").await;
+        let last = app.output.last().unwrap();
+        assert_eq!(last.source, EntrySource::Error);
+        assert!(last.content.contains("Usage: @<agent>"));
+        // Must NOT have routed to the orchestrator/agent path.
+        assert!(app.pending_agent.is_none());
+    }
+
+    #[tokio::test]
+    async fn mention_routes_to_agent_path_not_orchestrator() {
+        // No provider configured, so send_to_agent short-circuits with its
+        // own "No inference provider" error (distinct from the
+        // orchestrator's, which also mentions /dsl). Asserting on that
+        // wording confirms the @mention branch was taken.
+        let mut app = test_app();
+        app.handle_input("@worker do a thing").await;
+        let last = app.output.last().unwrap();
+        assert_eq!(last.source, EntrySource::Error);
+        assert!(last.content.contains("No inference provider configured"));
+        assert!(
+            !last.content.contains("/dsl"),
+            "agent path error must not be the orchestrator's /dsl message"
+        );
+    }
+
+    #[tokio::test]
+    async fn focus_mode_routes_plain_text_to_agent() {
+        let mut app = test_app();
+        app.focus_agent = Some("worker".to_string());
+        app.handle_input("hello there").await;
+        let last = app.output.last().unwrap();
+        // Routed through send_to_agent (no-provider error), not orchestrator.
+        assert_eq!(last.source, EntrySource::Error);
+        assert!(last.content.contains("No inference provider configured"));
+        assert!(!last.content.contains("/dsl"));
     }
 
     #[test]

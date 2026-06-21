@@ -14,7 +14,7 @@ use symbi_runtime::reasoning::inference::InferenceProvider;
 use symbi_runtime::reasoning::loop_types::{
     BufferedJournal, JournalWriter, LoopConfig, TerminationReason,
 };
-use symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate;
+use symbi_runtime::reasoning::policy_bridge::ReasoningPolicyGate;
 use symbi_runtime::reasoning::reasoning_loop::ReasoningLoopRunner;
 use symbi_runtime::types::AgentId;
 
@@ -92,10 +92,17 @@ impl Orchestrator {
     ///
     /// `auto_approve` comes from the shell's `--yes` CLI flag; when set,
     /// the system prompt is extended so the model saves without asking.
+    ///
+    /// `policy_gate` governs every proposed action in the reasoning loop.
+    /// The caller is responsible for supplying a real gate (e.g. a
+    /// `CedarPolicyGate` loaded from `policies/orchestrator.cedar`); the
+    /// fail-closed `DefaultPolicyGate::new()` denies everything, so the
+    /// gate must explicitly permit the orchestrator's safe tools.
     pub fn new(
         provider: Arc<dyn InferenceProvider>,
         executor: Arc<dyn ActionExecutor>,
         auto_approve: bool,
+        policy_gate: Arc<dyn ReasoningPolicyGate>,
     ) -> Self {
         let model_name = provider.default_model().to_string();
         let prompt = if auto_approve {
@@ -109,7 +116,7 @@ impl Orchestrator {
         let runner = ReasoningLoopRunner::builder()
             .provider(provider)
             .executor(executor)
-            .policy_gate(Arc::new(DefaultPolicyGate::new()))
+            .policy_gate(policy_gate)
             .journal(Arc::clone(&journal) as Arc<dyn JournalWriter>)
             .build();
 

@@ -115,7 +115,19 @@ fn intercept_help(command: &str, args: &str) -> Option<CommandResult> {
         "/resume-agent" => "/resume-agent <agent>\n  Resume a paused agent.",
         "/stop" => "/stop <agent>\n  Stop the given agent.",
         "/destroy" => "/destroy <agent>\n  Destroy the given agent and its state.",
-        "/agents" => "/agents\n  List active agents.",
+        "/agents" => {
+            "/agents [list|load <dir>|reload]\n  \
+             Manage the loaded agent fleet. `list` (default) shows loaded \
+             agents; `load <dir>` registers agents from a directory; `reload` \
+             re-scans ./agents."
+        }
+        "/agent" => {
+            "/agent use|clear|status\n  \
+             Set the active addressee for plain-text input. `use <name>` talks \
+             to that agent (`use orchestrator` returns to ORCH); `clear` returns \
+             to ORCH (`clear <name>` drops that agent's thread); `status` (default) \
+             shows the current addressee."
+        }
         "/context" => "/context\n  Show the current context window / token usage.",
         "/compact" => {
             "/compact [limit]\n  Compact the conversation history to fit within a budget."
@@ -147,8 +159,10 @@ pub fn dispatch(app: &mut App, command: &str, args: &str) -> Option<CommandResul
         "/dsl" => Some(session::dsl_toggle(app)),
         "/model" => Some(session::model(app, args)),
         "/cost" => Some(session::cost(app)),
+        "/tokens" | "/usage" => Some(session::tokens(app)),
         "/status" => Some(session::status(app)),
-        "/agents" => Some(agents::agents(app)),
+        "/agents" => Some(agents::agents_command(app, args)),
+        "/agent" => Some(agents::agent_focus_command(app, args)),
         "/debug" => Some(agents::debug(app, args)),
         "/stop" => Some(agents::stop(app, args)),
         "/pause" => Some(agents::pause(app, args)),

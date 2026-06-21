@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **symbi-shell agent fleet + governed delegation.** The shell auto-loads agents
+  from `./agents` (TOML manifests); the orchestrator delegates tasks to them
+  through the governed communication path (policy-checked + audited). Manage with
+  `/agents list|load|reload`. `.symbi` agents are detected but deferred (loading
+  them with their policy/sandbox enforced is on the roadmap).
+- **symbi-shell governed orchestrator tools.** The orchestrator's reasoning loop
+  now runs under a Cedar policy gate loaded from `policies/orchestrator.cedar`
+  (deny-by-default; missing/invalid policy falls back fail-closed, never
+  allow-all) — this is what lets the orchestrator's tools actually run, governed.
+  New read-only tools `read_file` and `search` (repo-rooted, path-sanitized).
+- **symbi-shell HITL mutating tools.** The orchestrator can `edit_file`
+  (repo-confined writes) and, behind a default-off `--allow-shell` opt-in, run
+  `shell` commands — each requiring **human approval** via the EscalationGate,
+  surfaced in the local Gate panel (`Ctrl+G`), fail-closed on timeout. `shell` is
+  triple-gated: unavailable unless `--allow-shell` (not advertised, executor
+  refuses, and Cedar permits it only then). (Per-agent tool grants remain deferred
+  until fleet agents can call tools.)
+- **symbi-shell direct agent addressing.** Talk to one fleet agent directly with
+  `@<name> <message>` or `/agent use <name>` (focus mode) — a governed, per-agent
+  threaded conversation; the footer shows the active addressee. `/agent clear`
+  returns to the orchestrator.
 - **Inter-agent session-type conformance (experimental).** New `symbi-session` crate: multiparty session-type projection (global protocol → per-role FSM) + a runtime `SessionMonitor` wired into `CommunicationPolicyGate`, so a *sequence* of inter-agent messages is checked against an agreed choreography (ordering/branching), not just per-message authorization. Under an active session the DSL primitives auto-derive the protocol label from the FSM (the agent names only the recipient), illegal transitions are denied with precise diagnostics fed back to the loop, and stalled sessions fail closed to an `Aborted` state. Every transition (allowed/denied) is recorded to a tamper-evident Ed25519 hash-chained **transcript** (offline-verifiable via `RuntimeBridge::session_transcript()`). No DSL syntax yet, and cross-instance propagation is not wired; sessions are opened via `RuntimeBridge::open_session`. Gated behind the **`session` cargo feature, off by default** — default builds don't compile the crate or its wiring; enable with `--features session`. See [Session Types](docs/session-types.md).
 - **Human-in-the-loop approvals.** A runtime held-action escalation queue holds agent actions that require human approval (block-with-timeout, fail-closed) and lets operators approve/deny them in real time via a new REST API (`/api/v1/approvals`), the new **Gate panel** in `symbi-shell` (`/gate`, `Ctrl+G`), or chat (`/symbi gate approve|deny <id>` over Slack/Teams/Mattermost, allowlist-authorized). Config: `[escalation]` + `SYMBIONT_ESCALATION_TIMEOUT` / `SYMBIONT_REQUIRE_APPROVAL_TOOLS`.
 

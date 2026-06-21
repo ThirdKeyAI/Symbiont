@@ -61,6 +61,11 @@ pub const REGISTRY: &[SlashCommand] = &[
         category: "session",
     },
     SlashCommand {
+        name: "/tokens",
+        summary: "Show session token use + context-window usage",
+        category: "session",
+    },
+    SlashCommand {
         name: "/status",
         summary: "Show runtime + session status",
         category: "session",

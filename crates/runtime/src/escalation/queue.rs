@@ -215,23 +215,6 @@ impl EscalationQueue {
         decision
     }
 
-    /// Blocking snapshot for sync callers (NOT on the async executor).
-    /// Used by later gate-path tasks that call from a blocking context.
-    ///
-    /// # Panics
-    ///
-    /// Panics if called from an async context. Use [`list_pending_async`](Self::list_pending_async)
-    /// instead.
-    #[allow(dead_code)]
-    pub fn list_pending(&self) -> Vec<HeldAction> {
-        debug_assert!(
-            tokio::runtime::Handle::try_current().is_err(),
-            "EscalationQueue::list_pending must not be called from an async context; use list_pending_async"
-        );
-        let map = self.inner.blocking_lock();
-        map.values().map(|e| e.action.clone()).collect()
-    }
-
     /// Async snapshot for callers already on the executor.
     pub async fn list_pending_async(&self) -> Vec<HeldAction> {
         self.inner
@@ -240,40 +223,6 @@ impl EscalationQueue {
             .values()
             .map(|e| e.action.clone())
             .collect()
-    }
-
-    /// Resolve a held action from a sync (blocking) caller.
-    /// Used by later gate-path tasks that call from a blocking context.
-    ///
-    /// # Panics
-    ///
-    /// Panics if called from an async context. Use [`resolve_async`](Self::resolve_async)
-    /// instead.
-    #[allow(dead_code)]
-    pub fn resolve(
-        &self,
-        id: &str,
-        decision: Decision,
-        approver: Approver,
-    ) -> Result<(), ResolveError> {
-        debug_assert!(
-            tokio::runtime::Handle::try_current().is_err(),
-            "EscalationQueue::resolve must not be called from an async context; use resolve_async"
-        );
-        let decision_clone = decision.clone();
-        let approver_clone = approver.clone();
-        let mut map = self.inner.blocking_lock();
-        let agent_id = Self::resolve_locked(&mut map, id, decision)?;
-        drop(map);
-        let ev = AuditEvent {
-            escalation_id: id.to_string(),
-            agent_id,
-            decision: decision_clone,
-            approver: approver_clone,
-            at: Utc::now(),
-        };
-        self.emit_audit_spawn(ev);
-        Ok(())
     }
 
     /// Resolve a held action from an async caller.
@@ -322,16 +271,6 @@ impl EscalationQueue {
         if let Some(a) = sink {
             a.record(ev).await;
         }
-    }
-
-    fn emit_audit_spawn(&self, ev: AuditEvent) {
-        let audit = self.audit.clone();
-        tokio::spawn(async move {
-            let sink = audit.lock().await.clone();
-            if let Some(a) = sink {
-                a.record(ev).await;
-            }
-        });
     }
 }
 

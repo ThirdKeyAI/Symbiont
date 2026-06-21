@@ -578,6 +578,87 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_orchestrator_policy_file_permits_safe_tools_denies_shell() {
+        // Locate the shipped policy relative to the workspace root. Tests
+        // run with CWD = the crate dir (crates/runtime), so walk up two.
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../policies/orchestrator.cedar");
+        assert!(
+            path.exists(),
+            "policies/orchestrator.cedar must ship at the workspace root (looked at {})",
+            path.display()
+        );
+
+        let gate = CedarPolicyGate::deny_by_default();
+        let n = gate
+            .reload_policies_from_file(&path)
+            .await
+            .expect("orchestrator.cedar must load");
+        assert!(n >= 1, "expected at least one policy rule");
+
+        let agent = AgentId::new();
+
+        // Every safe tool must be ALLOWED.
+        for tool in [
+            "list_agents",
+            "validate_dsl",
+            "validate_cedar",
+            "validate_toolclad",
+            "save_artifact",
+            "delegate",
+            "read_file",
+            "search",
+        ] {
+            let action = ProposedAction::ToolCall {
+                call_id: "c".into(),
+                name: tool.into(),
+                arguments: "{}".into(),
+            };
+            assert!(
+                matches!(
+                    gate.evaluate_action(&agent, &action, &test_state()).await,
+                    LoopDecision::Allow
+                ),
+                "tool '{tool}' should be permitted by orchestrator.cedar"
+            );
+        }
+
+        // Unsafe tool must be DENIED (fail-closed for anything not listed).
+        let shell = ProposedAction::ToolCall {
+            call_id: "c".into(),
+            name: "shell".into(),
+            arguments: "{}".into(),
+        };
+        assert!(
+            matches!(
+                gate.evaluate_action(&agent, &shell, &test_state()).await,
+                LoopDecision::Deny { .. }
+            ),
+            "tool 'shell' must be denied by orchestrator.cedar"
+        );
+
+        // Control-flow actions must be ALLOWED — otherwise the loop can never
+        // deliver a final answer and spins to the iteration limit.
+        for action in [
+            ProposedAction::Respond {
+                content: "hi".into(),
+            },
+            ProposedAction::Terminate {
+                reason: "done".into(),
+                output: "ok".into(),
+            },
+        ] {
+            assert!(
+                matches!(
+                    gate.evaluate_action(&agent, &action, &test_state()).await,
+                    LoopDecision::Allow
+                ),
+                "respond/terminate must be permitted by orchestrator.cedar"
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn test_permit_all_wildcard() {
         let gate = CedarPolicyGate::deny_by_default();
 

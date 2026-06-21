@@ -35,11 +35,6 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                 format!("model:{}", app.model_name),
                 Style::default().fg(t.dim),
             ),
-            Span::raw(" | "),
-            Span::styled(
-                format!("tokens:{}", app.tokens_used),
-                Style::default().fg(t.dim),
-            ),
         ]);
         frame.render_widget(Paragraph::new(status), chunks[0]);
 
@@ -59,13 +54,19 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             ),
             Span::raw(" | "),
             Span::styled(
-                format!("agents:{}", app.active_agents),
+                format!(
+                    "agents:{}",
+                    app.agent_cards.try_read().map(|c| c.len()).unwrap_or(0)
+                ),
                 Style::default().fg(t.warning),
             ),
-            Span::raw(" | "),
+            Span::raw(" "),
             Span::styled(
-                format!("tokens:{}", app.tokens_used),
-                Style::default().fg(t.dim),
+                match &app.focus_agent {
+                    Some(name) => format!("→ @{name}"),
+                    None => "→ ORCH".to_string(),
+                },
+                Style::default().fg(t.footer_accent),
             ),
             Span::raw(" | "),
             Span::styled(

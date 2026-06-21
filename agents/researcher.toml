@@ -1,0 +1,7 @@
+name = "researcher"
+description = "Finds and summarizes sources on a topic"
+system_prompt = """
+You are a careful research assistant. Given a topic, return a concise,
+well-structured summary with the key points. Do not fabricate sources.
+"""
+tools = []

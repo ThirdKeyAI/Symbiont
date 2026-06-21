@@ -11,7 +11,6 @@ use thiserror::Error;
 
 use crate::integrations::mcp::{McpClient, McpTool, VerificationStatus};
 use crate::logging::{ModelInteractionType, ModelLogger, RequestData, ResponseData};
-use crate::routing::{error::TaskType, ModelRequest, RoutingContext, RoutingEngine};
 use crate::types::{AgentId, RuntimeError};
 use dashmap::DashMap;
 use std::sync::Arc;
@@ -242,7 +241,6 @@ pub struct DefaultToolInvocationEnforcer {
     config: InvocationEnforcementConfig,
     warning_counts: DashMap<String, usize>,
     model_logger: Option<Arc<ModelLogger>>,
-    routing_engine: Option<Arc<dyn RoutingEngine>>,
     mcp_client: Option<Arc<dyn McpClient>>,
 }
 
@@ -253,7 +251,6 @@ impl DefaultToolInvocationEnforcer {
             config: InvocationEnforcementConfig::default(),
             warning_counts: DashMap::new(),
             model_logger: None,
-            routing_engine: None,
             mcp_client: None,
         }
     }
@@ -264,7 +261,6 @@ impl DefaultToolInvocationEnforcer {
             config,
             warning_counts: DashMap::new(),
             model_logger: None,
-            routing_engine: None,
             mcp_client: None,
         }
     }
@@ -275,22 +271,6 @@ impl DefaultToolInvocationEnforcer {
             config,
             warning_counts: DashMap::new(),
             model_logger: Some(logger),
-            routing_engine: None,
-            mcp_client: None,
-        }
-    }
-
-    /// Create a new tool invocation enforcer with routing engine
-    pub fn with_routing(
-        config: InvocationEnforcementConfig,
-        logger: Option<Arc<ModelLogger>>,
-        routing_engine: Arc<dyn RoutingEngine>,
-    ) -> Self {
-        Self {
-            config,
-            warning_counts: DashMap::new(),
-            model_logger: logger,
-            routing_engine: Some(routing_engine),
             mcp_client: None,
         }
     }
@@ -304,7 +284,6 @@ impl DefaultToolInvocationEnforcer {
             config,
             warning_counts: DashMap::new(),
             model_logger: None,
-            routing_engine: None,
             mcp_client: Some(mcp_client),
         }
     }
@@ -435,92 +414,6 @@ impl DefaultToolInvocationEnforcer {
         }
     }
 
-    /// Use routing engine to determine best model for tool execution
-    #[allow(dead_code)]
-    async fn route_tool_execution(
-        &self,
-        tool: &McpTool,
-        context: &InvocationContext,
-    ) -> Result<Option<String>, ToolInvocationError> {
-        if let Some(ref routing_engine) = self.routing_engine {
-            // Classify the tool task type based on tool description and arguments
-            let task_type = self.classify_tool_task(tool, context);
-
-            // Create routing context
-            let routing_context = RoutingContext::new(
-                context.agent_id,
-                task_type,
-                format!("Tool: {} - {}", tool.name, tool.description),
-            );
-
-            // Create model request
-            let _model_request = ModelRequest::from_task(format!(
-                "Execute tool '{}' with arguments: {}",
-                tool.name, context.arguments
-            ));
-
-            // Get routing decision
-            match routing_engine.route_request(&routing_context).await {
-                Ok(decision) => {
-                    tracing::debug!("Routing decision for tool '{}': {:?}", tool.name, decision);
-                    // Return the routing decision info for logging/metadata
-                    Ok(Some(format!("{:?}", decision)))
-                }
-                Err(e) => {
-                    tracing::warn!("Routing failed for tool '{}': {}", tool.name, e);
-                    Ok(None)
-                }
-            }
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Classify tool execution into routing task types
-    #[allow(dead_code)]
-    fn classify_tool_task(&self, tool: &McpTool, context: &InvocationContext) -> TaskType {
-        let tool_name_lower = tool.name.to_lowercase();
-        let description_lower = tool.description.to_lowercase();
-
-        // Analyze tool name and description to determine task type
-        if tool_name_lower.contains("code")
-            || description_lower.contains("code")
-            || tool_name_lower.contains("program")
-            || description_lower.contains("program")
-        {
-            TaskType::CodeGeneration
-        } else if tool_name_lower.contains("analyze")
-            || description_lower.contains("analy")
-            || tool_name_lower.contains("inspect")
-            || description_lower.contains("inspect")
-        {
-            TaskType::Analysis
-        } else if tool_name_lower.contains("extract")
-            || description_lower.contains("extract")
-            || tool_name_lower.contains("parse")
-            || description_lower.contains("parse")
-        {
-            TaskType::Extract
-        } else if tool_name_lower.contains("summarize") || description_lower.contains("summar") {
-            TaskType::Summarization
-        } else if tool_name_lower.contains("translate") || description_lower.contains("translat") {
-            TaskType::Translation
-        } else if tool_name_lower.contains("reason")
-            || description_lower.contains("reason")
-            || tool_name_lower.contains("logic")
-            || description_lower.contains("logic")
-        {
-            TaskType::Reasoning
-        } else if tool_name_lower.contains("template") || description_lower.contains("template") {
-            TaskType::Template
-        } else if context.arguments.to_string().len() < 100 {
-            // Simple tools with minimal arguments
-            TaskType::Intent
-        } else {
-            // Default to QA for general tools
-            TaskType::QA
-        }
-    }
     /// Execute the actual tool via the configured MCP client.
     /// Returns an error if no MCP client is configured.
     async fn execute_actual_tool(
@@ -834,7 +727,6 @@ mod tests {
             config,
             warning_counts: DashMap::new(),
             model_logger: None,
-            routing_engine: None,
             mcp_client: Some(mock_client),
         }
     }

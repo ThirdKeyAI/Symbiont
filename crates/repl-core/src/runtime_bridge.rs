@@ -98,6 +98,48 @@ impl RuntimeBridge {
         Arc::clone(&self.agent_registry)
     }
 
+    /// Register an agent (name + system prompt + tool names) into the shared
+    /// registry so it can be delegated to. Returns the minted agent id.
+    pub async fn register_agent(
+        &self,
+        name: &str,
+        system_prompt: &str,
+        tools: Vec<String>,
+    ) -> AgentId {
+        self.agent_registry
+            .spawn_agent(name, system_prompt, tools, None)
+            .await
+    }
+
+    /// Governed single-turn delegation to a registered agent by name. Runs the
+    /// communication policy gate (and session conformance when a session is
+    /// open) before invoking the agent. Returns the agent's reply text.
+    pub async fn delegate(&self, target: &str, message: &str) -> crate::error::Result<String> {
+        let ctx = self.reasoning_context();
+        crate::dsl::agent_composition::governed_ask(&ctx, target, message, None).await
+    }
+
+    /// Governed multi-turn delegation: like `delegate`, but the caller supplies a
+    /// full conversation (agent system prompt + history + new user turn). Runs the
+    /// comm-policy gate before completing against the provider.
+    pub async fn delegate_threaded(
+        &self,
+        target: &str,
+        conversation: &symbi_runtime::reasoning::conversation::Conversation,
+    ) -> crate::error::Result<String> {
+        let ctx = self.reasoning_context();
+        crate::dsl::agent_composition::governed_ask_conversation(&ctx, target, conversation).await
+    }
+
+    /// The system prompt of a registered agent, if present (used to seed a
+    /// per-agent conversation thread).
+    pub async fn agent_system_prompt(&self, name: &str) -> Option<String> {
+        self.agent_registry
+            .get_agent(name)
+            .await
+            .map(|a| a.system_prompt)
+    }
+
     /// Get the communication bus (if initialized).
     pub fn comm_bus(&self) -> Option<Arc<dyn CommunicationBus + Send + Sync>> {
         self.comm_bus.lock().unwrap().clone()
@@ -284,6 +326,46 @@ mod tests {
         let ctx = bridge.reasoning_context();
         assert!(ctx.active_session.lock().unwrap().is_none());
         assert!(ctx.session_monitor.is_some()); // monitor always available; no session open yet
+    }
+
+    #[tokio::test]
+    async fn delegate_to_unknown_agent_errors_with_name() {
+        let bridge = RuntimeBridge::new_permissive_for_dev();
+        let err = bridge.delegate("nope", "hi").await.unwrap_err();
+        assert!(
+            format!("{err}").contains("nope"),
+            "error should name the missing agent"
+        );
+    }
+
+    #[tokio::test]
+    async fn delegate_threaded_unknown_agent_errors() {
+        let bridge = RuntimeBridge::new_permissive_for_dev();
+        let conv = symbi_runtime::reasoning::conversation::Conversation::with_system("x");
+        let err = bridge.delegate_threaded("nope", &conv).await.unwrap_err();
+        assert!(format!("{err}").contains("nope"));
+    }
+
+    #[tokio::test]
+    async fn agent_system_prompt_roundtrips() {
+        let bridge = RuntimeBridge::new_permissive_for_dev();
+        bridge.register_agent("w", "You are w.", vec![]).await;
+        assert_eq!(
+            bridge.agent_system_prompt("w").await.as_deref(),
+            Some("You are w.")
+        );
+        assert!(bridge.agent_system_prompt("missing").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn register_then_registry_has_agent() {
+        let bridge = RuntimeBridge::new_permissive_for_dev();
+        bridge
+            .register_agent("helper", "You are helper.", vec![])
+            .await;
+        let ctx = bridge.reasoning_context();
+        let reg = ctx.agent_registry.as_ref().unwrap();
+        assert!(reg.has_agent("helper").await);
     }
 
     #[tokio::test]

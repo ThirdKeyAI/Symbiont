@@ -140,6 +140,31 @@ cargo build --release
 
 > For production deployments, review `SECURITY.md` and the [deployment guide](https://docs.symbiont.dev/getting-started) before enabling untrusted tool execution.
 
+### Agent fleet (symbi-shell)
+
+`symbi shell` auto-loads agents from `./agents` on startup — TOML manifests with
+`name` / `description` / `system_prompt` / optional `tools`. Talk to the
+orchestrator in natural language; it delegates sub-tasks to the right agent
+through the governed communication path (every delegation is policy-checked and
+audited). Manage the fleet with `/agents list`, `/agents load <dir>`, and
+`/agents reload`. `.symbi` agent definitions carry policy and sandbox constraints;
+loading and running them with those constraints enforced is on the roadmap, so for
+now they are detected and reported as deferred rather than loaded.
+
+You can also address one agent directly: `@<name> <message>` holds a governed,
+multi-turn conversation with that agent (its own thread, separate from the
+orchestrator), or `/agent use <name>` focuses the prompt on it until
+`/agent clear`. The footer shows the current addressee (`→ ORCH` or `→ @name`).
+Direct messages are policy-checked and audited exactly like orchestrator-routed
+delegation.
+
+The orchestrator also has governed tools: read-only `read_file` / `search`
+(repo-rooted, path-sanitized), and mutating `edit_file` plus an optional `shell`.
+Mutating tools require **human approval** — each call is held in the Gate panel
+(`Ctrl+G` to review, `a` approve / `d` deny; fail-closed on timeout). `shell`
+(arbitrary command execution) is **off by default** and only available when the
+shell is started with `--allow-shell`.
+
 ---
 
 ## How it works

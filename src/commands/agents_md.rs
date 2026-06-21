@@ -367,33 +367,6 @@ pub fn extract_auto_section(content: &str) -> Option<&str> {
     Some(content[section_start..end].trim())
 }
 
-/// Strip sensitive content from AGENTS.md for filtered serving.
-/// Removes content between sensitive markers.
-#[allow(dead_code)]
-pub fn strip_sensitive(content: &str) -> String {
-    let mut result = content.to_string();
-    while let (Some(start), Some(end)) = (result.find(SENSITIVE_START), result.find(SENSITIVE_END))
-    {
-        if end <= start {
-            break;
-        }
-        let end_pos = end + SENSITIVE_END.len();
-        let end_pos = if result[end_pos..].starts_with('\n') {
-            end_pos + 1
-        } else {
-            end_pos
-        };
-        // Also remove the sensitive-start marker's preceding newline if present
-        let start_pos = if start > 0 && result.as_bytes()[start - 1] == b'\n' {
-            start - 1
-        } else {
-            start
-        };
-        result = format!("{}{}", &result[..start_pos], &result[end_pos..]);
-    }
-    result
-}
-
 // --- Source-text fallback extraction ---
 //
 // The tree-sitter grammar has known issues:
@@ -713,16 +686,6 @@ mod tests {
     #[test]
     fn test_extract_auto_section_missing() {
         assert!(extract_auto_section("no markers here").is_none());
-    }
-
-    #[test]
-    fn test_strip_sensitive() {
-        let content = "## Agents\n\n<!-- agents-md:sensitive-start -->\n### Sandbox\nsecret stuff\n<!-- agents-md:sensitive-end -->\n\n## Channels\npublic";
-        let result = strip_sensitive(content);
-        assert!(!result.contains("secret stuff"));
-        assert!(!result.contains("Sandbox"));
-        assert!(result.contains("## Agents"));
-        assert!(result.contains("## Channels"));
     }
 
     #[test]

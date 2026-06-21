@@ -6,10 +6,6 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::Frame;
 
-/// Max body rows rendered before a tool-call card truncates with an
-/// `… +N more (ctrl+o)` hint. When expanded the full body is shown.
-const TOOL_CARD_COLLAPSED_ROWS: usize = 12;
-
 /// Render the "live tail" of unfinished entries into the inline
 /// viewport area. Finalized entries have already been flushed to
 /// terminal scrollback via `insert_before` and do not appear here.
@@ -35,29 +31,44 @@ pub fn render_entries_to_lines(entries: &[crate::app::OutputEntry]) -> Vec<Line<
     for entry in entries {
         match &entry.source {
             EntrySource::User => {
+                // Blank line above each user turn for vertical rhythm; a prompt
+                // glyph instead of a "you:" label.
+                lines.push(Line::default());
                 lines.push(Line::from(vec![
-                    Span::styled("you: ", Style::default().fg(t.user)),
+                    Span::styled(
+                        "› ",
+                        Style::default().fg(t.user).add_modifier(Modifier::BOLD),
+                    ),
                     Span::raw(entry.content.clone()),
                 ]));
             }
             EntrySource::System => {
+                // Chrome, not content: dim, no "sys:" label.
                 for text_line in entry.content.lines() {
                     lines.push(Line::from(Span::styled(
-                        format!("sys: {}", text_line),
-                        Style::default().fg(t.sys),
+                        format!("· {}", text_line),
+                        Style::default().fg(t.sys).add_modifier(Modifier::DIM),
                     )));
                 }
             }
             EntrySource::Agent(name) => {
-                lines.push(Line::from(Span::styled(
-                    format!("{}:", name),
-                    Style::default().fg(t.agent),
-                )));
+                lines.push(Line::default());
+                // The orchestrator is the primary voice — render its reply as
+                // bare markdown (no label). Named/delegated agents keep a header
+                // + indent so attribution is clear.
                 let md_lines = markdown::render(&entry.content);
-                for md_line in md_lines {
-                    let mut indented = vec![Span::raw("  ")];
-                    indented.extend(md_line.spans);
-                    lines.push(Line::from(indented));
+                if name == "orchestrator" {
+                    lines.extend(md_lines);
+                } else {
+                    lines.push(Line::from(Span::styled(
+                        format!("{}:", name),
+                        Style::default().fg(t.agent),
+                    )));
+                    for md_line in md_lines {
+                        let mut indented = vec![Span::raw("  ")];
+                        indented.extend(md_line.spans);
+                        lines.push(Line::from(indented));
+                    }
                 }
             }
             EntrySource::Error => {
@@ -102,13 +113,12 @@ pub fn render_entries_to_lines(entries: &[crate::app::OutputEntry]) -> Vec<Line<
 ///
 /// Layout:
 ///   ● tool_name(args_summary)  •  4ms       [header, always one row]
-///     ⎿ first line of output                 [body, only when interesting]
-///       ...
-///       … +N more (ctrl+o)
+///     ⎿ full output                          [body, only when interesting]
 ///
 /// The body is suppressed when the call is trivially fast and
-/// uninteresting — see [`should_show_body`] for the heuristic. Users
-/// can force the body via Ctrl+O (`expanded = true`).
+/// uninteresting — see [`should_show_body`] for the heuristic. When shown,
+/// the full body is rendered (it flushes to scrollback, so there's no live
+/// collapse toggle); `delegate` replies render as markdown.
 fn render_tool_card(card: &ToolCallEntry, lines: &mut Vec<Line>) {
     let t = super::theme::current();
     // Header: ● name(args_summary)  •  <duration>
@@ -211,33 +221,33 @@ fn render_plain_body(card: &ToolCallEntry, lines: &mut Vec<Line>) {
         return;
     }
 
-    let text_lines: Vec<&str> = card.output.lines().collect();
-    let show_all = card.expanded || text_lines.len() <= TOOL_CARD_COLLAPSED_ROWS;
-    let visible_rows = if show_all {
-        text_lines.len()
-    } else {
-        TOOL_CARD_COLLAPSED_ROWS
-    };
+    // ponytail: render the full body — no collapse/Ctrl+O. Finished cards flush
+    // to immutable terminal scrollback (see App::drain_unflushed), so a live
+    // expand toggle can't work; show everything the first time instead.
+    // `delegate` returns an agent's reply (markdown), so render it like a normal
+    // agent turn; other tools return raw text (file contents, search hits,
+    // command output) and are shown verbatim.
+    if card.name == "delegate" {
+        for (idx, md_line) in markdown::render(&card.output).into_iter().enumerate() {
+            let prefix = if idx == 0 { "  ⎿ " } else { "    " };
+            let mut spans = vec![Span::styled(prefix, Style::default().fg(t.dim))];
+            spans.extend(md_line.spans);
+            lines.push(Line::from(spans));
+        }
+        return;
+    }
+
     let body_style = if card.is_error {
         Style::default().fg(t.err)
     } else {
         Style::default().fg(t.dim)
     };
-
-    for (idx, line) in text_lines.iter().take(visible_rows).enumerate() {
+    for (idx, line) in card.output.lines().enumerate() {
         let prefix = if idx == 0 { "  ⎿ " } else { "    " };
         lines.push(Line::from(vec![
             Span::styled(prefix, Style::default().fg(t.dim)),
             Span::styled(line.to_string(), body_style),
         ]));
-    }
-
-    if !show_all {
-        let remaining = text_lines.len() - visible_rows;
-        lines.push(Line::from(Span::styled(
-            format!("    … +{} more (ctrl+o)", remaining),
-            Style::default().fg(t.dim).add_modifier(Modifier::DIM),
-        )));
     }
 }
 
@@ -289,14 +299,8 @@ fn render_edit_body(card: &ToolCallEntry, lines: &mut Vec<Line>) {
         return;
     }
 
-    let show_all = card.expanded || body.len() <= TOOL_CARD_COLLAPSED_ROWS;
-    let visible_rows = if show_all {
-        body.len()
-    } else {
-        TOOL_CARD_COLLAPSED_ROWS
-    };
-
-    for (idx, row) in body.iter().take(visible_rows).enumerate() {
+    // ponytail: show the full diff (no collapse/Ctrl+O — see render_plain_body).
+    for (idx, row) in body.iter().enumerate() {
         let prefix = if idx == 0 { "  ⎿ " } else { "    " };
         let mut spans = vec![Span::styled(prefix, Style::default().fg(t.dim))];
         match row {
@@ -322,14 +326,6 @@ fn render_edit_body(card: &ToolCallEntry, lines: &mut Vec<Line>) {
             }
         }
         lines.push(Line::from(spans));
-    }
-
-    if !show_all {
-        let remaining = body.len() - visible_rows;
-        lines.push(Line::from(Span::styled(
-            format!("    … +{} more (ctrl+o)", remaining),
-            Style::default().fg(t.dim).add_modifier(Modifier::DIM),
-        )));
     }
 }
 
@@ -468,5 +464,51 @@ mod tests {
             .filter(|r| matches!(r, DiffRow::Change { marker: '-', .. }))
             .count();
         assert_eq!(deletes, 1);
+    }
+
+    fn delegate_card(output: String) -> crate::app::OutputEntry {
+        crate::app::OutputEntry {
+            content: String::new(),
+            source: EntrySource::ToolCall(ToolCallEntry {
+                call_id: "c1".into(),
+                name: "delegate".into(),
+                args_summary: "agent=researcher".into(),
+                args: "{}".into(),
+                output,
+                done: true,
+                is_error: false,
+                is_edit: false,
+                expanded: false,
+                started_at: None,
+                duration_ms: Some(10),
+            }),
+        }
+    }
+
+    // Long delegate output renders in full (no collapse / no dead "ctrl+o" hint)
+    // and markdown is rendered (the `#` heading marker is stripped).
+    #[test]
+    fn delegate_card_renders_full_markdown_no_truncation() {
+        let body: String = (0..30).map(|i| format!("line {i}\n")).collect();
+        let output = format!("# Heading\n\n{body}");
+        let entry = delegate_card(output);
+        let lines = render_entries_to_lines(std::slice::from_ref(&entry));
+        let text: String = lines
+            .iter()
+            .flat_map(|l| l.spans.iter().map(|s| s.content.to_string()))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            text.contains("line 29"),
+            "full body must render, not truncate"
+        );
+        assert!(
+            !text.contains("more (ctrl+o)"),
+            "dead ctrl+o hint must be gone"
+        );
+        assert!(
+            text.contains("Heading") && !text.contains("# Heading"),
+            "markdown rendered"
+        );
     }
 }

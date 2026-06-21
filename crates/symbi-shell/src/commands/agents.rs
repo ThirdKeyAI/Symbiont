@@ -92,29 +92,130 @@ pub fn resume_agent(app: &mut App, args: &str) -> CommandResult {
     }
 }
 
-pub fn agents(app: &mut App) -> CommandResult {
+/// `/agents list | load <dir> | reload` — manage the loaded agent fleet.
+///
+/// `list` (the default) renders the synchronous fleet mirror. `load <dir>`
+/// scans the given directory for TOML manifests and registers them;
+/// `reload` re-scans the default `./agents` directory.
+pub fn agents_command(app: &mut App, args: &str) -> CommandResult {
+    let mut parts = args.split_whitespace();
+    match parts.next() {
+        Some("list") | None => match app.agent_cards.try_read() {
+            Ok(cards) if !cards.is_empty() => CommandResult::Output(render_list(&cards)),
+            Ok(_) => {
+                CommandResult::Output("No agents loaded. Use `/agents load <dir>`.".to_string())
+            }
+            Err(_) => CommandResult::Error("Agent list busy; try again.".to_string()),
+        },
+        Some("load") => match parts.next() {
+            Some(p) => run_load(app, p),
+            None => CommandResult::Error("Usage: /agents load <dir>".to_string()),
+        },
+        Some("reload") => run_load(app, "agents"),
+        Some(other) => CommandResult::Error(format!(
+            "Unknown /agents subcommand '{other}'. Available: list, load, reload"
+        )),
+    }
+}
+
+/// `/agent use <name|orchestrator>` | `/agent clear [name]` | `/agent [status]`.
+pub fn agent_focus_command(app: &mut App, args: &str) -> CommandResult {
+    let mut parts = args.split_whitespace();
+    match parts.next() {
+        Some("use") => match parts.next() {
+            Some("orchestrator") | Some("orch") => {
+                app.focus_agent = None;
+                CommandResult::Output("Now talking to ORCH.".into())
+            }
+            Some(name) => {
+                let known = app
+                    .agent_cards
+                    .try_read()
+                    .map(|c| c.iter().any(|a| a.name == name))
+                    .unwrap_or(false);
+                if !known {
+                    return CommandResult::Error(format!("No agent '{name}'. Try `/agents list`."));
+                }
+                app.focus_agent = Some(name.to_string());
+                CommandResult::Output(format!(
+                    "Now talking to @{name}. `/agent clear` to return to ORCH."
+                ))
+            }
+            None => CommandResult::Error("Usage: /agent use <name|orchestrator>".into()),
+        },
+        Some("clear") => {
+            if let Some(name) = parts.next() {
+                app.agent_threads.remove(name);
+                CommandResult::Output(format!("Cleared conversation thread for @{name}."))
+            } else {
+                app.focus_agent = None;
+                CommandResult::Output("Returned to ORCH.".into())
+            }
+        }
+        None | Some("status") => CommandResult::Output(match &app.focus_agent {
+            Some(n) => format!("Talking to @{n}."),
+            None => "Talking to ORCH.".into(),
+        }),
+        Some(o) => CommandResult::Error(format!(
+            "Unknown /agent subcommand '{o}'. Available: use, clear, status"
+        )),
+    }
+}
+
+/// Render the loaded fleet for `/agents list` (pure helper so it's unit-testable).
+fn render_list(cards: &[crate::agents::AgentCard]) -> String {
+    let mut out = String::from("Loaded agents:\n");
+    for c in cards {
+        out.push_str(&format!("  {} — {}\n", c.name, c.description));
+    }
+    out
+}
+
+/// Scan `dir`, register agents into the runtime, refresh the mirror, and
+/// report the outcome. Runs the async loader from this sync handler via the
+/// same `block_in_place` + current-runtime-handle pattern other commands use.
+fn run_load(app: &mut App, dir: &str) -> CommandResult {
     let rt = match tokio::runtime::Handle::try_current() {
         Ok(h) => h,
         Err(_) => return CommandResult::Error("No async runtime available".to_string()),
     };
-
-    let agents =
-        tokio::task::block_in_place(|| rt.block_on(app.engine().evaluator().list_agents()));
-
-    if agents.is_empty() {
-        return CommandResult::Output("No agents created.".to_string());
-    }
-
-    let mut out = String::from("Agents:\n");
-    for agent in &agents {
-        out.push_str(&format!(
-            "  {} — {} ({:?})\n",
-            &agent.id.to_string()[..8],
-            agent.definition.name,
-            agent.state
+    let bridge = app.runtime_bridge_handle();
+    let cards = app.agent_cards.clone();
+    let report = tokio::task::block_in_place(|| {
+        rt.block_on(crate::agents::load_agents_into(
+            std::path::Path::new(dir),
+            &bridge,
+            &cards,
+        ))
+    });
+    let mut msg = format!("Loaded {} agent(s) from {dir}.", report.loaded);
+    if report.deferred_symbi > 0 {
+        msg.push_str(&format!(
+            "\n  {} .symbi agent(s) detected — deferred (not loaded)",
+            report.deferred_symbi
         ));
     }
-    CommandResult::Output(out)
+    for c in &report.collisions {
+        msg.push_str(&format!("\n  collision (last wins): {c}"));
+    }
+    for e in &report.errors {
+        msg.push_str(&format!("\n  skipped {}: {}", e.path.display(), e.message));
+    }
+    // If the focused agent is no longer in the freshly rebuilt mirror, drop the
+    // stale focus so we don't keep routing to a vanished agent. Skip silently if
+    // the mirror lock is momentarily unavailable.
+    if let Some(name) = app.focus_agent.clone() {
+        if let Ok(cards) = app.agent_cards.try_read() {
+            if !cards.iter().any(|c| c.name == name) {
+                drop(cards);
+                app.focus_agent = None;
+                msg.push_str(&format!(
+                    "\n  focus on '@{name}' cleared (no longer loaded)"
+                ));
+            }
+        }
+    }
+    CommandResult::Output(msg)
 }
 
 pub fn debug(app: &mut App, args: &str) -> CommandResult {
@@ -198,5 +299,93 @@ pub fn destroy(app: &mut App, args: &str) -> CommandResult {
     match tokio::task::block_in_place(|| rt.block_on(app.engine().evaluator().destroy_agent(id))) {
         Ok(()) => CommandResult::Output(format!("Destroyed agent {}", &id.to_string()[..8])),
         Err(e) => CommandResult::Error(e.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agents::AgentCard;
+    use std::sync::Arc;
+
+    /// Build a minimal `App` for command-level unit tests, mirroring the
+    /// `test_app` helper in `app.rs` (private to that module).
+    fn test_app() -> App {
+        App::new(
+            Arc::new(repl_core::RuntimeBridge::new_permissive_for_dev()),
+            None,
+            Arc::new(tokio::sync::RwLock::new(Vec::new())),
+        )
+    }
+
+    fn push_card(app: &App, name: &str) {
+        app.agent_cards.blocking_write().push(AgentCard {
+            name: name.into(),
+            description: format!("{name} desc"),
+        });
+    }
+
+    fn unwrap_output(r: CommandResult) -> String {
+        match r {
+            CommandResult::Output(s) => s,
+            CommandResult::Error(e) => panic!("expected Output, got Error: {e}"),
+            CommandResult::Handled => panic!("expected Output, got Handled"),
+        }
+    }
+
+    #[test]
+    fn agent_focus_use_known_sets_focus() {
+        let mut app = test_app();
+        push_card(&app, "worker");
+        let r = agent_focus_command(&mut app, "use worker");
+        assert_eq!(app.focus_agent.as_deref(), Some("worker"));
+        assert!(matches!(r, CommandResult::Output(_)));
+    }
+
+    #[test]
+    fn agent_focus_use_unknown_errors() {
+        let mut app = test_app();
+        push_card(&app, "worker");
+        app.focus_agent = Some("worker".into());
+        let r = agent_focus_command(&mut app, "use ghost");
+        assert!(matches!(r, CommandResult::Error(_)));
+        // Focus unchanged.
+        assert_eq!(app.focus_agent.as_deref(), Some("worker"));
+    }
+
+    #[test]
+    fn agent_focus_clear_resets() {
+        let mut app = test_app();
+        app.focus_agent = Some("worker".into());
+        let r = agent_focus_command(&mut app, "clear");
+        assert_eq!(app.focus_agent, None);
+        assert!(matches!(r, CommandResult::Output(_)));
+    }
+
+    #[test]
+    fn agent_focus_status_reports() {
+        let mut app = test_app();
+        app.focus_agent = Some("worker".into());
+        let s = unwrap_output(agent_focus_command(&mut app, "status"));
+        assert!(s.contains("worker"));
+        // Empty args also reports status.
+        let s2 = unwrap_output(agent_focus_command(&mut app, ""));
+        assert!(s2.contains("worker"));
+    }
+
+    #[test]
+    fn render_list_includes_all_names() {
+        let cards = vec![
+            AgentCard {
+                name: "a".into(),
+                description: "first".into(),
+            },
+            AgentCard {
+                name: "b".into(),
+                description: "second".into(),
+            },
+        ];
+        let out = render_list(&cards);
+        assert!(out.contains("a") && out.contains("b"));
     }
 }
