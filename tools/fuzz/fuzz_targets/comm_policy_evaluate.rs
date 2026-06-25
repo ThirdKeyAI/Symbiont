@@ -159,6 +159,9 @@ fn request_from(spec: &RequestSpec) -> CommunicationRequest {
         recipient,
         message_type,
         topic: spec.topic.as_ref().map(|t| clamp(t.clone(), 64, "t")),
+        // Added by the symbi-session merge; the fuzzer doesn't exercise sessions.
+        session_id: None,
+        protocol_label: None,
     }
 }
 

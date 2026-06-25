@@ -150,6 +150,9 @@ impl AgentPinVerifier for DefaultAgentPinVerifier {
         let verifier_config = VerifierConfig {
             clock_skew_secs: self.config.clock_skew_secs,
             max_ttl_secs: self.config.max_ttl_secs,
+            // ponytail: agentpin 0.3.0 added taxonomy validation; keep prior
+            // (lenient) behavior — flip to a config field if/when needed.
+            strict_capabilities: false,
         };
 
         let audience = self.config.audience.as_deref();

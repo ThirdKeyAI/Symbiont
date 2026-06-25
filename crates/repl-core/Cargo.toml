@@ -1,6 +1,6 @@
 [package]
 name = "repl-core"
-version = "1.15.2"
+version = "1.16.0"
 edition = "2021"
 authors = ["Jascha Wanger / ThirdKey.ai"]
 description = "Core REPL engine for the Symbi platform"
@@ -25,8 +25,8 @@ tokio = { version = "1.0", features = ["sync"] }
 tracing = "0.1"
 futures = "0.3"
 bytes = "1.0"
-symbi-runtime = { path = "../runtime", version = "1.15.2", features = ["http-input"] }
-symbi-session = { path = "../symbi-session", version = "1.15.2", optional = true }
+symbi-runtime = { path = "../runtime", version = "1.16.0", features = ["http-input"] }
+symbi-session = { path = "../symbi-session", version = "1.16.0", optional = true }
 
 [features]
 # Experimental: multiparty session-type protocol monitor (off by default).

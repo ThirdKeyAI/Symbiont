@@ -45,9 +45,9 @@ dependencies = [
 
 [[package]]
 name = "agentpin"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e61b018772b5d89bf421009075297f1ae89173e832a6607d1e8fde72ffde680"
+checksum = "b516254ba4260e3dafb9f6374e8b992ea4ee8c68a802efde668d83827c03ed7b"
 dependencies = [
  "async-trait",
  "base64 0.21.7",
@@ -6073,7 +6073,7 @@ checksum = "ba39f3699c378cd8970968dcbff9c43159ea4cfbd88d43c00b22f2ef10a435d2"
 
 [[package]]
 name = "repl-core"
-version = "1.14.2"
+version = "1.15.2"
 dependencies = [
  "bytes",
  "chrono",
@@ -7093,7 +7093,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-dsl"
-version = "1.14.2"
+version = "1.15.2"
 dependencies = [
  "anyhow",
  "cc",
@@ -7145,7 +7145,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-runtime"
-version = "1.14.2"
+version = "1.15.2"
 dependencies = [
  "aes-gcm",
  "agentpin",
@@ -7188,6 +7188,7 @@ dependencies = [
  "sha2",
  "shlex",
  "subtle",
+ "symbi-channel-adapter",
  "symbi-dsl",
  "symbi-invis-strip",
  "sysinfo",

@@ -22,7 +22,7 @@ The [pre-built binaries](#option-1-pre-built-binaries-quick-start) are already c
 
 Required only if you install via `cargo install` or build the repository yourself:
 
-- **Rust 1.82+**
+- **Rust 1.86+**
 - **protobuf-compiler** (`apt install protobuf-compiler` on Ubuntu, `brew install protobuf` on macOS)
 - **Git** (to clone the repository)
 

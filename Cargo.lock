@@ -45,9 +45,9 @@ dependencies = [
 
 [[package]]
 name = "agentpin"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e61b018772b5d89bf421009075297f1ae89173e832a6607d1e8fde72ffde680"
+checksum = "b516254ba4260e3dafb9f6374e8b992ea4ee8c68a802efde668d83827c03ed7b"
 dependencies = [
  "async-trait",
  "base64 0.21.7",
@@ -7344,9 +7344,9 @@ dependencies = [
 
 [[package]]
 name = "quinn-proto"
-version = "0.11.14"
+version = "0.11.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "434b42fec591c96ef50e21e886936e66d3cc3f737104fdb9b737c40ffb94c098"
+checksum = "4fcb935c5bec503c2f0e306bdd3e58bb9029dcb14fa8d9ac76e3a5256ac0763e"
 dependencies = [
  "bytes",
  "getrandom 0.3.3",
@@ -7771,7 +7771,7 @@ checksum = "ba39f3699c378cd8970968dcbff9c43159ea4cfbd88d43c00b22f2ef10a435d2"
 
 [[package]]
 name = "repl-cli"
-version = "1.15.2"
+version = "1.16.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -7786,7 +7786,7 @@ dependencies = [
 
 [[package]]
 name = "repl-core"
-version = "1.15.2"
+version = "1.16.0"
 dependencies = [
  "bytes",
  "chrono",
@@ -7805,7 +7805,7 @@ dependencies = [
 
 [[package]]
 name = "repl-lsp"
-version = "1.15.2"
+version = "1.16.0"
 dependencies = [
  "repl-core",
  "tokio",
@@ -7814,7 +7814,7 @@ dependencies = [
 
 [[package]]
 name = "repl-proto"
-version = "1.15.2"
+version = "1.16.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -9070,7 +9070,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "symbi"
-version = "1.15.2"
+version = "1.16.0"
 dependencies = [
  "async-trait",
  "cedar-policy",
@@ -9152,28 +9152,21 @@ dependencies = [
 
 [[package]]
 name = "symbi-dsl"
-version = "1.15.2"
+version = "1.16.0"
 dependencies = [
  "anyhow",
  "cc",
  "clap",
- "criterion",
  "humantime",
  "ring",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
  "tokio",
- "tokio-test",
  "tracing",
  "tracing-subscriber",
  "tree-sitter",
- "tree-sitter-javascript",
- "tree-sitter-python",
- "tree-sitter-rust",
- "tree-sitter-typescript",
  "uuid",
- "walkdir",
 ]
 
 [[package]]
@@ -9202,7 +9195,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-runtime"
-version = "1.15.2"
+version = "1.16.0"
 dependencies = [
  "aes-gcm",
  "agentpin",
@@ -9292,7 +9285,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-session"
-version = "1.15.2"
+version = "1.16.0"
 dependencies = [
  "proptest",
  "serde",
@@ -9301,7 +9294,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-shell"
-version = "1.15.2"
+version = "1.16.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -10314,50 +10307,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "tree-sitter-javascript"
-version = "0.25.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68204f2abc0627a90bdf06e605f5c470aa26fdcb2081ea553a04bdad756693f5"
-dependencies = [
- "cc",
- "tree-sitter-language",
-]
-
-[[package]]
 name = "tree-sitter-language"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4013970217383f67b18aef68f6fb2e8d409bc5755227092d32efb0422ba24b8"
-
-[[package]]
-name = "tree-sitter-python"
-version = "0.25.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6bf85fd39652e740bf60f46f4cda9492c3a9ad75880575bf14960f775cb74a1c"
-dependencies = [
- "cc",
- "tree-sitter-language",
-]
-
-[[package]]
-name = "tree-sitter-rust"
-version = "0.24.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "439e577dbe07423ec2582ac62c7531120dbfccfa6e5f92406f93dd271a120e45"
-dependencies = [
- "cc",
- "tree-sitter-language",
-]
-
-[[package]]
-name = "tree-sitter-typescript"
-version = "0.23.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c5f76ed8d947a75cc446d5fccd8b602ebf0cde64ccf2ffa434d873d7a575eff"
-dependencies = [
- "cc",
- "tree-sitter-language",
-]
 
 [[package]]
 name = "try-lock"

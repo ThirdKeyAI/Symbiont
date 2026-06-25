@@ -91,11 +91,11 @@ curl -fsSL https://symbiont.dev/install.sh | bash
 symbi --help
 ```
 
-The installer fetches the prebuilt release binary for your platform. Pin a version with `bash -s -- --version v1.15.2` or change the target with `--dir`. Prefer Docker or [building from source](#build-from-source)? Both are below.
+The installer fetches the prebuilt release binary for your platform. Pin a version with `bash -s -- --version v1.16.0` or change the target with `--dir`. Prefer Docker or [building from source](#build-from-source)? Both are below.
 
 ### Prerequisites
 
-* Docker (recommended) or Rust 1.82+
+* Docker (recommended) or Rust 1.86+
 
 ### Scaffold and run a project (Docker, ~60 seconds)
 

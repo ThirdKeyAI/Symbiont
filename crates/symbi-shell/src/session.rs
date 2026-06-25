@@ -366,16 +366,6 @@ pub fn parse_duration(s: &str) -> Result<Duration> {
     Ok(Duration::from_secs(n * multiplier))
 }
 
-/// Does a session with this name / UUID exist on disk? Used by CLI
-/// argument validation paths; not a security check.
-#[allow(dead_code)]
-pub fn session_exists(name: &str) -> bool {
-    match sanitize_name(name) {
-        Ok(safe) => session_dir().join(format!("{}.json", safe)).exists(),
-        Err(_) => false,
-    }
-}
-
 /// Export session as plain text.
 pub fn export_session(session: &ShellSession) -> String {
     let mut out = format!(
@@ -581,7 +571,6 @@ mod tests {
             conversation: None,
         };
         save_session(&id, &session).unwrap();
-        assert!(session_exists(&id));
 
         let loaded = load_session(&id).unwrap();
         assert_eq!(loaded.session_id, id);

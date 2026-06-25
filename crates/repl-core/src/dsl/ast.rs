@@ -552,21 +552,3 @@ impl SizeValue {
         }
     }
 }
-
-/// Visitor trait for traversing the AST
-pub trait AstVisitor {
-    type Output;
-
-    fn visit_program(&mut self, program: &Program) -> Self::Output;
-    fn visit_declaration(&mut self, declaration: &Declaration) -> Self::Output;
-    fn visit_statement(&mut self, statement: &Statement) -> Self::Output;
-    fn visit_expression(&mut self, expression: &Expression) -> Self::Output;
-}
-
-/// Mutable visitor trait for transforming the AST
-pub trait AstVisitorMut {
-    fn visit_program_mut(&mut self, program: &mut Program);
-    fn visit_declaration_mut(&mut self, declaration: &mut Declaration);
-    fn visit_statement_mut(&mut self, statement: &mut Statement);
-    fn visit_expression_mut(&mut self, expression: &mut Expression);
-}

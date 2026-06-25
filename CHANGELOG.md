@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-06-25
+
 ### Added
+- **`symbi-shell` is now a published crate.** The interactive agent
+  orchestration shell ships to crates.io for the first time in this release.
 - **symbi-shell agent fleet + governed delegation.** The shell auto-loads agents
   from `./agents` (TOML manifests); the orchestrator delegates tasks to them
   through the governed communication path (policy-checked + audited). Manage with
@@ -35,6 +39,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **`symbi` now auto-loads a project-local `.env`.** On startup the CLI reads `.env` from the working directory (additively — real environment variables still take precedence and are never overridden), printing `Loaded environment from <path>` to stderr. This closes the `init` → `up` loop: the `SYMBIONT_MASTER_KEY` that `symbi init` generates in `.env` is now picked up automatically by a local `symbi up`/`run`, instead of requiring a manual `source .env`.
 - **`symbi init` output polish.** The "Next steps" block now prints last (after `.env` and `docker-compose.yml` are written) instead of mid-output, and presents clearer guidance: `Validate` / `Run` (with `docker compose up` recommended for the default Docker tier, and `symbi up` noted to load `.env`) / `Update`.
+- **agentpin bumped to 0.3.0.** Picks up the new credential-verification
+  surface; capability taxonomy validation is available but left off by default
+  to preserve existing behavior.
+- **MSRV raised to Rust 1.86** (required by agentpin 0.3.0's icu_* dependencies).
+
+### Security
+- Bumped transitive `quinn-proto` to 0.11.15 to address RUSTSEC-2026-0185
+  (remote memory exhaustion via unbounded out-of-order stream reassembly).
+
+### Removed
+- Dead code and unused dependencies: the unused `completer.rs`, the
+  `AstVisitor`/`AstVisitorMut` traits, `session_exists()`, and the
+  `tree-sitter-{rust,python,javascript,typescript}`, `walkdir`, `tokio-test`,
+  and `criterion` dependencies from `symbi-dsl`.
 
 ## [1.15.2] - 2026-06-09
 

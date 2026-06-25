@@ -1,6 +1,6 @@
 [package]
 name = "symbi-dsl"
-version = "1.15.2"
+version = "1.16.0"
 edition = "2021"
 authors = ["Jascha Wanger / ThirdKey.ai"]
 description = "Symbi DSL - AI-native programming language with Tree-sitter integration"
@@ -9,28 +9,19 @@ repository = "https://github.com/thirdkeyai/symbiont"
 keywords = ["dsl", "tree-sitter", "ast", "parser", "symbiont"]
 categories = ["parsing", "development-tools"]
 
-# `cargo machete` produces high-noise output on this crate because the
-# tree-sitter integration uses `cc` from build.rs and several deps are
-# referenced through generated parser code that machete doesn't analyse.
-# Tracked for a future cleanup pass; see the v1.12.0 release thread.
+# `cargo machete` flags these because they are used via macros, build.rs
+# (`cc`), or generated code that machete doesn't analyse.
 [package.metadata.cargo-machete]
 ignored = [
     "anyhow",
     "cc",
     "clap",
-    "criterion",
     "ring",
     "serde_json",
     "thiserror",
     "tokio",
-    "tokio-test",
     "tracing-subscriber",
-    "tree-sitter-javascript",
-    "tree-sitter-python",
-    "tree-sitter-rust",
-    "tree-sitter-typescript",
     "uuid",
-    "walkdir",
 ]
 
 [dependencies]
@@ -40,10 +31,6 @@ ignored = [
 # duplicate C symbol link errors when both versions ended up in the same
 # binary's transitive deps.
 tree-sitter = "0.26"
-tree-sitter-rust = "0.24"
-tree-sitter-python = "0.25"
-tree-sitter-javascript = "0.25"
-tree-sitter-typescript = "0.23"
 
 # Async runtime for agent communication
 tokio = { version = "1.0", features = ["full"] }
@@ -69,16 +56,8 @@ uuid = { version = "1.0", features = ["v4", "serde"] }
 # Cryptographic operations (for future security features)
 ring = "0.17.12"
 
-# File system operations
-walkdir = "2.0"
-
 # Duration parsing
 humantime = "2.1"
-
-[dev-dependencies]
-# Testing framework
-tokio-test = "0.4"
-criterion = "0.5"
 
 [build-dependencies]
 cc = "1.0"
