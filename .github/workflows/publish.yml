@@ -115,6 +115,9 @@ jobs:
           # symbi-session is an optional dependency of symbi-runtime (the
           # `session` feature); it must exist on crates.io before Tier 2.
           publish_crate symbi-session || exit 1
+          # symbi-channel-adapter is a (leaf) dependency of symbi-runtime, so
+          # it must publish before Tier 2 — not after it.
+          publish_crate symbi-channel-adapter || exit 1
 
           echo "Waiting 30s for crates.io index..."
           sleep 30
@@ -127,7 +130,6 @@ jobs:
 
           # Tier 3: Depends on symbi-runtime
           publish_crate repl-core || exit 1
-          publish_crate symbi-channel-adapter || exit 1
 
           echo "Waiting 30s for crates.io index..."
           sleep 30
