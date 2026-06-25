@@ -112,6 +112,9 @@ jobs:
           publish_crate symbi-invis-strip || exit 1
           publish_crate symbi-approval-relay || exit 1
           publish_crate repl-proto || exit 1
+          # symbi-session is an optional dependency of symbi-runtime (the
+          # `session` feature); it must exist on crates.io before Tier 2.
+          publish_crate symbi-session || exit 1
 
           echo "Waiting 30s for crates.io index..."
           sleep 30
