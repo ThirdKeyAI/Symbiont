@@ -21,6 +21,11 @@ pub struct OrchestratorExecutor {
     /// When false (the default), the `shell` tool is neither advertised nor
     /// executable. Enabled only via the shell's `--allow-shell` flag.
     allow_shell: bool,
+    /// When `Some`, only tools whose name is in the set are advertised and
+    /// executable. `None` (default) advertises the full orchestrator tool set.
+    /// Fleet agents pass `Some(manifest_tools − {delegate})`; the orchestrator
+    /// uses `None`.
+    allowed_tools: Option<std::collections::HashSet<String>>,
 }
 
 impl OrchestratorExecutor {
@@ -37,7 +42,23 @@ impl OrchestratorExecutor {
             bridge,
             cards,
             allow_shell,
+            allowed_tools: None,
         }
+    }
+
+    /// Restrict this executor to a specific set of tool names (fleet agents).
+    pub fn with_allowed_tools(mut self, tools: std::collections::HashSet<String>) -> Self {
+        self.allowed_tools = Some(tools);
+        self
+    }
+
+    /// Whether a tool is permitted by this executor's static allow-list.
+    /// `None` allow-list permits everything (orchestrator).
+    fn tool_allowed(&self, name: &str) -> bool {
+        self.allowed_tools
+            .as_ref()
+            .map(|set| set.contains(name))
+            .unwrap_or(true)
     }
 }
 
@@ -239,12 +260,16 @@ impl ActionExecutor for OrchestratorExecutor {
             });
         }
 
+        defs.retain(|d| self.tool_allowed(&d.name));
         defs
     }
 }
 
 impl OrchestratorExecutor {
     async fn handle_tool_call(&self, name: &str, arguments: &str) -> Result<String, String> {
+        if !self.tool_allowed(name) {
+            return Err(format!("tool '{name}' is not available to this agent"));
+        }
         let args: serde_json::Value =
             serde_json::from_str(arguments).map_err(|e| format!("Invalid arguments: {}", e))?;
 
@@ -748,6 +773,7 @@ mod tests {
         let cards = Arc::new(tokio::sync::RwLock::new(vec![crate::agents::AgentCard {
             name: "worker".into(),
             description: "does work".into(),
+            tools: vec![],
         }]));
         let engine = Arc::new(repl_core::ReplEngine::new(Arc::clone(&bridge)));
         let constraints = Arc::new(ProjectConstraints::default());
@@ -964,6 +990,43 @@ mod tests {
 
         std::fs::remove_dir_all(&tmp).ok();
         std::fs::remove_dir_all(&outside).ok();
+    }
+
+    #[tokio::test]
+    async fn scoped_executor_lists_only_allowed_tools() {
+        let exec = executor_with_agent().await.with_allowed_tools(
+            ["read_file", "search"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+        );
+        let defs = exec.tool_definitions();
+        let names: Vec<_> = defs.iter().map(|d| d.name.as_str()).collect();
+        assert!(names.contains(&"read_file"));
+        assert!(names.contains(&"search"));
+        assert!(!names.contains(&"edit_file"));
+        assert!(!names.contains(&"delegate"));
+        assert!(!names.contains(&"validate_dsl"));
+    }
+
+    #[tokio::test]
+    async fn scoped_executor_refuses_out_of_set_tool() {
+        let exec = executor_with_agent()
+            .await
+            .with_allowed_tools(["read_file"].iter().map(|s| s.to_string()).collect());
+        let err = exec
+            .handle_tool_call("delegate", "{\"agent\":\"worker\",\"task\":\"x\"}")
+            .await
+            .unwrap_err();
+        assert!(err.contains("not available"));
+    }
+
+    #[tokio::test]
+    async fn unscoped_executor_still_lists_full_set() {
+        let exec = executor_with_agent().await; // allowed_tools = None
+        let defs = exec.tool_definitions();
+        assert!(defs.iter().any(|d| d.name == "delegate"));
+        assert!(defs.iter().any(|d| d.name == "validate_dsl"));
     }
 
     #[tokio::test]

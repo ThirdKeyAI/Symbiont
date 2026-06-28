@@ -49,7 +49,8 @@ Flags (append to either form, e.g. `symbi shell --allow-shell`):
 
 On startup you should see notices like `Loaded N agent(s) from ./agents`, a
 policy-load line (`Loaded N orchestrator policy rule(s)`), and — if you have
-`.symbi` files in `./agents` — a line noting they are detected but deferred.
+`.symbi` files in `./agents` — a line confirming they are parsed and loaded
+(or refused with a reason for those declaring an unsupported sandbox tier).
 
 The footer shows: model, `agents:N` (loaded fleet size), token count, and the
 current addressee (`→ ORCH`).
@@ -78,11 +79,30 @@ Commands:
 | `/agents load <dir>` | Load additional manifests from a directory. |
 | `/agents reload` | Re-scan `./agents`. |
 
-**`.symbi` agents are intentionally NOT loaded** in this release. They carry
-policy/sandbox constraints that aren't enforced yet, so the shell reports them as
-*deferred* rather than running them as plain personas. Dropping a `.symbi` file
-in `./agents` should produce a "N .symbi agent(s) detected … not loaded" notice,
-and the agent should **not** appear in `/agents list`.
+### 3.1. `.symbi` agent loading
+
+`.symbi` agent files in `./agents` are now **parsed and registered** as fleet agents
+alongside TOML manifests. They are addressable with `@name` and run through the same
+governed loop (policy gate → executor → human approval).
+
+**Capability mapping:** An agent's `security.capabilities` declare which tools it can use:
+
+- `read` → tools `read_file`, `search`
+- `write` → tool `edit_file`
+- `execute` → tool `shell`
+- Unknown capabilities grant nothing
+- `delegate` stays orchestrator-only (never delegated to fleet agents)
+
+**Sandbox enforcement:** If a `.symbi` agent declares a sandbox tier the shell cannot
+provide (`Tier2` or higher, or `sandbox: strict` or `sandbox: moderate`), the agent
+is refused with a clear pointer to `symbi up` / `symbi run` — it is **never run
+unsandboxed**. The shell only runs agents with `sandbox: permissive` or no sandbox
+declaration.
+
+**Deferred items:**
+- Real container sandboxing of in-process shell tools (the shell runs tools in the
+  calling process and cannot isolate them at the OS level)
+- `.symbi` behavior-step execution
 
 ## 4. Talking to agents
 
@@ -150,7 +170,7 @@ no separate runtime needs to be attached.
 |---|------|----------|
 | 1 | Launch from repo root with a provider key | Welcome message; `agents:N`>0; policy-load notice; `→ ORCH` in footer |
 | 2 | `/agents list` | Lists `researcher` (and any other manifests) |
-| 3 | Drop a `*.symbi` file into `./agents`, `/agents reload` | "…detected … not loaded"; it does **not** appear in `/agents list` |
+| 3 | Drop a `*.symbi` file into `./agents`, `/agents reload` | Agent is parsed and registered; it **appears** in `/agents list` (or is refused with a reason if it declares `sandbox: strict` or `sandbox: moderate`) |
 | 4 | Ask ORCH something that needs an agent | ORCH delegates (tool call visible) and returns a folded answer |
 | 5 | `@researcher <question>` | Direct reply rendered as that agent; ask a follow-up — it remembers context |
 | 6 | `/agent use researcher`, then plain messages, then `/agent clear` | Footer shows `→ @researcher`, plain text routes to it, then back to `→ ORCH` |
@@ -175,12 +195,36 @@ no separate runtime needs to be attached.
 - **`agents:0`** — no manifests in `./agents`; add a `.toml` manifest and
   `/agents reload`.
 
+## 7. Fleet agent tool execution
+
+Fleet agents now execute their manifest `tools` through the same governed reasoning
+loop as the orchestrator. A tool is callable only if it is in the agent's manifest
+`tools` **and** permitted by `policies/orchestrator.cedar`:
+
+- **Effective tools** = manifest `tools` ∩ `orchestrator.cedar` allowlist.
+- **`delegate`** remains orchestrator-only; `shell` still requires `--allow-shell`.
+- **No `orchestrator.cedar`** → all tools denied (you'll see a one-time hint on
+  first use).
+- **Tool-less agents** stay conversational with the no-fabrication guard (they
+  cannot execute tools/commands/network and keep an explicit system-prompt
+  constraint).
+
+Test by loading an agent with a `tools` manifest list, querying it, and
+confirming it either runs the tool (if policy permits) or denies it with a clear
+reason. When tools are denied solely because `policies/orchestrator.cedar` is
+missing, you'll see a diagnostic hint on startup or first call attempt.
+
+Deferred items (for future releases): per-agent Cedar principals, `.symbi`
+agent execution, agent-initiated delegation.
+
 ## 8. Out of scope (not in this preview)
 
-- **`.symbi` agent execution** — detected but deferred (no policy/sandbox
-  enforcement yet).
-- **Per-agent tool grants** — `tools` in a manifest is recorded but not enforced
-  (fleet agents don't call tools yet).
+- **`.symbi` behavior-step execution** — agents load and are addressable, but
+  DSL behavior steps are not yet executed; agents respond conversationally.
+- **Per-agent Cedar principals** — each agent will have a distinct Cedar entity;
+  currently all agents share a single orchestrator principal.
+- **Agent-initiated delegation** — agents cannot yet delegate to other agents
+  directly; the orchestrator can.
 - **OS-level sandboxing** of tools (gVisor/Firecracker) — the gate enforces
   *policy*, not OS isolation. `shell`/`edit_file` run with the shell process's own
   privileges, mitigated by the policy gate, path confinement, and mandatory

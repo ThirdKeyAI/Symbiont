@@ -145,7 +145,7 @@ pub fn agent_focus_command(app: &mut App, args: &str) -> CommandResult {
         },
         Some("clear") => {
             if let Some(name) = parts.next() {
-                app.agent_threads.remove(name);
+                app.agent_runners.remove(name);
                 CommandResult::Output(format!("Cleared conversation thread for @{name}."))
             } else {
                 app.focus_agent = None;
@@ -188,11 +188,16 @@ fn run_load(app: &mut App, dir: &str) -> CommandResult {
             &cards,
         ))
     });
+    // A (re)load can change an agent's manifest tools or system prompt. Cached
+    // per-agent runners froze their tool scope at first use, so drop them all —
+    // the next `@name` rebuilds against the freshly registered definition.
+    app.agent_runners.clear();
     let mut msg = format!("Loaded {} agent(s) from {dir}.", report.loaded);
-    if report.deferred_symbi > 0 {
+    if !report.sandbox_refused.is_empty() {
         msg.push_str(&format!(
-            "\n  {} .symbi agent(s) detected — deferred (not loaded)",
-            report.deferred_symbi
+            "\n  {} .symbi agent(s) refused (sandbox tier — run via `symbi up`/`symbi run`): {}",
+            report.sandbox_refused.len(),
+            report.sandbox_refused.join(", ")
         ));
     }
     for c in &report.collisions {
@@ -315,6 +320,7 @@ mod tests {
             Arc::new(repl_core::RuntimeBridge::new_permissive_for_dev()),
             None,
             Arc::new(tokio::sync::RwLock::new(Vec::new())),
+            None,
         )
     }
 
@@ -322,6 +328,7 @@ mod tests {
         app.agent_cards.blocking_write().push(AgentCard {
             name: name.into(),
             description: format!("{name} desc"),
+            tools: vec![],
         });
     }
 
@@ -379,13 +386,76 @@ mod tests {
             AgentCard {
                 name: "a".into(),
                 description: "first".into(),
+                tools: vec![],
             },
             AgentCard {
                 name: "b".into(),
                 description: "second".into(),
+                tools: vec![],
             },
         ];
         let out = render_list(&cards);
         assert!(out.contains("a") && out.contains("b"));
+    }
+
+    // Minimal provider so we can build a real per-agent runner to insert.
+    struct Mock;
+    #[async_trait::async_trait]
+    impl symbi_runtime::reasoning::inference::InferenceProvider for Mock {
+        async fn complete(
+            &self,
+            _c: &symbi_runtime::reasoning::conversation::Conversation,
+            _o: &symbi_runtime::reasoning::inference::InferenceOptions,
+        ) -> Result<
+            symbi_runtime::reasoning::inference::InferenceResponse,
+            symbi_runtime::reasoning::inference::InferenceError,
+        > {
+            Ok(symbi_runtime::reasoning::inference::InferenceResponse {
+                content: "ok".into(),
+                tool_calls: vec![],
+                finish_reason: symbi_runtime::reasoning::inference::FinishReason::Stop,
+                usage: symbi_runtime::reasoning::inference::Usage::default(),
+                model: "mock".into(),
+            })
+        }
+        fn provider_name(&self) -> &str {
+            "mock"
+        }
+        fn default_model(&self) -> &str {
+            "mock"
+        }
+        fn supports_native_tools(&self) -> bool {
+            false
+        }
+        fn supports_structured_output(&self) -> bool {
+            false
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn reload_clears_cached_agent_runners() {
+        let mut app = test_app();
+        // Seed a cached per-agent runner.
+        let runner = crate::orchestrator::Orchestrator::for_agent(
+            Arc::new(Mock),
+            Arc::new(symbi_runtime::reasoning::executor::DefaultActionExecutor::default()),
+            Arc::new(
+                symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate::permissive_for_dev_only(
+                ),
+            ),
+            "You are a test agent.",
+        );
+        app.agent_runners
+            .insert("worker".into(), Arc::new(tokio::sync::Mutex::new(runner)));
+        assert_eq!(app.agent_runners.len(), 1);
+
+        // A load (here, an empty temp dir) must invalidate cached runners so the
+        // next `@name` rebuilds against the freshly registered definition.
+        let dir = tempfile::tempdir().unwrap();
+        let _ = run_load(&mut app, dir.path().to_str().unwrap());
+        assert!(
+            app.agent_runners.is_empty(),
+            "reload/load must clear cached per-agent runners"
+        );
     }
 }

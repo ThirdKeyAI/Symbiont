@@ -130,6 +130,35 @@ impl Orchestrator {
         }
     }
 
+    /// Build a governed runner for a single fleet agent: same ORGA loop as
+    /// `new`, but seeded with the agent's own system prompt and a (typically
+    /// tool-scoped) executor. The `policy_gate` is shared with the orchestrator
+    /// so fleet-agent tool calls pass the same Cedar + escalation path.
+    pub fn for_agent(
+        provider: Arc<dyn InferenceProvider>,
+        executor: Arc<dyn ActionExecutor>,
+        policy_gate: Arc<dyn ReasoningPolicyGate>,
+        system_prompt: &str,
+    ) -> Self {
+        let model_name = provider.default_model().to_string();
+        let conversation = Conversation::with_system(system_prompt);
+        let journal = Arc::new(BufferedJournal::new(1000));
+        let runner = ReasoningLoopRunner::builder()
+            .provider(provider)
+            .executor(executor)
+            .policy_gate(policy_gate)
+            .journal(Arc::clone(&journal) as Arc<dyn JournalWriter>)
+            .build();
+        Self {
+            runner,
+            conversation,
+            model_name,
+            agent_id: AgentId::new(),
+            journal,
+            system_prompt: system_prompt.to_string(),
+        }
+    }
+
     /// Send a user message through the ORGA loop.
     ///
     /// Automatically compacts the conversation if it exceeds the token budget,
@@ -486,6 +515,60 @@ fn is_transient_error(reason: &TerminationReason) -> bool {
         || lower.contains("connection reset")
         || lower.contains("connection refused")
         || lower.contains("overloaded")
+}
+
+#[cfg(test)]
+mod for_agent_tests {
+    use super::*;
+    use async_trait::async_trait;
+    use symbi_runtime::reasoning::executor::DefaultActionExecutor;
+    use symbi_runtime::reasoning::inference::{
+        FinishReason, InferenceError, InferenceOptions, InferenceProvider, InferenceResponse, Usage,
+    };
+    use symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate;
+
+    struct Mock;
+    #[async_trait]
+    impl InferenceProvider for Mock {
+        async fn complete(
+            &self,
+            _c: &symbi_runtime::reasoning::conversation::Conversation,
+            _o: &InferenceOptions,
+        ) -> Result<InferenceResponse, InferenceError> {
+            Ok(InferenceResponse {
+                content: "hello from agent".to_string(),
+                tool_calls: vec![],
+                finish_reason: FinishReason::Stop,
+                usage: Usage::default(),
+                model: "mock".to_string(),
+            })
+        }
+        fn provider_name(&self) -> &str {
+            "mock"
+        }
+        fn default_model(&self) -> &str {
+            "mock"
+        }
+        fn supports_native_tools(&self) -> bool {
+            false
+        }
+        fn supports_structured_output(&self) -> bool {
+            false
+        }
+    }
+
+    #[tokio::test]
+    async fn for_agent_seeds_prompt_and_responds() {
+        let mut a = Orchestrator::for_agent(
+            Arc::new(Mock),
+            Arc::new(DefaultActionExecutor::default()),
+            Arc::new(DefaultPolicyGate::permissive_for_dev_only()),
+            "You are a focused test agent.",
+        );
+        assert_eq!(a.system_prompt, "You are a focused test agent.");
+        let resp = a.send("hi").await.unwrap();
+        assert_eq!(resp.content, "hello from agent");
+    }
 }
 
 #[cfg(test)]

@@ -3,6 +3,7 @@
 
 use crate::commands::{self, CommandResult};
 use crate::completion;
+use crate::fleet_runner::FleetRunnerFactory;
 use crate::orchestrator::{Orchestrator, OrchestratorResponse};
 use crate::session;
 use repl_core::{ReplEngine, RuntimeBridge};
@@ -259,14 +260,19 @@ pub struct App {
     gate_last_poll: Option<std::time::Instant>,
     /// Active direct addressee; None = ORCH. Set via `/agent use`.
     pub focus_agent: Option<String>,
-    /// Per-agent multi-turn conversation threads (keyed by agent name).
-    pub agent_threads:
-        std::collections::HashMap<String, symbi_runtime::reasoning::conversation::Conversation>,
+    /// Per-agent governed runners, built lazily on first `@name` use.
+    pub agent_runners: std::collections::HashMap<String, Arc<tokio::sync::Mutex<Orchestrator>>>,
     /// Pending async result from a direct agent turn: (agent name, receiver).
     pub pending_agent: Option<(
         String,
-        tokio::sync::oneshot::Receiver<Result<String, String>>,
+        tokio::sync::oneshot::Receiver<Result<OrchestratorResponse, String>>,
     )>,
+    /// Factory for building per-agent governed runners.
+    fleet_factory: Option<FleetRunnerFactory>,
+    /// Whether a Cedar policy is present for fleet agents (used for warnings).
+    pub policy_present: bool,
+    /// Whether the missing-policy hint has already been shown this session.
+    policy_hint_shown: bool,
 }
 
 impl App {
@@ -274,6 +280,7 @@ impl App {
         runtime_bridge: Arc<RuntimeBridge>,
         orchestrator: Option<Orchestrator>,
         agent_cards: std::sync::Arc<tokio::sync::RwLock<Vec<crate::agents::AgentCard>>>,
+        fleet_factory: Option<FleetRunnerFactory>,
     ) -> Self {
         let runtime_bridge_handle = Arc::clone(&runtime_bridge);
         let engine = ReplEngine::new(runtime_bridge);
@@ -328,8 +335,11 @@ impl App {
             gate_poll: None,
             gate_last_poll: None,
             focus_agent: None,
-            agent_threads: std::collections::HashMap::new(),
+            agent_runners: std::collections::HashMap::new(),
             pending_agent: None,
+            fleet_factory,
+            policy_present: false,
+            policy_hint_shown: false,
         }
     }
 
@@ -725,11 +735,9 @@ impl App {
     /// Cancel a pending async operation.
     pub fn cancel_pending(&mut self) {
         let mut cancelled = self.pending_result.take().is_some();
-        if let Some((name, _)) = self.pending_agent.take() {
-            // Roll back the speculative user turn so a retry starts clean.
-            if let Some(thread) = self.agent_threads.get_mut(&name) {
-                thread.pop();
-            }
+        if self.pending_agent.take().is_some() {
+            // The runner's conversation is only mutated inside the spawned task
+            // after a successful turn — no rollback needed here.
             cancelled = true;
         }
         if cancelled {
@@ -804,17 +812,19 @@ impl App {
         if let Some((name, rx)) = self.pending_agent.as_mut() {
             let name = name.clone();
             match rx.try_recv() {
-                Ok(Ok(reply)) => {
-                    if let Some(thread) = self.agent_threads.get_mut(&name) {
-                        thread.push(
-                            symbi_runtime::reasoning::conversation::ConversationMessage::assistant(
-                                &reply,
-                            ),
-                        );
+                Ok(Ok(response)) => {
+                    self.tokens_used += response.tokens_used;
+                    let meta = format_response_meta(&response);
+                    for record in &response.tool_calls {
+                        self.upsert_tool_call_card(record);
                     }
                     self.output.push(OutputEntry {
                         source: EntrySource::Agent(name),
-                        content: reply,
+                        content: response.content,
+                    });
+                    self.output.push(OutputEntry {
+                        source: EntrySource::Meta,
+                        content: meta,
                     });
                     self.pending_agent = None;
                     self.busy_label.clear();
@@ -825,11 +835,6 @@ impl App {
                         source: EntrySource::Error,
                         content: format!("Agent '{}' error: {}", name, e),
                     });
-                    // Roll back the speculative user turn so a retry starts
-                    // from a clean thread.
-                    if let Some(thread) = self.agent_threads.get_mut(&name) {
-                        thread.pop();
-                    }
                     self.pending_agent = None;
                     self.busy_label.clear();
                 }
@@ -841,9 +846,6 @@ impl App {
                         source: EntrySource::Error,
                         content: "Request was dropped".to_string(),
                     });
-                    if let Some(thread) = self.agent_threads.get_mut(&name) {
-                        thread.pop();
-                    }
                     self.pending_agent = None;
                     self.busy_label.clear();
                 }
@@ -1091,30 +1093,29 @@ impl App {
     }
 
     /// Send a message directly to a fleet agent over a governed, per-agent
-    /// threaded conversation. The reply arrives via `on_tick()` polling
+    /// orchestrator. The reply arrives via `on_tick()` polling
     /// `pending_agent`. Returns false if no provider is configured or the
-    /// agent is unknown (in which case no thread is created).
+    /// agent is unknown.
     pub fn send_to_agent(&mut self, name: &str, message: &str) -> bool {
-        if self.orchestrator.is_none() {
+        if self.orchestrator.is_none() || self.fleet_factory.is_none() {
             self.output.push(OutputEntry {
                 source: EntrySource::Error,
                 content: "No inference provider configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or OPENROUTER_API_KEY.".to_string(),
             });
             return false;
         }
-        let bridge = self.runtime_bridge_handle();
         let name = name.to_string();
-        if !self.agent_threads.contains_key(&name) {
-            let sys = tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(bridge.agent_system_prompt(&name))
+
+        if !self.agent_runners.contains_key(&name) {
+            // Look up the agent's manifest tools from the card mirror.
+            let tools = self.agent_cards.try_read().ok().and_then(|cards| {
+                cards
+                    .iter()
+                    .find(|c| c.name == name)
+                    .map(|c| c.tools.clone())
             });
-            match sys {
-                Some(s) => {
-                    self.agent_threads.insert(
-                        name.clone(),
-                        symbi_runtime::reasoning::conversation::Conversation::with_system(&s),
-                    );
-                }
+            let tools = match tools {
+                Some(t) => t,
                 None => {
                     let fleet = self
                         .agent_cards
@@ -1132,22 +1133,53 @@ impl App {
                     });
                     return false;
                 }
+            };
+            let factory = self.fleet_factory.as_ref().unwrap();
+            let built = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(factory.build(&name, &tools))
+            });
+            match built {
+                Some(orch) => {
+                    self.agent_runners
+                        .insert(name.clone(), Arc::new(tokio::sync::Mutex::new(orch)));
+                }
+                None => {
+                    self.output.push(OutputEntry {
+                        source: EntrySource::Error,
+                        content: format!("No agent '{name}'."),
+                    });
+                    return false;
+                }
             }
+            // One-time missing-policy hint (Task 5).
+            self.maybe_warn_missing_policy(&tools);
         }
-        let thread = self.agent_threads.get_mut(&name).unwrap();
-        thread.push(symbi_runtime::reasoning::conversation::ConversationMessage::user(message));
-        let conv = thread.clone();
+
+        let runner = Arc::clone(self.agent_runners.get(&name).unwrap());
+        let message = message.to_string();
         let (tx, rx) = oneshot::channel();
         self.busy_label = format!("Asking {name}...");
         self.pending_agent = Some((name.clone(), rx));
         tokio::spawn(async move {
-            let r = bridge
-                .delegate_threaded(&name, &conv)
-                .await
-                .map_err(|e| e.to_string());
+            let mut guard = runner.lock().await;
+            let r = guard.send(&message).await.map_err(|e| e.to_string());
             let _ = tx.send(r);
         });
         true
+    }
+
+    /// Emit a one-time hint when tools are unavailable purely because no
+    /// `policies/orchestrator.cedar` exists (the gate fails closed). Only fires
+    /// for tool-bearing interactions, once per session.
+    fn maybe_warn_missing_policy(&mut self, tools: &[String]) {
+        if self.policy_present || self.policy_hint_shown || tools.is_empty() {
+            return;
+        }
+        self.policy_hint_shown = true;
+        self.output.push(OutputEntry {
+            source: EntrySource::Meta,
+            content: "Note: no policies/orchestrator.cedar found, so the policy gate fails closed and tool calls are denied. Create that file to grant tools (e.g. read_file, search). See docs/shell-agent-orchestration.md.".to_string(),
+        });
     }
 
     /// Navigate input history upward.
@@ -1331,6 +1363,7 @@ mod tests {
             Arc::new(RuntimeBridge::new_permissive_for_dev()),
             None,
             Arc::new(tokio::sync::RwLock::new(Vec::new())),
+            None,
         )
     }
 
@@ -1760,5 +1793,38 @@ mod tests {
         }];
         app.completion_index = 0;
         assert!(!app.completion_accept_is_noop());
+    }
+
+    #[test]
+    fn missing_policy_hint_fires_once_for_tool_bearing_agent() {
+        let mut app = test_app();
+        app.policy_present = false;
+        let tools = vec!["read_file".to_string()];
+        app.maybe_warn_missing_policy(&tools);
+        let first = app
+            .output
+            .iter()
+            .filter(|e| matches!(e.source, EntrySource::Meta))
+            .count();
+        app.maybe_warn_missing_policy(&tools);
+        let second = app
+            .output
+            .iter()
+            .filter(|e| matches!(e.source, EntrySource::Meta))
+            .count();
+        assert_eq!(first, second, "hint must fire at most once");
+        assert!(first >= 1, "hint should fire once");
+    }
+
+    #[test]
+    fn missing_policy_hint_silent_when_policy_present_or_no_tools() {
+        let mut app = test_app();
+        app.policy_present = true;
+        app.maybe_warn_missing_policy(&["read_file".to_string()]);
+        app.policy_present = false;
+        app.maybe_warn_missing_policy(&[]); // tool-less
+        assert!(app.output.iter().all(|e| {
+            !matches!(e.source, EntrySource::Meta) || !e.content.contains("fails closed")
+        }));
     }
 }

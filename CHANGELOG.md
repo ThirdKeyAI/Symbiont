@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`.symbi` agents load into the symbi-shell fleet.** DSL agents in `./agents`
+  are parsed and registered alongside TOML manifests — addressable with `@name`
+  and run through the same governed loop. Declared capabilities map to tools
+  (read/write/execute → read_file+search/edit_file/shell; unknown capabilities
+  grant nothing; `delegate` stays orchestrator-only). Agents declaring a sandbox
+  tier the shell cannot provide (`Tier2`+ or `sandbox: strict`/`moderate`) are
+  refused with a pointer to `symbi up`/`symbi run`, never run unsandboxed.
+- **Fleet agents can execute their manifest tools.** Agents loaded from
+  `./agents` now run through the same governed reasoning loop as the
+  orchestrator (Cedar gate + executor + human approval). A tool is callable
+  only if it is in the agent's manifest `tools` AND `policies/orchestrator.cedar`
+  permits it. `delegate` stays orchestrator-only; `shell` still requires
+  `--allow-shell`. Agents with no tools remain conversational (and keep the
+  no-fabrication guard). A one-time hint appears when tools are denied solely
+  because `policies/orchestrator.cedar` is missing.
+
+### Fixed
+- **symbi-shell fleet agents no longer fabricate tool execution.** Fleet agents
+  are conversational only (no executor wired yet), so an agent prompted like a
+  scanner would *describe* running a command and then invent its output — e.g.
+  fabricated vulnerability findings. Every fleet agent's system prompt now carries
+  an explicit constraint: it cannot execute tools/commands/network, and must never
+  claim to have run anything or invent results.
+
 ## [1.16.0] - 2026-06-25
 
 ### Added

@@ -12,6 +12,7 @@ mod app;
 mod commands;
 mod completion;
 mod deploy;
+mod fleet_runner;
 mod orchestrator;
 mod orchestrator_executor;
 mod remote;
@@ -326,12 +327,14 @@ async fn main() -> Result<()> {
         // missing or fails to load we fall back to the fail-closed
         // `DefaultPolicyGate` — NEVER allow-all. We keep a typed
         // `CedarPolicyGate` so we can `add_policy` for `shell` under opt-in.
+        let mut policy_present = false;
         let inner_gate: Arc<dyn ReasoningPolicyGate> = {
             let policy_path = std::path::Path::new("policies/orchestrator.cedar");
             if policy_path.exists() {
                 let gate = CedarPolicyGate::deny_by_default();
                 match gate.reload_policies_from_file(policy_path).await {
                     Ok(n) => {
+                        policy_present = true;
                         startup_notices.push(format!(
                             "Loaded {n} orchestrator policy rule(s) from policies/orchestrator.cedar"
                         ));
@@ -381,28 +384,44 @@ async fn main() -> Result<()> {
                 },
             ));
 
+        let fleet_factory = fleet_runner::FleetRunnerFactory::new(
+            Arc::clone(&provider)
+                as Arc<dyn symbi_runtime::reasoning::inference::InferenceProvider>,
+            Arc::clone(&constraints),
+            Arc::clone(&runtime_bridge),
+            Arc::clone(&agent_cards),
+            args.allow_shell,
+            Arc::clone(&policy_gate),
+        );
+
         let orch =
             orchestrator::Orchestrator::new(provider, executor, args.auto_approve, policy_gate);
-        Some((orch, escalation_queue))
+        Some((orch, escalation_queue, fleet_factory, policy_present))
     } else {
         None
     };
 
     // Split the orchestrator from its shared escalation queue (if any) so we
     // can hand the SAME queue `Arc` to the App's Gate panel below.
-    let (orch, escalation_queue) = match orch {
-        Some((o, q)) => (Some(o), Some(q)),
-        None => (None, None),
+    let (orch, escalation_queue, fleet_factory, policy_present) = match orch {
+        Some((o, q, f, p)) => (Some(o), Some(q), Some(f), p),
+        None => (None, None, None, false),
     };
 
     // `App::new` moves the bridge into its `ReplEngine`; keep an `Arc` clone so
     // the startup fleet load can register agents against the same registry.
     let bridge_for_agents = Arc::clone(&runtime_bridge);
-    let mut app = App::new(runtime_bridge, orch, Arc::clone(&agent_cards));
+    let mut app = App::new(
+        runtime_bridge,
+        orch,
+        Arc::clone(&agent_cards),
+        fleet_factory,
+    );
 
     // Wire the SAME escalation queue Arc the reasoning gate enqueues into, so
     // the local Gate panel resolves the orchestrator's held actions in-process.
     app.escalation_queue = escalation_queue;
+    app.policy_present = policy_present;
 
     // Flush startup notices (e.g. orchestrator policy-gate status) into the
     // transcript now that `app` exists.
@@ -427,12 +446,13 @@ async fn main() -> Result<()> {
                 content: format!("Loaded {} agent(s) from ./agents", report.loaded),
             });
         }
-        if report.deferred_symbi > 0 {
+        if !report.sandbox_refused.is_empty() {
             app.output.push(app::OutputEntry {
                 source: app::EntrySource::System,
                 content: format!(
-                    "{} .symbi agent(s) detected — full DSL-agent execution is deferred to a later release; not loaded",
-                    report.deferred_symbi
+                    "{} .symbi agent(s) refused (sandbox tier — run via `symbi up`/`symbi run`): {}",
+                    report.sandbox_refused.len(),
+                    report.sandbox_refused.join(", ")
                 ),
             });
         }
