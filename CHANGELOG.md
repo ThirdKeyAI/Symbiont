@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **AWS Bedrock provider (off-by-default `bedrock` feature).** `LlmClient` /
+  `CloudInferenceProvider` can target Bedrock-hosted models via the Converse API,
+  SigV4-signed with the standard AWS credential chain. Select with
+  `BEDROCK_MODEL_ID` + `AWS_REGION`. Non-streaming; tool-use supported. Enabling
+  the feature pulls `aws-config`/`aws-sigv4`/`aws-credential-types`; default
+  builds are unaffected.
 - **`.symbi` agents load into the symbi-shell fleet.** DSL agents in `./agents`
   are parsed and registered alongside TOML manifests — addressable with `@name`
   and run through the same governed loop. Declared capabilities map to tools
@@ -25,6 +31,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   because `policies/orchestrator.cedar` is missing.
 
 ### Fixed
+- **`.symbi` agents now load with the real DSL grammar.** symbi-shell parses
+  `.symbi` files with the tree-sitter `symbi-dsl` parser (the same one `symbi
+  run` uses) instead of a minimal subset parser, so the full-grammar agents in
+  `agents/` actually load. The fail-closed sandbox gate now refuses any agent
+  that declares a `with { sandbox = ... }` tier (the in-process shell provides no
+  container isolation) — run those via `symbi up`/`symbi run`.
 - **symbi-shell fleet agents no longer fabricate tool execution.** Fleet agents
   are conversational only (no executor wired yet), so an agent prompted like a
   scanner would *describe* running a command and then invent its output — e.g.

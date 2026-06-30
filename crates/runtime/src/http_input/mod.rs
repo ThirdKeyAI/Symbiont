@@ -23,3 +23,6 @@ pub use config::{
 
 #[cfg(feature = "http-input")]
 pub use server::{start_http_input, HttpInputServer};
+
+#[cfg(feature = "bedrock")]
+pub(crate) mod bedrock;

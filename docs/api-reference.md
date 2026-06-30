@@ -437,6 +437,24 @@ cargo build --features cloud-llm
 
 The cloud LLM provider integrates with the reasoning loop's `execute_actions()` pipeline. It supports streaming responses, automatic retries with exponential backoff, and token usage tracking.
 
+#### AWS Bedrock Provider (`bedrock`)
+
+Use Bedrock-hosted models via the Converse API for agent reasoning:
+
+```bash
+cargo build --features bedrock
+
+# For reasoning loop integration, also enable cloud-llm
+cargo build --features bedrock,cloud-llm
+```
+
+**Environment Variables:**
+- `BEDROCK_MODEL_ID` — Bedrock model identifier (e.g. `anthropic.claude-3-5-sonnet-20241022-v2:0`)
+- `AWS_REGION` — AWS region (or `AWS_DEFAULT_REGION`)
+- AWS credentials from standard chain: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` (optional), shared credentials file, or IAM role
+
+The Bedrock provider integrates with `LlmClient` and `CloudInferenceProvider` for agent reasoning. It uses the Converse API (non-streaming, SigV4-signed) with tool-use support for tool-capable models. The `bedrock` feature automatically includes `http-input` and pulls in AWS SDK dependencies (`aws-config`, `aws-sigv4`, `aws-credential-types`); default builds are unaffected.
+
 #### Standalone Agent Mode (`standalone-agent`)
 
 Meta-feature that enables cloud LLM inference for cloud-native agents:

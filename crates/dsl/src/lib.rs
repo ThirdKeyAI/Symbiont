@@ -1129,6 +1129,88 @@ pub fn extract_channel_definitions(
     Ok(channels)
 }
 
+/// Extract the agent name from `agent NAME(...) { ... }`.
+///
+/// Returns the name text of the first `agent_definition` node found, or `None`
+/// if the file declares no agent.
+pub fn extract_agent_name(tree: &Tree, source: &str) -> Option<String> {
+    fn find(node: Node, source: &str, depth: usize) -> Option<String> {
+        if depth > MAX_AST_DEPTH {
+            return None;
+        }
+        if node.kind() == "agent_definition" {
+            for i in 0u32..node.child_count() as u32 {
+                if let Some(c) = node.child(i) {
+                    if c.kind() == "identifier" {
+                        return Some(source[c.start_byte()..c.end_byte()].to_string());
+                    }
+                }
+            }
+        }
+        for i in 0u32..node.child_count() as u32 {
+            if let Some(c) = node.child(i) {
+                if let Some(found) = find(c, source, depth + 1) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+    find(tree.root_node(), source, 0)
+}
+
+/// Extract capability strings from a `capabilities = [ ... ]` declaration.
+///
+/// Quotes are stripped from each string value. Returns an empty `Vec` if no
+/// `capabilities_declaration` is present in the file.
+///
+/// Note: the grammar wraps each array element as `array` → `expression` →
+/// `value` → `string`, so this function collects `string` leaf nodes
+/// recursively within the `array` child of `capabilities_declaration`.
+pub fn extract_capabilities(tree: &Tree, source: &str) -> Vec<String> {
+    /// Collect all `string` leaf nodes within a subtree.
+    fn collect_strings(node: Node, source: &str, out: &mut Vec<String>, depth: usize) {
+        if depth > MAX_AST_DEPTH {
+            return;
+        }
+        if node.kind() == "string" {
+            let raw = &source[node.start_byte()..node.end_byte()];
+            out.push(raw.trim_matches('"').to_string());
+            return;
+        }
+        for i in 0u32..node.child_count() as u32 {
+            if let Some(c) = node.child(i) {
+                collect_strings(c, source, out, depth + 1);
+            }
+        }
+    }
+
+    fn walk(node: Node, source: &str, out: &mut Vec<String>, depth: usize) {
+        if depth > MAX_AST_DEPTH {
+            return;
+        }
+        if node.kind() == "capabilities_declaration" {
+            for i in 0u32..node.child_count() as u32 {
+                if let Some(arr) = node.child(i) {
+                    if arr.kind() == "array" {
+                        collect_strings(arr, source, out, 0);
+                    }
+                }
+            }
+            return;
+        }
+        for i in 0u32..node.child_count() as u32 {
+            if let Some(c) = node.child(i) {
+                walk(c, source, out, depth + 1);
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    walk(tree.root_node(), source, &mut out, 0);
+    out
+}
+
 /// A structured diagnostic emitted by error analysis
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DslDiagnostic {
@@ -1412,6 +1494,41 @@ mod tests {
         assert_eq!(schedules.len(), 2);
         assert_eq!(schedules[0].name, "job_a");
         assert_eq!(schedules[1].name, "job_b");
+    }
+
+    #[test]
+    fn extract_agent_name_returns_first_identifier() {
+        let src = "agent my_agent(x: String) -> Out {\n  capabilities = [\"read\"]\n}\n";
+        let tree = parse_dsl(src).unwrap();
+        assert_eq!(extract_agent_name(&tree, src), Some("my_agent".to_string()));
+    }
+
+    #[test]
+    fn extract_agent_name_none_without_agent() {
+        let src = "metadata { version = \"1.0.0\" }\n";
+        let tree = parse_dsl(src).unwrap();
+        assert_eq!(extract_agent_name(&tree, src), None);
+    }
+
+    #[test]
+    fn extract_capabilities_returns_strings_unquoted() {
+        let src = "agent a {\n  capabilities = [\"read\", \"write\", \"analyze\"]\n}\n";
+        let tree = parse_dsl(src).unwrap();
+        assert_eq!(
+            extract_capabilities(&tree, src),
+            vec![
+                "read".to_string(),
+                "write".to_string(),
+                "analyze".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn extract_capabilities_empty_when_absent() {
+        let src = "agent a {\n}\n";
+        let tree = parse_dsl(src).unwrap();
+        assert!(extract_capabilities(&tree, src).is_empty());
     }
 
     #[test]

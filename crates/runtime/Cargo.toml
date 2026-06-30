@@ -131,6 +131,11 @@ governor = { version = "0.10", optional = true }
 utoipa = { version = "4.2", features = ["axum_extras", "chrono"], optional = true }
 utoipa-swagger-ui = { version = "6.0", features = ["axum"], optional = true }
 
+# AWS Bedrock dependencies (optional)
+aws-config = { version = "1.8.18", optional = true }
+aws-sigv4 = { version = "1.4.5", optional = true }
+aws-credential-types = { version = "1.2.14", optional = true }
+
 # Metrics/telemetry dependencies (optional)
 opentelemetry = { version = "0.31", optional = true }
 opentelemetry_sdk = { version = "0.31", features = ["metrics"], optional = true }
@@ -168,6 +173,7 @@ session = ["dep:symbi-session"]  # Experimental: multiparty session-type protoco
 orga-adaptive = []  # Advanced reasoning loop primitives (tool curation, stuck-loop detection, pre-hydration, scoped conventions)
 cloud-llm = ["http-input"]  # Cloud LLM inference (Anthropic, OpenAI) — gates CloudInferenceProvider
 standalone-agent = ["cloud-llm"]  # One-liner for standalone cloud agents
+bedrock = ["http-input", "dep:aws-config", "dep:aws-sigv4", "dep:aws-credential-types"]  # AWS Bedrock LLM provider (LlmClient lives under http_input)
 enterprise = []  # Enterprise sandbox variants (gVisor, Firecracker)
 enterprise-compaction = []  # Enterprise compaction tiers (Tier 2: semantic, Tier 3: vector)
 vendored-openssl = ["openssl"]

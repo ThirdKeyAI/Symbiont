@@ -82,7 +82,8 @@ Commands:
 ### 3.1. `.symbi` agent loading
 
 `.symbi` agent files in `./agents` are now **parsed and registered** as fleet agents
-alongside TOML manifests. They are addressable with `@name` and run through the same
+alongside TOML manifests using the full Symbiont DSL grammar (the same parser that
+`symbi run` uses). They are addressable with `@name` and run through the same
 governed loop (policy gate → executor → human approval).
 
 **Capability mapping:** An agent's `security.capabilities` declare which tools it can use:
@@ -93,11 +94,11 @@ governed loop (policy gate → executor → human approval).
 - Unknown capabilities grant nothing
 - `delegate` stays orchestrator-only (never delegated to fleet agents)
 
-**Sandbox enforcement:** If a `.symbi` agent declares a sandbox tier the shell cannot
-provide (`Tier2` or higher, or `sandbox: strict` or `sandbox: moderate`), the agent
-is refused with a clear pointer to `symbi up` / `symbi run` — it is **never run
-unsandboxed**. The shell only runs agents with `sandbox: permissive` or no sandbox
-declaration.
+**Sandbox enforcement:** The shell provides no OS-level container isolation (agents
+run in the same process). Therefore, the fail-closed sandbox gate refuses **any** agent
+that declares a sandbox tier — Docker/tier1, gVisor/tier2, Firecracker/tier3, or e2b.
+Refused agents are rejected with a clear pointer to `symbi up` / `symbi run`. An agent
+with **no sandbox declaration** will load and run conversationally.
 
 **Deferred items:**
 - Real container sandboxing of in-process shell tools (the shell runs tools in the
@@ -170,7 +171,7 @@ no separate runtime needs to be attached.
 |---|------|----------|
 | 1 | Launch from repo root with a provider key | Welcome message; `agents:N`>0; policy-load notice; `→ ORCH` in footer |
 | 2 | `/agents list` | Lists `researcher` (and any other manifests) |
-| 3 | Drop a `*.symbi` file into `./agents`, `/agents reload` | Agent is parsed and registered; it **appears** in `/agents list` (or is refused with a reason if it declares `sandbox: strict` or `sandbox: moderate`) |
+| 3 | Drop a `*.symbi` file into `./agents`, `/agents reload` | Agent is parsed and registered; it **appears** in `/agents list` (or is refused with a reason if it declares any sandbox tier) |
 | 4 | Ask ORCH something that needs an agent | ORCH delegates (tool call visible) and returns a folded answer |
 | 5 | `@researcher <question>` | Direct reply rendered as that agent; ask a follow-up — it remembers context |
 | 6 | `/agent use researcher`, then plain messages, then `/agent clear` | Footer shows `→ @researcher`, plain text routes to it, then back to `→ ORCH` |

@@ -266,11 +266,11 @@ mod tests {
             "name=\"a\"\ndescription=\"d\"\nsystem_prompt=\"p\"\n",
         );
         write(dir.path(), "broken.toml", "= = =");
-        // a .symbi file is now parsed and loaded (Tier1, no strict sandbox)
+        // a .symbi file using full grammar is now parsed and loaded
         write(
             dir.path(),
             "b.symbi",
-            "agent b {\n  description: \"dsl\"\n  security {\n    tier: Tier1\n    capabilities: [\"read\"]\n  }\n}\n",
+            "metadata { description = \"d\" }\nagent b {\n  capabilities = [\"read\"]\n}\n",
         );
         let (specs, errors, _refused) = scan_dir(dir.path());
         let names: Vec<_> = specs.iter().map(|s| s.name.clone()).collect();
@@ -285,10 +285,11 @@ mod tests {
     #[test]
     fn scan_dir_refuses_high_tier_symbi() {
         let dir = tempfile::tempdir().unwrap();
+        // Full grammar: with-block sandbox tier triggers the fail-closed gate.
         write(
             dir.path(),
             "risky.symbi",
-            "agent Risky {\n  description: \"x\"\n  security {\n    tier: Tier3\n    capabilities: [\"read\"]\n  }\n}\n",
+            "agent Risky {\n  capabilities = [\"read\"]\n  with sandbox = \"Tier2\" {\n  }\n}\n",
         );
         let (specs, _errors, refused) = scan_dir(dir.path());
         assert!(specs.is_empty());
@@ -316,11 +317,11 @@ mod tests {
             "a2.toml",
             "name=\"a\"\ndescription=\"override\"\nsystem_prompt=\"p\"\n",
         );
-        // a .symbi file with Tier1 security is now loaded (not deferred)
+        // a .symbi file using full grammar is now loaded (not deferred)
         write(
             dir.path(),
             "z.symbi",
-            "agent z {\n  description: \"dsl\"\n  security {\n    tier: Tier1\n    capabilities: [\"read\"]\n  }\n}\n",
+            "metadata { description = \"d\" }\nagent z {\n  capabilities = [\"read\"]\n}\n",
         );
 
         let bridge = Arc::new(repl_core::RuntimeBridge::new_permissive_for_dev());
@@ -408,13 +409,47 @@ mod tests {
         assert!(refused.is_empty());
     }
 
+    /// Syntactically broken .symbi must return Err (covers the has_error() branch).
+    #[test]
+    fn malformed_symbi_is_parse_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = write(dir.path(), "broken.symbi", "agent { oops");
+        let result = crate::agents::symbi::parse_symbi(&p);
+        assert!(result.is_err(), "malformed .symbi must return Err");
+    }
+
+    /// Every committed agents/*.symbi must load-or-refuse — never parse-fail.
+    #[test]
+    fn real_committed_symbi_agents_all_parse() {
+        let agents_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../agents");
+        if !agents_dir.is_dir() {
+            return; // not in a full checkout; skip rather than fail
+        }
+        let mut checked = 0;
+        for entry in std::fs::read_dir(&agents_dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("symbi") {
+                checked += 1;
+                let result = crate::agents::symbi::parse_symbi(&path);
+                assert!(
+                    result.is_ok(),
+                    "real agent {:?} failed to parse: {:?}",
+                    path.file_name().unwrap(),
+                    result.err()
+                );
+            }
+        }
+        assert!(checked > 0, "expected to find committed .symbi agents");
+    }
+
     #[tokio::test]
     async fn loads_symbi_agent_into_fleet() {
         let dir = tempfile::tempdir().unwrap();
+        // Full grammar: metadata block + agent block with capabilities array.
         write(
             dir.path(),
             "reader.symbi",
-            "agent Reader {\n  description: \"reads\"\n  security {\n    tier: Tier1\n    capabilities: [\"read\"]\n  }\n}\n",
+            "metadata { description = \"reads\" }\nagent Reader {\n  capabilities = [\"read\"]\n}\n",
         );
         let bridge = Arc::new(repl_core::RuntimeBridge::new_permissive_for_dev());
         let cards = Arc::new(RwLock::new(Vec::<AgentCard>::new()));
@@ -433,10 +468,11 @@ mod tests {
             "a.toml",
             "name=\"dup\"\ndescription=\"toml\"\nsystem_prompt=\"p\"\n",
         );
+        // Full grammar: simple agent block with capabilities array.
         write(
             dir.path(),
             "a.symbi",
-            "agent dup {\n  description: \"symbi\"\n  security {\n    capabilities: [\"read\"]\n  }\n}\n",
+            "agent dup {\n  capabilities = [\"read\"]\n}\n",
         );
         let bridge = Arc::new(repl_core::RuntimeBridge::new_permissive_for_dev());
         let cards = Arc::new(RwLock::new(Vec::<AgentCard>::new()));

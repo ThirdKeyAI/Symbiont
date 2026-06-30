@@ -368,6 +368,39 @@ impl InferenceProvider for CloudInferenceProvider {
             .as_deref()
             .unwrap_or_else(|| self.client.model());
 
+        // Bedrock signs its own requests with SigV4; route through the shared
+        // LlmClient Converse path rather than the hand-built HTTP path below.
+        // Use the caller-supplied temperature and max_tokens so the reasoning
+        // loop's configured values are honoured (rather than fixed defaults).
+        #[cfg(feature = "bedrock")]
+        if matches!(self.client.provider(), LlmProvider::Bedrock) {
+            let (system_opt, messages) = conversation.to_anthropic_messages();
+            let system = system_opt.as_deref().unwrap_or("");
+            let tools: Vec<serde_json::Value> = options
+                .tool_definitions
+                .iter()
+                .map(|td| {
+                    serde_json::json!({
+                        "name": td.name,
+                        "description": td.description,
+                        "input_schema": td.parameters,
+                    })
+                })
+                .collect();
+            let resp_json = self
+                .client
+                .bedrock_converse(
+                    system,
+                    &messages,
+                    &tools,
+                    options.temperature,
+                    options.max_tokens,
+                )
+                .await
+                .map_err(|e| InferenceError::Provider(format!("Bedrock Converse error: {e}")))?;
+            return self.parse_anthropic_response(&resp_json, model);
+        }
+
         let body = if is_anthropic {
             self.build_anthropic_body(conversation, options)
         } else {
@@ -518,6 +551,8 @@ impl InferenceProvider for CloudInferenceProvider {
             LlmProvider::OpenRouter => "openrouter",
             LlmProvider::OpenAI => "openai",
             LlmProvider::Anthropic => "anthropic",
+            #[cfg(feature = "bedrock")]
+            LlmProvider::Bedrock => "bedrock",
         }
     }
 
@@ -539,6 +574,7 @@ impl InferenceProvider for CloudInferenceProvider {
 mod tests {
     use super::*;
     use crate::reasoning::conversation::{ConversationMessage, ToolCall};
+    use serial_test::serial;
 
     #[test]
     fn test_build_openai_body_basic() {
@@ -642,5 +678,28 @@ mod tests {
         assert_eq!(msgs[0]["role"], "system");
         assert_eq!(msgs[2]["tool_calls"][0]["function"]["name"], "search");
         assert_eq!(msgs[3]["tool_call_id"], "tc1");
+    }
+
+    /// Verify that a Bedrock-configured `CloudInferenceProvider` reports
+    /// `provider_name() == "bedrock"` without making any network calls.
+    #[cfg(feature = "bedrock")]
+    #[serial]
+    #[test]
+    fn test_cloud_provider_name_bedrock() {
+        use crate::http_input::llm_client::LlmClient;
+        // Temporarily set the env vars used by `LlmClient::from_env`.
+        std::env::set_var(
+            "BEDROCK_MODEL_ID",
+            "anthropic.claude-3-5-sonnet-20241022-v2:0",
+        );
+        std::env::set_var("AWS_REGION", "us-east-1");
+        for k in ["OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"] {
+            std::env::remove_var(k);
+        }
+        let provider = CloudInferenceProvider::from_env()
+            .expect("CloudInferenceProvider should resolve via BEDROCK_MODEL_ID");
+        assert_eq!(provider.provider_name(), "bedrock");
+        std::env::remove_var("BEDROCK_MODEL_ID");
+        std::env::remove_var("AWS_REGION");
     }
 }

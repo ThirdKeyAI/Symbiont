@@ -403,6 +403,30 @@ export OPENROUTER_API_KEY="sk-or-..."
 export OPENROUTER_MODEL="google/gemini-2.0-flash-001"  # optional
 ```
 
+#### AWS Bedrock Provider
+
+Use AWS Bedrock-hosted models via the Converse API:
+
+```bash
+# Enable Bedrock provider
+cargo build --features bedrock
+
+# For reasoning-loop inference, also enable cloud-llm
+cargo build --features bedrock,cloud-llm
+
+# Set Bedrock model and region
+export BEDROCK_MODEL_ID="anthropic.claude-3-5-sonnet-20241022-v2:0"
+export AWS_REGION="us-east-1"
+
+# Credentials from standard AWS chain (env, profile, or role)
+export AWS_ACCESS_KEY_ID="<your-key>"
+export AWS_SECRET_ACCESS_KEY="<your-secret>"
+```
+
+The Bedrock provider integrates with `LlmClient` and `CloudInferenceProvider` for agent reasoning. It uses the Converse API (non-streaming) with tool-use support for tool-capable models. Credentials follow the standard AWS credential chain: environment variables, shared credentials file, or IAM role.
+
+For the reasoning loop's `symbi run` / `symbi up` with Bedrock, always build with both `bedrock` and `cloud-llm` features.
+
 #### Standalone Agent Mode
 
 One-liner for cloud-native agents with LLM inference:
@@ -465,6 +489,7 @@ cd crates/runtime && cargo run --example context_example
 | `embedding-models` | Local embedding models via Candle | No |
 | `http-api` | REST API with Swagger UI | No |
 | `http-input` | Webhook server with JWT auth | No |
+| `bedrock` | AWS Bedrock LLM provider (implies `http-input`) | No |
 | `cloud-llm` | Cloud LLM inference (OpenRouter) | No |
 | `standalone-agent` | Cloud LLM meta-feature | No |
 | `cedar` | Cedar policy engine — auto-wires from `policies/*.cedar` at startup | **Yes** |

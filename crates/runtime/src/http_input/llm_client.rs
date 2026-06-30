@@ -13,6 +13,8 @@ pub enum LlmProvider {
     OpenRouter,
     OpenAI,
     Anthropic,
+    #[cfg(feature = "bedrock")]
+    Bedrock,
 }
 
 #[cfg(feature = "http-input")]
@@ -22,6 +24,8 @@ impl std::fmt::Display for LlmProvider {
             LlmProvider::OpenRouter => write!(f, "OpenRouter"),
             LlmProvider::OpenAI => write!(f, "OpenAI"),
             LlmProvider::Anthropic => write!(f, "Anthropic"),
+            #[cfg(feature = "bedrock")]
+            LlmProvider::Bedrock => write!(f, "Bedrock"),
         }
     }
 }
@@ -55,6 +59,12 @@ pub struct LlmClient {
     base_url: String,
     model: String,
     provider: LlmProvider,
+    #[cfg(feature = "bedrock")]
+    region: String,
+    // Populated by `from_env_or_secrets`; used by the SigV4 signing path in Task 4.
+    #[cfg(feature = "bedrock")]
+    #[allow(dead_code)]
+    credentials: Option<aws_credential_types::provider::SharedCredentialsProvider>,
 }
 
 #[cfg(feature = "http-input")]
@@ -120,6 +130,10 @@ impl LlmClient {
                 base_url,
                 model,
                 provider: LlmProvider::OpenRouter,
+                #[cfg(feature = "bedrock")]
+                region: String::new(),
+                #[cfg(feature = "bedrock")]
+                credentials: None,
             });
         }
 
@@ -137,6 +151,10 @@ impl LlmClient {
                 base_url,
                 model,
                 provider: LlmProvider::OpenAI,
+                #[cfg(feature = "bedrock")]
+                region: String::new(),
+                #[cfg(feature = "bedrock")]
+                credentials: None,
             });
         }
 
@@ -155,7 +173,41 @@ impl LlmClient {
                 base_url,
                 model,
                 provider: LlmProvider::Anthropic,
+                #[cfg(feature = "bedrock")]
+                region: String::new(),
+                #[cfg(feature = "bedrock")]
+                credentials: None,
             });
+        }
+
+        // Bedrock: no API key — uses AWS credential chain instead.
+        // `from_env` is sync so credentials are resolved lazily at call time
+        // (Task 4 builds the credential chain inside the async dispatch method).
+        #[cfg(feature = "bedrock")]
+        if let Ok(model) = std::env::var("BEDROCK_MODEL_ID") {
+            let region = std::env::var("AWS_REGION")
+                .or_else(|_| std::env::var("AWS_DEFAULT_REGION"))
+                .ok();
+            if let Some(region) = region {
+                tracing::info!(
+                    "LLM client initialized: provider=Bedrock model={model} region={region}"
+                );
+                return Some(Self {
+                    client,
+                    api_key: String::new(),
+                    base_url: String::new(),
+                    model,
+                    provider: LlmProvider::Bedrock,
+                    region,
+                    // `DefaultCredentialsChain::builder().build()` is async;
+                    // stored as None here and resolved at call time in Task 4.
+                    credentials: None,
+                });
+            } else {
+                tracing::warn!(
+                    "BEDROCK_MODEL_ID set but no AWS_REGION/AWS_DEFAULT_REGION — skipping Bedrock"
+                );
+            }
         }
 
         tracing::info!("No LLM API key found in environment, LLM invocation disabled");
@@ -240,6 +292,10 @@ impl LlmClient {
                 base_url,
                 model,
                 provider: LlmProvider::OpenRouter,
+                #[cfg(feature = "bedrock")]
+                region: String::new(),
+                #[cfg(feature = "bedrock")]
+                credentials: None,
             });
         }
 
@@ -273,6 +329,10 @@ impl LlmClient {
                 base_url,
                 model,
                 provider: LlmProvider::OpenAI,
+                #[cfg(feature = "bedrock")]
+                region: String::new(),
+                #[cfg(feature = "bedrock")]
+                credentials: None,
             });
         }
 
@@ -307,7 +367,45 @@ impl LlmClient {
                 base_url,
                 model,
                 provider: LlmProvider::Anthropic,
+                #[cfg(feature = "bedrock")]
+                region: String::new(),
+                #[cfg(feature = "bedrock")]
+                credentials: None,
             });
+        }
+
+        // Bedrock: uses AWS credential chain, not a secret-store API key.
+        // `from_env_or_secrets` is async so we can build the credentials chain here.
+        #[cfg(feature = "bedrock")]
+        if let Ok(model) = std::env::var("BEDROCK_MODEL_ID") {
+            let region = std::env::var("AWS_REGION")
+                .or_else(|_| std::env::var("AWS_DEFAULT_REGION"))
+                .ok();
+            if let Some(region) = region {
+                let provider =
+                    aws_config::default_provider::credentials::DefaultCredentialsChain::builder()
+                        .region(aws_config::Region::new(region.clone()))
+                        .build()
+                        .await;
+                let credentials =
+                    Some(aws_credential_types::provider::SharedCredentialsProvider::new(provider));
+                tracing::info!(
+                    "LLM client initialized: provider=Bedrock model={model} region={region}"
+                );
+                return Some(Self {
+                    client,
+                    api_key: String::new(),
+                    base_url: String::new(),
+                    model,
+                    provider: LlmProvider::Bedrock,
+                    region,
+                    credentials,
+                });
+            } else {
+                tracing::warn!(
+                    "BEDROCK_MODEL_ID set but no AWS_REGION/AWS_DEFAULT_REGION — skipping Bedrock"
+                );
+            }
         }
 
         tracing::info!(
@@ -324,6 +422,14 @@ impl LlmClient {
     /// Get the provider
     pub fn provider(&self) -> &LlmProvider {
         &self.provider
+    }
+
+    /// Get the AWS region (only populated for the Bedrock provider).
+    // Used in `from_env_selects_bedrock_when_model_id_set` test and Task 4 signing.
+    #[cfg(feature = "bedrock")]
+    #[allow(dead_code)]
+    pub(crate) fn region(&self) -> &str {
+        &self.region
     }
 
     /// Get the configured API base URL.
@@ -352,6 +458,21 @@ impl LlmClient {
     /// Send a chat completion request with system and user messages.
     pub async fn chat_completion(&self, system: &str, user: &str) -> Result<String, RuntimeError> {
         match self.provider {
+            #[cfg(feature = "bedrock")]
+            LlmProvider::Bedrock => {
+                let messages = vec![serde_json::json!({"role": "user", "content": user})];
+                let resp = self
+                    .bedrock_converse_with_tools(system, &messages, &[])
+                    .await?;
+                Ok(resp["content"]
+                    .as_array()
+                    .and_then(|b| {
+                        b.iter()
+                            .find_map(|x| x.get("text").and_then(|t| t.as_str()))
+                    })
+                    .unwrap_or("")
+                    .to_string())
+            }
             LlmProvider::Anthropic => self.anthropic_completion(system, user).await,
             _ => self.openai_completion(system, user).await,
         }
@@ -371,6 +492,11 @@ impl LlmClient {
         tools: &[serde_json::Value],
     ) -> Result<serde_json::Value, RuntimeError> {
         match self.provider {
+            #[cfg(feature = "bedrock")]
+            LlmProvider::Bedrock => {
+                self.bedrock_converse_with_tools(system, messages, tools)
+                    .await
+            }
             LlmProvider::Anthropic => {
                 self.anthropic_completion_with_tools(system, messages, tools)
                     .await
@@ -380,6 +506,60 @@ impl LlmClient {
                     .await
             }
         }
+    }
+
+    /// SigV4-signed Bedrock Converse call with explicit generation parameters.
+    ///
+    /// `from_env` is sync and stores `credentials: None`, so when the provider
+    /// was not pre-resolved we build the default AWS credentials chain on demand
+    /// here rather than erroring out.
+    #[cfg(feature = "bedrock")]
+    pub(crate) async fn bedrock_converse(
+        &self,
+        system: &str,
+        messages: &[serde_json::Value],
+        tools: &[serde_json::Value],
+        temperature: f32,
+        max_tokens: u32,
+    ) -> Result<serde_json::Value, RuntimeError> {
+        use aws_credential_types::provider::SharedCredentialsProvider;
+
+        let creds: SharedCredentialsProvider = match &self.credentials {
+            Some(c) => c.clone(),
+            None => {
+                let chain =
+                    aws_config::default_provider::credentials::DefaultCredentialsChain::builder()
+                        .region(aws_config::Region::new(self.region.clone()))
+                        .build()
+                        .await;
+                SharedCredentialsProvider::new(chain)
+            }
+        };
+
+        let body = crate::http_input::bedrock::build_converse_request(
+            system,
+            messages,
+            tools,
+            temperature,
+            max_tokens,
+        );
+        crate::http_input::bedrock::converse(&self.client, &self.region, &self.model, &creds, &body)
+            .await
+    }
+
+    /// SigV4-signed Bedrock Converse call using default generation parameters.
+    ///
+    /// Delegates to [`bedrock_converse`] with the fixed defaults used by the
+    /// http_input / `chat_with_tools` path (temperature=0.3, max_tokens=4096).
+    #[cfg(feature = "bedrock")]
+    async fn bedrock_converse_with_tools(
+        &self,
+        system: &str,
+        messages: &[serde_json::Value],
+        tools: &[serde_json::Value],
+    ) -> Result<serde_json::Value, RuntimeError> {
+        self.bedrock_converse(system, messages, tools, 0.3, 4096)
+            .await
     }
 
     /// Convert Anthropic-format tool definitions to OpenAI function-calling format.
@@ -746,6 +926,7 @@ impl LlmClient {
 #[cfg(all(test, feature = "http-input"))]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[test]
     fn test_provider_display() {
@@ -754,15 +935,38 @@ mod tests {
         assert_eq!(format!("{}", LlmProvider::Anthropic), "Anthropic");
     }
 
+    #[serial]
     #[test]
     fn test_from_env_no_keys() {
         // Remove any existing keys for the test
         std::env::remove_var("OPENROUTER_API_KEY");
         std::env::remove_var("OPENAI_API_KEY");
         std::env::remove_var("ANTHROPIC_API_KEY");
+        #[cfg(feature = "bedrock")]
+        std::env::remove_var("BEDROCK_MODEL_ID");
 
         let client = LlmClient::from_env();
         assert!(client.is_none());
+    }
+
+    #[cfg(feature = "bedrock")]
+    #[serial]
+    #[test]
+    fn from_env_selects_bedrock_when_model_id_set() {
+        std::env::set_var(
+            "BEDROCK_MODEL_ID",
+            "anthropic.claude-3-5-sonnet-20241022-v2:0",
+        );
+        std::env::set_var("AWS_REGION", "us-east-1");
+        // Ensure higher-priority providers don't preempt:
+        for k in ["OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"] {
+            std::env::remove_var(k);
+        }
+        let client = LlmClient::from_env().expect("bedrock client");
+        assert!(matches!(client.provider(), LlmProvider::Bedrock));
+        assert_eq!(client.region(), "us-east-1");
+        std::env::remove_var("BEDROCK_MODEL_ID");
+        std::env::remove_var("AWS_REGION");
     }
 
     #[test]
