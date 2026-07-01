@@ -1,3 +1,5 @@
+// See the Symbiont DSL guide: https://docs.symbiont.dev/dsl-guide
+
 metadata {
     version = "1.4.0"
     author = "Symbiont Community"

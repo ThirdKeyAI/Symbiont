@@ -1,4 +1,5 @@
 //! RAG (Retrieval-Augmented Generation) Example
+//! Docs: https://docs.symbiont.dev/api-reference
 //!
 //! Demonstrates basic RAG implementation including:
 //! - RAG engine initialization

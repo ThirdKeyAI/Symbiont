@@ -1,4 +1,5 @@
 //! CommunicationPolicyGate Example
+//! Docs: https://docs.symbiont.dev/api-reference
 //!
 //! Demonstrates how to configure and evaluate inter-agent communication policies.
 //! The policy gate controls which agents can communicate, using priority-based

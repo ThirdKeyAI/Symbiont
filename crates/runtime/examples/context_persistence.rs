@@ -1,4 +1,5 @@
 //! Test example for Agent Context Manager with file-based persistence
+//! Docs: https://docs.symbiont.dev/api-reference
 //!
 //! This example demonstrates:
 //! - Creating an agent context with memory and knowledge

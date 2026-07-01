@@ -1,4 +1,5 @@
 //! Full System Example
+//! Docs: https://docs.symbiont.dev/api-reference
 //!
 //! Demonstrates a complete agent runtime system with all components.
 

@@ -1,4 +1,5 @@
 //! Context Management Example
+//! Docs: https://docs.symbiont.dev/api-reference
 //!
 //! Demonstrates basic usage of the context management system including:
 //! - StandardContextManager initialization

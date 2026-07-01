@@ -1,4 +1,5 @@
 //! Basic Agent Example
+//! Docs: https://docs.symbiont.dev/api-reference
 //!
 //! Demonstrates creating, configuring, and managing a simple agent.
 
