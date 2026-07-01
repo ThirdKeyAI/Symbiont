@@ -1,6 +1,6 @@
 # Symbiont Example Agents
 
-This directory contains ten reusable agent examples that demonstrate core Symbiont capabilities and common use cases. These agents serve as both learning resources and production-ready templates for building your own intelligent automation workflows.
+This directory contains fifteen reusable agent examples that demonstrate core Symbiont capabilities and common use cases. These agents serve as both learning resources and production-ready templates for building your own intelligent automation workflows.
 
 ## 📋 Overview
 
@@ -83,11 +83,10 @@ cp examples/agents/* ./agents/
 
 ```bash
 # Parse and validate an agent definition
-cargo run -- dsl parse agents/nlp_processor.symbi
+symbi dsl -f agents/nlp_processor.symbi
 
-# Run an agent in the runtime
-cd crates/runtime
-cargo run --example basic_agent -- --agent ../../agents/nlp_processor.symbi
+# Run an agent (needs an LLM key: OPENROUTER_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY)
+symbi run agents/nlp_processor.symbi -i '{"text": "Analyze this feedback."}'
 ```
 
 ---

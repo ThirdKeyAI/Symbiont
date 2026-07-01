@@ -2,7 +2,7 @@
 
 [中文简体](README.zh-cn.md) | [Español](README.es.md) | [Português](README.pt.md) | [日本語](README.ja.md) | [Deutsch](README.de.md)
 
-[![Build](https://img.shields.io/github/actions/workflow/status/thirdkeyai/symbiont/docker-build.yml?branch=main)](https://github.com/thirdkeyai/symbiont/actions)
+[![Build](https://img.shields.io/github/actions/workflow/status/thirdkeyai/symbiont/test.yml?branch=main)](https://github.com/thirdkeyai/symbiont/actions)
 [![Crates.io](https://img.shields.io/crates/v/symbi)](https://crates.io/crates/symbi)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-online-brightgreen)](https://docs.symbiont.dev)
@@ -147,6 +147,16 @@ cargo build --release
 
 > For production deployments, review `SECURITY.md` and the [deployment guide](https://docs.symbiont.dev/getting-started) before enabling untrusted tool execution.
 
+### Start from a template
+
+Prefer a task-shaped starting point over a blank project? `symbi new` scaffolds
+around a template:
+
+```bash
+symbi new --list                     # webhook-min, webscraper-agent, slm-first, rag-lite
+symbi new <template> <project-name>
+```
+
 ### Agent fleet (symbi-shell)
 
 `symbi shell` auto-loads agents from `./agents` on startup — TOML manifests with
@@ -201,16 +211,31 @@ No code change required. The policy governs execution.
 ## DSL example
 
 ```symbiont
-agent secure_analyst(input: DataSet) -> Result {
-    policy access_control {
-        allow: read(input) if input.verified == true
-        deny: send_email without approval
-        audit: all_operations
+metadata {
+    version = "1.0.0"
+    description = "Validate a dataset and return a quality report"
+}
+
+agent data_validator(data: DataSet) -> ValidationReport {
+    capabilities = ["data_validation", "schema_checking"]
+
+    policy data_quality {
+        allow: ["read_data", "validate_schema"]
+            if data.source.trusted == true
+        deny: ["write_data", "network_access"]
+
+        require: {
+            input_sanitization: true
+        }
+
+        audit: {
+            log_level: "info",
+            include_statistics: true
+        }
     }
 
-    with memory = "persistent", requires = "approval" {
-        result = analyze(input);
-        return result;
+    with memory = "ephemeral", privacy = "high", sandbox = "Tier1" {
+        return validate(data);
     }
 }
 ```

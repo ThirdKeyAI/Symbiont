@@ -50,6 +50,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   examples explicitly (`context_persistence_test` renamed to
   `context_persistence`). CI now lints feature-gated code at `--all-features`
   with `-D warnings`, tests the major features, and verifies the 1.86 MSRV.
+- **Documentation accuracy pass.** Corrected the feature-flag reference table
+  (`cron` is default-on; `cloud-llm` covers OpenRouter/OpenAI/Anthropic; added
+  `session`/`toolclad-session`/`minimal` rows), replaced the README DSL example
+  with valid real-grammar syntax, fixed the `agents/` example count and its
+  stale `dsl parse` / `basic_agent` commands, pointed the README build badge at
+  the test workflow, refreshed the `docs/contributing.md` crate layout, and
+  standardized the install-script URL. The `SYMBIONT_MASTER_KEY`-not-set warning
+  now shows how to generate a key, and `symbi agents-md` no longer refers to the
+  legacy `.dsl` extension.
 
 ### Fixed
 - **`.symbi` agents now load with the real DSL grammar.** symbi-shell parses

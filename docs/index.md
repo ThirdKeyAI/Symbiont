@@ -101,7 +101,7 @@ symbi init        # Interactive project setup — writes symbiont.toml, agents/,
                   # policies/, docker-compose.yml, and a .env with a generated
                   # SYMBIONT_MASTER_KEY. Pass --dir <PATH> to target a specific
                   # directory (required when running inside a container).
-symbi run agent   # Run a single agent without starting the full runtime
+symbi run <agent> # Run a single agent without starting the full runtime
 symbi up          # Start the full runtime with auto-configuration
 symbi shell       # Interactive agent orchestration shell (Beta) — see below
 ```

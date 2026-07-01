@@ -109,22 +109,24 @@ just check
 
 ```
 symbiont/
-├── dsl/                    # DSL parser and grammar
-│   ├── src/
-│   ├── tests/
-│   └── tree-sitter-symbiont/
-├── runtime/                # Core runtime system
-│   ├── src/
-│   │   ├── api/           # HTTP API (optional)
-│   │   ├── context/       # Context management
-│   │   ├── integrations/  # External integrations
-│   │   ├── rag/           # RAG engine
-│   │   ├── scheduler/     # Task scheduling
-│   │   └── types/         # Core type definitions
-│   ├── examples/          # Usage examples
-│   ├── tests/             # Integration tests
-│   └── docs/              # Technical documentation
-└── docs/                  # Community documentation
+├── src/                    # `symbi` CLI binary (init, new, run, up, dsl, shell, mcp)
+├── crates/
+│   ├── dsl/                # `symbi-dsl` — tree-sitter grammar and parser
+│   ├── runtime/            # `symbi-runtime` — runtime, policy engine, HTTP APIs, LLM clients
+│   │   ├── src/
+│   │   │   ├── context/    # Context management
+│   │   │   ├── integrations/ # External integrations
+│   │   │   ├── rag/        # RAG engine
+│   │   │   └── ...
+│   │   ├── examples/       # Usage examples
+│   │   └── tests/          # Integration tests
+│   ├── symbi-shell/        # Interactive agent-fleet shell
+│   ├── repl-core/          # Shared REPL/orchestration primitives
+│   └── ...                 # symbi-session, channel-adapter, invis-strip, ...
+├── agents/                 # Example `.symbi` agents
+├── policies/               # Cedar policies
+├── tools/fuzz/             # Fuzz targets
+└── docs/                   # Community documentation
 ```
 
 ### Commit Guidelines
@@ -514,7 +516,7 @@ We are committed to providing a welcoming and inclusive environment for all cont
 
 We recognize and appreciate all forms of contribution:
 
-- **Code Contributors**: Listed in CONTRIBUTORS.md
+- **Code Contributors**: Recognized in the GitHub contributor graph and release notes
 - **Documentation Contributors**: Credited in documentation
 - **Bug Reporters**: Mentioned in release notes
 - **Security Researchers**: Credited in security advisories

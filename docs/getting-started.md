@@ -49,7 +49,7 @@ brew install symbi
 
 **macOS / Linux (install script):**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/thirdkeyai/symbiont/main/scripts/install.sh | bash
+curl -fsSL https://symbiont.dev/install.sh | bash
 ```
 
 **Manual download:**
@@ -102,27 +102,34 @@ cargo test
 
 ### Verify Installation
 
-Test that everything is working correctly:
+Test that everything is working correctly.
+
+**Installed binary or Docker:**
 
 ```bash
-# Test the DSL parser
-cd crates/dsl && cargo run && cargo test
+symbi --version
+symbi dsl --help
+symbi mcp --help
 
-# Test the runtime system
-cd ../runtime && cargo test
+# ...or via the published Docker image
+docker run --rm ghcr.io/thirdkeyai/symbi:latest --version
+docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest dsl --help
+```
+
+**From a source clone:**
+
+```bash
+# Test the DSL parser and the runtime
+cargo test -p symbi-dsl
+cargo test -p symbi-runtime
 
 # Run example agents
-cargo run --example basic_agent
-cargo run --example full_system
+cargo run -p symbi-runtime --example basic_agent
+cargo run -p symbi-runtime --example full_system
 
-# Test the unified symbi CLI
-cd ../.. && cargo run -- dsl --help
+# Exercise the unified symbi CLI
+cargo run -- dsl --help
 cargo run -- mcp --help
-
-# Test with Docker container
-docker run --rm symbi:latest --version
-docker run --rm -v $(pwd):/workspace symbi:latest dsl --help
-docker run --rm symbi:latest mcp --help
 ```
 
 ---
@@ -497,15 +504,18 @@ cd crates/runtime && cargo run --example context_example
 | `http-api` | REST API with Swagger UI | No |
 | `http-input` | Webhook server with JWT auth | No |
 | `bedrock` | AWS Bedrock LLM provider (implies `http-input`) | No |
-| `cloud-llm` | Cloud LLM inference (OpenRouter) | No |
+| `cloud-llm` | Cloud LLM inference (OpenRouter / OpenAI / Anthropic) | No |
 | `standalone-agent` | Cloud LLM meta-feature | No |
 | `cedar` | Cedar policy engine — auto-wires from `policies/*.cedar` at startup | **Yes** |
 | `orga-adaptive` | Advanced reasoning primitives | No |
-| `cron` | Persistent cron scheduling | No |
-| `cli-executor` | Governed AI CLI subprocesses (Claude Code etc.) — Mode B | **Yes** |
+| `cron` | Persistent cron scheduling | **Yes** |
+| `cli-executor` | Governed AI CLI subprocesses — Mode B | **Yes** |
 | `native-sandbox` | Native process sandboxing | No |
 | `metrics` | OpenTelemetry metrics/tracing | No |
+| `session` | Experimental multiparty session-type protocol monitor | No |
+| `toolclad-session` | Persistent ToolClad tool sessions (PTY-backed) | No |
 | `interactive` | Interactive prompts for `symbi init` (dialoguer) | Default |
+| `minimal` | Minimal build for faster CI (no optional backends) | No |
 | `full` | All optional runtime, vector, and policy features | No |
 
 ```bash

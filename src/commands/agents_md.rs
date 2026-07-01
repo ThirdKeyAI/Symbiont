@@ -96,7 +96,7 @@ fn generate(dir: &str, output_path: &str) {
     }
 
     if agents.is_empty() {
-        eprintln!("No .dsl files found in {}", agents_dir.display());
+        eprintln!("No .symbi files found in {}", agents_dir.display());
         std::process::exit(1);
     }
 
@@ -324,7 +324,7 @@ fn build_generated_section(agents: &[AgentInfo]) -> String {
     out.push_str("  -H 'Authorization: Bearer $TOKEN' \\\n");
     out.push_str("  -d '{\"input\": \"your prompt\"}'\n\n");
     out.push_str("# DSL parse\n");
-    out.push_str("symbi dsl -f agents/<name>.dsl\n");
+    out.push_str("symbi dsl -f agents/<name>.symbi\n");
     out.push_str("```\n");
 
     out.push_str(AUTO_END);

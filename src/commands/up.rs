@@ -163,7 +163,9 @@ pub async fn run(matches: &ArgMatches) {
     );
     if std::env::var("SYMBIONT_MASTER_KEY").is_err() {
         eprintln!(
-            "⚠  SYMBIONT_MASTER_KEY not set — crypto operations will fail. Set it or use dev mode."
+            "⚠  SYMBIONT_MASTER_KEY not set — crypto operations will fail.\n\
+             \x20  Generate one:  export SYMBIONT_MASTER_KEY=$(openssl rand -hex 32)\n\
+             \x20  Or run `symbi init`, which writes a key to .env for you."
         );
     }
 
