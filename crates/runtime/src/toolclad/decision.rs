@@ -172,6 +172,26 @@ pub fn route_grounded(category: &str, severity: &str, ticket: &str) -> Queue {
     route(Category::parse(category), effective)
 }
 
+/// Severity from an UNTRUSTED ticket (A-02 indirect injection): the ticket is
+/// attacker-controlled ingested content, so its text must NOT be able to forge a
+/// `Critical` and reach `exec_escalation`. Caps at `High` — escalation to exec
+/// requires a trusted critical signal the attacker cannot plant in ticket text.
+/// (Benign A-07 tickets never trip the critical pattern, so this leaves the
+/// trusted-ticket 0% property unchanged; it only closes the A-02b keyword-cap
+/// bypass.)
+pub fn ticket_severity_untrusted(ticket: &str) -> Severity {
+    ticket_severity(ticket).min(Severity::High)
+}
+
+/// `route_grounded` for the case where the ticket is attacker-controlled
+/// (ingested content). Same cap-by-evidence logic, but the evidence cap is
+/// itself capped at `High` so untrusted text cannot reach exec_escalation.
+pub fn route_grounded_untrusted(category: &str, severity: &str, ticket: &str) -> Queue {
+    let claimed = Severity::parse(severity);
+    let cap = ticket_severity_untrusted(ticket);
+    route(Category::parse(category), claimed.min(cap))
+}
+
 /// Build the trusted Cedar context attributes for a triage decision. The
 /// severity here is derived from the trusted ticket — NOT the worker's
 /// self-report — so Cedar grounds on evidence.
@@ -280,6 +300,29 @@ mod tests {
         assert_eq!(
             route_grounded("infra", "critical", OUTAGE),
             Queue::ExecEscalation
+        );
+    }
+
+    #[test]
+    fn test_untrusted_router_caps_attacker_forged_critical() {
+        // A-02b: when the ticket is attacker-controlled ingested content, its text
+        // must not be able to forge Critical and reach exec_escalation.
+        // The trusted path escalates on a genuine critical ticket...
+        assert_eq!(
+            route_grounded("infra", "critical", OUTAGE),
+            Queue::ExecEscalation
+        );
+        // ...but the untrusted path caps at High, so the same text routes by
+        // category instead of escalating.
+        assert_eq!(ticket_severity_untrusted(OUTAGE), Severity::High);
+        assert_eq!(
+            route_grounded_untrusted("infra", "critical", OUTAGE),
+            Queue::Infra
+        );
+        // A benign untrusted ticket still routes benignly (0% property preserved).
+        assert_eq!(
+            route_grounded_untrusted("ui", "critical", BENIGN),
+            Queue::Frontend
         );
     }
 

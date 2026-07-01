@@ -258,6 +258,11 @@ pub struct KeyStoreConfig {
     pub create_if_missing: bool,
     /// File permissions for the store file (Unix only)
     pub file_permissions: Option<u32>,
+    /// Closed-world (provisioned-only) mode. When `true`, `pin_key` rejects
+    /// first-use of an un-provisioned identifier instead of trust-on-first-use —
+    /// closing the A-10 first-use-poisoning window. Operators enable this after
+    /// pre-provisioning the trust bundle. Default `false` preserves TOFU.
+    pub closed_world: bool,
 }
 
 impl Default for KeyStoreConfig {
@@ -270,6 +275,7 @@ impl Default for KeyStoreConfig {
             store_path,
             create_if_missing: true,
             file_permissions: Some(0o600), // Read/write for owner only
+            closed_world: false,
         }
     }
 }

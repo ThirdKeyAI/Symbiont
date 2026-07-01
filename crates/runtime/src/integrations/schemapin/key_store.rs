@@ -61,12 +61,37 @@ impl LocalKeyStore {
             return Ok(());
         }
 
+        // Closed-world (provisioned-only) mode: an un-provisioned identifier is
+        // NOT trusted on first use — closes A-10 first-use poisoning. The one
+        // prod caller (MCP first-contact pin) enforces this automatically when
+        // the operator sets `closed_world` after provisioning the trust bundle.
+        if self.config.closed_world {
+            return Err(KeyStoreError::KeyNotFound {
+                identifier: key.identifier,
+            });
+        }
+
         // Pin the new key
         keys.insert(key.identifier.clone(), key);
         drop(keys); // Release lock before file I/O
 
         // Persist to file
         self.save_to_file()
+    }
+
+    /// Strict (closed-world) pin: re-affirm an ALREADY-provisioned key, never
+    /// trust-on-first-use. Closes A-10 first-use poisoning — an attacker who
+    /// reaches an un-provisioned identifier first is rejected (`KeyNotFound`)
+    /// instead of silently pinned. Provision genuine keys out-of-band via
+    /// `pin_key` at setup, then verify with this in operation; a mismatched key
+    /// for a provisioned identifier still trips `KeyMismatch` (swap-after-pin).
+    pub fn pin_key_strict(&self, key: PinnedKey) -> Result<(), KeyStoreError> {
+        if !self.has_key(&key.identifier)? {
+            return Err(KeyStoreError::KeyNotFound {
+                identifier: key.identifier,
+            });
+        }
+        self.pin_key(key)
     }
 
     /// Retrieve a pinned key by identifier
@@ -277,6 +302,7 @@ mod tests {
             store_path,
             create_if_missing: true,
             file_permissions: Some(0o600),
+            closed_world: false,
         };
 
         let store = LocalKeyStore::with_config(config).unwrap();
@@ -340,6 +366,71 @@ mod tests {
         assert!(!store.has_key("example.com").unwrap());
         store.pin_key(key).unwrap();
         assert!(store.has_key("example.com").unwrap());
+    }
+
+    fn key_store_config(store_path: std::path::PathBuf, closed_world: bool) -> KeyStoreConfig {
+        KeyStoreConfig {
+            store_path,
+            create_if_missing: true,
+            file_permissions: Some(0o600),
+            closed_world,
+        }
+    }
+
+    #[test]
+    fn test_closed_world_rejects_first_use() {
+        // A-10: in closed-world mode an un-provisioned identifier is not trusted
+        // on first use — pin_key rejects it instead of silently TOFU-pinning.
+        let temp_dir = TempDir::new().unwrap();
+        let config = key_store_config(temp_dir.path().join("keys.json"), true);
+        let store = LocalKeyStore::with_config(config).unwrap();
+
+        let result = store.pin_key(create_test_key("attacker.example"));
+        assert!(matches!(result, Err(KeyStoreError::KeyNotFound { .. })));
+        assert!(!store.has_key("attacker.example").unwrap());
+    }
+
+    #[test]
+    fn test_closed_world_reaffirms_provisioned_key() {
+        // A genuine key provisioned out-of-band is loaded by a closed-world
+        // store, which then re-affirms the same key (matching-key early return).
+        let temp_dir = TempDir::new().unwrap();
+        let store_path = temp_dir.path().join("keys.json");
+        let key = create_test_key("example.com");
+
+        // Provision in open mode.
+        let store =
+            LocalKeyStore::with_config(key_store_config(store_path.clone(), false)).unwrap();
+        store.pin_key(key.clone()).unwrap();
+
+        // Reload in closed-world mode; re-affirming the provisioned key succeeds.
+        let closed = LocalKeyStore::with_config(key_store_config(store_path, true)).unwrap();
+        closed.pin_key(key).unwrap();
+    }
+
+    #[test]
+    fn test_pin_key_strict_rejects_unprovisioned() {
+        // pin_key_strict never trusts on first use, independent of closed_world.
+        let (store, _temp_dir) = create_test_key_store();
+        let result = store.pin_key_strict(create_test_key("example.com"));
+        assert!(matches!(result, Err(KeyStoreError::KeyNotFound { .. })));
+        assert!(!store.has_key("example.com").unwrap());
+    }
+
+    #[test]
+    fn test_pin_key_strict_reaffirms_and_detects_swap() {
+        let (store, _temp_dir) = create_test_key_store();
+        let key = create_test_key("example.com");
+        store.pin_key(key.clone()).unwrap(); // provision out-of-band
+
+        // Re-affirming the same provisioned key succeeds.
+        store.pin_key_strict(key).unwrap();
+
+        // A swapped key for the provisioned identifier is rejected (swap-after-pin).
+        let mut swapped = create_test_key("example.com");
+        swapped.public_key = "swapped_public_key".to_string();
+        let result = store.pin_key_strict(swapped);
+        assert!(matches!(result, Err(KeyStoreError::KeyMismatch { .. })));
     }
 
     #[test]
@@ -418,6 +509,7 @@ mod tests {
             store_path: store_path.clone(),
             create_if_missing: true,
             file_permissions: Some(0o600),
+            closed_world: false,
         };
 
         // Create store and add a key

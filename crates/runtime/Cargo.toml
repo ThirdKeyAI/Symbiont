@@ -39,6 +39,22 @@ path = "examples/basic_agent.rs"
 name = "full_system"
 path = "examples/full_system.rs"
 
+[[example]]
+name = "context_example"
+path = "examples/context_example.rs"
+
+[[example]]
+name = "rag_example"
+path = "examples/rag_example.rs"
+
+[[example]]
+name = "context_persistence"
+path = "examples/context_persistence.rs"
+
+[[example]]
+name = "communication_policy_gate"
+path = "examples/communication_policy_gate.rs"
+
 [[bin]]
 name = "symbi-mcp"
 path = "src/bin/symbiont_mcp.rs"

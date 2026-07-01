@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **Residual trust-boundary hardening.** Closes three audit residuals with
+  opt-in, default-off primitives (existing behavior unchanged): a `closed_world`
+  flag on `KeyStoreConfig` (and `LocalKeyStore::pin_key_strict`) that rejects
+  trust-on-first-use of un-provisioned identifiers (A-10 first-use poisoning);
+  `route_grounded_untrusted` / `ticket_severity_untrusted`, which cap
+  attacker-controlled ticket text at `High` so it cannot forge a `Critical` and
+  reach exec escalation (A-02b); and `verify_chain_anchored`, which verifies a
+  critic-audit chain against an external length + head-hash anchor to detect
+  tail-truncation (D-05).
+
 ### Added
 - **AWS Bedrock provider (off-by-default `bedrock` feature).** `LlmClient` /
   `CloudInferenceProvider` can target Bedrock-hosted models via the Converse API,
@@ -29,6 +40,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--allow-shell`. Agents with no tools remain conversational (and keep the
   no-fabrication guard). A one-time hint appears when tools are denied solely
   because `policies/orchestrator.cedar` is missing.
+
+### Changed
+- **Developer-onboarding docs and contributor tooling.** Fixed the "Your First
+  Agent" tutorial (`symbi dsl -f` / `symbi run` instead of the nonexistent `dsl
+  parse` subcommand and the arg-ignoring `basic_agent` example), documented
+  `cargo install symbi` and the required LLM API key, added a root
+  `CONTRIBUTING.md` plus GitHub issue/PR templates, and registered all runtime
+  examples explicitly (`context_persistence_test` renamed to
+  `context_persistence`). CI now lints feature-gated code at `--all-features`
+  with `-D warnings`, tests the major features, and verifies the 1.86 MSRV.
 
 ### Fixed
 - **`.symbi` agents now load with the real DSL grammar.** symbi-shell parses

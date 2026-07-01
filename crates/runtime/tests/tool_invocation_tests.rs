@@ -330,6 +330,7 @@ async fn test_secure_mcp_client_with_enforcer() {
         store_path,
         create_if_missing: true,
         file_permissions: Some(0o600),
+        closed_world: false,
     })
     .unwrap();
     key_store

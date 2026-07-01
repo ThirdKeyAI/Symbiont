@@ -121,7 +121,7 @@ cargo run -- mcp --help
 
 # Test with Docker container
 docker run --rm symbi:latest --version
-docker run --rm -v $(pwd):/workspace symbi:latest dsl parse --help
+docker run --rm -v $(pwd):/workspace symbi:latest dsl --help
 docker run --rm symbi:latest mcp --help
 ```
 
@@ -285,12 +285,19 @@ agent greet_user(name: String) -> String {
 
 ### 2. Run the Agent
 
-```bash
-# Parse and validate the agent definition
-cargo run -- dsl parse my_agent.symbi
+First, validate the agent definition:
 
-# Run the agent in the runtime
-cd crates/runtime && cargo run --example basic_agent -- --agent ../../my_agent.symbi
+```bash
+symbi dsl -f my_agent.symbi
+```
+
+Then run it. `symbi run` executes the agent through the ORGA reasoning loop,
+which needs a cloud LLM key — export one of `OPENROUTER_API_KEY`,
+`OPENAI_API_KEY`, or `ANTHROPIC_API_KEY` first:
+
+```bash
+export OPENROUTER_API_KEY=sk-...            # or OPENAI_API_KEY / ANTHROPIC_API_KEY
+symbi run my_agent.symbi -i '{"name": "World"}'
 ```
 
 ---
@@ -736,10 +743,10 @@ brew install pkg-config openssl
 **Problem**: Agent fails to start
 ```bash
 # Check agent definition syntax
-cargo run -- dsl parse your_agent.symbi
+symbi dsl -f your_agent.symbi
 
 # Enable debug logging
-RUST_LOG=debug cd crates/runtime && cargo run --example basic_agent
+RUST_LOG=debug symbi run your_agent.symbi -i '{}'
 ```
 
 ---

@@ -47,6 +47,7 @@ fn create_test_key_store() -> (LocalKeyStore, TempDir) {
         store_path,
         create_if_missing: true,
         file_permissions: Some(0o600),
+        closed_world: false,
     };
 
     let store = LocalKeyStore::with_config(config).unwrap();

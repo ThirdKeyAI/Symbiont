@@ -43,13 +43,43 @@ jobs:
         run: cargo check -p symbi-runtime --no-default-features
       - name: Test without vector backends
         run: cargo test -p symbi-runtime --no-default-features --features keychain
-      - name: Test with all features
-        run: cargo check -p symbi-runtime --all-features
+      # Lint ALL feature-gated code with -D warnings (compile-only; mirrors the
+      # `just clippy` all-features gate so feature code can't merge with warnings
+      # the default-features clippy above never sees).
+      - name: Clippy with all features
+        run: cargo clippy -p symbi-runtime --all-features -- -D warnings
+      # Test the commonly-enabled features adopters actually build with. Excludes
+      # embedding-models / vector backends, whose tests pull large model/data
+      # downloads unsuitable for CI — those stay covered by the clippy step above.
+      - name: Test major features
+        run: cargo test -p symbi-runtime --features http-api,cloud-llm,cedar,metrics,cron
       # Experimental session feature (off by default) — verify the opt-in build.
       - name: Check session feature (runtime)
         run: cargo check -p symbi-runtime --no-default-features --features keychain,session
       - name: Test session feature (repl-core)
         run: cargo test -p repl-core --features session
+
+  msrv:
+    # Verify the declared MSRV (workspace.package.rust-version) actually builds.
+    # CI's main job uses `stable`, which silently tolerates newer-than-MSRV APIs;
+    # this job pins the floor so an accidental bump can't merge green.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          df -h /
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+      - name: Install protoc
+        run: sudo apt-get install -y protobuf-compiler
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # pinned action, explicit MSRV toolchain
+        with:
+          toolchain: "1.86"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - run: cargo check --workspace
 
   fuzz:
     runs-on: ubuntu-latest

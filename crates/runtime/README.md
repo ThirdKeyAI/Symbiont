@@ -708,7 +708,7 @@ cargo run --example rag_example
 ### Persistence Testing
 
 ```bash
-cargo run --example context_persistence_test
+cargo run --example context_persistence
 ```
 
 ### Full System Example

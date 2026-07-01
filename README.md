@@ -93,6 +93,13 @@ symbi --help
 
 The installer fetches the prebuilt release binary for your platform. Pin a version with `bash -s -- --version v1.16.0` or change the target with `--dir`. Prefer Docker or [building from source](#build-from-source)? Both are below.
 
+Already have a Rust toolchain (1.86+)? Install from crates.io instead:
+
+```bash
+cargo install symbi
+symbi --help
+```
+
 ### Prerequisites
 
 * Docker (recommended) or Rust 1.86+

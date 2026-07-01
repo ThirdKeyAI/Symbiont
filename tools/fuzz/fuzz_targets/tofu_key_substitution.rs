@@ -45,6 +45,7 @@ fuzz_target!(|input: Input| {
         store_path: dir.path().join("keys.json"),
         create_if_missing: true,
         file_permissions: Some(0o600),
+        closed_world: false,
     };
     let store = LocalKeyStore::with_config(config).expect("keystore");
 

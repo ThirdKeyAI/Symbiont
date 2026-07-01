@@ -266,6 +266,7 @@ async fn test_key_store_creation_and_basic_operations() {
         store_path,
         create_if_missing: true,
         file_permissions: Some(0o600),
+        closed_world: false,
     };
 
     let store = LocalKeyStore::with_config(config).unwrap();
@@ -298,6 +299,7 @@ async fn test_key_store_tofu_mechanism() {
         store_path,
         create_if_missing: true,
         file_permissions: Some(0o600),
+        closed_world: false,
     };
 
     let store = LocalKeyStore::with_config(config).unwrap();
@@ -336,6 +338,7 @@ async fn test_key_store_persistence_across_instances() {
         store_path: store_path.clone(),
         create_if_missing: true,
         file_permissions: Some(0o600),
+        closed_world: false,
     };
 
     // Create first store instance and add keys
@@ -392,6 +395,7 @@ async fn test_key_store_concurrent_access() {
         store_path,
         create_if_missing: true,
         file_permissions: Some(0o600),
+        closed_world: false,
     };
 
     let store = Arc::new(LocalKeyStore::with_config(config).unwrap());
@@ -435,6 +439,7 @@ async fn test_key_store_verification_operations() {
         store_path,
         create_if_missing: true,
         file_permissions: Some(0o600),
+        closed_world: false,
     };
 
     let store = LocalKeyStore::with_config(config).unwrap();
@@ -477,6 +482,7 @@ async fn test_key_store_removal_and_clearing() {
         store_path,
         create_if_missing: true,
         file_permissions: Some(0o600),
+        closed_world: false,
     };
 
     let store = LocalKeyStore::with_config(config).unwrap();
@@ -519,6 +525,7 @@ async fn test_key_store_with_metadata() {
         store_path,
         create_if_missing: true,
         file_permissions: Some(0o600),
+        closed_world: false,
     };
 
     let store = LocalKeyStore::with_config(config).unwrap();
@@ -566,6 +573,7 @@ async fn test_key_store_error_conditions() {
         store_path: store_path.clone(),
         create_if_missing: false,
         file_permissions: Some(0o600),
+        closed_world: false,
     };
 
     let result = LocalKeyStore::with_config(config);
@@ -579,6 +587,7 @@ async fn test_key_store_error_conditions() {
         store_path,
         create_if_missing: true,
         file_permissions: Some(0o600),
+        closed_world: false,
     };
 
     let store = LocalKeyStore::with_config(config).unwrap();

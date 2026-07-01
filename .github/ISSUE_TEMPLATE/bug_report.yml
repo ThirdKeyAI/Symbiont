@@ -1,0 +1,50 @@
+name: Bug report
+description: Report a defect in Symbiont
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. For security-sensitive reports, please follow
+        SECURITY.md instead of opening a public issue.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug and what you expected instead.
+      placeholder: When I run `symbi run ...`, I expected X but got Y.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps (and a minimal `.symbi` / config if relevant).
+      placeholder: |
+        1. `symbi init --profile assistant --no-interact`
+        2. `symbi run assistant -i '{}'`
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Symbiont version
+      description: Output of `symbi --version` (or the crate/image tag).
+      placeholder: "1.16.0"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Rust version (`rustc --version`), and how you installed (cargo / Docker / source).
+      placeholder: "Ubuntu 24.04, rustc 1.86.0, Docker ghcr image"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste any output. Re-run with `RUST_LOG=debug` if you can.
+      render: shell
