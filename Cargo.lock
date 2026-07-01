@@ -177,9 +177,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.98"
+version = "1.0.103"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e16d2d3311acee920a9eb8d33b8cbc1787ce4a264e85f964c2404b969bdcd487"
+checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
 
 [[package]]
 name = "approx"
@@ -8305,7 +8305,7 @@ checksum = "ba39f3699c378cd8970968dcbff9c43159ea4cfbd88d43c00b22f2ef10a435d2"
 
 [[package]]
 name = "repl-cli"
-version = "1.16.0"
+version = "1.17.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -8320,7 +8320,7 @@ dependencies = [
 
 [[package]]
 name = "repl-core"
-version = "1.16.0"
+version = "1.17.0"
 dependencies = [
  "bytes",
  "chrono",
@@ -8339,7 +8339,7 @@ dependencies = [
 
 [[package]]
 name = "repl-lsp"
-version = "1.16.0"
+version = "1.17.0"
 dependencies = [
  "repl-core",
  "tokio",
@@ -8348,7 +8348,7 @@ dependencies = [
 
 [[package]]
 name = "repl-proto"
-version = "1.16.0"
+version = "1.17.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -9617,7 +9617,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "symbi"
-version = "1.16.0"
+version = "1.17.0"
 dependencies = [
  "async-trait",
  "cedar-policy",
@@ -9699,7 +9699,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-dsl"
-version = "1.16.0"
+version = "1.17.0"
 dependencies = [
  "anyhow",
  "cc",
@@ -9742,7 +9742,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-runtime"
-version = "1.16.0"
+version = "1.17.0"
 dependencies = [
  "aes-gcm",
  "agentpin",
@@ -9835,7 +9835,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-session"
-version = "1.16.0"
+version = "1.17.0"
 dependencies = [
  "proptest",
  "serde",
@@ -9844,7 +9844,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-shell"
-version = "1.16.0"
+version = "1.17.0"
 dependencies = [
  "aes-gcm",
  "anyhow",

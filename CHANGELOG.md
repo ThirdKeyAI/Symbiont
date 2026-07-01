@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-07-01
+
 ### Security
 - **Residual trust-boundary hardening.** Closes three audit residuals with
   opt-in, default-off primitives (existing behavior unchanged): a `closed_world`
@@ -17,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reach exec escalation (A-02b); and `verify_chain_anchored`, which verifies a
   critic-audit chain against an external length + head-hash anchor to detect
   tail-truncation (D-05).
+- **Dependency advisory.** Updated `anyhow` to 1.0.103 to clear RUSTSEC-2026-0190
+  (unsoundness in `Error::downcast_mut()`).
 
 ### Added
 - **AWS Bedrock provider (off-by-default `bedrock` feature).** `LlmClient` /
@@ -42,6 +46,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   because `policies/orchestrator.cedar` is missing.
 
 ### Changed
+- **MSRV raised to Rust 1.89.** The dependency tree now requires it
+  (`datafusion` 51 needs 1.88, `smol_str` 0.3.5 needs 1.89). The new MSRV CI job
+  surfaced that the previously-declared 1.86 no longer builds; `rust-version`,
+  CI, and the docs are updated to 1.89.
 - **Developer-onboarding docs and contributor tooling.** Fixed the "Your First
   Agent" tutorial (`symbi dsl -f` / `symbi run` instead of the nonexistent `dsl
   parse` subcommand and the arg-ignoring `basic_agent` example), documented
