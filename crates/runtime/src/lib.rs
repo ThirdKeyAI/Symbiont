@@ -7,6 +7,7 @@ pub mod communication;
 pub mod config;
 pub mod context;
 pub mod crypto;
+pub mod crypto_provider;
 pub mod env;
 pub mod error_handler;
 pub mod escalation;

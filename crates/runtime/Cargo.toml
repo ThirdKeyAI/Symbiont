@@ -28,6 +28,7 @@ ignored = [
     "symbi-dsl",            # imported as `dsl::` (renamed via crate alias)
     "criterion",            # benchmark-only dev-dep
     "tokio-test",           # async test harness, used in `#[tokio::test]` indirectly
+    "aws-lc-rs",            # `fips` feature
 ]
 
 
@@ -151,6 +152,7 @@ utoipa-swagger-ui = { version = "6.0", features = ["axum"], optional = true }
 aws-config = { version = "1.8.18", optional = true }
 aws-sigv4 = { version = "1.4.5", optional = true }
 aws-credential-types = { version = "1.2.14", optional = true }
+aws-lc-rs = { version = "1", optional = true }
 
 # Metrics/telemetry dependencies (optional)
 opentelemetry = { version = "0.31", optional = true }
@@ -190,6 +192,7 @@ orga-adaptive = []  # Advanced reasoning loop primitives (tool curation, stuck-l
 cloud-llm = ["http-input"]  # Cloud LLM inference (Anthropic, OpenAI) — gates CloudInferenceProvider
 standalone-agent = ["cloud-llm"]  # One-liner for standalone cloud agents
 bedrock = ["http-input", "dep:aws-config", "dep:aws-sigv4", "dep:aws-credential-types"]  # AWS Bedrock LLM provider (LlmClient lives under http_input)
+fips = ["dep:aws-lc-rs", "aws-lc-rs/fips"]  # Route crypto ops through aws-lc-rs FIPS (default impl uses ed25519-dalek)
 enterprise = []  # Enterprise sandbox variants (gVisor, Firecracker)
 enterprise-compaction = []  # Enterprise compaction tiers (Tier 2: semantic, Tier 3: vector)
 vendored-openssl = ["openssl"]

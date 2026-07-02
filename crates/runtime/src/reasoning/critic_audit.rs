@@ -4,7 +4,7 @@
 //! director-critic interaction, enabling tamper-evident review trails.
 
 use chrono::{DateTime, Utc};
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use ed25519_dalek::{SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -114,9 +114,10 @@ impl AuditChain {
         let chain_input = format!("{}{}", self.last_chain_hash, entry_data);
         let chain_hash = sha256_hex(chain_input.as_bytes());
 
-        // Sign the chain hash with Ed25519
-        let signature_bytes = self.signing_key.sign(chain_hash.as_bytes());
-        let signature = hex::encode(signature_bytes.to_bytes());
+        // Sign the chain hash with Ed25519 (via the swappable crypto provider)
+        let signature_bytes =
+            crate::crypto_provider::ed25519_sign(&self.signing_key, chain_hash.as_bytes());
+        let signature = hex::encode(signature_bytes);
 
         let entry = CriticAuditEntry {
             entry_id,
@@ -211,14 +212,15 @@ pub fn verify_chain(
                     message: "signature must be 64 bytes".into(),
                 })?;
 
-        let signature = Signature::from_bytes(&sig_array);
-
-        verifying_key
-            .verify(entry.chain_hash.as_bytes(), &signature)
-            .map_err(|e| AuditError::InvalidSignature {
-                entry_index: i,
-                message: e.to_string(),
-            })?;
+        crate::crypto_provider::ed25519_verify(
+            &verifying_key.to_bytes(),
+            entry.chain_hash.as_bytes(),
+            &sig_array,
+        )
+        .map_err(|e| AuditError::InvalidSignature {
+            entry_index: i,
+            message: e.to_string(),
+        })?;
 
         expected_prev_hash = entry.chain_hash.clone();
     }
