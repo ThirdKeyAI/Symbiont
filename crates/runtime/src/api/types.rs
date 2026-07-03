@@ -660,6 +660,25 @@ pub struct MessageStatusResponse {
     pub status: String,
 }
 
+/// Aggregated runtime operational status.
+///
+/// Returned by `GET /api/v1/status`. Provides a single-call rollup of
+/// runtime health and resource counts useful for operators and monitoring.
+#[cfg(feature = "http-api")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct StatusResponse {
+    /// Runtime version string (semver).
+    pub version: String,
+    /// `true` when the runtime reports a healthy internal state.
+    pub healthy: bool,
+    /// Number of agents currently registered with the runtime.
+    pub agent_count: u64,
+    /// Number of scheduled jobs currently registered.
+    pub schedule_count: u64,
+    /// Number of channel adapters currently registered.
+    pub channel_count: u64,
+}
+
 #[cfg(test)]
 mod external_agent_tests {
     use super::*;

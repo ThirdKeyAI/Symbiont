@@ -36,8 +36,8 @@ use super::types::{
     NextRunsResponse, PushEventRequest, ReceiveMessagesResponse, RegisterChannelRequest,
     RegisterChannelResponse, ScheduleActionResponse, ScheduleDetail, ScheduleHistoryResponse,
     ScheduleSummary, SchedulerHealthResponse, SendMessageRequest, SendMessageResponse,
-    UpdateAgentRequest, UpdateAgentResponse, UpdateChannelRequest, UpdateScheduleRequest,
-    WorkflowExecutionRequest,
+    StatusResponse, UpdateAgentRequest, UpdateAgentResponse, UpdateChannelRequest,
+    UpdateScheduleRequest, WorkflowExecutionRequest,
 };
 
 #[cfg(feature = "http-api")]
@@ -1491,6 +1491,81 @@ pub async fn get_message_status(
     }
 }
 
+/// Aggregated operational status endpoint
+///
+/// Returns a single-call rollup of runtime health and resource counts.
+/// Requires an admin (unscoped) API key.
+#[cfg(feature = "http-api")]
+#[utoipa::path(
+    get,
+    path = "/api/v1/status",
+    responses(
+        (status = 200, description = "Operational status retrieved successfully", body = StatusResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "system"
+)]
+pub async fn get_status(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    validated: Option<Extension<ValidatedKey>>,
+) -> Result<Json<StatusResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(validated.as_ref().map(|Extension(k)| k))?;
+
+    // Derive health from system health call; a failure means unhealthy rather
+    // than propagating an error, so partial degradation still yields a response.
+    let healthy = provider
+        .get_system_health()
+        .await
+        .map(|v| {
+            v.get("status")
+                .and_then(|s| s.as_str())
+                .map(|s| s == "healthy")
+                .unwrap_or(true)
+        })
+        .unwrap_or(false);
+
+    let agents = provider.list_agents().await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "STATUS_AGENTS_FAILED".to_string(),
+                details: None,
+            }),
+        )
+    })?;
+
+    let schedules = provider.list_schedules().await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "STATUS_SCHEDULES_FAILED".to_string(),
+                details: None,
+            }),
+        )
+    })?;
+
+    let channels = provider.list_channels().await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "STATUS_CHANNELS_FAILED".to_string(),
+                details: None,
+            }),
+        )
+    })?;
+
+    Ok(Json(StatusResponse {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        healthy,
+        agent_count: agents.len() as u64,
+        schedule_count: schedules.len() as u64,
+        channel_count: channels.len() as u64,
+    }))
+}
+
 #[cfg(all(test, feature = "http-api"))]
 mod scope_tests {
     use super::*;
@@ -1543,5 +1618,281 @@ mod scope_tests {
     fn scope_filter_returns_scope_list() {
         let k = key_with_scope(Some(vec!["a".into(), "b".into()]));
         assert_eq!(scope_filter(Some(&k)).unwrap().len(), 2);
+    }
+}
+
+#[cfg(all(test, feature = "http-api"))]
+mod status_tests {
+    use super::*;
+    use crate::types::RuntimeError;
+    use async_trait::async_trait;
+    use axum::extract::State;
+
+    struct MockStatusProvider {
+        agents: usize,
+        schedules: usize,
+        channels: usize,
+        healthy: bool,
+    }
+
+    #[async_trait]
+    impl RuntimeApiProvider for MockStatusProvider {
+        async fn execute_workflow(
+            &self,
+            _: WorkflowExecutionRequest,
+        ) -> Result<serde_json::Value, RuntimeError> {
+            unimplemented!()
+        }
+        async fn get_agent_status(&self, _: AgentId) -> Result<AgentStatusResponse, RuntimeError> {
+            unimplemented!()
+        }
+        async fn get_system_health(&self) -> Result<serde_json::Value, RuntimeError> {
+            if self.healthy {
+                Ok(serde_json::json!({"status": "healthy"}))
+            } else {
+                Err(RuntimeError::Internal("unhealthy".to_string()))
+            }
+        }
+        async fn list_agents(&self) -> Result<Vec<AgentId>, RuntimeError> {
+            Ok((0..self.agents).map(|_| AgentId::new()).collect())
+        }
+        async fn shutdown_agent(&self, _: AgentId) -> Result<(), RuntimeError> {
+            unimplemented!()
+        }
+        async fn get_metrics(&self) -> Result<serde_json::Value, RuntimeError> {
+            unimplemented!()
+        }
+        async fn create_agent(
+            &self,
+            _: CreateAgentRequest,
+        ) -> Result<CreateAgentResponse, RuntimeError> {
+            unimplemented!()
+        }
+        async fn update_agent(
+            &self,
+            _: AgentId,
+            _: UpdateAgentRequest,
+        ) -> Result<UpdateAgentResponse, RuntimeError> {
+            unimplemented!()
+        }
+        async fn delete_agent(&self, _: AgentId) -> Result<DeleteAgentResponse, RuntimeError> {
+            unimplemented!()
+        }
+        async fn execute_agent(
+            &self,
+            _: AgentId,
+            _: ExecuteAgentRequest,
+        ) -> Result<ExecuteAgentResponse, RuntimeError> {
+            unimplemented!()
+        }
+        async fn get_agent_history(
+            &self,
+            _: AgentId,
+        ) -> Result<GetAgentHistoryResponse, RuntimeError> {
+            unimplemented!()
+        }
+        async fn list_schedules(&self) -> Result<Vec<ScheduleSummary>, RuntimeError> {
+            Ok((0..self.schedules)
+                .map(|i| ScheduleSummary {
+                    job_id: i.to_string(),
+                    name: format!("job-{i}"),
+                    cron_expression: "0 * * * * *".to_string(),
+                    timezone: "UTC".to_string(),
+                    status: "active".to_string(),
+                    enabled: true,
+                    next_run: None,
+                    run_count: 0,
+                })
+                .collect())
+        }
+        async fn create_schedule(
+            &self,
+            _: CreateScheduleRequest,
+        ) -> Result<CreateScheduleResponse, RuntimeError> {
+            unimplemented!()
+        }
+        async fn get_schedule(&self, _: &str) -> Result<ScheduleDetail, RuntimeError> {
+            unimplemented!()
+        }
+        async fn update_schedule(
+            &self,
+            _: &str,
+            _: UpdateScheduleRequest,
+        ) -> Result<ScheduleDetail, RuntimeError> {
+            unimplemented!()
+        }
+        async fn delete_schedule(&self, _: &str) -> Result<DeleteScheduleResponse, RuntimeError> {
+            unimplemented!()
+        }
+        async fn pause_schedule(&self, _: &str) -> Result<ScheduleActionResponse, RuntimeError> {
+            unimplemented!()
+        }
+        async fn resume_schedule(&self, _: &str) -> Result<ScheduleActionResponse, RuntimeError> {
+            unimplemented!()
+        }
+        async fn trigger_schedule(&self, _: &str) -> Result<ScheduleActionResponse, RuntimeError> {
+            unimplemented!()
+        }
+        async fn get_schedule_history(
+            &self,
+            _: &str,
+            _: usize,
+        ) -> Result<ScheduleHistoryResponse, RuntimeError> {
+            unimplemented!()
+        }
+        async fn get_schedule_next_runs(
+            &self,
+            _: &str,
+            _: usize,
+        ) -> Result<NextRunsResponse, RuntimeError> {
+            unimplemented!()
+        }
+        async fn get_scheduler_health(&self) -> Result<SchedulerHealthResponse, RuntimeError> {
+            unimplemented!()
+        }
+        async fn list_channels(&self) -> Result<Vec<ChannelSummary>, RuntimeError> {
+            Ok((0..self.channels)
+                .map(|i| ChannelSummary {
+                    id: i.to_string(),
+                    name: format!("chan-{i}"),
+                    platform: "slack".to_string(),
+                    status: "running".to_string(),
+                })
+                .collect())
+        }
+        async fn register_channel(
+            &self,
+            _: RegisterChannelRequest,
+        ) -> Result<RegisterChannelResponse, RuntimeError> {
+            unimplemented!()
+        }
+        async fn get_channel(&self, _: &str) -> Result<ChannelDetail, RuntimeError> {
+            unimplemented!()
+        }
+        async fn update_channel(
+            &self,
+            _: &str,
+            _: UpdateChannelRequest,
+        ) -> Result<ChannelDetail, RuntimeError> {
+            unimplemented!()
+        }
+        async fn delete_channel(&self, _: &str) -> Result<DeleteChannelResponse, RuntimeError> {
+            unimplemented!()
+        }
+        async fn start_channel(&self, _: &str) -> Result<ChannelActionResponse, RuntimeError> {
+            unimplemented!()
+        }
+        async fn stop_channel(&self, _: &str) -> Result<ChannelActionResponse, RuntimeError> {
+            unimplemented!()
+        }
+        async fn get_channel_health(&self, _: &str) -> Result<ChannelHealthResponse, RuntimeError> {
+            unimplemented!()
+        }
+        async fn list_channel_mappings(
+            &self,
+            _: &str,
+        ) -> Result<Vec<IdentityMappingEntry>, RuntimeError> {
+            unimplemented!()
+        }
+        async fn add_channel_mapping(
+            &self,
+            _: &str,
+            _: AddIdentityMappingRequest,
+        ) -> Result<IdentityMappingEntry, RuntimeError> {
+            unimplemented!()
+        }
+        async fn remove_channel_mapping(&self, _: &str, _: &str) -> Result<(), RuntimeError> {
+            unimplemented!()
+        }
+        async fn get_channel_audit(
+            &self,
+            _: &str,
+            _: usize,
+        ) -> Result<ChannelAuditResponse, RuntimeError> {
+            unimplemented!()
+        }
+        async fn update_agent_heartbeat(
+            &self,
+            _: AgentId,
+            _: HeartbeatRequest,
+        ) -> Result<(), RuntimeError> {
+            unimplemented!()
+        }
+        async fn push_agent_event(
+            &self,
+            _: AgentId,
+            _: PushEventRequest,
+        ) -> Result<(), RuntimeError> {
+            unimplemented!()
+        }
+        async fn send_agent_message(
+            &self,
+            _: AgentId,
+            _: SendMessageRequest,
+        ) -> Result<SendMessageResponse, RuntimeError> {
+            unimplemented!()
+        }
+        async fn receive_agent_messages(
+            &self,
+            _: AgentId,
+        ) -> Result<ReceiveMessagesResponse, RuntimeError> {
+            unimplemented!()
+        }
+        async fn get_message_status(&self, _: &str) -> Result<MessageStatusResponse, RuntimeError> {
+            unimplemented!()
+        }
+    }
+
+    #[tokio::test]
+    async fn get_status_returns_correct_counts_and_version() {
+        let provider: Arc<dyn RuntimeApiProvider> = Arc::new(MockStatusProvider {
+            agents: 3,
+            schedules: 2,
+            channels: 1,
+            healthy: true,
+        });
+        let result = get_status(State(provider), None).await;
+        assert!(result.is_ok(), "handler should succeed");
+        let Json(status) = result.unwrap();
+        assert_eq!(status.agent_count, 3);
+        assert_eq!(status.schedule_count, 2);
+        assert_eq!(status.channel_count, 1);
+        assert!(status.healthy);
+        assert_eq!(status.version, env!("CARGO_PKG_VERSION"));
+    }
+
+    #[tokio::test]
+    async fn get_status_healthy_false_when_health_check_errors() {
+        let provider: Arc<dyn RuntimeApiProvider> = Arc::new(MockStatusProvider {
+            agents: 0,
+            schedules: 0,
+            channels: 0,
+            healthy: false,
+        });
+        let result = get_status(State(provider), None).await;
+        assert!(
+            result.is_ok(),
+            "handler should still succeed even when the health check returns an error"
+        );
+        let Json(status) = result.unwrap();
+        assert!(!status.healthy);
+    }
+
+    #[tokio::test]
+    async fn get_status_rejects_scoped_key() {
+        let provider: Arc<dyn RuntimeApiProvider> = Arc::new(MockStatusProvider {
+            agents: 0,
+            schedules: 0,
+            channels: 0,
+            healthy: true,
+        });
+        let k = ValidatedKey {
+            key_id: "scoped".to_string(),
+            agent_scope: Some(vec!["some-agent".to_string()]),
+        };
+        let result = get_status(State(provider), Some(Extension(k))).await;
+        assert!(result.is_err(), "scoped key should be rejected");
+        let (status_code, _) = result.unwrap_err();
+        assert_eq!(status_code, StatusCode::FORBIDDEN);
     }
 }

@@ -35,8 +35,8 @@ use super::types::{
     ReceiveMessagesResponse, RegisterChannelRequest, RegisterChannelResponse, ResourceUsage,
     ScheduleActionResponse, ScheduleDetail, ScheduleHistoryResponse, ScheduleRunEntry,
     ScheduleSummary, SchedulerHealthResponse, SendMessageRequest, SendMessageResponse,
-    UpdateAgentRequest, UpdateAgentResponse, UpdateChannelRequest, UpdateScheduleRequest,
-    WorkflowExecutionRequest,
+    StatusResponse, UpdateAgentRequest, UpdateAgentResponse, UpdateChannelRequest,
+    UpdateScheduleRequest, WorkflowExecutionRequest,
 };
 
 #[cfg(feature = "http-api")]
@@ -54,6 +54,7 @@ use crate::types::RuntimeError;
         super::routes::get_agent_status,
         super::routes::list_agents,
         super::routes::get_metrics,
+        super::routes::get_status,
         super::routes::create_agent,
         super::routes::update_agent,
         super::routes::delete_agent,
@@ -138,7 +139,8 @@ use crate::types::RuntimeError;
             SendMessageResponse,
             ReceiveMessagesResponse,
             MessageEnvelope,
-            MessageStatusResponse
+            MessageStatusResponse,
+            StatusResponse
         )
     ),
     tags(
@@ -366,10 +368,10 @@ impl HttpApiServer {
                 execute_workflow, get_agent_history, get_agent_status, get_channel,
                 get_channel_audit, get_channel_health, get_message_status, get_metrics,
                 get_schedule, get_schedule_history, get_schedule_next_runs, get_scheduler_health,
-                list_agents, list_channel_mappings, list_channels, list_schedules, pause_schedule,
-                receive_agent_messages, register_channel, remove_channel_mapping, resume_schedule,
-                send_agent_message, start_channel, stop_channel, trigger_schedule, update_agent,
-                update_channel, update_schedule,
+                get_status, list_agents, list_channel_mappings, list_channels, list_schedules,
+                pause_schedule, receive_agent_messages, register_channel, remove_channel_mapping,
+                resume_schedule, send_agent_message, start_channel, stop_channel, trigger_schedule,
+                update_agent, update_channel, update_schedule,
             };
             use axum::extract::DefaultBodyLimit;
             use axum::middleware;
@@ -450,13 +452,16 @@ impl HttpApiServer {
                 .layer(middleware::from_fn(auth_middleware))
                 .with_state(provider.clone());
 
-            // Protected routes (workflows + metrics + scheduler health) with authentication.
-            // Note: /api/v1/health (basic) remains public for load-balancer probes;
-            // /api/v1/health/scheduler exposes job counts and run stats so it requires auth.
+            // Protected routes (workflows + metrics + scheduler health + status) with
+            // authentication. Note: /api/v1/health (basic) remains public for
+            // load-balancer probes; /api/v1/health/scheduler exposes job counts and
+            // run stats so it requires auth. /api/v1/status is an aggregated rollup
+            // useful for operators and monitoring.
             let protected_router = Router::new()
                 .route("/api/v1/workflows/execute", post(execute_workflow))
                 .route("/api/v1/metrics", get(get_metrics))
                 .route("/api/v1/health/scheduler", get(get_scheduler_health))
+                .route("/api/v1/status", get(get_status))
                 .layer(middleware::from_fn(auth_middleware))
                 .with_state(provider.clone());
 
