@@ -12,6 +12,14 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Statically linking the fat feature test binaries (runtime + rsa/p384 +
+    # tree-sitter + crypto crates) with full debuginfo exhausts the runner's
+    # RAM during `ld`, which faults on the mmap'd output (SIGBUS). Trim debug
+    # info to line tables only for CI: keeps panic backtraces, cuts linker
+    # memory and artifact size sharply, and doesn't touch the repo's profiles.
+    env:
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      CARGO_PROFILE_TEST_DEBUG: line-tables-only
     steps:
       - name: Free disk space
         run: |
