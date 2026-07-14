@@ -9,6 +9,24 @@ use crate::reasoning::conversation::Conversation;
 use crate::reasoning::inference::*;
 use async_trait::async_trait;
 
+/// Map an Anthropic `stop_reason` string to a [`FinishReason`].
+///
+/// `has_tool_calls` is whether the parsed content produced at least one
+/// `tool_use` block. A `"refusal"` (safety-classifier decline; Anthropic
+/// returns it with HTTP 200) maps to [`FinishReason::Refusal`] so the loop can
+/// fail over rather than reading a refused turn as an empty, successful stop.
+fn map_anthropic_stop_reason(stop_reason: &str, has_tool_calls: bool) -> FinishReason {
+    match stop_reason {
+        "tool_use" => FinishReason::ToolCalls,
+        "max_tokens" => FinishReason::MaxTokens,
+        "refusal" => FinishReason::Refusal,
+        // end_turn / stop_sequence / pause_turn / anything else: a turn that
+        // still emitted tool calls is a tool turn; otherwise a plain stop.
+        _ if has_tool_calls => FinishReason::ToolCalls,
+        _ => FinishReason::Stop,
+    }
+}
+
 /// Cloud inference provider wrapping `LlmClient`.
 pub struct CloudInferenceProvider {
     client: LlmClient,
@@ -311,17 +329,23 @@ impl CloudInferenceProvider {
             .and_then(|s| s.as_str())
             .unwrap_or("end_turn");
 
-        let finish_reason = match stop_reason {
-            "tool_use" => FinishReason::ToolCalls,
-            "max_tokens" => FinishReason::MaxTokens,
-            _ => {
-                if tool_calls.is_empty() {
-                    FinishReason::Stop
-                } else {
-                    FinishReason::ToolCalls
-                }
-            }
-        };
+        let finish_reason = map_anthropic_stop_reason(stop_reason, !tool_calls.is_empty());
+
+        // A turn that produced neither text nor a tool call is a no-progress
+        // turn (e.g. a thinking-only / redacted-thinking-only turn, or a
+        // block type we don't parse). It's indistinguishable downstream from a
+        // deliberate empty stop, so warn to make loop-termination diagnosable.
+        if finish_reason == FinishReason::Refusal {
+            tracing::warn!(
+                "Anthropic response was a refusal (stop_reason=refusal); returning FinishReason::Refusal"
+            );
+        } else if text_content.is_empty() && tool_calls.is_empty() {
+            tracing::warn!(
+                "Anthropic response produced no text and no tool calls (stop_reason={}); \
+                 the turn made no progress — likely a thinking-only turn or an unparsed block type",
+                stop_reason
+            );
+        }
 
         let usage = resp
             .get("usage")
@@ -660,6 +684,47 @@ mod tests {
         assert_eq!(content[0]["type"], "text");
         assert_eq!(content[1]["type"], "tool_use");
         assert_eq!(content[1]["name"], "web_search");
+    }
+
+    #[test]
+    fn test_map_anthropic_stop_reason() {
+        use super::map_anthropic_stop_reason;
+
+        // A refusal is surfaced distinctly — not collapsed into Stop — so the
+        // loop can fail over instead of reading it as an empty completion.
+        assert_eq!(
+            map_anthropic_stop_reason("refusal", false),
+            FinishReason::Refusal
+        );
+        // Even a refused turn that somehow carried tool calls stays a Refusal.
+        assert_eq!(
+            map_anthropic_stop_reason("refusal", true),
+            FinishReason::Refusal
+        );
+        // Known terminal/tool reasons map as before.
+        assert_eq!(
+            map_anthropic_stop_reason("tool_use", false),
+            FinishReason::ToolCalls
+        );
+        assert_eq!(
+            map_anthropic_stop_reason("max_tokens", false),
+            FinishReason::MaxTokens
+        );
+        // end_turn with tool calls is a tool turn; without, a plain stop.
+        assert_eq!(
+            map_anthropic_stop_reason("end_turn", true),
+            FinishReason::ToolCalls
+        );
+        assert_eq!(
+            map_anthropic_stop_reason("end_turn", false),
+            FinishReason::Stop
+        );
+        // A thinking-only turn (no text, no tool calls) reports stop_reason
+        // end_turn and no tool calls -> Stop (the parser separately warns).
+        assert_eq!(
+            map_anthropic_stop_reason("pause_turn", false),
+            FinishReason::Stop
+        );
     }
 
     #[test]

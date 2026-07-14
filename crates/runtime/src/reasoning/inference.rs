@@ -43,6 +43,10 @@ pub enum FinishReason {
     MaxTokens,
     /// Generation was truncated due to content filter.
     ContentFilter,
+    /// The model declined the request (e.g. Anthropic `stop_reason: "refusal"`).
+    /// Distinct from [`FinishReason::Stop`] so callers can retry or fail over
+    /// instead of reading a refused turn as an empty, successful completion.
+    Refusal,
 }
 
 /// Desired response format from the model.
