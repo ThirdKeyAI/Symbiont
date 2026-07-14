@@ -202,6 +202,10 @@ pub struct LoopConfig {
     /// existing behavior for callers that don't set this explicitly.
     #[serde(default = "default_loop_temperature")]
     pub temperature: f32,
+    /// Per-call output-token ceiling; the max_tokens sent to the provider
+    /// each turn is min(remaining budget, this).
+    #[serde(default = "default_max_output_tokens")]
+    pub max_output_tokens: u32,
     /// Tool definitions available during this loop run.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_definitions: Vec<ToolDefinition>,
@@ -231,6 +235,11 @@ fn default_loop_temperature() -> f32 {
     0.3
 }
 
+fn default_max_output_tokens() -> u32 {
+    // Preserves the previously-hardcoded per-call cap in `produce_output`.
+    16384
+}
+
 impl Default for LoopConfig {
     fn default() -> Self {
         Self {
@@ -245,6 +254,7 @@ impl Default for LoopConfig {
             max_concurrent_tools: 5,
             context_token_budget: 32_000,
             temperature: default_loop_temperature(),
+            max_output_tokens: default_max_output_tokens(),
             tool_definitions: Vec::new(),
             tool_choice: None,
             #[cfg(feature = "orga-adaptive")]

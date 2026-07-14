@@ -24,10 +24,31 @@ pub trait TokenCounter: Send + Sync {
 }
 
 /// Look up the context window limit for a model by name.
+///
+/// Claude context windows vary by family. The 1M-token generation covers
+/// `fable-5`, `mythos-5`, `opus-4-8`, `opus-4-7`, `opus-4-6`, `sonnet-5`,
+/// and `sonnet-4-6`; these sub-matches are checked first so the broad
+/// `"claude"` fallback never swallows them. Every other Claude model —
+/// `haiku-4-5`, `opus-4-5`, `opus-4-1`, `opus-4-0`, `sonnet-4-5`, any
+/// `claude-3`/`claude-2` model, and any unrecognized/future Claude model —
+/// defaults to the conservative 200K window.
 pub fn context_limit_for_model(model: &str) -> usize {
     let m = model.to_lowercase();
 
     if m.contains("claude") {
+        // 1M-token context window families — check these specific
+        // suffixes before falling back to the 200K default below.
+        if m.contains("fable-5")
+            || m.contains("mythos-5")
+            || m.contains("opus-4-8")
+            || m.contains("opus-4-7")
+            || m.contains("opus-4-6")
+            || m.contains("sonnet-5")
+            || m.contains("sonnet-4-6")
+        {
+            return 1_000_000;
+        }
+        // Conservative default for every other Claude model.
         return 200_000;
     }
     if m.contains("gpt-4o") || m.contains("gpt-4-turbo") || m.contains("o1") || m.contains("o3") {
@@ -200,6 +221,18 @@ mod tests {
         let count = counter.count_tokens("Hello, world!");
         assert!(count > 0);
         assert_eq!(counter.model_context_limit(), 200_000);
+    }
+
+    #[test]
+    fn context_limit_for_model_claude_1m_and_200k_families() {
+        assert_eq!(context_limit_for_model("claude-opus-4-8"), 1_000_000);
+        assert_eq!(context_limit_for_model("claude-fable-5"), 1_000_000);
+        assert_eq!(context_limit_for_model("claude-sonnet-4-6"), 1_000_000);
+        assert_eq!(context_limit_for_model("claude-haiku-4-5"), 200_000);
+        assert_eq!(
+            context_limit_for_model("claude-3-5-sonnet-20241022"),
+            200_000
+        );
     }
 
     #[test]

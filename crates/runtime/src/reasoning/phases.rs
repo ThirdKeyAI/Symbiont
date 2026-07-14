@@ -169,7 +169,7 @@ impl AgentLoop<Reasoning> {
                 .config
                 .max_total_tokens
                 .saturating_sub(self.state.total_usage.total_tokens)
-                .min(16384),
+                .min(self.config.max_output_tokens),
             temperature: self.config.temperature,
             tool_definitions: self.config.tool_definitions.clone(),
             // Propagate the loop's tool_choice preference so providers
@@ -195,6 +195,28 @@ impl AgentLoop<Reasoning> {
 
         // Track usage
         self.state.add_usage(&response.usage);
+
+        // A refusal, or a turn that produced neither tool calls nor any text, is a
+        // no-progress turn. Terminate distinctly instead of returning an empty
+        // Respond (which reads as a silent successful completion and no-ops
+        // tool-driven loops). Callers can then retry / fail over.
+        if response.finish_reason == crate::reasoning::inference::FinishReason::Refusal {
+            return Err(LoopTermination {
+                reason: LoopTerminationReason::Error {
+                    message: "model refused the request (stop_reason=refusal)".to_string(),
+                },
+                state: self.state,
+            });
+        }
+        if !response.has_tool_calls() && response.content.trim().is_empty() {
+            return Err(LoopTermination {
+                reason: LoopTerminationReason::Error {
+                    message: "model produced no tool calls and no text (no-progress turn)"
+                        .to_string(),
+                },
+                state: self.state,
+            });
+        }
 
         // Parse the response into proposed actions
         let proposed_actions = if response.has_tool_calls() {

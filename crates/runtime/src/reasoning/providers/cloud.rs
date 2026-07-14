@@ -158,13 +158,31 @@ impl CloudInferenceProvider {
             body["temperature"] = serde_json::json!(options.temperature);
         }
 
+        // Prompt caching is a prefix match: bytes up to a `cache_control`
+        // breakpoint are cached and reused verbatim, and any change
+        // anywhere in that prefix invalidates it. Render order for the
+        // Anthropic Messages API is tools -> system -> messages, so a
+        // single breakpoint on the LAST block of the stable (tools+system)
+        // prefix caches everything before it in one shot. We emit at most
+        // one breakpoint here (the API caps requests at 4 total): on the
+        // system block when a system prompt is present (system renders
+        // after tools, so this covers both tools and system), otherwise on
+        // the last tool so the tool definitions alone still cache.
+        let has_system = system.is_some();
+
         if let Some(sys) = system {
-            body["system"] = serde_json::Value::String(sys);
+            body["system"] = serde_json::json!([
+                {
+                    "type": "text",
+                    "text": sys,
+                    "cache_control": { "type": "ephemeral" }
+                }
+            ]);
         }
 
         // Add tools
         if !options.tool_definitions.is_empty() {
-            let tools: Vec<serde_json::Value> = options
+            let mut tools: Vec<serde_json::Value> = options
                 .tool_definitions
                 .iter()
                 .map(|td| {
@@ -175,6 +193,18 @@ impl CloudInferenceProvider {
                     })
                 })
                 .collect();
+
+            // No system prompt to carry the breakpoint -- put it on the
+            // last tool instead so the tool-definitions prefix still caches.
+            if !has_system {
+                if let Some(last_tool) = tools.last_mut().and_then(|t| t.as_object_mut()) {
+                    last_tool.insert(
+                        "cache_control".to_string(),
+                        serde_json::json!({"type": "ephemeral"}),
+                    );
+                }
+            }
+
             body["tools"] = serde_json::Value::Array(tools);
 
             // Anthropic Messages API tool_choice. We emit it only when
@@ -193,6 +223,18 @@ impl CloudInferenceProvider {
                     }
                 };
             }
+        }
+
+        // Forward provider-specific extras (e.g. Anthropic's `output_config`
+        // for effort, `thinking`, etc.) after the body is otherwise fully
+        // built. This is the enabling mechanism for passing Anthropic-only
+        // params without a code change here; `extra` is applied last and so
+        // overrides any same-named key set above, by design. Deliberately
+        // does NOT hardcode a default `effort` or `thinking` -- this method
+        // is shared by every Anthropic-routed call, and a hardcoded default
+        // would silently change behavior for callers that don't want it.
+        for (k, v) in &options.extra {
+            body[k] = v.clone();
         }
 
         body
@@ -743,6 +785,90 @@ mod tests {
         assert_eq!(msgs[0]["role"], "system");
         assert_eq!(msgs[2]["tool_calls"][0]["function"]["name"], "search");
         assert_eq!(msgs[3]["tool_call_id"], "tc1");
+    }
+
+    /// FIX 1 + FIX 2: `build_anthropic_body` emits a single prompt-cache
+    /// breakpoint on the byte-stable prefix, and forwards `options.extra`
+    /// into the request body verbatim.
+    ///
+    /// Constructing a `CloudInferenceProvider` requires a real `LlmClient`,
+    /// which is only buildable via `from_env()` (no bypass constructor
+    /// exists) -- so this follows the same env-var-dance + `#[serial]`
+    /// pattern as `test_cloud_provider_name_bedrock` below.
+    #[serial]
+    #[test]
+    fn test_build_anthropic_body_cache_control_and_extra() {
+        use crate::reasoning::inference::{InferenceOptions, ToolDefinition};
+
+        std::env::set_var("ANTHROPIC_API_KEY", "test-key-not-real");
+        for k in ["OPENROUTER_API_KEY", "OPENAI_API_KEY", "BEDROCK_MODEL_ID"] {
+            std::env::remove_var(k);
+        }
+
+        let provider = CloudInferenceProvider::from_env()
+            .expect("CloudInferenceProvider should resolve via ANTHROPIC_API_KEY");
+
+        // Case 1: system prompt present -> the breakpoint goes on the
+        // system block, emitted as a content-block array (not a bare
+        // string), and extra params are forwarded into the body.
+        let conv = Conversation::with_system("You are a helpful assistant.");
+        let mut options = InferenceOptions {
+            tool_definitions: vec![ToolDefinition {
+                name: "search".into(),
+                description: "Search the web".into(),
+                parameters: serde_json::json!({"type": "object", "properties": {}}),
+            }],
+            ..Default::default()
+        };
+        options.extra.insert(
+            "output_config".into(),
+            serde_json::json!({"effort": "high"}),
+        );
+
+        let body = provider.build_anthropic_body(&conv, &options);
+
+        let system = body["system"]
+            .as_array()
+            .expect("system should be a content-block array carrying cache_control");
+        assert_eq!(system.len(), 1);
+        assert_eq!(system[0]["type"], "text");
+        assert_eq!(system[0]["text"], "You are a helpful assistant.");
+        assert_eq!(system[0]["cache_control"]["type"], "ephemeral");
+
+        // At most one breakpoint from this method: since system carried it,
+        // the tool must not also carry one.
+        let tools = body["tools"].as_array().expect("tools array");
+        assert!(tools[0].get("cache_control").is_none());
+
+        // FIX 2: `extra` lands in the body verbatim.
+        assert_eq!(body["output_config"]["effort"], "high");
+
+        // Case 2: no system prompt, tools present -> the breakpoint goes on
+        // the LAST tool instead, so the tool-definitions prefix still caches.
+        let conv_no_system = Conversation::new();
+        let options_no_system = InferenceOptions {
+            tool_definitions: vec![
+                ToolDefinition {
+                    name: "first_tool".into(),
+                    description: "d1".into(),
+                    parameters: serde_json::json!({"type": "object", "properties": {}}),
+                },
+                ToolDefinition {
+                    name: "last_tool".into(),
+                    description: "d2".into(),
+                    parameters: serde_json::json!({"type": "object", "properties": {}}),
+                },
+            ],
+            ..Default::default()
+        };
+        let body_no_system = provider.build_anthropic_body(&conv_no_system, &options_no_system);
+        assert!(body_no_system.get("system").is_none());
+        let tools_no_system = body_no_system["tools"].as_array().expect("tools array");
+        assert_eq!(tools_no_system.len(), 2);
+        assert!(tools_no_system[0].get("cache_control").is_none());
+        assert_eq!(tools_no_system[1]["cache_control"]["type"], "ephemeral");
+
+        std::env::remove_var("ANTHROPIC_API_KEY");
     }
 
     /// Verify that a Bedrock-configured `CloudInferenceProvider` reports

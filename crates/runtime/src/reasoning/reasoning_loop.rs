@@ -594,6 +594,70 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_refusal_terminates_with_error_not_empty_respond() {
+        // A model refusal (e.g. Anthropic stop_reason=refusal) must not be
+        // read as a silent, successful empty completion -- it should
+        // terminate the loop distinctly so callers can retry / fail over.
+        let provider = Arc::new(MockProvider::new(vec![InferenceResponse {
+            content: String::new(),
+            tool_calls: vec![],
+            finish_reason: FinishReason::Refusal,
+            usage: Usage {
+                prompt_tokens: 20,
+                completion_tokens: 0,
+                total_tokens: 20,
+            },
+            model: "mock".into(),
+        }]));
+
+        let runner = make_runner(provider);
+        let mut conv = Conversation::with_system("You are a test agent.");
+        conv.push(ConversationMessage::user("Do something unsafe."));
+
+        let result = runner
+            .run(AgentId::new(), conv, LoopConfig::default())
+            .await;
+
+        assert!(
+            matches!(result.termination_reason, TerminationReason::Error { .. }),
+            "expected Error termination for a refusal, got {:?}",
+            result.termination_reason
+        );
+    }
+
+    #[tokio::test]
+    async fn test_no_progress_turn_terminates_with_error_not_empty_respond() {
+        // A turn with no tool calls AND no text (e.g. a thinking-only turn)
+        // is a no-progress turn. It must not be read as a silent, successful
+        // empty completion -- it should terminate the loop distinctly.
+        let provider = Arc::new(MockProvider::new(vec![InferenceResponse {
+            content: String::new(),
+            tool_calls: vec![],
+            finish_reason: FinishReason::Stop,
+            usage: Usage {
+                prompt_tokens: 20,
+                completion_tokens: 0,
+                total_tokens: 20,
+            },
+            model: "mock".into(),
+        }]));
+
+        let runner = make_runner(provider);
+        let mut conv = Conversation::with_system("You are a test agent.");
+        conv.push(ConversationMessage::user("What is 6 * 7?"));
+
+        let result = runner
+            .run(AgentId::new(), conv, LoopConfig::default())
+            .await;
+
+        assert!(
+            matches!(result.termination_reason, TerminationReason::Error { .. }),
+            "expected Error termination for a no-progress turn, got {:?}",
+            result.termination_reason
+        );
+    }
+
+    #[tokio::test]
     async fn test_tool_call_then_response() {
         let provider = Arc::new(MockProvider::new(vec![
             // First response: tool call
