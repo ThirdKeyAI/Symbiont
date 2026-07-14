@@ -124,7 +124,7 @@ pub fn print_ast(node: Node, source: &str, depth: usize) {
     let node_text = if node.child_count() == 0 {
         let start = node.start_byte();
         let end = node.end_byte();
-        format!(" \"{}\"", &source[start..end].replace('\n', "\\n"))
+        format!(" \"{}\"", source[start..end].replace('\n', "\\n"))
     } else {
         String::new()
     };
@@ -287,10 +287,10 @@ pub fn extract_with_blocks(tree: &Tree, source: &str) -> Result<Vec<WithBlock>, 
 
                             // Parse specific attributes
                             match name.as_str() {
-                                "sandbox" => match WithBlock::parse_sandbox_tier(&value) {
-                                    Ok(tier) => with_block.sandbox_tier = Some(tier),
-                                    Err(e) => return Err(e),
-                                },
+                                "sandbox" => {
+                                    with_block.sandbox_tier =
+                                        Some(WithBlock::parse_sandbox_tier(&value)?);
+                                }
                                 "timeout" => {
                                     let timeout_str = value.trim_matches('"');
                                     // Normalize DSL time suffixes to humantime units
