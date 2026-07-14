@@ -775,7 +775,7 @@ async fn invoke_agent(
             let args_json = serde_json::to_string(&tool_input).unwrap_or_default();
 
             // Dedup key: tool name + canonical input JSON
-            let dedup_key = format!("{}:{}", tool_name, &args_json);
+            let dedup_key = format!("{}:{}", tool_name, args_json);
             if !seen_calls.insert(dedup_key) {
                 tracing::warn!(
                     "Skipping duplicate tool call '{}' with identical input in iteration",

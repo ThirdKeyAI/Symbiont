@@ -241,7 +241,7 @@ impl SessionExecutor {
         let argv = shlex::split(&session_def.startup_command).ok_or_else(|| {
             format!(
                 "invalid startup_command (shell parse failed): {}",
-                &session_def.startup_command
+                session_def.startup_command
             )
         })?;
         if argv.is_empty() {

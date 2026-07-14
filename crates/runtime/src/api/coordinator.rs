@@ -145,9 +145,7 @@ impl CoordinatorSession {
         let bridge_handle = tokio::spawn(async move {
             while let Some(entry) = journal_rx.recv().await {
                 let msg = match &entry.event {
-                    LoopEvent::ReasoningComplete {
-                        actions, usage: _, ..
-                    } => {
+                    LoopEvent::ReasoningComplete { actions, .. } => {
                         // Report tool call starts
                         for action in actions {
                             if let crate::reasoning::loop_types::ProposedAction::ToolCall {
