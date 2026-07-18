@@ -165,6 +165,8 @@ Argument types are validated in `crates/runtime/src/toolclad/validator.rs`. `age
 
 **Adding a new tool does not require Rust code.** Drop a `.clad.toml` in `tools/`, the runtime picks it up.
 
+**MCP backend (`mcp-client` feature).** A manifest can carry an `[mcp]` block (`server`, `tool`, optional `field_map`) to route the tool to an upstream MCP server over stdio instead of a local binary. Servers are declared in `mcp-config.toml` (per-project, then `~/.symbiont/`). Invocation is SchemaPin-verified fail-closed by default (TOFU key pinning; a post-pin key swap is rejected); `ToolCladExecutor::with_mcp_verification(false)` opts out for local dev. This is how `symbi run` and the DSL `reason()`/`tool_call()` builtins execute real tools — see `docs/mcp-tools.md`.
+
 ## MCP Server
 
 Start with `symbi mcp` (stdio transport). Available tools:

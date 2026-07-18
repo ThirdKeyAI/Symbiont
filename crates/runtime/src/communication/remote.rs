@@ -634,7 +634,12 @@ mod tests {
         );
     }
 
+    // Serialized against the TLS-env-mutating tests below: this constructs a
+    // non-loopback `http://` bus with a token, so a concurrent test that sets
+    // `SYMBIONT_REMOTE_BUS_REQUIRE_TLS=1` (process-global) would make `new`
+    // reject the URL and drop the token, flaking the `has_token: true` assert.
     #[test]
+    #[serial_test::serial(remote_bus_tls_env)]
     fn test_debug_hides_token() {
         let bus = RemoteCommunicationBus::new(
             "http://example.com",

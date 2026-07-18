@@ -178,15 +178,15 @@ async fn execute_tool_call(name: &str, arguments: &str) -> Result<String, String
 ///
 /// It advertises no tools (so the model is not offered any) and, if a tool
 /// call is nonetheless proposed, returns a clear `is_error` observation
-/// instead of fabricating a success. This is the honest default for entry
-/// points like `symbi run` and the DSL `reason()` builtin, which do not yet
-/// construct an MCP client / [`EnforcedActionExecutor`]. It exists so those
-/// paths never tell the model a tool "executed successfully" when nothing ran.
+/// instead of fabricating a success. It is the fallback for entry points like
+/// `symbi run` and the DSL `reason()` builtin when no `tools/` ToolClad
+/// manifests are present, so those paths never tell the model a tool
+/// "executed successfully" when nothing ran.
 ///
 /// Contrast: [`DefaultActionExecutor`] is a parallel-dispatch executor whose
-/// per-call result is an echo placeholder (useful as a test double, not for
-/// production tool execution); [`EnforcedActionExecutor`] performs real,
-/// enforcer-gated execution when a tool backend is available.
+/// per-call result is an echo placeholder (a test double, not for production
+/// tool execution); [`crate::toolclad::executor::ToolCladExecutor`] performs
+/// real, SchemaPin-verified execution when `tools/` manifests are configured.
 #[derive(Default)]
 pub struct UnavailableToolExecutor;
 
@@ -220,146 +220,6 @@ impl ActionExecutor for UnavailableToolExecutor {
 
     // tool_definitions() falls back to the trait default (empty) — advertise
     // no tools, so the model isn't offered capabilities the runner can't run.
-}
-
-/// An executor that delegates to a real ToolInvocationEnforcer.
-pub struct EnforcedActionExecutor {
-    enforcer: std::sync::Arc<dyn crate::integrations::tool_invocation::ToolInvocationEnforcer>,
-}
-
-impl EnforcedActionExecutor {
-    pub fn new(
-        enforcer: std::sync::Arc<dyn crate::integrations::tool_invocation::ToolInvocationEnforcer>,
-    ) -> Self {
-        Self { enforcer }
-    }
-}
-
-#[async_trait]
-impl ActionExecutor for EnforcedActionExecutor {
-    async fn execute_actions(
-        &self,
-        actions: &[ProposedAction],
-        config: &LoopConfig,
-        circuit_breakers: &CircuitBreakerRegistry,
-    ) -> Vec<Observation> {
-        let tool_calls: Vec<&ProposedAction> = actions
-            .iter()
-            .filter(|a| matches!(a, ProposedAction::ToolCall { .. }))
-            .collect();
-
-        if tool_calls.is_empty() {
-            return Vec::new();
-        }
-
-        let timeout = config.tool_timeout;
-        let mut futures = FuturesUnordered::new();
-
-        for action in &tool_calls {
-            if let ProposedAction::ToolCall {
-                call_id,
-                name,
-                arguments,
-            } = action
-            {
-                let name = name.clone();
-                let arguments = arguments.clone();
-                let call_id = call_id.clone();
-                let enforcer = self.enforcer.clone();
-
-                let cb_result = circuit_breakers.check(&name).await;
-
-                futures.push(async move {
-                    if let Err(cb_err) = cb_result {
-                        return Observation {
-                            source: name,
-                            content: format!("Tool circuit is open: {}", cb_err),
-                            is_error: true,
-                            call_id: Some(call_id),
-                            metadata: {
-                                let mut m = std::collections::HashMap::new();
-                                m.insert("error_type".into(), "circuit_open".into());
-                                m
-                            },
-                        };
-                    }
-
-                    let tool = crate::integrations::mcp::McpTool {
-                        name: name.clone(),
-                        description: String::new(),
-                        schema: serde_json::json!({}),
-                        provider: crate::integrations::mcp::ToolProvider {
-                            identifier: "reasoning_loop".into(),
-                            name: "Reasoning Loop".into(),
-                            public_key_url: String::new(),
-                            version: None,
-                        },
-                        verification_status:
-                            crate::integrations::mcp::VerificationStatus::Skipped {
-                                reason: "Invoked via reasoning loop".into(),
-                            },
-                        metadata: None,
-                        sensitive_params: vec![],
-                    };
-
-                    let args: serde_json::Value =
-                        serde_json::from_str(&arguments).unwrap_or(serde_json::json!({}));
-
-                    let context = crate::integrations::tool_invocation::InvocationContext {
-                        agent_id: crate::types::AgentId::new(),
-                        tool_name: name.clone(),
-                        arguments: args,
-                        timestamp: chrono::Utc::now(),
-                        metadata: std::collections::HashMap::new(),
-                        agent_credential: None,
-                    };
-
-                    match tokio::time::timeout(
-                        timeout,
-                        enforcer.execute_tool_with_enforcement(&tool, context),
-                    )
-                    .await
-                    {
-                        Ok(Ok(result)) => {
-                            Observation::tool_result(&name, result.result.to_string())
-                                .with_call_id(call_id)
-                        }
-                        Ok(Err(err)) => {
-                            Observation::tool_error(&name, err.to_string()).with_call_id(call_id)
-                        }
-                        Err(_) => Observation {
-                            source: name.clone(),
-                            content: format!("Tool '{}' timed out", name),
-                            is_error: true,
-                            call_id: Some(call_id),
-                            metadata: {
-                                let mut m = std::collections::HashMap::new();
-                                m.insert("error_type".into(), "timeout".into());
-                                m
-                            },
-                        },
-                    }
-                });
-            }
-        }
-
-        let mut observations = Vec::with_capacity(tool_calls.len());
-        while let Some(obs) = futures.next().await {
-            let tool_name = obs
-                .metadata
-                .get("tool_name")
-                .cloned()
-                .unwrap_or_else(|| obs.source.clone());
-            if obs.is_error {
-                circuit_breakers.record_failure(&tool_name).await;
-            } else {
-                circuit_breakers.record_success(&tool_name).await;
-            }
-            observations.push(obs);
-        }
-
-        observations
-    }
 }
 
 #[cfg(test)]

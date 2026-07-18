@@ -33,6 +33,10 @@ pub struct ToolCladExecutor {
     session_executor: super::session_executor::SessionExecutor,
     /// Browser executor for CDP-based browser sessions.
     browser_executor: super::browser_executor::BrowserExecutor,
+    /// Whether MCP-backed tool calls require SchemaPin verification before
+    /// running (fail-closed by default). Disable only for local dev via
+    /// [`Self::with_mcp_verification`].
+    enforce_mcp_verification: bool,
 }
 
 impl ToolCladExecutor {
@@ -76,7 +80,15 @@ impl ToolCladExecutor {
             manifest_versions,
             session_executor,
             browser_executor,
+            enforce_mcp_verification: true,
         }
+    }
+
+    /// Toggle SchemaPin verification enforcement for MCP-backed tool calls.
+    /// Defaults to `true` (fail-closed); set `false` only for local dev.
+    pub fn with_mcp_verification(mut self, enforce: bool) -> Self {
+        self.enforce_mcp_verification = enforce;
+        self
     }
 
     /// Check if this executor handles a given tool name.
@@ -118,8 +130,15 @@ impl ToolCladExecutor {
         self.manifests.len()
     }
 
-    /// Execute a single tool call against a manifest.
-    pub fn execute_tool(&self, name: &str, args_json: &str) -> Result<serde_json::Value, String> {
+    /// Look up the manifest for `name`, check it hasn't been hot-reloaded out
+    /// from under the executor, parse `args_json`, and validate each argument
+    /// against its `ArgDef`. Shared by the sync `execute_tool` dispatch and
+    /// the async MCP-aware dispatch in `execute_actions`.
+    fn parse_and_validate(
+        &self,
+        name: &str,
+        args_json: &str,
+    ) -> Result<(&Manifest, HashMap<String, String>), String> {
         let manifest = self
             .manifests
             .get(name)
@@ -169,6 +188,13 @@ impl ToolCladExecutor {
                 validated.insert(arg_name.clone(), value);
             }
         }
+
+        Ok((manifest, validated))
+    }
+
+    /// Execute a single tool call against a manifest.
+    pub fn execute_tool(&self, name: &str, args_json: &str) -> Result<serde_json::Value, String> {
+        let (manifest, validated) = self.parse_and_validate(name, args_json)?;
 
         // Dispatch to appropriate backend
         if manifest.http.is_some() {
@@ -367,51 +393,136 @@ impl ToolCladExecutor {
         }))
     }
 
-    /// Execute an MCP proxy backend tool.
+    /// Execute an MCP proxy backend tool by loading the on-disk server
+    /// registry (`./mcp-config.toml`) and dispatching to the real stdio MCP
+    /// client. See [`Self::execute_mcp_backend_async_with_registry`] for the
+    /// injectable-registry variant used by tests.
+    #[cfg(feature = "mcp-client")]
+    async fn execute_mcp_backend_async(
+        &self,
+        name: &str,
+        manifest: &Manifest,
+        validated: &HashMap<String, String>,
+    ) -> Result<serde_json::Value, String> {
+        let registry = crate::integrations::mcp::registry::McpServerRegistry::load();
+        self.execute_mcp_backend_async_with_registry(&registry, name, manifest, validated)
+            .await
+    }
+
+    /// Same as [`Self::execute_mcp_backend_async`] but takes an explicit
+    /// registry instead of loading `./mcp-config.toml` from the process's
+    /// working directory. `pub` so integration tests can inject an in-memory
+    /// registry rather than relying on CWD games.
+    #[cfg(feature = "mcp-client")]
+    pub async fn execute_mcp_backend_async_with_registry(
+        &self,
+        registry: &crate::integrations::mcp::registry::McpServerRegistry,
+        name: &str,
+        manifest: &Manifest,
+        validated: &HashMap<String, String>,
+    ) -> Result<serde_json::Value, String> {
+        let mcp = manifest
+            .mcp
+            .as_ref()
+            .ok_or_else(|| "no [mcp] block in manifest".to_string())?;
+
+        let spec = registry.get(&mcp.server).ok_or_else(|| {
+            format!(
+                "MCP server '{}' not in registry (mcp-config.toml)",
+                mcp.server
+            )
+        })?;
+
+        // Map validated args to upstream tool's expected format
+        let upstream_args = map_upstream_args(mcp, validated);
+
+        let result = crate::integrations::mcp::stdio_client::RmcpStdioClient::verified_invoke(
+            spec,
+            &mcp.tool,
+            upstream_args,
+            self.enforce_mcp_verification,
+        )
+        .await?;
+
+        // Real evidence envelope (replaces the fabricated "delegated" one).
+        Ok(serde_json::json!({
+            "status": "executed",
+            "tool": name,
+            "mcp_server": mcp.server,
+            "mcp_tool": mcp.tool,
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "exit_code": 0,
+            "stderr": "",
+            "results": result,
+        }))
+    }
+
+    /// Honest, fail-closed fallback when the crate is built without
+    /// `mcp-client`: no fabricated result, just a clear error.
+    #[cfg(not(feature = "mcp-client"))]
+    async fn execute_mcp_backend_async(
+        &self,
+        _name: &str,
+        _manifest: &Manifest,
+        _validated: &HashMap<String, String>,
+    ) -> Result<serde_json::Value, String> {
+        Err("MCP execution requires the 'mcp-client' feature".to_string())
+    }
+
+    /// Sync bridge to the async MCP path, used by the sync `execute_tool`
+    /// dispatch (i.e. the `symbi tools` CLI). Bridges onto the current tokio
+    /// runtime when one is available; otherwise fails closed instead of
+    /// silently no-op'ing.
+    #[cfg(feature = "mcp-client")]
     fn execute_mcp_backend(
         &self,
         name: &str,
         manifest: &Manifest,
         validated: &HashMap<String, String>,
     ) -> Result<serde_json::Value, String> {
-        let mcp = manifest.mcp.as_ref().unwrap();
-
-        // Map validated args to upstream tool's expected format
-        let mut upstream_args = serde_json::Map::new();
-        for (local_name, value) in validated {
-            let upstream_name = mcp
-                .field_map
-                .get(local_name)
-                .cloned()
-                .unwrap_or_else(|| local_name.clone());
-            upstream_args.insert(upstream_name, serde_json::json!(value));
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => tokio::task::block_in_place(|| {
+                handle.block_on(self.execute_mcp_backend_async(name, manifest, validated))
+            }),
+            Err(_) => Err(
+                "MCP tool execution requires an async runtime (run via `symbi run` or \
+                 `symbi tools run` under tokio)"
+                    .to_string(),
+            ),
         }
-
-        let scan_id = format!(
-            "{}-{}",
-            chrono::Utc::now().timestamp(),
-            uuid::Uuid::new_v4().as_fields().0
-        );
-
-        // Note: Full MCP execution requires the runtime's MCP transport.
-        // For now, build and return the request structure. The runtime's
-        // EnforcedActionExecutor will forward to the actual MCP server.
-        Ok(serde_json::json!({
-            "status": "delegated",
-            "scan_id": scan_id,
-            "tool": name,
-            "mcp_server": mcp.server,
-            "mcp_tool": mcp.tool,
-            "mcp_arguments": upstream_args,
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-            "exit_code": 0,
-            "stderr": "",
-            "results": {
-                "delegated_to": format!("{}:{}", mcp.server, mcp.tool),
-                "arguments": upstream_args,
-            }
-        }))
     }
+
+    /// Honest, fail-closed fallback when the crate is built without
+    /// `mcp-client`.
+    #[cfg(not(feature = "mcp-client"))]
+    fn execute_mcp_backend(
+        &self,
+        _name: &str,
+        _manifest: &Manifest,
+        _validated: &HashMap<String, String>,
+    ) -> Result<serde_json::Value, String> {
+        Err("MCP execution requires the 'mcp-client' feature".to_string())
+    }
+}
+
+/// Map validated local argument names to the upstream MCP tool's expected
+/// argument names via the manifest's `[mcp.field_map]` (identity when a local
+/// name has no mapping entry).
+#[cfg(feature = "mcp-client")]
+fn map_upstream_args(
+    mcp: &super::manifest::McpProxyDef,
+    validated: &HashMap<String, String>,
+) -> serde_json::Map<String, serde_json::Value> {
+    let mut upstream_args = serde_json::Map::new();
+    for (local_name, value) in validated {
+        let upstream_name = mcp
+            .field_map
+            .get(local_name)
+            .cloned()
+            .unwrap_or_else(|| local_name.clone());
+        upstream_args.insert(upstream_name, serde_json::json!(value));
+    }
+    upstream_args
 }
 
 #[async_trait]
@@ -435,13 +546,30 @@ impl ActionExecutor for ToolCladExecutor {
                     continue; // Not a ToolClad tool — skip
                 }
 
-                // Dispatch to appropriate executor based on tool type
+                let is_mcp_tool = self
+                    .manifests
+                    .get(name.as_str())
+                    .map(|m| m.mcp.is_some())
+                    .unwrap_or(false);
+
+                // Dispatch to appropriate executor based on tool type. MCP
+                // tools are awaited directly here rather than going through
+                // the sync `execute_tool` -> `block_on` bridge, since this
+                // loop already runs on an async runtime.
                 let result = if self.session_executor.handles(name) {
                     self.session_executor
                         .execute_session_command(name, arguments)
                 } else if self.browser_executor.handles(name) {
                     self.browser_executor
                         .execute_browser_command(name, arguments)
+                } else if is_mcp_tool {
+                    match self.parse_and_validate(name, arguments) {
+                        Ok((manifest, validated)) => {
+                            self.execute_mcp_backend_async(name, manifest, &validated)
+                                .await
+                        }
+                        Err(e) => Err(e),
+                    }
                 } else {
                     self.execute_tool(name, arguments)
                 };
@@ -1522,100 +1650,56 @@ type = "object"
         assert!(required.contains(&serde_json::json!("query")));
     }
 
+    // `execute_mcp_backend` used to fabricate a "delegated" envelope without
+    // ever contacting a server. It now performs a real (feature-gated) MCP
+    // call, so the field-mapping logic it depends on is tested directly via
+    // `map_upstream_args`, and the full dispatch is covered end-to-end
+    // against a real fixture server in `tests/toolclad_mcp.rs`.
+
+    #[cfg(feature = "mcp-client")]
     #[test]
-    fn test_mcp_proxy_execution_returns_delegated_envelope() {
-        let manifest: Manifest = toml::from_str(
-            r#"
-[tool]
-name = "governed_search"
-version = "1.0.0"
-description = "Search via governed MCP proxy"
-
-[args.query]
-position = 1
-required = true
-type = "string"
-description = "Search query"
-
-[mcp]
+    fn test_mcp_field_map_maps_local_to_upstream_names() {
+        let toml_str = r#"
 server = "brave-search"
 tool = "brave_web_search"
 
-[mcp.field_map]
+[field_map]
 query = "q"
-
-[output]
-format = "json"
-
-[output.schema]
-type = "object"
-"#,
-        )
-        .unwrap();
-
-        let executor =
-            ToolCladExecutor::new(vec![("governed_search".to_string(), manifest.clone())]);
+"#;
+        let mcp: crate::toolclad::manifest::McpProxyDef = toml::from_str(toml_str).unwrap();
 
         let mut args = HashMap::new();
         args.insert("query".to_string(), "rust async".to_string());
-        let result = executor
-            .execute_mcp_backend("governed_search", &manifest, &args)
-            .unwrap();
 
-        assert_eq!(result["status"], "delegated");
-        assert_eq!(result["tool"], "governed_search");
-        assert_eq!(result["mcp_server"], "brave-search");
-        assert_eq!(result["mcp_tool"], "brave_web_search");
-        assert_eq!(result["exit_code"], 0);
-
-        // Check that field mapping was applied
-        let mcp_args = &result["mcp_arguments"];
-        assert_eq!(mcp_args["q"], "rust async");
+        let upstream = map_upstream_args(&mcp, &args);
+        assert_eq!(upstream["q"], "rust async");
     }
 
+    #[cfg(feature = "mcp-client")]
     #[test]
-    fn test_mcp_proxy_field_map_passthrough() {
-        let manifest: Manifest = toml::from_str(
-            r#"
-[tool]
-name = "passthrough"
-version = "1.0.0"
-description = "Direct passthrough"
-
-[args.input]
-position = 1
-required = true
-type = "string"
-description = "Input value"
-
-[mcp]
+    fn test_mcp_field_map_passthrough_when_unmapped() {
+        let toml_str = r#"
 server = "my-server"
 tool = "upstream_tool"
-
-[output]
-format = "json"
-
-[output.schema]
-type = "object"
-"#,
-        )
-        .unwrap();
-
-        let executor = ToolCladExecutor::new(vec![("passthrough".to_string(), manifest.clone())]);
+"#;
+        let mcp: crate::toolclad::manifest::McpProxyDef = toml::from_str(toml_str).unwrap();
 
         let mut args = HashMap::new();
         args.insert("input".to_string(), "hello".to_string());
-        let result = executor
-            .execute_mcp_backend("passthrough", &manifest, &args)
-            .unwrap();
 
-        // No field_map, so "input" stays as "input" in upstream args
-        let mcp_args = &result["mcp_arguments"];
-        assert_eq!(mcp_args["input"], "hello");
+        // No field_map entry for "input", so it passes through unchanged.
+        let upstream = map_upstream_args(&mcp, &args);
+        assert_eq!(upstream["input"], "hello");
     }
 
     #[test]
-    fn test_mcp_proxy_dispatch_via_execute_tool() {
+    fn test_mcp_proxy_dispatch_fails_closed_without_async_runtime() {
+        // `execute_tool` (the sync `symbi tools` CLI path) dispatches
+        // MCP-backed manifests through the sync `execute_mcp_backend`
+        // bridge. Called from a plain `#[test]` fn there is no tokio runtime
+        // to bridge onto (with `mcp-client`) and the feature may not even be
+        // enabled — either way this must fail closed with a clear error,
+        // never panic, and never fabricate a result.
         let manifest: Manifest = toml::from_str(
             r#"
 [tool]
@@ -1644,12 +1728,10 @@ type = "object"
 
         let executor = ToolCladExecutor::new(vec![("mcp_tool".to_string(), manifest)]);
 
-        let result = executor
-            .execute_tool("mcp_tool", r#"{"query": "test"}"#)
-            .unwrap();
-
-        assert_eq!(result["status"], "delegated");
-        assert_eq!(result["mcp_server"], "test-server");
-        assert_eq!(result["mcp_tool"], "test_tool");
+        let result = executor.execute_tool("mcp_tool", r#"{"query": "test"}"#);
+        assert!(
+            result.is_err(),
+            "expected fail-closed error, got: {result:?}"
+        );
     }
 }

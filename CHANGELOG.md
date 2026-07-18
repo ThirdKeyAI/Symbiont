@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **MCP-backed tool execution (`mcp-client` feature).** ToolClad `.clad.toml`
+  manifests can route a tool to an upstream Model Context Protocol server over
+  stdio via an `[mcp]` block (`server`/`tool`/`field_map`), with servers declared
+  in `mcp-config.toml` (per-project, then `~/.symbiont/`). This replaces the
+  previous placeholder in `symbi run` and the DSL `reason()`/`tool_call()`
+  builtins with real execution; when no `tools/` manifests are present those
+  paths now return an honest "no tool backend" error instead of a fabricated
+  success. Invocation is SchemaPin-verified fail-closed by default (TOFU key
+  pinning; a post-pin key swap at the provider key URL is rejected as
+  `KeyMismatch`), with `ToolCladExecutor::with_mcp_verification(false)` as a
+  local-dev opt-out. The default build does not pull the MCP client transport.
+  See `docs/mcp-tools.md`.
+
 ## [1.17.0] - 2026-07-01
 
 ### Security

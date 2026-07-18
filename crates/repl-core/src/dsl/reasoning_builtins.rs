@@ -64,7 +64,6 @@ pub async fn builtin_reason(args: &[DslValue], ctx: &ReasoningBuiltinContext) ->
     use symbi_runtime::reasoning::circuit_breaker::CircuitBreakerRegistry;
     use symbi_runtime::reasoning::context_manager::DefaultContextManager;
     use symbi_runtime::reasoning::conversation::{Conversation, ConversationMessage};
-    use symbi_runtime::reasoning::executor::UnavailableToolExecutor;
     use symbi_runtime::reasoning::loop_types::{BufferedJournal, LoopConfig};
     use symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate;
     use symbi_runtime::reasoning::reasoning_loop::ReasoningLoopRunner;
@@ -83,7 +82,10 @@ pub async fn builtin_reason(args: &[DslValue], ctx: &ReasoningBuiltinContext) ->
     let runner = ReasoningLoopRunner {
         provider: Arc::clone(provider),
         policy_gate,
-        executor: Arc::new(UnavailableToolExecutor),
+        // Real tool execution when `tools/` has ToolClad manifests; falls
+        // back to the honest no-backend executor otherwise (never
+        // fabricates a tool-call success).
+        executor: symbi_runtime::reasoning::build_tool_executor(std::path::Path::new("tools")),
         context_manager: Arc::new(DefaultContextManager::default()),
         circuit_breakers: Arc::new(CircuitBreakerRegistry::default()),
         journal: Arc::new(BufferedJournal::new(1000)),
@@ -221,10 +223,45 @@ pub async fn builtin_tool_call(
         }
     };
 
-    // There is no tool backend wired into the DSL runtime yet (MCP-backed
-    // execution via ToolInvocationEnforcer is a planned feature). Return an
-    // honest `not_executed` result rather than fabricating a success — callers
-    // must not assume the tool actually ran.
+    // Route through the built tool executor: real execution (shell, HTTP,
+    // MCP-proxy, session, browser) when `tools/` has ToolClad manifests that
+    // handle this tool name, otherwise fall through to the honest
+    // `not_executed` result below — never fabricate a success.
+    use symbi_runtime::reasoning::circuit_breaker::CircuitBreakerRegistry;
+    use symbi_runtime::reasoning::loop_types::{LoopConfig, ProposedAction};
+
+    let executor = symbi_runtime::reasoning::build_tool_executor(std::path::Path::new("tools"));
+    let handled = executor.tool_definitions().iter().any(|d| d.name == name);
+
+    if handled {
+        let action = ProposedAction::ToolCall {
+            call_id: "dsl_tool_call".to_string(),
+            name: name.clone(),
+            arguments: arguments.clone(),
+        };
+        let config = LoopConfig::default();
+        let circuit_breakers = CircuitBreakerRegistry::default();
+        let observations = executor
+            .execute_actions(&[action], &config, &circuit_breakers)
+            .await;
+
+        if let Some(obs) = observations.into_iter().next() {
+            let mut result = HashMap::new();
+            result.insert("tool".to_string(), DslValue::String(name));
+            result.insert("arguments".to_string(), DslValue::String(arguments));
+            result.insert(
+                "status".to_string(),
+                DslValue::String(if obs.is_error { "error" } else { "success" }.to_string()),
+            );
+            result.insert("result".to_string(), DslValue::String(obs.content));
+            return Ok(DslValue::Map(result));
+        }
+    }
+
+    // No `tools/` manifests handle this tool name (or the builder fell back
+    // to `UnavailableToolExecutor`). Return an honest `not_executed` result
+    // rather than fabricating a success — callers must not assume the tool
+    // actually ran.
     let mut result = HashMap::new();
     result.insert("tool".to_string(), DslValue::String(name));
     result.insert("arguments".to_string(), DslValue::String(arguments));
@@ -235,7 +272,7 @@ pub async fn builtin_tool_call(
     result.insert(
         "reason".to_string(),
         DslValue::String(
-            "no tool backend configured (MCP-backed tool execution is not yet available)"
+            "no tool backend configured for this tool (add a matching tools/*.clad.toml manifest)"
                 .to_string(),
         ),
     );

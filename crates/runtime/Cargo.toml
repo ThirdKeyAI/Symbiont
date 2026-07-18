@@ -64,6 +64,11 @@ path = "src/bin/symbiont_mcp.rs"
 name = "symbi-eval"
 path = "src/bin/symbi_eval.rs"
 required-features = ["cloud-llm"]
+
+[[bin]]
+name = "echo_mcp_server"
+path = "tests/fixtures/echo_mcp_server.rs"
+required-features = ["mcp-client"]
 [dependencies]
 symbi-dsl = { path = "../dsl", version = "1.17.0" }
 symbi-session = { path = "../symbi-session", version = "1.17.0", optional = true }
@@ -138,6 +143,18 @@ openssl = { version = "0.10", features = ["vendored"], optional = true }
 # Cedar policy engine (optional)
 cedar-policy = { version = "4", optional = true }
 
+# MCP client transport (stdio child-process). Gated behind `mcp-client`;
+# the default build does not pull rmcp's client/child-process transport.
+# `server` + `macros` + `transport-io` are also enabled here (rather than in a
+# separate feature) because the `echo_mcp_server` test fixture bin — a real
+# rmcp *server* used to exercise the client end-to-end over stdio — is itself
+# gated on `mcp-client` and shares this same dependency declaration.
+rmcp = { version = "1.4", default-features = false, features = ["client", "transport-child-process", "server", "macros", "transport-io"], optional = true }
+# JSON schema derive for the `echo_mcp_server` test fixture's tool params.
+# rmcp's own `server` feature (enabled above) already depends on schemars
+# transitively; this adds a direct `schemars::` path for our own crate code.
+schemars = { version = "1.0", optional = true }
+
 # HTTP API dependencies (optional)
 axum = { version = "0.7", features = ["ws"], optional = true }
 tower = { version = "0.4", optional = true }
@@ -185,6 +202,7 @@ cron = ["dep:cron", "dep:chrono-tz", "dep:rusqlite"]
 native-sandbox = ["rlimit"]
 cli-executor = []
 toolclad-session = ["dep:pty-process"]
+mcp-client = ["dep:rmcp", "dep:schemars"]  # MCP client (stdio child-process transport) — toml already a non-optional dep; schemars backs the echo_mcp_server test fixture's tool params
 metrics = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp"]
 cedar = ["dep:cedar-policy"]  # Cedar policy engine for formal authorization
 session = ["dep:symbi-session"]  # Experimental: multiparty session-type protocol monitor (off by default)

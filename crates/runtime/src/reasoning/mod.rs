@@ -21,6 +21,7 @@ pub mod loop_types;
 pub mod phases;
 pub mod policy_bridge;
 pub mod reasoning_loop;
+pub mod tool_executor_builder;
 
 // Phase 3 modules
 pub mod human_critic;
@@ -57,6 +58,7 @@ pub use phases::AgentPhase;
 pub use policy_bridge::{ReasoningPolicyGate, ToolFilterPolicyGate};
 pub use reasoning_loop::ReasoningLoopRunner;
 pub use schema_validation::{SchemaValidationError, ValidationPipeline};
+pub use tool_executor_builder::build_tool_executor;
 
 // Advanced reasoning loop primitives (orga-adaptive)
 #[cfg(feature = "orga-adaptive")]
