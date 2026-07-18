@@ -88,7 +88,7 @@ pub async fn run(matches: &ArgMatches) {
     use symbi_runtime::reasoning::circuit_breaker::CircuitBreakerRegistry;
     use symbi_runtime::reasoning::context_manager::DefaultContextManager;
     use symbi_runtime::reasoning::conversation::{Conversation, ConversationMessage};
-    use symbi_runtime::reasoning::executor::DefaultActionExecutor;
+    use symbi_runtime::reasoning::executor::UnavailableToolExecutor;
     use symbi_runtime::reasoning::loop_types::{BufferedJournal, LoopConfig};
     use symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate;
     use symbi_runtime::reasoning::reasoning_loop::ReasoningLoopRunner;
@@ -122,7 +122,10 @@ pub async fn run(matches: &ArgMatches) {
     let runner = ReasoningLoopRunner {
         provider,
         policy_gate,
-        executor: Arc::new(DefaultActionExecutor::default()),
+        // `symbi run` has no tool backend wired, so use the honest executor
+        // that surfaces tool calls as errors rather than fabricating success.
+        // (MCP-backed execution is a separate, planned feature.)
+        executor: Arc::new(UnavailableToolExecutor),
         context_manager: Arc::new(DefaultContextManager::default()),
         circuit_breakers: Arc::new(CircuitBreakerRegistry::default()),
         journal: Arc::new(BufferedJournal::new(1000)),

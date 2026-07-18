@@ -64,7 +64,7 @@ pub async fn builtin_reason(args: &[DslValue], ctx: &ReasoningBuiltinContext) ->
     use symbi_runtime::reasoning::circuit_breaker::CircuitBreakerRegistry;
     use symbi_runtime::reasoning::context_manager::DefaultContextManager;
     use symbi_runtime::reasoning::conversation::{Conversation, ConversationMessage};
-    use symbi_runtime::reasoning::executor::DefaultActionExecutor;
+    use symbi_runtime::reasoning::executor::UnavailableToolExecutor;
     use symbi_runtime::reasoning::loop_types::{BufferedJournal, LoopConfig};
     use symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate;
     use symbi_runtime::reasoning::reasoning_loop::ReasoningLoopRunner;
@@ -83,7 +83,7 @@ pub async fn builtin_reason(args: &[DslValue], ctx: &ReasoningBuiltinContext) ->
     let runner = ReasoningLoopRunner {
         provider: Arc::clone(provider),
         policy_gate,
-        executor: Arc::new(DefaultActionExecutor::default()),
+        executor: Arc::new(UnavailableToolExecutor),
         context_manager: Arc::new(DefaultContextManager::default()),
         circuit_breakers: Arc::new(CircuitBreakerRegistry::default()),
         journal: Arc::new(BufferedJournal::new(1000)),
@@ -221,14 +221,23 @@ pub async fn builtin_tool_call(
         }
     };
 
-    // In a full setup, this would go through ToolInvocationEnforcer.
-    // For now, return a structured result indicating the tool call was made.
+    // There is no tool backend wired into the DSL runtime yet (MCP-backed
+    // execution via ToolInvocationEnforcer is a planned feature). Return an
+    // honest `not_executed` result rather than fabricating a success — callers
+    // must not assume the tool actually ran.
     let mut result = HashMap::new();
     result.insert("tool".to_string(), DslValue::String(name));
     result.insert("arguments".to_string(), DslValue::String(arguments));
     result.insert(
         "status".to_string(),
-        DslValue::String("executed".to_string()),
+        DslValue::String("not_executed".to_string()),
+    );
+    result.insert(
+        "reason".to_string(),
+        DslValue::String(
+            "no tool backend configured (MCP-backed tool execution is not yet available)"
+                .to_string(),
+        ),
     );
 
     Ok(DslValue::Map(result))

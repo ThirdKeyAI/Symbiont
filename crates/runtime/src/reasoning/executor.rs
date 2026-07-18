@@ -174,6 +174,54 @@ async fn execute_tool_call(name: &str, arguments: &str) -> Result<String, String
     ))
 }
 
+/// An [`ActionExecutor`] for runners that have **no tool backend wired**.
+///
+/// It advertises no tools (so the model is not offered any) and, if a tool
+/// call is nonetheless proposed, returns a clear `is_error` observation
+/// instead of fabricating a success. This is the honest default for entry
+/// points like `symbi run` and the DSL `reason()` builtin, which do not yet
+/// construct an MCP client / [`EnforcedActionExecutor`]. It exists so those
+/// paths never tell the model a tool "executed successfully" when nothing ran.
+///
+/// Contrast: [`DefaultActionExecutor`] is a parallel-dispatch executor whose
+/// per-call result is an echo placeholder (useful as a test double, not for
+/// production tool execution); [`EnforcedActionExecutor`] performs real,
+/// enforcer-gated execution when a tool backend is available.
+#[derive(Default)]
+pub struct UnavailableToolExecutor;
+
+#[async_trait]
+impl ActionExecutor for UnavailableToolExecutor {
+    async fn execute_actions(
+        &self,
+        actions: &[ProposedAction],
+        _config: &LoopConfig,
+        _circuit_breakers: &CircuitBreakerRegistry,
+    ) -> Vec<Observation> {
+        actions
+            .iter()
+            .filter_map(|action| match action {
+                ProposedAction::ToolCall { call_id, name, .. } => Some(Observation {
+                    source: name.clone(),
+                    content: format!(
+                        "Tool '{}' was not executed: this runner has no tool backend \
+                         configured (MCP-backed tool execution is not yet available). \
+                         Reason about the task and respond without tool results.",
+                        name
+                    ),
+                    is_error: true,
+                    call_id: Some(call_id.clone()),
+                    metadata: Default::default(),
+                }),
+                _ => None,
+            })
+            .collect()
+    }
+
+    // tool_definitions() falls back to the trait default (empty) — advertise
+    // no tools, so the model isn't offered capabilities the runner can't run.
+}
+
 /// An executor that delegates to a real ToolInvocationEnforcer.
 pub struct EnforcedActionExecutor {
     enforcer: std::sync::Arc<dyn crate::integrations::tool_invocation::ToolInvocationEnforcer>,
@@ -349,6 +397,42 @@ mod tests {
         assert!(!obs[0].is_error);
         assert_eq!(obs[0].source, "search");
         assert_eq!(obs[0].call_id.as_deref(), Some("c1"));
+    }
+
+    #[tokio::test]
+    async fn test_unavailable_tool_executor_reports_error_not_fake_success() {
+        let executor = UnavailableToolExecutor;
+        let config = LoopConfig::default();
+        let circuit_breakers = CircuitBreakerRegistry::default();
+
+        // Advertises no tools.
+        assert!(executor.tool_definitions().is_empty());
+
+        let actions = vec![ProposedAction::ToolCall {
+            call_id: "c1".into(),
+            name: "search".into(),
+            arguments: r#"{"q": "test"}"#.into(),
+        }];
+        let obs = executor
+            .execute_actions(&actions, &config, &circuit_breakers)
+            .await;
+
+        assert_eq!(obs.len(), 1);
+        // The key property: a call is surfaced as an error, never as a
+        // fabricated success.
+        assert!(obs[0].is_error);
+        assert_eq!(obs[0].source, "search");
+        assert_eq!(obs[0].call_id.as_deref(), Some("c1"));
+        assert!(obs[0].content.contains("not executed"));
+
+        // Non-tool actions produce no observations.
+        let non_tool = vec![ProposedAction::Respond {
+            content: "hi".into(),
+        }];
+        assert!(executor
+            .execute_actions(&non_tool, &config, &circuit_breakers)
+            .await
+            .is_empty());
     }
 
     #[tokio::test]
