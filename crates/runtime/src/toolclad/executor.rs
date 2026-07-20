@@ -434,7 +434,7 @@ impl ToolCladExecutor {
         })?;
 
         // Map validated args to upstream tool's expected format
-        let upstream_args = map_upstream_args(mcp, validated);
+        let upstream_args = map_upstream_args(mcp, &manifest.args, validated);
 
         let result = crate::integrations::mcp::stdio_client::RmcpStdioClient::verified_invoke(
             spec,
@@ -507,10 +507,19 @@ impl ToolCladExecutor {
 
 /// Map validated local argument names to the upstream MCP tool's expected
 /// argument names via the manifest's `[mcp.field_map]` (identity when a local
-/// name has no mapping entry).
+/// name has no mapping entry), coercing each value to the JSON type the upstream
+/// tool's schema expects based on the manifest arg's declared `type`.
+///
+/// `parse_and_validate` stringifies every argument (numbers, booleans, arrays,
+/// and objects arrive here as their JSON text), so without this an upstream tool
+/// whose schema wants a number/boolean/array/object would receive a quoted
+/// string and its JSON-Schema validation would reject it. Coercion is by
+/// declared `type_name`; a value that fails to parse falls back to a string
+/// rather than erroring (the validator already gate-kept the value).
 #[cfg(feature = "mcp-client")]
 fn map_upstream_args(
     mcp: &super::manifest::McpProxyDef,
+    arg_defs: &HashMap<String, super::manifest::ArgDef>,
     validated: &HashMap<String, String>,
 ) -> serde_json::Map<String, serde_json::Value> {
     let mut upstream_args = serde_json::Map::new();
@@ -520,9 +529,39 @@ fn map_upstream_args(
             .get(local_name)
             .cloned()
             .unwrap_or_else(|| local_name.clone());
-        upstream_args.insert(upstream_name, serde_json::json!(value));
+        let type_name = arg_defs
+            .get(local_name)
+            .map(|d| d.type_name.as_str())
+            .unwrap_or("string");
+        upstream_args.insert(upstream_name, coerce_arg_value(type_name, value));
     }
     upstream_args
+}
+
+/// Coerce a validated argument's string form to the JSON type its declared
+/// ToolClad `type` implies, for MCP upstream dispatch. Unknown/string-like types
+/// (`string`, `enum`, `url`, `scope_target`, …) stay strings; a value that
+/// doesn't parse falls back to a string so a mislabeled arg can't panic a call.
+#[cfg(feature = "mcp-client")]
+fn coerce_arg_value(type_name: &str, value: &str) -> serde_json::Value {
+    use serde_json::Value;
+    match type_name {
+        "integer" => value
+            .parse::<i64>()
+            .map(Value::from)
+            .unwrap_or_else(|_| Value::String(value.to_string())),
+        "number" | "float" => value
+            .parse::<f64>()
+            .map(Value::from)
+            .unwrap_or_else(|_| Value::String(value.to_string())),
+        "boolean" => value
+            .parse::<bool>()
+            .map(Value::from)
+            .unwrap_or_else(|_| Value::String(value.to_string())),
+        "array" | "object" => serde_json::from_str::<Value>(value)
+            .unwrap_or_else(|_| Value::String(value.to_string())),
+        _ => Value::String(value.to_string()),
+    }
 }
 
 #[async_trait]
@@ -530,7 +569,7 @@ impl ActionExecutor for ToolCladExecutor {
     async fn execute_actions(
         &self,
         actions: &[ProposedAction],
-        _config: &LoopConfig,
+        config: &LoopConfig,
         _circuit_breakers: &CircuitBreakerRegistry,
     ) -> Vec<Observation> {
         let mut observations = Vec::new();
@@ -565,8 +604,31 @@ impl ActionExecutor for ToolCladExecutor {
                 } else if is_mcp_tool {
                     match self.parse_and_validate(name, arguments) {
                         Ok((manifest, validated)) => {
-                            self.execute_mcp_backend_async(name, manifest, &validated)
-                                .await
+                            // Bound the MCP call: it spawns a subprocess and does
+                            // a stdio handshake with no inherent deadline, so a
+                            // hung/slow server would otherwise hang the caller
+                            // indefinitely (the DSL `tool_call()` path has no
+                            // outer timeout). Use the tool's declared
+                            // `timeout_seconds`, capped by `config.tool_timeout`;
+                            // treat 0 as "no per-tool limit" and defer to config.
+                            let manifest_secs = manifest.tool.timeout_seconds;
+                            let call_timeout = if manifest_secs == 0 {
+                                config.tool_timeout
+                            } else {
+                                Duration::from_secs(manifest_secs).min(config.tool_timeout)
+                            };
+                            match tokio::time::timeout(
+                                call_timeout,
+                                self.execute_mcp_backend_async(name, manifest, &validated),
+                            )
+                            .await
+                            {
+                                Ok(r) => r,
+                                Err(_) => Err(format!(
+                                    "MCP tool '{}' timed out after {:?}",
+                                    name, call_timeout
+                                )),
+                            }
                         }
                         Err(e) => Err(e),
                     }
@@ -1671,7 +1733,7 @@ query = "q"
         let mut args = HashMap::new();
         args.insert("query".to_string(), "rust async".to_string());
 
-        let upstream = map_upstream_args(&mcp, &args);
+        let upstream = map_upstream_args(&mcp, &HashMap::new(), &args);
         assert_eq!(upstream["q"], "rust async");
     }
 
@@ -1688,8 +1750,63 @@ tool = "upstream_tool"
         args.insert("input".to_string(), "hello".to_string());
 
         // No field_map entry for "input", so it passes through unchanged.
-        let upstream = map_upstream_args(&mcp, &args);
+        let upstream = map_upstream_args(&mcp, &HashMap::new(), &args);
         assert_eq!(upstream["input"], "hello");
+    }
+
+    #[cfg(feature = "mcp-client")]
+    #[test]
+    fn test_mcp_args_coerced_to_declared_json_types() {
+        use crate::toolclad::manifest::ArgDef;
+        let mcp: crate::toolclad::manifest::McpProxyDef =
+            toml::from_str("server = \"s\"\ntool = \"t\"\n").unwrap();
+
+        let mut arg_defs = HashMap::new();
+        for (n, t) in [
+            ("count", "integer"),
+            ("ratio", "number"),
+            ("flag", "boolean"),
+            ("items", "array"),
+            ("opts", "object"),
+            ("label", "string"),
+            ("mode", "enum"),
+        ] {
+            arg_defs.insert(
+                n.to_string(),
+                ArgDef {
+                    type_name: t.to_string(),
+                    ..Default::default()
+                },
+            );
+        }
+
+        // Values as parse_and_validate would produce them (everything stringified).
+        let mut validated = HashMap::new();
+        validated.insert("count".to_string(), "5".to_string());
+        validated.insert("ratio".to_string(), "1.5".to_string());
+        validated.insert("flag".to_string(), "true".to_string());
+        validated.insert("items".to_string(), "[1,2,3]".to_string());
+        validated.insert("opts".to_string(), r#"{"k":1}"#.to_string());
+        validated.insert("label".to_string(), "hello".to_string());
+        validated.insert("mode".to_string(), "fast".to_string());
+
+        let up = map_upstream_args(&mcp, &arg_defs, &validated);
+        // Numbers/booleans become real JSON scalars, not quoted strings.
+        assert_eq!(up["count"], serde_json::json!(5));
+        assert_eq!(up["ratio"], serde_json::json!(1.5));
+        assert_eq!(up["flag"], serde_json::json!(true));
+        // Arrays/objects are parsed back into structured JSON.
+        assert_eq!(up["items"], serde_json::json!([1, 2, 3]));
+        assert_eq!(up["opts"], serde_json::json!({"k": 1}));
+        // String-like types stay strings.
+        assert_eq!(up["label"], serde_json::json!("hello"));
+        assert_eq!(up["mode"], serde_json::json!("fast"));
+
+        // A malformed value for a typed arg falls back to a string, never panics.
+        let mut bad = HashMap::new();
+        bad.insert("count".to_string(), "not-a-number".to_string());
+        let up2 = map_upstream_args(&mcp, &arg_defs, &bad);
+        assert_eq!(up2["count"], serde_json::json!("not-a-number"));
     }
 
     #[test]

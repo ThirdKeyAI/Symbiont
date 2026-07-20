@@ -161,3 +161,68 @@ async fn execute_actions_fails_closed_when_verification_enforced() {
         observations[0]
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+#[serial]
+async fn execute_actions_times_out_a_hung_mcp_server() {
+    // A registry entry pointing at `sleep` never completes the MCP handshake, so
+    // the call would hang forever without a per-call timeout. execute_actions
+    // must bound it (config.tool_timeout here) and surface an is_error
+    // observation quickly — this is what protects the DSL tool_call() path,
+    // which has no outer timeout of its own.
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        dir.path().join("mcp-config.toml"),
+        "[servers.hang]\ncommand = \"sleep\"\nargs = [\"30\"]\n",
+    )
+    .expect("write mcp-config.toml");
+
+    // Manifest routes to the "hang" server; verification off so we exercise the
+    // invoke path, not the schemapin gate.
+    let mut manifest = build_echo_manifest();
+    manifest.mcp = Some(McpProxyDef {
+        server: "hang".to_string(),
+        tool: "noop".to_string(),
+        field_map: HashMap::new(),
+    });
+
+    let original = std::env::current_dir().expect("cwd");
+    std::env::set_current_dir(dir.path()).expect("set cwd");
+
+    let executor =
+        ToolCladExecutor::new(vec![("echo".to_string(), manifest)]).with_mcp_verification(false);
+    let action = ProposedAction::ToolCall {
+        call_id: "c1".to_string(),
+        name: "echo".to_string(),
+        arguments: r#"{"text":"hi"}"#.to_string(),
+    };
+    let config = LoopConfig {
+        tool_timeout: std::time::Duration::from_millis(300),
+        ..Default::default()
+    };
+
+    let start = std::time::Instant::now();
+    let observations = executor
+        .execute_actions(&[action], &config, &CircuitBreakerRegistry::default())
+        .await;
+    let elapsed = start.elapsed();
+
+    std::env::set_current_dir(&original).expect("restore cwd");
+
+    assert_eq!(observations.len(), 1);
+    assert!(
+        observations[0].is_error,
+        "a hung MCP server must surface as an error, got: {:?}",
+        observations[0]
+    );
+    assert!(
+        observations[0].content.contains("timed out"),
+        "observation should report a timeout, got: {}",
+        observations[0].content
+    );
+    // Must return near the 300ms bound, not the 30s sleep.
+    assert!(
+        elapsed < std::time::Duration::from_secs(5),
+        "timeout should fire promptly, took {elapsed:?}"
+    );
+}

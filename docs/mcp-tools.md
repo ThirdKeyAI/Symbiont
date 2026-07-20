@@ -75,7 +75,10 @@ proposes a tool call:
 
 1. The reasoning loop's policy gate authorizes the call (fail-closed by
    default; see below).
-2. `ToolCladExecutor` validates + field-maps the arguments per the manifest.
+2. `ToolCladExecutor` validates the arguments per the manifest, then field-maps
+   them to the upstream tool's argument names and JSON types — a manifest
+   `integer`/`number`/`boolean`/`array`/`object` argument is sent as the matching
+   JSON type, not a quoted string.
 3. The `[mcp].server` name is resolved in the registry to a stdio launch spec.
 4. The server subprocess is spawned; the MCP handshake runs; the tool schema is
    fetched.
@@ -116,9 +119,6 @@ a clear error rather than a fabricated success.
 ## Deferred (later phases)
 
 - HTTP/SSE MCP transport (v1 is stdio only).
-- Typed upstream arguments (v1 sends all mapped arguments as JSON strings; an
-  upstream tool whose schema expects a number/boolean/array/object should accept
-  the string form or validate leniently).
 - MCP tools in `symbi up`/shell (uses its own orchestrator toolset).
 - A `.symbi` grammar construct for declaring servers inline.
 - The `symbi-mcp` management CLI (`add`/`list`/`status`).

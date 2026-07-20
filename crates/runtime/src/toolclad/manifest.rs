@@ -108,7 +108,7 @@ fn default_hash() -> String {
 }
 
 /// Argument definition.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ArgDef {
     pub position: u32,
     #[serde(default)]
