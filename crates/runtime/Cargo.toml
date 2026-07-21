@@ -202,6 +202,7 @@ cron = ["dep:cron", "dep:chrono-tz", "dep:rusqlite"]
 native-sandbox = ["rlimit"]
 cli-executor = []
 toolclad-session = ["dep:pty-process"]
+toolclad-browser = []  # CDP browser backend seam; empty until the driver dep lands. Not in default/full — no build implies browser execution works.
 mcp-client = ["dep:rmcp", "dep:schemars"]  # MCP client (stdio child-process transport) — toml already a non-optional dep; schemars backs the echo_mcp_server test fixture's tool params
 metrics = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp"]
 cedar = ["dep:cedar-policy"]  # Cedar policy engine for formal authorization

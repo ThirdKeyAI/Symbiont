@@ -95,6 +95,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fabricated vulnerability findings. Every fleet agent's system prompt now carries
   an explicit constraint: it cannot execute tools/commands/network, and must never
   claim to have run anything or invent results.
+- **Browser tools no longer fabricate success.** `mode = "browser"` ToolClad
+  tools were wired live but had no CDP backend, so every command returned a
+  fake `"status":"success"` envelope. They now run argument validation and the
+  scope deny-by-default guard, then return an honest error (gated behind the new
+  `toolclad-browser` feature) until a real Chrome DevTools Protocol backend is
+  added. No build enables browser execution by default.
 
 ## [1.16.0] - 2026-06-25
 

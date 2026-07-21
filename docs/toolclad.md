@@ -252,6 +252,13 @@ Each declared command becomes a separate MCP tool definition (e.g., `msfconsole.
 
 ### Browser (CDP)
 
+> **Status: not yet executable.** Browser (`mode = "browser"`) tools are parsed,
+> argument-validated, and scope-checked, but Chrome DevTools Protocol execution
+> is not implemented yet. It is gated behind the `toolclad-browser` cargo feature,
+> whose real backend is still pending — until then a browser command returns an
+> honest error, never a fabricated result. Declare browser tools now if you like;
+> they will start executing once the CDP backend lands.
+
 Headless or live Chrome DevTools Protocol for web interaction. Requires the `toolclad-browser` feature.
 
 ```toml
