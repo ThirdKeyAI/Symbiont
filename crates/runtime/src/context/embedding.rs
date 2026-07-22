@@ -388,13 +388,33 @@ pub fn create_embedding_service_from_env(
     match EmbeddingConfig::from_env() {
         Some(config) => create_embedding_service(&config),
         None => {
-            tracing::debug!(
+            // No real provider configured. Hash-based mock embeddings make
+            // semantic search meaningless, so this must be loud — and callers
+            // can opt into a hard failure instead of a silent mock.
+            if env_flag_enabled("SYMBIONT_REQUIRE_REAL_EMBEDDINGS") {
+                return Err(ContextError::StorageError {
+                    reason: "No embedding provider configured and \
+                             SYMBIONT_REQUIRE_REAL_EMBEDDINGS is set; refusing to use mock \
+                             embeddings. Set EMBEDDING_* or OPENAI_API_KEY."
+                        .to_string(),
+                });
+            }
+            tracing::warn!(
                 dimension = fallback_dimension,
-                "No embedding provider configured, using mock embedding service"
+                "No embedding provider configured; using MOCK (hash-based) embeddings — \
+                 semantic search / RAG results will be meaningless. Set EMBEDDING_* or \
+                 OPENAI_API_KEY, or set SYMBIONT_REQUIRE_REAL_EMBEDDINGS=1 to fail fast."
             );
             Ok(Arc::new(MockEmbeddingService::new(fallback_dimension)))
         }
     }
+}
+
+/// True if `var` is set to a truthy value (`1` or `true`, case-insensitive).
+fn env_flag_enabled(var: &str) -> bool {
+    std::env::var(var)
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -418,7 +438,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(embedding_env)]
     fn test_embedding_config_defaults_ollama() {
         clear_env();
         std::env::set_var("EMBEDDING_PROVIDER", "ollama");
@@ -432,7 +452,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(embedding_env)]
     fn test_embedding_config_defaults_openai() {
         clear_env();
         std::env::set_var("EMBEDDING_PROVIDER", "openai");
@@ -447,7 +467,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(embedding_env)]
     fn test_embedding_config_auto_detect_openai_from_key() {
         clear_env();
         std::env::set_var("OPENAI_API_KEY", "sk-auto");
@@ -458,7 +478,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(embedding_env)]
     fn test_embedding_config_auto_detect_ollama_from_localhost_url() {
         clear_env();
         std::env::set_var("EMBEDDING_API_BASE_URL", "http://localhost:11434");
@@ -468,14 +488,14 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(embedding_env)]
     fn test_embedding_config_none_when_no_provider() {
         clear_env();
         assert!(EmbeddingConfig::from_env().is_none());
     }
 
     #[test]
-    #[serial]
+    #[serial(embedding_env)]
     fn test_embedding_config_dimension_override() {
         clear_env();
         std::env::set_var("EMBEDDING_PROVIDER", "ollama");
@@ -486,7 +506,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(embedding_env)]
     fn test_create_embedding_service_from_env_fallback() {
         clear_env();
 
@@ -495,7 +515,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
+    #[serial(embedding_env)]
     async fn test_mock_fallback_generates_embeddings() {
         clear_env();
 
@@ -506,5 +526,18 @@ mod tests {
         // Verify it's normalized (magnitude ≈ 1.0)
         let mag: f32 = emb.iter().map(|x| x * x).sum::<f32>().sqrt();
         assert!((mag - 1.0).abs() < 0.01);
+    }
+
+    #[test]
+    #[serial_test::serial(embedding_env)]
+    fn test_require_real_embeddings_hard_fails_without_provider() {
+        clear_env();
+        std::env::set_var("SYMBIONT_REQUIRE_REAL_EMBEDDINGS", "1");
+        let result = create_embedding_service_from_env(256);
+        std::env::remove_var("SYMBIONT_REQUIRE_REAL_EMBEDDINGS");
+        assert!(
+            result.is_err(),
+            "with SYMBIONT_REQUIRE_REAL_EMBEDDINGS set and no provider, must refuse the mock"
+        );
     }
 }

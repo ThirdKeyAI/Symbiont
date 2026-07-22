@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Live RAG retrieval in interactive chat.** The WebSocket coordinator now wires
+  a real `KnowledgeBridge` (over `StandardContextManager` + LanceDB) into the
+  reasoning loop, so knowledge retrieval and the `recall_knowledge` /
+  `store_knowledge` tools run for live agents. RAG turns on when built with the
+  `vector-lancedb` feature and an embedding provider is configured
+  (`EMBEDDING_*` / `OPENAI_API_KEY`); otherwise it stays off with a clear log.
+  The previously-silent mock-embedding fallback now warns loudly, and
+  `SYMBIONT_REQUIRE_REAL_EMBEDDINGS=1` makes an unconfigured provider fail fast.
 - **MCP-backed tool execution (`mcp-client` feature).** ToolClad `.clad.toml`
   manifests can route a tool to an upstream Model Context Protocol server over
   stdio via an `[mcp]` block (`server`/`tool`/`field_map`), with servers declared

@@ -58,6 +58,14 @@ pub struct CoordinatorState {
     pub runtime_provider: Arc<dyn RuntimeApiProvider>,
     pub tool_definitions: Vec<ToolDefinition>,
     pub loop_config: LoopConfig,
+    /// Live RAG retrieval bridge, or `None` when RAG is not configured/available.
+    pub knowledge_bridge: Option<Arc<crate::reasoning::knowledge_bridge::KnowledgeBridge>>,
+    /// Stable namespace used for all coordinator knowledge store/recall calls.
+    /// Generated once per process so knowledge persists across turns and
+    /// sessions (single-runtime deployment). Must stay stable across the
+    /// process lifetime; if per-agent search filtering is added later, this
+    /// id is what identifies the coordinator's own knowledge namespace.
+    pub knowledge_agent_id: AgentId,
 }
 
 #[cfg(feature = "http-api")]
@@ -80,8 +88,81 @@ impl CoordinatorState {
                 timeout: std::time::Duration::from_secs(120),
                 ..Default::default()
             },
+            knowledge_bridge: None,
+            knowledge_agent_id: AgentId::new(),
         }
     }
+
+    /// Build and attach the live RAG knowledge bridge when RAG is usable
+    /// (the `vector-lancedb` feature is built AND an embedding provider is
+    /// configured). Otherwise leaves `knowledge_bridge` as `None` after logging
+    /// the reason. Async because building the context manager opens the vector
+    /// store.
+    pub async fn with_rag(mut self, agent_id: &str) -> Self {
+        self.knowledge_bridge = build_knowledge_bridge(agent_id).await;
+        self
+    }
+}
+
+/// Construct a live `KnowledgeBridge` over a real `StandardContextManager`
+/// backed by LanceDB, or return `None` (with a loud log) when RAG cannot run.
+#[cfg(all(feature = "http-api", feature = "vector-lancedb"))]
+async fn build_knowledge_bridge(
+    agent_id: &str,
+) -> Option<Arc<crate::reasoning::knowledge_bridge::KnowledgeBridge>> {
+    use crate::context::embedding::EmbeddingConfig;
+    use crate::context::manager::{ContextManagerConfig, StandardContextManager};
+    use crate::context::vector_db_factory::VectorBackendConfig;
+    use crate::context::vector_db_lance::LanceDbConfig;
+    use crate::reasoning::knowledge_bridge::{KnowledgeBridge, KnowledgeConfig};
+
+    let Some(embed_cfg) = EmbeddingConfig::from_env() else {
+        tracing::warn!(
+            "RAG retrieval disabled: no embedding provider configured (set EMBEDDING_* or \
+             OPENAI_API_KEY). Chat will run without knowledge retrieval."
+        );
+        return None;
+    };
+
+    let cfg = ContextManagerConfig {
+        enable_vector_db: true,
+        vector_backend: Some(VectorBackendConfig::LanceDb(LanceDbConfig {
+            vector_dimension: embed_cfg.dimension,
+            ..Default::default()
+        })),
+        ..Default::default()
+    };
+
+    match StandardContextManager::new(cfg, agent_id).await {
+        Ok(scm) => {
+            tracing::info!(
+                "RAG knowledge bridge constructed (vector-lancedb + embedding provider); \
+                 retrieval will be inactive if the vector backend failed to initialize \
+                 (see warnings above)"
+            );
+            Some(Arc::new(KnowledgeBridge::new(
+                Arc::new(scm),
+                KnowledgeConfig::default(),
+            )))
+        }
+        Err(e) => {
+            tracing::warn!("RAG retrieval disabled: failed to build context manager: {e}");
+            None
+        }
+    }
+}
+
+/// Without the `vector-lancedb` feature there is no real vector backend, so RAG
+/// stays off honestly.
+#[cfg(all(feature = "http-api", not(feature = "vector-lancedb")))]
+async fn build_knowledge_bridge(
+    _agent_id: &str,
+) -> Option<Arc<crate::reasoning::knowledge_bridge::KnowledgeBridge>> {
+    tracing::warn!(
+        "RAG retrieval disabled: built without the 'vector-lancedb' feature. \
+         Rebuild with --features vector-lancedb to enable knowledge retrieval."
+    );
+    None
 }
 
 /// Per-connection session that holds conversation state.
@@ -136,7 +217,7 @@ impl CoordinatorSession {
             context_manager: Arc::new(DefaultContextManager::default()),
             circuit_breakers: Arc::new(CircuitBreakerRegistry::default()),
             journal: streaming_journal,
-            knowledge_bridge: None,
+            knowledge_bridge: self.state.knowledge_bridge.clone(),
         };
 
         // Spawn the journal→WebSocket bridge task
@@ -214,8 +295,11 @@ impl CoordinatorSession {
             }
         });
 
-        // Run the reasoning loop
-        let agent_id = AgentId::new();
+        // Run the reasoning loop. The coordinator uses one stable knowledge
+        // namespace (set once at process start) so store/recall persist
+        // across turns and sessions in this single-runtime deployment; keep
+        // this stable if per-agent search filtering is added later.
+        let agent_id = self.state.knowledge_agent_id;
         tracing::info!(
             session_id = %self.session_id,
             request_id = %request_id,
@@ -280,6 +364,34 @@ impl CoordinatorSession {
             iterations = result.iterations,
             tokens = result.total_usage.total_tokens,
             "Coordinator reasoning loop complete"
+        );
+    }
+}
+
+#[cfg(all(test, feature = "http-api"))]
+mod rag_wiring_tests {
+    use super::*;
+
+    #[tokio::test]
+    #[serial_test::serial(embedding_env)]
+    async fn build_knowledge_bridge_returns_none_without_embedding_provider() {
+        // Clear every env var that EmbeddingConfig::from_env() reads so
+        // from_env() is guaranteed to return None regardless of ambient env.
+        for k in [
+            "EMBEDDING_API_KEY",
+            "OPENAI_API_KEY",
+            "EMBEDDING_API_BASE_URL",
+            "OPENAI_API_BASE_URL",
+            "EMBEDDING_PROVIDER",
+            "EMBEDDING_MODEL",
+            "VECTOR_DIMENSION",
+        ] {
+            std::env::remove_var(k);
+        }
+        let bridge = build_knowledge_bridge("test-agent").await;
+        assert!(
+            bridge.is_none(),
+            "with no embedding provider configured, RAG must stay off (None)"
         );
     }
 }

@@ -694,12 +694,15 @@ pub async fn run(matches: &ArgMatches) {
                     },
                 ));
 
-            let coordinator_state =
-                Arc::new(symbi_runtime::api::coordinator::CoordinatorState::new(
+            let coordinator_state = Arc::new(
+                symbi_runtime::api::coordinator::CoordinatorState::new(
                     Arc::new(cloud_provider),
                     policy_gate,
                     rt.clone(),
-                ));
+                )
+                .with_rag("symbi-coordinator")
+                .await,
+            );
             api_server = api_server.with_coordinator(coordinator_state);
             println!("✓ Coordinator Chat enabled on /ws/chat");
         } else {
