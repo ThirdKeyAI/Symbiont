@@ -458,6 +458,8 @@ cd crates/runtime && cargo run --example context_example
 | `cli-executor` | Verwaltete KI-CLI-Subprozesse (Claude Code etc.) — Mode B | **Yes** |
 | `native-sandbox` | Native Prozess-Sandbox | Nein |
 | `metrics` | OpenTelemetry Metriken/Tracing | Nein |
+| `mcp-client` | MCP-gestuetzte ToolClad-Tool-Ausfuehrung ueber stdio (SchemaPin-verifiziert) | No |
+| `toolclad-browser` | Browser-ToolClad-Backend (CDP) — nur ein Platzhalter; liefert einen expliziten Fehler, bis das CDP-Backend verfuegbar ist | No |
 | `interactive` | Interaktive Eingabeaufforderungen fuer `symbi init` (dialoguer) | Standard |
 | `full` | Alle optionalen Runtime-, Vektor- und Policy-Features | Nein |
 

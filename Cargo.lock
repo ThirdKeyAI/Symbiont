@@ -2131,9 +2131,9 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-epoch"
-version = "0.9.18"
+version = "0.9.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b82ac4a3c2ca9c3460964f020e1402edd5753411d7737aa39c3714ad1b5420e"
+checksum = "2d6914041f254d6e9176c01941b21115dcfb7089e55135a35411081bd106ef3f"
 dependencies = [
  "crossbeam-utils",
 ]
@@ -8363,7 +8363,7 @@ checksum = "ba39f3699c378cd8970968dcbff9c43159ea4cfbd88d43c00b22f2ef10a435d2"
 
 [[package]]
 name = "repl-cli"
-version = "1.17.0"
+version = "1.18.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -8378,7 +8378,7 @@ dependencies = [
 
 [[package]]
 name = "repl-core"
-version = "1.17.0"
+version = "1.18.0"
 dependencies = [
  "bytes",
  "chrono",
@@ -8397,7 +8397,7 @@ dependencies = [
 
 [[package]]
 name = "repl-lsp"
-version = "1.17.0"
+version = "1.18.0"
 dependencies = [
  "repl-core",
  "tokio",
@@ -8406,7 +8406,7 @@ dependencies = [
 
 [[package]]
 name = "repl-proto"
-version = "1.17.0"
+version = "1.18.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -9497,9 +9497,9 @@ dependencies = [
 
 [[package]]
 name = "spin"
-version = "0.9.8"
+version = "0.9.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6980e8d7511241f8acf4aebddbb1ff938df5eebe98691418c4468d0b72a96a67"
+checksum = "3763264f6b73151db08c50ff20d7d8a0b8796e021cdea7ceedad07b80155fa0e"
 
 [[package]]
 name = "spinning_top"
@@ -9677,7 +9677,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "symbi"
-version = "1.17.0"
+version = "1.18.0"
 dependencies = [
  "async-trait",
  "cedar-policy",
@@ -9759,7 +9759,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-dsl"
-version = "1.17.0"
+version = "1.18.0"
 dependencies = [
  "anyhow",
  "cc",
@@ -9802,7 +9802,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-runtime"
-version = "1.17.0"
+version = "1.18.0"
 dependencies = [
  "aes-gcm",
  "agentpin",
@@ -9898,7 +9898,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-session"
-version = "1.17.0"
+version = "1.18.0"
 dependencies = [
  "proptest",
  "serde",
@@ -9907,7 +9907,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-shell"
-version = "1.17.0"
+version = "1.18.0"
 dependencies = [
  "aes-gcm",
  "anyhow",

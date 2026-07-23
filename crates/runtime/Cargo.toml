@@ -1,6 +1,6 @@
 [package]
 name = "symbi-runtime"
-version = "1.17.0"
+version = "1.18.0"
 edition = "2021"
 authors = ["Jascha Wanger / ThirdKey.ai"]
 description = "Agent Runtime System for the Symbi platform"
@@ -70,8 +70,8 @@ name = "echo_mcp_server"
 path = "tests/fixtures/echo_mcp_server.rs"
 required-features = ["mcp-client"]
 [dependencies]
-symbi-dsl = { path = "../dsl", version = "1.17.0" }
-symbi-session = { path = "../symbi-session", version = "1.17.0", optional = true }
+symbi-dsl = { path = "../dsl", version = "1.18.0" }
+symbi-session = { path = "../symbi-session", version = "1.18.0", optional = true }
 symbi-invis-strip = { path = "../symbi-invis-strip", version = "0.3.0" }
 symbi-channel-adapter = { path = "../channel-adapter", version = "0.1.4", default-features = false }
 tokio = { version = "1.0", features = ["full"] }

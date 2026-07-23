@@ -458,6 +458,8 @@ cd crates/runtime && cargo run --example context_example
 | `cli-executor` | ガバナンス対象のAI CLIサブプロセス（Claude Code など） — Mode B | **はい** |
 | `native-sandbox` | ネイティブプロセスサンドボックス | いいえ |
 | `metrics` | OpenTelemetryメトリクス/トレーシング | いいえ |
+| `mcp-client` | MCPベースのToolCladツール実行、stdio経由（SchemaPin検証済み） | No |
+| `toolclad-browser` | ブラウザ（CDP）ToolCladバックエンド — スタブのみ；CDPバックエンドが実装されるまで明示的なエラーを返す | No |
 | `interactive` | `symbi init` のインタラクティブプロンプト（dialoguer） | デフォルト |
 | `full` | オプションのランタイム、ベクトル、ポリシー機能のすべて | いいえ |
 

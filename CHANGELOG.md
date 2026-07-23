@@ -7,15 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-07-22
+
 ### Added
-- **Live RAG retrieval in interactive chat.** The WebSocket coordinator now wires
-  a real `KnowledgeBridge` (over `StandardContextManager` + LanceDB) into the
-  reasoning loop, so knowledge retrieval and the `recall_knowledge` /
-  `store_knowledge` tools run for live agents. RAG turns on when built with the
-  `vector-lancedb` feature and an embedding provider is configured
-  (`EMBEDDING_*` / `OPENAI_API_KEY`); otherwise it stays off with a clear log.
-  The previously-silent mock-embedding fallback now warns loudly, and
-  `SYMBIONT_REQUIRE_REAL_EMBEDDINGS=1` makes an unconfigured provider fail fast.
 - **MCP-backed tool execution (`mcp-client` feature).** ToolClad `.clad.toml`
   manifests can route a tool to an upstream Model Context Protocol server over
   stdio via an `[mcp]` block (`server`/`tool`/`field_map`), with servers declared
@@ -28,6 +22,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `KeyMismatch`), with `ToolCladExecutor::with_mcp_verification(false)` as a
   local-dev opt-out. The default build does not pull the MCP client transport.
   See `docs/mcp-tools.md`.
+- **Live RAG retrieval in interactive chat.** The WebSocket coordinator now wires
+  a real `KnowledgeBridge` (over `StandardContextManager` + LanceDB) into the
+  reasoning loop, so knowledge retrieval and the `recall_knowledge` /
+  `store_knowledge` tools run for live agents. RAG turns on when built with the
+  `vector-lancedb` feature and an embedding provider is configured
+  (`EMBEDDING_*` / `OPENAI_API_KEY`); otherwise it stays off with a clear log.
+  The previously-silent mock-embedding fallback now warns loudly, and
+  `SYMBIONT_REQUIRE_REAL_EMBEDDINGS=1` makes an unconfigured provider fail fast.
+- **Reasoning-loop robustness (issue #20).** The ORGA loop now fails over on
+  model refusal and no-progress turns instead of stalling; Anthropic requests
+  support prompt caching and extra-parameter passthrough; the output-token cap
+  is configurable; and 1M-context models report the correct context-window size.
+
+### Fixed
+- **Browser tools no longer fabricate success.** `mode = "browser"` ToolClad
+  tools were wired live but had no CDP backend, so every command returned a
+  fake `"status":"success"` envelope. They now run argument validation and the
+  scope deny-by-default guard, then return an honest error (gated behind the new
+  `toolclad-browser` feature) until a real Chrome DevTools Protocol backend is
+  added. No build enables browser execution by default.
+- **MCP tool arguments keep their declared JSON types.** A manifest arg typed
+  `integer`/`number`/`boolean`/`array`/`object` is sent to the upstream MCP
+  server as the matching JSON type instead of an always-quoted string.
+- **MCP tool calls are time-bounded.** A per-call timeout (the tool's
+  `timeout_seconds`, capped by the loop's `tool_timeout`) prevents a hung or slow
+  MCP server from hanging the caller, including the DSL `tool_call()` path.
+- **Anthropic refusals are surfaced.** A model refusal now maps to
+  `FinishReason::Refusal` (with a warning on no-progress turns) instead of
+  silently no-op'ing tool-driven agents.
+- **Backend-less runners are honest.** `symbi run` and the DSL reasoning builtins
+  return a clear "no tool backend" error rather than a fabricated success when no
+  tools are configured.
+
+### Security
+- **`opentelemetry_sdk` 0.31 → 0.32** — clears GHSA-w9wp-h8wv-79jx (W3C Baggage
+  unbounded allocation).
+- **`serde_with` → 3.21.0** — clears GHSA-7gcf-g7xr-8hxj (KeyValueMap
+  serialization panic on empty sequence/map entries).
+- **`dompurify` → 3.4.12** (`symbi-a2ui`) — clears GHSA-c2j3-45gr-mqc4
+  (`CUSTOM_ELEMENT_HANDLING` sanitizer bypass).
+- **`crossbeam-epoch` → 0.9.20** — clears RUSTSEC-2026-0204 (invalid pointer
+  dereference in the `fmt::Pointer` impl for `Atomic`/`Shared`); `spin` bumped to
+  0.9.9 to drop the yanked 0.9.8.
+
+### Changed
+- **`ethnum` → 1.5.3** — 1.5.2 no longer compiles on current stable Rust.
 
 ## [1.17.0] - 2026-07-01
 
@@ -103,12 +143,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fabricated vulnerability findings. Every fleet agent's system prompt now carries
   an explicit constraint: it cannot execute tools/commands/network, and must never
   claim to have run anything or invent results.
-- **Browser tools no longer fabricate success.** `mode = "browser"` ToolClad
-  tools were wired live but had no CDP backend, so every command returned a
-  fake `"status":"success"` envelope. They now run argument validation and the
-  scope deny-by-default guard, then return an honest error (gated behind the new
-  `toolclad-browser` feature) until a real Chrome DevTools Protocol backend is
-  added. No build enables browser execution by default.
 
 ## [1.16.0] - 2026-06-25
 

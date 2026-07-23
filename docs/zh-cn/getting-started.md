@@ -458,6 +458,8 @@ cd crates/runtime && cargo run --example context_example
 | `cli-executor` | 受治理的 AI CLI 子进程（Claude Code 等）—— 模式 B | 是 |
 | `native-sandbox` | 原生进程沙箱 | 否 |
 | `metrics` | OpenTelemetry 指标/追踪 | 否 |
+| `mcp-client` | 基于 MCP、通过 stdio 的 ToolClad 工具执行（经 SchemaPin 验证） | No |
+| `toolclad-browser` | 浏览器（CDP）ToolClad 后端 — 仅为占位接口，在 CDP 后端就绪前会明确返回错误 | No |
 | `interactive` | `symbi init` 的交互式提示（dialoguer） | 默认 |
 | `full` | 所有可选的运行时、向量和策略特性 | 否 |
 

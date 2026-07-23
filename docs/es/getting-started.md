@@ -476,6 +476,8 @@ cd crates/runtime && cargo run --example context_example
 | `cli-executor` | Subprocesos de CLI de IA gobernados (Claude Code, etc.) — Modo B | **Yes** |
 | `native-sandbox` | Sandboxing nativo de procesos | No |
 | `metrics` | Metricas/trazado OpenTelemetry | No |
+| `mcp-client` | Ejecucion de herramientas ToolClad basada en MCP via stdio (verificado por SchemaPin) | No |
+| `toolclad-browser` | Backend ToolClad de navegador (CDP) — solo un esqueleto de implementacion; devuelve un error explicito hasta que el backend CDP este disponible | No |
 | `interactive` | Prompts interactivos para `symbi init` (dialoguer) | Si |
 | `full` | Todas las funciones opcionales de runtime, vectoriales y de politicas | No |
 

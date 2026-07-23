@@ -877,8 +877,7 @@ mod tests {
     #[serial]
     #[test]
     fn test_cloud_provider_name_bedrock() {
-        use crate::http_input::llm_client::LlmClient;
-        // Temporarily set the env vars used by `LlmClient::from_env`.
+        // Temporarily set the env vars used by `CloudInferenceProvider::from_env`.
         std::env::set_var(
             "BEDROCK_MODEL_ID",
             "anthropic.claude-3-5-sonnet-20241022-v2:0",

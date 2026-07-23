@@ -513,7 +513,9 @@ cd crates/runtime && cargo run --example context_example
 | `native-sandbox` | Native process sandboxing | No |
 | `metrics` | OpenTelemetry metrics/tracing | No |
 | `session` | Experimental multiparty session-type protocol monitor | No |
+| `mcp-client` | MCP-backed ToolClad tool execution over stdio (SchemaPin-verified) | No |
 | `toolclad-session` | Persistent ToolClad tool sessions (PTY-backed) | No |
+| `toolclad-browser` | Browser (CDP) ToolClad backend — seam only; returns an honest error until the CDP backend lands | No |
 | `interactive` | Interactive prompts for `symbi init` (dialoguer) | Default |
 | `minimal` | Minimal build for faster CI (no optional backends) | No |
 | `full` | All optional runtime, vector, and policy features | No |
