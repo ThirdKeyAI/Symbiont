@@ -16,6 +16,7 @@ use std::marker::PhantomData;
 
 use crate::reasoning::circuit_breaker::CircuitBreakerRegistry;
 use crate::reasoning::context_manager::ContextManager;
+use crate::reasoning::conversation::Conversation;
 use crate::reasoning::executor::ActionExecutor;
 use crate::reasoning::inference::{InferenceProvider, ToolDefinition};
 use crate::reasoning::loop_types::*;
@@ -107,10 +108,15 @@ impl AgentLoop<Reasoning> {
     /// Run the reasoning step: invoke the inference provider and parse actions.
     ///
     /// Consumes `self` and produces `AgentLoop<PolicyCheck>`.
+    /// `delegation_available` reflects whether the runner holds a delegation
+    /// handle; it gates the `delegate` tool-call conversion (see
+    /// [`tool_call_to_action`]) so runners that implement `delegate` in their
+    /// own executor keep receiving it as a tool call.
     pub async fn produce_output(
         mut self,
         provider: &dyn InferenceProvider,
         context_manager: &dyn ContextManager,
+        delegation_available: bool,
     ) -> Result<AgentLoop<PolicyCheck>, LoopTermination> {
         self.state.current_phase = "reasoning".into();
 
@@ -239,11 +245,7 @@ impl AgentLoop<Reasoning> {
             response
                 .tool_calls
                 .into_iter()
-                .map(|tc| ProposedAction::ToolCall {
-                    call_id: tc.id,
-                    name: tc.name,
-                    arguments: tc.arguments,
-                })
+                .map(|tc| tool_call_to_action(tc.id, tc.name, tc.arguments, delegation_available))
                 .collect()
         } else {
             // Text response → terminal action
@@ -372,24 +374,7 @@ impl AgentLoop<PolicyCheck> {
                     approved.push(action);
                 }
                 LoopDecision::Deny { reason } => {
-                    // For tool calls, add a tool_result to the conversation so the
-                    // Anthropic API constraint (every tool_use must have a tool_result)
-                    // is maintained. Without this, denied tool calls leave orphaned
-                    // tool_use blocks that cause API errors.
-                    if let ProposedAction::ToolCall {
-                        ref call_id,
-                        ref name,
-                        ..
-                    } = action
-                    {
-                        self.state.conversation.push(
-                            crate::reasoning::conversation::ConversationMessage::tool_result(
-                                call_id,
-                                name,
-                                format!("[Policy denied] {}", reason),
-                            ),
-                        );
-                    }
+                    push_denial_tool_result(&mut self.state.conversation, &action, &reason);
                     // Also feed denial back as pending observation for the loop driver
                     self.state
                         .pending_observations
@@ -429,6 +414,121 @@ impl AgentLoop<PolicyCheck> {
     }
 }
 
+/// Push a `tool_result` for a denied action so the model sees the denial and no
+/// `tool_use` is left orphaned. Covers both tool calls and delegations — both
+/// originate from a model tool call and therefore carry a `call_id`.
+pub(crate) fn push_denial_tool_result(
+    conversation: &mut Conversation,
+    action: &ProposedAction,
+    reason: &str,
+) {
+    let (call_id, name) = match action {
+        ProposedAction::ToolCall { call_id, name, .. } => (call_id, name.clone()),
+        ProposedAction::Delegate {
+            call_id, target, ..
+        } => (call_id, format!("delegate:{}", target)),
+        _ => return,
+    };
+    conversation.push(
+        crate::reasoning::conversation::ConversationMessage::tool_result(
+            call_id,
+            &name,
+            format!("[Policy denied] {}", reason),
+        ),
+    );
+}
+
+/// The tool name the model calls to delegate work to another agent.
+pub(crate) const DELEGATE_TOOL_NAME: &str = "delegate";
+
+/// Convert one model tool call into a proposed action.
+///
+/// A well-formed `delegate` call becomes a `Delegate` action carrying the tool
+/// call's id, so its result returns to the model as a correlated `tool_result`.
+/// Everything else — including a `delegate` call with malformed arguments —
+/// stays a `ToolCall`, so the executor surfaces a precise error rather than the
+/// call being silently dropped.
+///
+/// `delegation_available` must be true only when the runner actually has a
+/// delegation handle. Runners that implement their own `delegate` tool through
+/// their executor (symbi-shell's orchestrator does) have no handle, and
+/// converting their call would route it to a dispatcher that can only answer
+/// "delegation is not available" — hijacking a tool that works. When false the
+/// call stays a `ToolCall` and reaches the executor that implements it.
+pub(crate) fn tool_call_to_action(
+    call_id: String,
+    name: String,
+    arguments: String,
+    delegation_available: bool,
+) -> ProposedAction {
+    if delegation_available && name == DELEGATE_TOOL_NAME {
+        if let Ok(serde_json::Value::Object(map)) =
+            serde_json::from_str::<serde_json::Value>(&arguments)
+        {
+            if let (Some(agent), Some(task)) = (
+                map.get("agent").and_then(|v| v.as_str()),
+                map.get("task").and_then(|v| v.as_str()),
+            ) {
+                return ProposedAction::Delegate {
+                    call_id,
+                    target: agent.to_string(),
+                    message: task.to_string(),
+                };
+            }
+        }
+    }
+    ProposedAction::ToolCall {
+        call_id,
+        name,
+        arguments,
+    }
+}
+
+/// Dispatch approved `Delegate` actions through the delegation handle, returning
+/// one Observation per delegate. Never silently drops: a missing handle or any
+/// `DelegationError` becomes an honest `is_error` Observation.
+pub(crate) async fn dispatch_delegations(
+    actions: &[ProposedAction],
+    delegation: Option<&dyn crate::reasoning::delegation::DelegationExecutor>,
+    config: &LoopConfig,
+) -> Vec<Observation> {
+    use crate::reasoning::delegation::DelegationContext;
+    let depth = config.delegation_depth;
+    let chain = &config.delegation_chain;
+    let mut observations = Vec::new();
+    for action in actions {
+        if let ProposedAction::Delegate {
+            call_id,
+            target,
+            message,
+        } = action
+        {
+            let source = format!("delegate:{}", target);
+            let obs = match delegation {
+                None => Observation::tool_error(
+                    source,
+                    "agent delegation is not available in this runner",
+                ),
+                Some(d) => {
+                    let ctx = DelegationContext {
+                        depth,
+                        chain: chain.to_vec(),
+                        max_iterations: config.max_iterations,
+                        max_total_tokens: config.max_total_tokens,
+                        timeout: config.timeout,
+                    };
+                    match d.delegate(target, message, ctx).await {
+                        Ok(output) => Observation::tool_result(source, output),
+                        Err(e) => Observation::tool_error(source, e.to_string()),
+                    }
+                }
+            };
+            observations.push(obs.with_call_id(call_id.clone()));
+        }
+    }
+    observations
+}
+
 impl AgentLoop<ToolDispatching> {
     /// Return (action_count, denied_count) from the policy phase.
     pub fn policy_summary(&self) -> (usize, usize) {
@@ -448,6 +548,7 @@ impl AgentLoop<ToolDispatching> {
         mut self,
         executor: &dyn ActionExecutor,
         circuit_breakers: &CircuitBreakerRegistry,
+        delegation: Option<&dyn crate::reasoning::delegation::DelegationExecutor>,
     ) -> Result<AgentLoop<Observing>, LoopTermination> {
         self.state.current_phase = "tool_dispatching".into();
 
@@ -485,6 +586,12 @@ impl AgentLoop<ToolDispatching> {
                 circuit_breakers,
             )
             .await;
+
+        // Dispatch approved Delegate actions (tool calls are handled above).
+        let mut observations = observations;
+        let delegate_obs =
+            dispatch_delegations(&policy_output.approved_actions, delegation, &self.config).await;
+        observations.extend(delegate_obs);
 
         // Add tool results to conversation
         for obs in &observations {
@@ -767,5 +874,201 @@ mod tests {
         // This function takes an Observing phase loop.
         // The only method available is `observe_results()`, which
         // returns LoopContinuation (either Continue<Reasoning> or Complete).
+    }
+
+    struct FakeDelegation;
+    #[async_trait::async_trait]
+    impl crate::reasoning::delegation::DelegationExecutor for FakeDelegation {
+        async fn delegate(
+            &self,
+            target: &str,
+            message: &str,
+            ctx: crate::reasoning::delegation::DelegationContext,
+        ) -> Result<String, crate::reasoning::delegation::DelegationError> {
+            Ok(format!(
+                "handled '{}' for '{}' at depth {}",
+                message, target, ctx.depth
+            ))
+        }
+    }
+
+    #[tokio::test]
+    async fn dispatch_routes_delegate_through_delegation_handle() {
+        let obs = super::dispatch_delegations(
+            &[ProposedAction::Delegate {
+                call_id: "test-call".into(),
+                target: "reviewer".into(),
+                message: "check this".into(),
+            }],
+            Some(&FakeDelegation),
+            &LoopConfig {
+                delegation_depth: 2,
+                delegation_chain: vec!["planner".into()],
+                ..Default::default()
+            },
+        )
+        .await;
+        assert_eq!(obs.len(), 1);
+        assert!(!obs[0].is_error, "delegation should succeed: {:?}", obs[0]);
+        assert!(obs[0].content.contains("check this"));
+        assert!(obs[0].content.contains("depth 2"));
+    }
+
+    #[tokio::test]
+    async fn dispatch_delegate_without_handle_is_honest_error() {
+        let obs = super::dispatch_delegations(
+            &[ProposedAction::Delegate {
+                call_id: "test-call".into(),
+                target: "reviewer".into(),
+                message: "hi".into(),
+            }],
+            None,
+            &LoopConfig::default(),
+        )
+        .await;
+        assert_eq!(obs.len(), 1);
+        assert!(obs[0].is_error);
+        assert!(obs[0].content.to_lowercase().contains("delegation"));
+    }
+
+    #[tokio::test]
+    async fn delegate_observations_carry_the_originating_call_id() {
+        // Without a call_id the conversation push falls back to the source
+        // string, emitting a tool_result whose id matches no tool_use — which
+        // the provider rejects. The observation must carry the real call id.
+        let obs = super::dispatch_delegations(
+            &[ProposedAction::Delegate {
+                call_id: "toolu_abc123".into(),
+                target: "reviewer".into(),
+                message: "check this".into(),
+            }],
+            Some(&FakeDelegation),
+            &LoopConfig::default(),
+        )
+        .await;
+        assert_eq!(obs.len(), 1);
+        assert_eq!(obs[0].call_id.as_deref(), Some("toolu_abc123"));
+
+        // The honest-error path must correlate too, or a failed delegation
+        // orphans the tool_use just as badly as a successful one.
+        let err_obs = super::dispatch_delegations(
+            &[ProposedAction::Delegate {
+                call_id: "toolu_xyz789".into(),
+                target: "reviewer".into(),
+                message: "check this".into(),
+            }],
+            None,
+            &LoopConfig::default(),
+        )
+        .await;
+        assert_eq!(err_obs.len(), 1);
+        assert!(err_obs[0].is_error);
+        assert_eq!(err_obs[0].call_id.as_deref(), Some("toolu_xyz789"));
+    }
+
+    #[test]
+    fn delegate_tool_call_converts_to_a_delegate_action() {
+        let action = super::tool_call_to_action(
+            "toolu_1".to_string(),
+            "delegate".to_string(),
+            r#"{"agent":"reviewer","task":"check src/main.rs"}"#.to_string(),
+            true,
+        );
+        match action {
+            ProposedAction::Delegate {
+                call_id,
+                target,
+                message,
+            } => {
+                assert_eq!(call_id, "toolu_1");
+                assert_eq!(target, "reviewer");
+                assert_eq!(message, "check src/main.rs");
+            }
+            other => panic!("expected Delegate, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn delegate_tool_call_is_left_alone_when_the_runner_has_no_delegation_handle() {
+        // Regression guard: symbi-shell's orchestrator advertises its OWN
+        // `delegate` tool and implements it in its executor, and builds its
+        // runner without a delegation handle. Converting its call would route it
+        // to a dispatcher that can only answer "delegation is not available",
+        // silently breaking a tool that works. It must stay a ToolCall so the
+        // executor that implements it still receives it.
+        let action = super::tool_call_to_action(
+            "toolu_shell".to_string(),
+            "delegate".to_string(),
+            r#"{"agent":"reviewer","task":"check src/main.rs"}"#.to_string(),
+            false,
+        );
+        match action {
+            ProposedAction::ToolCall {
+                call_id,
+                name,
+                arguments,
+            } => {
+                assert_eq!(call_id, "toolu_shell");
+                assert_eq!(name, "delegate");
+                assert!(arguments.contains("reviewer"));
+            }
+            other => panic!("expected the call to stay a ToolCall, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn non_delegate_tool_call_stays_a_tool_call() {
+        let action = super::tool_call_to_action(
+            "toolu_2".to_string(),
+            "list_agents".to_string(),
+            "{}".to_string(),
+            true,
+        );
+        assert!(matches!(action, ProposedAction::ToolCall { .. }));
+    }
+
+    #[test]
+    fn malformed_delegate_args_fall_through_to_a_tool_call() {
+        // Never silently dropped: it stays a ToolCall so the executor returns a
+        // precise argument error the model can act on.
+        for bad in [
+            "not json",
+            r#"{"agent":"reviewer"}"#,
+            r#"{"task":"do it"}"#,
+            r#"{"agent":42,"task":"do it"}"#,
+        ] {
+            let action = super::tool_call_to_action(
+                "toolu_3".to_string(),
+                "delegate".to_string(),
+                bad.to_string(),
+                true,
+            );
+            assert!(
+                matches!(action, ProposedAction::ToolCall { .. }),
+                "malformed delegate args {bad:?} must stay a ToolCall"
+            );
+        }
+    }
+
+    #[test]
+    fn denied_delegate_pushes_a_correlated_tool_result() {
+        // A denied Delegate must not vanish: the model needs a tool_result
+        // correlated to its tool_use, exactly like a denied ToolCall gets.
+        let mut conversation = Conversation::new();
+        super::push_denial_tool_result(
+            &mut conversation,
+            &ProposedAction::Delegate {
+                call_id: "toolu_deny".into(),
+                target: "reviewer".into(),
+                message: "check".into(),
+            },
+            "no cedar permit",
+        );
+        let rendered = format!("{:?}", conversation);
+        assert!(
+            rendered.contains("toolu_deny"),
+            "denial must be correlated to the originating call id: {rendered}"
+        );
+        assert!(rendered.contains("no cedar permit"));
     }
 }

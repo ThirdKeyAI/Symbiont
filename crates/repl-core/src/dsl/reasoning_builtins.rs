@@ -35,7 +35,7 @@ pub struct ReasoningBuiltinContext {
     /// is used (production-default, non-permissive). Production callers
     /// should install [`OpaPolicyGateBridge`] or another concrete gate
     /// instead of relying on the default.
-    pub reasoning_policy_gate: Option<Arc<dyn ReasoningPolicyGate + Send + Sync>>,
+    pub reasoning_policy_gate: Option<Arc<dyn ReasoningPolicyGate>>,
     /// Active session id (shared cell; settable after the context is frozen).
     #[cfg(feature = "session")]
     pub active_session: std::sync::Arc<std::sync::Mutex<Option<symbi_session::monitor::SessionId>>>,
@@ -73,11 +73,10 @@ pub async fn builtin_reason(args: &[DslValue], ctx: &ReasoningBuiltinContext) ->
     // than `DefaultPolicyGate::permissive_for_dev_only()` so `reason()`
     // no longer opts every DSL program into unrestricted tool calls
     // regardless of how the runtime was configured.
-    let policy_gate: Arc<dyn ReasoningPolicyGate + Send + Sync> =
-        match ctx.reasoning_policy_gate.clone() {
-            Some(gate) => gate,
-            None => Arc::new(DefaultPolicyGate::new()),
-        };
+    let policy_gate: Arc<dyn ReasoningPolicyGate> = match ctx.reasoning_policy_gate.clone() {
+        Some(gate) => gate,
+        None => Arc::new(DefaultPolicyGate::new()),
+    };
 
     let runner = ReasoningLoopRunner {
         provider: Arc::clone(provider),
@@ -90,6 +89,7 @@ pub async fn builtin_reason(args: &[DslValue], ctx: &ReasoningBuiltinContext) ->
         circuit_breakers: Arc::new(CircuitBreakerRegistry::default()),
         journal: Arc::new(BufferedJournal::new(1000)),
         knowledge_bridge: None,
+        delegation: None,
     };
 
     let mut conv = Conversation::with_system(&system);
@@ -198,10 +198,16 @@ pub fn builtin_parse_json(args: &[DslValue]) -> Result<DslValue> {
 /// - name: string — tool name
 /// - args: map — tool arguments
 ///
+/// Every call is evaluated by `ctx.reasoning_policy_gate` before dispatch —
+/// same resolution `builtin_reason` uses (a caller-installed gate, or the
+/// non-permissive `DefaultPolicyGate::new()` default). `tool_call` used to
+/// take `_ctx` and never read it, so any caller that hadn't wired a gate got
+/// unrestricted tool execution regardless of runtime configuration.
+///
 /// Returns the tool result as a string.
 pub async fn builtin_tool_call(
     args: &[DslValue],
-    _ctx: &ReasoningBuiltinContext,
+    ctx: &ReasoningBuiltinContext,
 ) -> Result<DslValue> {
     let (name, arguments) = match args {
         [DslValue::String(name), DslValue::Map(args_map)] => {
@@ -223,13 +229,75 @@ pub async fn builtin_tool_call(
         }
     };
 
+    use symbi_runtime::reasoning::circuit_breaker::CircuitBreakerRegistry;
+    use symbi_runtime::reasoning::conversation::Conversation;
+    use symbi_runtime::reasoning::loop_types::{
+        LoopConfig, LoopDecision, LoopState, ProposedAction,
+    };
+    use symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate;
+
+    let policy_gate: Arc<dyn ReasoningPolicyGate> = match ctx.reasoning_policy_gate.clone() {
+        Some(gate) => gate,
+        None => Arc::new(DefaultPolicyGate::new()),
+    };
+
+    let agent_id = ctx.sender_agent_id.unwrap_or_default();
+    let proposed = ProposedAction::ToolCall {
+        call_id: "dsl_tool_call".to_string(),
+        name: name.clone(),
+        arguments: arguments.clone(),
+    };
+    let state = LoopState::new(agent_id, Conversation::new());
+    let decision = policy_gate
+        .evaluate_action(&agent_id, &proposed, &state)
+        .await;
+
+    let (name, arguments) = match decision {
+        LoopDecision::Allow => (name, arguments),
+        LoopDecision::Modify {
+            modified_action,
+            reason,
+        } => match *modified_action {
+            ProposedAction::ToolCall {
+                name: new_name,
+                arguments: new_arguments,
+                ..
+            } => {
+                tracing::info!("tool_call: policy gate modified action: {}", reason);
+                (new_name, new_arguments)
+            }
+            other => {
+                // The gate replaced the tool call with a non-tool-call
+                // action (e.g. a canned redirect). There is nothing left
+                // here to dispatch — report that honestly rather than
+                // silently running the original call.
+                let mut result = HashMap::new();
+                result.insert("tool".to_string(), DslValue::String(name));
+                result.insert("arguments".to_string(), DslValue::String(arguments));
+                result.insert("status".to_string(), DslValue::String("denied".to_string()));
+                result.insert(
+                    "reason".to_string(),
+                    DslValue::String(format!(
+                        "policy gate replaced this tool call with {other:?}: {reason}"
+                    )),
+                );
+                return Ok(DslValue::Map(result));
+            }
+        },
+        LoopDecision::Deny { reason } => {
+            let mut result = HashMap::new();
+            result.insert("tool".to_string(), DslValue::String(name));
+            result.insert("arguments".to_string(), DslValue::String(arguments));
+            result.insert("status".to_string(), DslValue::String("denied".to_string()));
+            result.insert("reason".to_string(), DslValue::String(reason));
+            return Ok(DslValue::Map(result));
+        }
+    };
+
     // Route through the built tool executor: real execution (shell, HTTP,
     // MCP-proxy, session, browser) when `tools/` has ToolClad manifests that
     // handle this tool name, otherwise fall through to the honest
     // `not_executed` result below — never fabricate a success.
-    use symbi_runtime::reasoning::circuit_breaker::CircuitBreakerRegistry;
-    use symbi_runtime::reasoning::loop_types::{LoopConfig, ProposedAction};
-
     let executor = symbi_runtime::reasoning::build_tool_executor(std::path::Path::new("tools"));
     let handled = executor.tool_definitions().iter().any(|d| d.name == name);
 
@@ -634,5 +702,164 @@ mod tests {
         map_wrong.insert("protocol_label".into(), DslValue::Integer(42));
         let wrong_type = vec![DslValue::Map(map_wrong)];
         assert_eq!(optional_protocol_label(&wrong_type), None);
+    }
+
+    // --- `tool_call` policy-gate tests ---
+    //
+    // `builtin_tool_call` resolves `tools/` relative to the process CWD (via
+    // `build_tool_executor`), so these tests chdir into a tempdir containing
+    // a real, side-effecting manifest (`touch <path>`) and check for the
+    // marker file — not just the returned status string — to prove a
+    // fail-closed gate actually prevents execution rather than merely
+    // reporting an error. `CWD_LOCK` serializes them against each other
+    // since `std::env::set_current_dir` is process-global.
+    use symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate;
+
+    static CWD_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Restores the original CWD (before the temp tools/ dir is deleted)
+    /// and releases `CWD_LOCK` when dropped.
+    struct CwdGuard {
+        original: std::path::PathBuf,
+        _lock: std::sync::MutexGuard<'static, ()>,
+        _tempdir: tempfile::TempDir,
+    }
+
+    impl Drop for CwdGuard {
+        fn drop(&mut self) {
+            let _ = std::env::set_current_dir(&self.original);
+        }
+    }
+
+    /// Chdir into a fresh tempdir with `tools/touch_marker.clad.toml` — a
+    /// manifest that shells out to `touch {path}` — and return the path a
+    /// successful call would create, plus a guard that restores CWD and
+    /// cleans up on drop.
+    fn setup_side_effecting_tool() -> (std::path::PathBuf, CwdGuard) {
+        let lock = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let original = std::env::current_dir().expect("current dir");
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let tools_dir = tempdir.path().join("tools");
+        std::fs::create_dir_all(&tools_dir).expect("mkdir tools/");
+        std::fs::write(
+            tools_dir.join("touch_marker.clad.toml"),
+            r#"
+[tool]
+name = "touch_marker"
+version = "1.0.0"
+binary = "touch"
+description = "test-only: creates a marker file to prove the tool actually ran"
+
+[args.path]
+position = 1
+required = true
+type = "string"
+description = "marker file path"
+
+[command]
+template = "touch {path}"
+
+[output]
+format = "text"
+
+[output.schema]
+type = "object"
+"#,
+        )
+        .expect("write manifest");
+        std::env::set_current_dir(tempdir.path()).expect("chdir into tempdir");
+        let marker = tempdir.path().join("marker.txt");
+        (
+            marker,
+            CwdGuard {
+                original,
+                _lock: lock,
+                _tempdir: tempdir,
+            },
+        )
+    }
+
+    fn touch_marker_call(marker: &std::path::Path) -> Vec<DslValue> {
+        let mut args_map = HashMap::new();
+        args_map.insert(
+            "path".to_string(),
+            DslValue::String(marker.display().to_string()),
+        );
+        vec![
+            DslValue::String("touch_marker".to_string()),
+            DslValue::Map(args_map),
+        ]
+    }
+
+    #[tokio::test]
+    async fn tool_call_denied_by_fail_closed_gate_never_executes() {
+        let (marker, _guard) = setup_side_effecting_tool();
+        let ctx = ReasoningBuiltinContext {
+            reasoning_policy_gate: Some(Arc::new(DefaultPolicyGate::new())),
+            ..Default::default()
+        };
+
+        let result = builtin_tool_call(&touch_marker_call(&marker), &ctx)
+            .await
+            .expect("builtin_tool_call should not error, just report denial");
+
+        match result {
+            DslValue::Map(map) => {
+                assert_eq!(
+                    map.get("status"),
+                    Some(&DslValue::String("denied".to_string()))
+                );
+            }
+            other => panic!("expected Map, got {other:?}"),
+        }
+        assert!(
+            !marker.exists(),
+            "fail-closed gate must prevent the tool from actually running, \
+             not just report an error"
+        );
+    }
+
+    #[tokio::test]
+    async fn tool_call_with_no_gate_in_context_defaults_fail_closed() {
+        // Mirrors `builtin_reason`'s default: a context that never had a
+        // gate installed must NOT fall back to permissive.
+        let (marker, _guard) = setup_side_effecting_tool();
+        let ctx = ReasoningBuiltinContext::default();
+
+        builtin_tool_call(&touch_marker_call(&marker), &ctx)
+            .await
+            .expect("builtin_tool_call should not error, just report denial");
+
+        assert!(
+            !marker.exists(),
+            "no policy gate configured must default to fail-closed, never permissive"
+        );
+    }
+
+    #[tokio::test]
+    async fn tool_call_allowed_by_permissive_gate_executes() {
+        let (marker, _guard) = setup_side_effecting_tool();
+        let ctx = ReasoningBuiltinContext {
+            reasoning_policy_gate: Some(Arc::new(DefaultPolicyGate::permissive_for_dev_only())),
+            ..Default::default()
+        };
+
+        let result = builtin_tool_call(&touch_marker_call(&marker), &ctx)
+            .await
+            .expect("builtin_tool_call should not error");
+
+        match result {
+            DslValue::Map(map) => {
+                assert_eq!(
+                    map.get("status"),
+                    Some(&DslValue::String("success".to_string()))
+                );
+            }
+            other => panic!("expected Map, got {other:?}"),
+        }
+        assert!(
+            marker.exists(),
+            "permissive gate should allow the tool to actually run"
+        );
     }
 }

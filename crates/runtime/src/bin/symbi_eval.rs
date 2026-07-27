@@ -40,7 +40,6 @@ use symbi_runtime::reasoning::inference::{InferenceProvider, ToolDefinition};
 use symbi_runtime::reasoning::loop_types::{
     BufferedJournal, JournalEntry, LoopConfig, LoopResult, Observation, ProposedAction,
 };
-use symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate;
 use symbi_runtime::reasoning::providers::cloud::CloudInferenceProvider;
 use symbi_runtime::reasoning::reasoning_loop::ReasoningLoopRunner;
 use symbi_runtime::types::AgentId;
@@ -303,14 +302,16 @@ impl RealSandbox {
         Ok(normalized)
     }
 
-    fn truncate(&self, mut s: String) -> String {
+    fn truncate(&self, s: String) -> String {
         if s.len() <= self.max_output_bytes {
             return s;
         }
-        let extra = s.len() - self.max_output_bytes;
-        s.truncate(self.max_output_bytes);
-        s.push_str(&format!("\n... [truncated {} bytes]", extra));
-        s
+        // `String::truncate` panics when the byte index is not a char boundary,
+        // and this truncates sandboxed tool output, so the cut point is not
+        // under our control.
+        let kept = symbi_runtime::text_util::truncate_utf8(&s, self.max_output_bytes);
+        let extra = s.len() - kept.len();
+        format!("{}\n... [truncated {} bytes]", kept, extra)
     }
 
     fn fs_read(&self, args: &serde_json::Value) -> SandboxCallResult {
@@ -668,10 +669,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let journal = Arc::new(BufferedJournal::new(1000));
     let circuit_breakers = Arc::new(CircuitBreakerRegistry::default());
 
+    // The executor above runs mocked tools plus, for `kind != "mock"` tasks,
+    // a `RealSandbox` that shells out via `bash -c` (see `RealSandbox::shell`
+    // above). `symbi-eval` used to hardcode `permissive_for_dev_only()` here
+    // — the only non-test permissive gate in the tree — so every proposed
+    // tool call against that sandbox was allowed unconditionally. Use the
+    // same governed ladder every other entry point uses instead: fail-closed
+    // by default, Cedar when `policies/*.cedar` is present, permissive only
+    // via the same explicit opt-in as `symbi run`/`symbi up`
+    // (`SYMBI_INSECURE_ALLOW_ALL=1`).
+    let insecure_allow_all = std::env::var("SYMBI_INSECURE_ALLOW_ALL").as_deref() == Ok("1");
+    if insecure_allow_all {
+        eprintln!("\n");
+        eprintln!("================================================================");
+        eprintln!("WARNING: SYMBI_INSECURE_ALLOW_ALL=1 is set");
+        eprintln!("Policy gate is in PERMISSIVE mode for this symbi-eval invocation.");
+        eprintln!("Every LLM-proposed tool call and delegation will be allowed.");
+        eprintln!("This is only safe for local development. Do NOT use in production.");
+        eprintln!("================================================================\n");
+    }
+    let policy_gate =
+        symbi_runtime::reasoning::governed_gate(symbi_runtime::reasoning::GateOptions {
+            policies_dir: std::path::Path::new("policies").to_path_buf(),
+            insecure_allow_all,
+            escalation: None,
+        })
+        .await;
+
     let runner = ReasoningLoopRunner::builder()
         .provider(Arc::new(provider) as Arc<dyn InferenceProvider>)
         .executor(executor as Arc<dyn ActionExecutor>)
-        .policy_gate(Arc::new(DefaultPolicyGate::permissive_for_dev_only()))
+        .policy_gate(policy_gate)
         .circuit_breakers(circuit_breakers)
         .journal(journal.clone())
         .build();

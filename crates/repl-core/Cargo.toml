@@ -28,6 +28,10 @@ bytes = "1.0"
 symbi-runtime = { path = "../runtime", version = "1.18.0", features = ["http-input"] }
 symbi-session = { path = "../symbi-session", version = "1.18.0", optional = true }
 
+[dev-dependencies]
+tempfile = "3.0"
+async-trait = "0.1"
+
 [features]
 # Experimental: multiparty session-type protocol monitor (off by default).
 session = ["dep:symbi-session", "symbi-runtime/session"]

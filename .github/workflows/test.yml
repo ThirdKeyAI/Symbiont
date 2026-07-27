@@ -61,6 +61,23 @@ jobs:
       # downloads unsuitable for CI — those stay covered by the clippy step above.
       - name: Test major features
         run: cargo test -p symbi-runtime --features http-api,cloud-llm,cedar,metrics,cron
+      # MCP-backed tool execution. The mcp_*.rs / toolclad_mcp.rs suites are
+      # `#![cfg(feature = "mcp-client")]`, so without this step they are only
+      # ever compiled by the all-features clippy above — never executed. That
+      # left the SchemaPin verification and stdio round-trip assertions
+      # unverified. The tests spawn a local fixture server; no network.
+      - name: Test mcp-client feature
+        run: cargo test -p symbi-runtime --features mcp-client
+      # Browser backend seam — currently honest-error only, but the tests assert
+      # that (no fabricated success), which is worth keeping executed.
+      - name: Test toolclad-browser feature
+        run: cargo test -p symbi-runtime --features toolclad-browser --lib toolclad::browser_executor
+      # Bedrock is off by default and no workspace member enables it, so
+      # `cargo test --workspace` never compiles it. Its message-serialization
+      # tests — including the regression that tool results reach the model
+      # instead of flattening to an empty string — only run here.
+      - name: Test bedrock feature
+        run: cargo test -p symbi-runtime --features bedrock --lib http_input::bedrock
       # Experimental session feature (off by default) — verify the opt-in build.
       - name: Check session feature (runtime)
         run: cargo check -p symbi-runtime --no-default-features --features keychain,session

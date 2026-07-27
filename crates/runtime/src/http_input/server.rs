@@ -4,7 +4,7 @@
 //! and routes them to appropriate Symbiont agents based on configuration rules.
 
 #[cfg(feature = "http-input")]
-use std::collections::HashSet;
+use std::path::Path;
 #[cfg(feature = "http-input")]
 use std::sync::Arc;
 
@@ -27,9 +27,27 @@ use tower_http::cors::CorsLayer;
 #[cfg(feature = "http-input")]
 use super::config::{HttpInputConfig, ResponseControlConfig, RouteMatch};
 #[cfg(feature = "http-input")]
-use super::llm_client::LlmClient;
+use crate::reasoning::circuit_breaker::CircuitBreakerRegistry;
+#[cfg(feature = "http-input")]
+use crate::reasoning::context_manager::DefaultContextManager;
+#[cfg(feature = "http-input")]
+use crate::reasoning::conversation::{Conversation, ConversationMessage, MessageRole};
+#[cfg(feature = "http-input")]
+use crate::reasoning::executor::ActionExecutor;
+#[cfg(feature = "http-input")]
+use crate::reasoning::inference::InferenceProvider;
+#[cfg(feature = "http-input")]
+use crate::reasoning::loop_types::{BufferedJournal, JournalWriter, LoopConfig};
+#[cfg(feature = "http-input")]
+use crate::reasoning::policy_bridge::{DefaultPolicyGate, ReasoningPolicyGate};
+#[cfg(feature = "http-input")]
+use crate::reasoning::reasoning_loop::ReasoningLoopRunner;
+#[cfg(feature = "http-input")]
+use crate::reasoning::tool_executor_builder::build_tool_executor;
 #[cfg(feature = "http-input")]
 use crate::secrets::{new_secret_store, SecretStore, SecretsConfig};
+#[cfg(feature = "http-input")]
+use crate::text_util::truncate_utf8;
 #[cfg(feature = "http-input")]
 use crate::types::{AgentId, RuntimeError};
 
@@ -39,7 +57,9 @@ pub struct HttpInputServer {
     config: Arc<RwLock<HttpInputConfig>>,
     runtime: Option<Arc<crate::AgentRuntime>>,
     secret_store: Option<Arc<dyn SecretStore + Send + Sync>>,
-    toolclad_executor: Option<Arc<crate::toolclad::executor::ToolCladExecutor>>,
+    executor: Option<Arc<dyn ActionExecutor>>,
+    inference_provider: Option<Arc<dyn InferenceProvider>>,
+    policy_gate: Option<Arc<dyn ReasoningPolicyGate>>,
     concurrency_limiter: Arc<Semaphore>,
     resolved_auth_header: Arc<RwLock<Option<String>>>,
 }
@@ -54,7 +74,9 @@ impl HttpInputServer {
             config: Arc::new(RwLock::new(config)),
             runtime: None,
             secret_store: None,
-            toolclad_executor: None,
+            executor: None,
+            inference_provider: None,
+            policy_gate: None,
             concurrency_limiter,
             resolved_auth_header: Arc::new(RwLock::new(None)),
         }
@@ -66,12 +88,31 @@ impl HttpInputServer {
         self
     }
 
-    /// Set the ToolClad executor for tool-calling via LLM
-    pub fn with_toolclad_executor(
-        mut self,
-        executor: Arc<crate::toolclad::executor::ToolCladExecutor>,
-    ) -> Self {
-        self.toolclad_executor = Some(executor);
+    /// Set the tool executor used to dispatch model-proposed tool calls.
+    /// If unset, `start()` defaults to `build_tool_executor(Path::new("tools"))`:
+    /// `ToolCladExecutor` when `tools/*.clad.toml` manifests are present,
+    /// otherwise the honest `UnavailableToolExecutor`.
+    pub fn with_executor(mut self, executor: Arc<dyn ActionExecutor>) -> Self {
+        self.executor = Some(executor);
+        self
+    }
+
+    /// Set the inference provider driving the governed reasoning loop.
+    /// If unset, `start()` resolves one from the environment (requires the
+    /// `cloud-llm` feature); `None` at that point disables the LLM/tool-calling
+    /// path (the runtime communication bus path is unaffected).
+    pub fn with_inference_provider(mut self, provider: Arc<dyn InferenceProvider>) -> Self {
+        self.inference_provider = Some(provider);
+        self
+    }
+
+    /// Set the policy gate every model-proposed action must pass through
+    /// before dispatch. If unset, `start()` resolves it to
+    /// **fail-closed** (`DefaultPolicyGate::new()`) — never permissive. An
+    /// embedder that forgets to wire a gate gets denial for every tool call,
+    /// not free rein.
+    pub fn with_policy_gate(mut self, gate: Arc<dyn ReasoningPolicyGate>) -> Self {
+        self.policy_gate = Some(gate);
         self
     }
 
@@ -152,8 +193,48 @@ impl HttpInputServer {
             None
         };
 
-        // Initialize LLM client from environment
-        let llm_client = LlmClient::from_env().map(Arc::new);
+        // Resolve the inference provider driving the governed reasoning loop:
+        // an explicit override (set via `with_inference_provider`, e.g. by
+        // tests or embedders) wins, otherwise auto-detect from the
+        // environment. Auto-detection requires the `cloud-llm` feature;
+        // without it this is always `None`, same as "no API key configured"
+        // today. Auto-detection covers OpenAI, Anthropic, OpenRouter, and
+        // Bedrock (Bedrock detection lives inside `CloudInferenceProvider`
+        // via `LlmClient::from_env`).
+        let inference_provider = self
+            .inference_provider
+            .clone()
+            .or_else(inference_provider_from_env);
+
+        // Resolve the tool executor: an explicit override wins, otherwise
+        // discover `tools/*.clad.toml` manifests (or fall back to the honest
+        // `UnavailableToolExecutor` when none are present).
+        let executor: Arc<dyn ActionExecutor> = self
+            .executor
+            .clone()
+            .unwrap_or_else(|| build_tool_executor(Path::new("tools")));
+        let executor_tool_count = executor.tool_definitions().len();
+        if executor_tool_count > 0 {
+            tracing::info!(
+                "HTTP Input: tool executor loaded with {} tool(s)",
+                executor_tool_count
+            );
+        }
+
+        // Resolve the policy gate every model-proposed action must pass
+        // through. An explicit override wins, otherwise fail-closed — an
+        // embedder that forgets to wire a gate gets denial for every tool
+        // call, never free rein.
+        let policy_gate: Arc<dyn ReasoningPolicyGate> = self
+            .policy_gate
+            .clone()
+            .unwrap_or_else(|| Arc::new(DefaultPolicyGate::new()));
+
+        // Circuit breakers and the journal are shared across every request
+        // this server instance handles, so a tool that keeps failing trips
+        // its breaker cluster-wide instead of resetting on the next request.
+        let circuit_breakers = Arc::new(CircuitBreakerRegistry::default());
+        let journal: Arc<dyn JournalWriter> = Arc::new(BufferedJournal::new(1000));
 
         // Scan agents/ directory for DSL files
         let agent_dsl_sources = scan_agent_dsl_files();
@@ -198,9 +279,12 @@ impl HttpInputServer {
             runtime: self.runtime.clone(),
             concurrency_limiter: self.concurrency_limiter.clone(),
             resolved_auth_header: self.resolved_auth_header.clone(),
-            llm_client,
+            inference_provider,
             agent_dsl_sources: Arc::new(agent_dsl_sources),
-            toolclad_executor: self.toolclad_executor.clone(),
+            executor,
+            policy_gate,
+            circuit_breakers,
+            journal,
             webhook_verifier,
             jwt_decoding_key,
         };
@@ -279,6 +363,25 @@ impl HttpInputServer {
     }
 }
 
+/// Auto-detect an [`InferenceProvider`] from the environment (`cloud-llm`
+/// build). Wraps `CloudInferenceProvider`, which already covers OpenAI,
+/// Anthropic, OpenRouter, and — when also built with `bedrock` — AWS
+/// Bedrock.
+#[cfg(all(feature = "http-input", feature = "cloud-llm"))]
+fn inference_provider_from_env() -> Option<Arc<dyn InferenceProvider>> {
+    crate::reasoning::providers::cloud::CloudInferenceProvider::from_env()
+        .map(|p| Arc::new(p) as Arc<dyn InferenceProvider>)
+}
+
+/// Without `cloud-llm` there is no `InferenceProvider` impl to construct
+/// from the environment, so the LLM/tool-calling path is unavailable —
+/// same as "no API key configured" today. The runtime communication bus
+/// path is unaffected.
+#[cfg(all(feature = "http-input", not(feature = "cloud-llm")))]
+fn inference_provider_from_env() -> Option<Arc<dyn InferenceProvider>> {
+    None
+}
+
 /// Shared state for the HTTP server
 #[cfg(feature = "http-input")]
 #[derive(Clone)]
@@ -287,11 +390,24 @@ struct ServerState {
     runtime: Option<Arc<crate::AgentRuntime>>,
     concurrency_limiter: Arc<Semaphore>,
     resolved_auth_header: Arc<RwLock<Option<String>>>,
-    llm_client: Option<Arc<LlmClient>>,
+    /// Inference provider driving the governed reasoning loop. `None`
+    /// disables the LLM/tool-calling path (the runtime communication bus
+    /// path is unaffected).
+    inference_provider: Option<Arc<dyn InferenceProvider>>,
     /// Agent DSL sources: (filename, content)
     agent_dsl_sources: Arc<Vec<(String, String)>>,
-    /// ToolClad executor for tool-calling via LLM
-    toolclad_executor: Option<Arc<crate::toolclad::executor::ToolCladExecutor>>,
+    /// Tool executor dispatching model-proposed tool calls.
+    executor: Arc<dyn ActionExecutor>,
+    /// Policy gate every model-proposed action must pass through before
+    /// dispatch. Always present: `HttpInputServer::start()` resolves an
+    /// unset gate to fail-closed (`DefaultPolicyGate::new()`), never
+    /// permissive.
+    policy_gate: Arc<dyn ReasoningPolicyGate>,
+    /// Circuit breaker registry shared across every request this server
+    /// instance handles.
+    circuit_breakers: Arc<CircuitBreakerRegistry>,
+    /// Journal of governed reasoning-loop events, shared across requests.
+    journal: Arc<dyn JournalWriter>,
     /// Optional webhook signature verifier
     webhook_verifier: Option<Arc<dyn super::webhook_verify::SignatureVerifier>>,
     /// Optional JWT EdDSA verifying key for Bearer token validation
@@ -325,9 +441,17 @@ async fn auth_middleware(
     let has_static_auth = resolved_auth.is_some();
     let has_jwt_auth = state.jwt_decoding_key.is_some();
 
-    // If no auth is configured at all, allow through
+    // No auth configured: refuse rather than allow through. This endpoint drives
+    // an agent that can execute ToolClad tools, so an unconfigured deployment
+    // must not be an open one. `HttpInputConfig::default()` leaves both
+    // `auth_header` and `jwt_public_key_path` unset, so a library embedder that
+    // takes the defaults previously served this unauthenticated.
     if !has_static_auth && !has_jwt_auth {
-        return Ok(next.run(req).await);
+        tracing::error!(
+            "HTTP input received a request but no authentication is configured \
+             (set auth_header or jwt_public_key_path); refusing the request"
+        );
+        return Err(StatusCode::UNAUTHORIZED);
     }
 
     let auth_header = headers.get("Authorization").and_then(|h| h.to_str().ok());
@@ -463,9 +587,12 @@ async fn webhook_handler(
         state.runtime.as_deref(),
         agent_id,
         payload,
-        state.llm_client.as_deref(),
+        state.inference_provider.clone(),
         &state.agent_dsl_sources,
-        state.toolclad_executor.clone(),
+        state.executor.clone(),
+        state.policy_gate.clone(),
+        state.circuit_breakers.clone(),
+        state.journal.clone(),
     )
     .await
     {
@@ -527,26 +654,36 @@ async fn matches_route_condition(
     }
 }
 
-/// Invoke an agent with the provided input data, using runtime execution or LLM.
-/// When the LLM path is used and a ToolClad executor is available, the function
-/// runs an ORGA-style tool-calling loop: LLM proposes tool calls → ToolClad
-/// executes → results fed back → repeat until the LLM produces a final answer.
+/// Invoke an agent with the provided input data, using runtime execution or a
+/// governed reasoning loop.
+///
+/// When the runtime communication bus can't dispatch (the agent isn't
+/// registered as `Running`), this drives `ReasoningLoopRunner::run` directly:
+/// every model-proposed tool call passes through `policy_gate` before
+/// `executor` ever sees it, tool dispatch goes through the same
+/// circuit-breaker-aware `ActionExecutor` other entry points use, and the run
+/// is recorded to `journal`. There is no path here that acts on model output
+/// without going through the gate.
 #[cfg(feature = "http-input")]
+#[allow(clippy::too_many_arguments)]
 async fn invoke_agent(
     runtime: Option<&crate::AgentRuntime>,
     agent_id: AgentId,
     input_data: Value,
-    llm_client: Option<&LlmClient>,
+    inference_provider: Option<Arc<dyn InferenceProvider>>,
     agent_dsl_sources: &[(String, String)],
-    toolclad_executor: Option<Arc<crate::toolclad::executor::ToolCladExecutor>>,
+    executor: Arc<dyn ActionExecutor>,
+    policy_gate: Arc<dyn ReasoningPolicyGate>,
+    circuit_breakers: Arc<CircuitBreakerRegistry>,
+    journal: Arc<dyn JournalWriter>,
 ) -> Result<Value, RuntimeError> {
     let start = std::time::Instant::now();
 
     // Try runtime communication bus for agents that are actively listening.
     // The communication bus delivers messages to registered (running) agents.
     // If the agent is not registered (e.g., completed or never started as a
-    // persistent listener), fall through to the LLM invocation path which
-    // executes the agent on-demand with DSL context and ToolClad tools.
+    // persistent listener), fall through to the governed reasoning-loop path
+    // which executes the agent on-demand with DSL context and tools.
     if let Some(rt) = runtime {
         // Check if the agent is actively running before attempting communication
         // bus delivery. send_message accepts messages even for unregistered agents
@@ -596,27 +733,27 @@ async fn invoke_agent(
                 }
                 Err(e) => {
                     tracing::warn!(
-                        "Runtime execution failed for agent {}, falling back to LLM: {}",
+                        "Runtime execution failed for agent {}, falling back to the reasoning loop: {}",
                         agent_id,
                         e,
                     );
-                    // Fall through to LLM path
+                    // Fall through to the reasoning-loop path
                 }
             }
         } else {
             tracing::info!(
-                "Agent {} is not running, using LLM invocation path",
+                "Agent {} is not running, using the governed reasoning-loop path",
                 agent_id,
             );
         }
     }
 
-    // Fall back to LLM invocation
-    let llm = match llm_client {
-        Some(client) => client,
+    // Fall back to the governed reasoning loop.
+    let provider = match inference_provider {
+        Some(p) => p,
         None => {
             return Err(RuntimeError::Internal(format!(
-                "No runtime or LLM client available for agent {}. \
+                "No runtime or inference provider available for agent {}. \
                  Configure an LLM provider or ensure the runtime is running.",
                 agent_id
             )));
@@ -674,220 +811,118 @@ async fn invoke_agent(
         )
     };
 
-    // Build tool definitions from ToolClad executor if available
-    let tools: Vec<serde_json::Value> = if let Some(ref executor) = toolclad_executor {
-        executor
-            .get_tool_definitions()
-            .iter()
-            .map(|td| {
-                serde_json::json!({
-                    "name": td.name,
-                    "description": td.description,
-                    "input_schema": td.parameters
-                })
-            })
-            .collect()
-    } else {
-        Vec::new()
-    };
-
     tracing::info!(
-        "Invoking LLM for agent {}: provider={} model={} tools={} system_len={} user_len={}",
+        "Invoking governed reasoning loop for agent {}: provider={} model={} tools={} system_len={} user_len={}",
         agent_id,
-        llm.provider(),
-        llm.model(),
-        tools.len(),
+        provider.provider_name(),
+        provider.default_model(),
+        executor.tool_definitions().len(),
         system_prompt.len(),
         user_message.len(),
     );
 
-    // ORGA tool-calling loop: LLM proposes tool calls → execute → feed results → repeat
-    let max_iterations = 15;
-    let mut messages: Vec<serde_json::Value> =
-        vec![serde_json::json!({"role": "user", "content": user_message})];
-    let mut tool_runs: Vec<serde_json::Value> = Vec::new();
-    let mut final_text = String::new();
+    let mut conversation = Conversation::with_system(system_prompt);
+    conversation.push(ConversationMessage::user(user_message));
 
-    for iteration in 0..max_iterations {
-        let response = llm
-            .chat_with_tools(&system_prompt, &messages, &tools)
-            .await?;
+    // Preserve the previous hand-rolled loop's bounds that this handler
+    // still owns: up to 15 tool-calling round trips per request, and a 120s
+    // per-tool timeout (ToolClad tools like nmap_scan can run for minutes).
+    // Everything else — token budget, overall wall-clock timeout, concurrent
+    // tool cap — is the runner's own `LoopConfig` default: the runner, not
+    // this handler, now owns those bounds.
+    let loop_config = LoopConfig {
+        max_iterations: 15,
+        tool_timeout: std::time::Duration::from_secs(120),
+        ..LoopConfig::default()
+    };
 
-        let stop_reason = response
-            .get("stop_reason")
-            .and_then(|s| s.as_str())
-            .unwrap_or("end_turn");
+    let runner = ReasoningLoopRunner {
+        provider: provider.clone(),
+        policy_gate,
+        executor,
+        context_manager: Arc::new(DefaultContextManager::default()),
+        circuit_breakers,
+        journal,
+        knowledge_bridge: None,
+        delegation: None,
+    };
 
-        let content_blocks = response
-            .get("content")
-            .and_then(|c| c.as_array())
-            .cloned()
-            .unwrap_or_default();
+    let result = runner.run(agent_id, conversation, loop_config).await;
 
-        // Collect text and tool_use blocks
-        let mut text_parts = Vec::new();
-        let mut tool_calls = Vec::new();
-
-        for block in &content_blocks {
-            match block.get("type").and_then(|t| t.as_str()) {
-                Some("text") => {
-                    if let Some(text) = block.get("text").and_then(|t| t.as_str()) {
-                        text_parts.push(text.to_string());
-                    }
-                }
-                Some("tool_use") => {
-                    tool_calls.push(block.clone());
-                }
-                _ => {}
-            }
-        }
-
-        if !text_parts.is_empty() {
-            final_text = text_parts.join("\n");
-        }
-
-        // If no tool calls or stop_reason is end_turn, we're done
-        if tool_calls.is_empty() || stop_reason == "end_turn" {
-            tracing::info!(
-                "LLM invocation completed for agent {} at iteration {}: no more tool calls",
-                agent_id,
-                iteration + 1,
-            );
-            break;
-        }
-
-        // Add assistant message with tool_use blocks to conversation
-        messages.push(serde_json::json!({
-            "role": "assistant",
-            "content": content_blocks
-        }));
-
-        // Execute each tool call via ToolClad and build tool_result messages.
-        // Deduplicate identical (name, input) pairs within a single iteration
-        // to avoid redundant execution of potentially non-idempotent tools.
-        let mut tool_results: Vec<serde_json::Value> = Vec::new();
-        let mut seen_calls: HashSet<String> = HashSet::new();
-
-        for tc in &tool_calls {
-            let tool_id = tc.get("id").and_then(|i| i.as_str()).unwrap_or("unknown");
-            let tool_name = tc.get("name").and_then(|n| n.as_str()).unwrap_or("unknown");
-            let tool_input = tc.get("input").cloned().unwrap_or(serde_json::json!({}));
-            let args_json = serde_json::to_string(&tool_input).unwrap_or_default();
-
-            // Dedup key: tool name + canonical input JSON
-            let dedup_key = format!("{}:{}", tool_name, args_json);
-            if !seen_calls.insert(dedup_key) {
-                tracing::warn!(
-                    "Skipping duplicate tool call '{}' with identical input in iteration",
-                    tool_name,
-                );
-                tool_results.push(serde_json::json!({
-                    "type": "tool_result",
-                    "tool_use_id": tool_id,
-                    "content": "Duplicate tool call skipped — see previous result for this tool and input."
-                }));
-                continue;
-            }
-
-            tracing::info!(
-                "ORGA ACT: executing tool '{}' (id={}) for agent {}",
-                tool_name,
-                tool_id,
-                agent_id,
-            );
-
-            // Execute tool on a blocking thread with a per-tool timeout (#1, #2).
-            // ToolClad's execute_tool uses std::process::Command which blocks;
-            // running it directly would stall the Tokio worker thread.
-            const TOOL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
-            let result = if let Some(ref executor) = toolclad_executor {
-                let exec = Arc::clone(executor);
-                let name_owned = tool_name.to_string();
-                let args_owned = args_json.clone();
-                match tokio::time::timeout(
-                    TOOL_TIMEOUT,
-                    tokio::task::spawn_blocking(move || {
-                        exec.execute_tool(&name_owned, &args_owned)
-                    }),
-                )
-                .await
-                {
-                    Ok(Ok(Ok(output))) => {
-                        tracing::info!("Tool '{}' executed successfully", tool_name);
-                        serde_json::to_string_pretty(&output).unwrap_or_else(|_| output.to_string())
-                    }
-                    Ok(Ok(Err(e))) => {
-                        tracing::warn!("Tool '{}' execution failed: {}", tool_name, e);
-                        format!("Error executing {}: {}", tool_name, e)
-                    }
-                    Ok(Err(join_err)) => {
-                        tracing::error!("Tool '{}' task panicked: {}", tool_name, join_err);
-                        format!("Error executing {}: task panicked", tool_name)
-                    }
-                    Err(_) => {
-                        tracing::error!("Tool '{}' timed out after {:?}", tool_name, TOOL_TIMEOUT,);
-                        format!(
-                            "Error executing {}: timed out after {} seconds",
-                            tool_name,
-                            TOOL_TIMEOUT.as_secs(),
-                        )
-                    }
-                }
-            } else {
-                format!(
-                    "Tool execution unavailable: no ToolClad executor configured for '{}'",
-                    tool_name,
-                )
-            };
-
-            // UTF-8 safe preview truncation (#3)
-            let preview = truncate_utf8(&result, 500);
-            tool_runs.push(serde_json::json!({
-                "tool": tool_name,
-                "input": tool_input,
-                "output_preview": preview,
-            }));
-
-            tool_results.push(serde_json::json!({
-                "type": "tool_result",
-                "tool_use_id": tool_id,
-                "content": result
-            }));
-        }
-
-        // Add tool results as user message for next iteration
-        messages.push(serde_json::json!({
-            "role": "user",
-            "content": tool_results
-        }));
-
-        tracing::info!(
-            "ORGA loop iteration {} for agent {}: executed {} tool(s), continuing",
-            iteration + 1,
-            agent_id,
-            tool_calls.len(),
-        );
-    }
+    let tool_runs = reconstruct_tool_runs(&result.conversation);
 
     let latency = start.elapsed();
     tracing::info!(
-        "LLM invocation completed for agent {}: latency={:?} tool_runs={} response_len={}",
+        "Reasoning loop completed for agent {}: latency={:?} iterations={} tool_runs={} response_len={} termination={:?}",
         agent_id,
         latency,
+        result.iterations,
         tool_runs.len(),
-        final_text.len(),
+        result.output.len(),
+        result.termination_reason,
     );
 
     Ok(serde_json::json!({
         "status": "completed",
         "agent_id": agent_id.to_string(),
-        "response": final_text,
+        "response": result.output,
         "tool_runs": tool_runs,
-        "model": llm.model(),
-        "provider": format!("{}", llm.provider()),
+        "termination_reason": result.termination_reason,
+        "iterations": result.iterations,
+        "model": provider.default_model(),
+        "provider": provider.provider_name(),
         "latency_ms": latency.as_millis(),
         "timestamp": chrono::Utc::now().to_rfc3339()
     }))
+}
+
+/// Rebuild the `tool_runs` response field from the governed run's
+/// conversation. Each `Tool`-role message corresponds to one tool call the
+/// model proposed — executed, denied, or schema-rejected — correlated back
+/// to the assistant's original call by `tool_call_id` to recover its input.
+///
+/// Field-fidelity note (see CHANGELOG): `tool` is the conversation's
+/// `tool_name`, i.e. the executor's `Observation::source`. For calls
+/// dispatched through `ToolCladExecutor` that carries a `toolclad:` prefix
+/// (its own naming convention: `format!("toolclad:{}", name)`), not the bare
+/// model-supplied name the previous hand-rolled loop reported. Denied /
+/// schema-rejected calls never reach the executor and keep the bare name.
+/// Rather than guess at stripping a prefix that may not even be ToolClad's
+/// (agent delegation uses `delegate:<target>`), this reports the label the
+/// governed loop actually recorded instead of fabricating the old shape.
+#[cfg(feature = "http-input")]
+fn reconstruct_tool_runs(conversation: &Conversation) -> Vec<serde_json::Value> {
+    use std::collections::HashMap;
+
+    let mut call_args: HashMap<&str, &str> = HashMap::new();
+    for msg in conversation.messages() {
+        if msg.role == MessageRole::Assistant {
+            for tc in &msg.tool_calls {
+                call_args.insert(tc.id.as_str(), tc.arguments.as_str());
+            }
+        }
+    }
+
+    conversation
+        .messages()
+        .iter()
+        .filter(|m| m.role == MessageRole::Tool)
+        .map(|m| {
+            let tool_name = m.tool_name.clone().unwrap_or_default();
+            let input = m
+                .tool_call_id
+                .as_deref()
+                .and_then(|id| call_args.get(id))
+                .and_then(|args| serde_json::from_str::<Value>(args).ok())
+                .unwrap_or(Value::Null);
+            let preview = truncate_utf8(&m.content, 500);
+            serde_json::json!({
+                "tool": tool_name,
+                "input": input,
+                "output_preview": preview,
+            })
+        })
+        .collect()
 }
 
 /// Scan the agents/ directory for .dsl files and return their contents
@@ -916,21 +951,6 @@ fn scan_agent_dsl_files() -> Vec<(String, String)> {
     }
 
     sources
-}
-
-/// Truncate a string to at most `max_bytes` bytes without splitting a UTF-8
-/// character. Returns the full string when it is already within the limit.
-#[cfg(feature = "http-input")]
-fn truncate_utf8(s: &str, max_bytes: usize) -> &str {
-    if s.len() <= max_bytes {
-        return s;
-    }
-    // Find the largest char boundary <= max_bytes
-    let mut end = max_bytes;
-    while end > 0 && !s.is_char_boundary(end) {
-        end -= 1;
-    }
-    &s[..end]
 }
 
 /// Format a successful response
@@ -1029,11 +1049,18 @@ async fn resolve_secret_reference(
 }
 
 /// Create a function to start the HTTP input server
+///
+/// `policy_gate` is the gate every model-proposed action must pass through.
+/// Pass `None` only when there is truly no gate to wire — `HttpInputServer`
+/// resolves that to **fail-closed** (`DefaultPolicyGate::new()`), never
+/// permissive, so an embedder that forgets to pass one gets denial for every
+/// tool call rather than free rein.
 #[cfg(feature = "http-input")]
 pub async fn start_http_input(
     config: HttpInputConfig,
     runtime: Option<Arc<crate::AgentRuntime>>,
     secrets_config: Option<SecretsConfig>,
+    policy_gate: Option<Arc<dyn ReasoningPolicyGate>>,
 ) -> Result<(), RuntimeError> {
     let mut server = HttpInputServer::new(config);
 
@@ -1042,7 +1069,16 @@ pub async fn start_http_input(
         server = server.with_runtime(runtime);
     }
 
-    // Load ToolClad manifests and create executor for tool-calling
+    if let Some(gate) = policy_gate {
+        server = server.with_policy_gate(gate);
+    }
+
+    // Load ToolClad manifests and create executor for tool-calling. Also
+    // loads `toolclad.toml` custom argument types — `build_tool_executor`'s
+    // generic default (used by `HttpInputServer::start()` when no executor
+    // was set via `with_executor`) has no project-root context to find that
+    // file, so it is preserved here to keep this production entrypoint at
+    // full parity with custom-typed manifests.
     let tools_dir = std::path::Path::new("tools");
     if tools_dir.is_dir() {
         let manifests = crate::toolclad::manifest::load_manifests_from_dir(tools_dir);
@@ -1058,7 +1094,7 @@ pub async fn start_http_input(
                 "HTTP Input: ToolClad executor loaded with {} tool(s)",
                 manifests.len()
             );
-            server = server.with_toolclad_executor(Arc::new(executor));
+            server = server.with_executor(Arc::new(executor));
         }
     }
 
@@ -1079,57 +1115,9 @@ pub async fn start_http_input(
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_truncate_utf8_ascii_within_limit() {
-        assert_eq!(truncate_utf8("hello", 10), "hello");
-    }
-
-    #[test]
-    fn test_truncate_utf8_ascii_at_limit() {
-        assert_eq!(truncate_utf8("hello", 5), "hello");
-    }
-
-    #[test]
-    fn test_truncate_utf8_ascii_over_limit() {
-        assert_eq!(truncate_utf8("hello world", 5), "hello");
-    }
-
-    #[test]
-    fn test_truncate_utf8_multibyte_boundary() {
-        // "é" is 2 bytes (0xC3 0xA9). "café" is 5 bytes.
-        // Truncating at 4 bytes would land inside the 'é', should back up to 3.
-        let s = "café";
-        assert_eq!(s.len(), 5);
-        let t = truncate_utf8(s, 4);
-        assert_eq!(t, "caf");
-    }
-
-    #[test]
-    fn test_truncate_utf8_emoji() {
-        // "👍" is 4 bytes. Truncating at 2 should yield empty.
-        let s = "👍";
-        assert_eq!(s.len(), 4);
-        assert_eq!(truncate_utf8(s, 2), "");
-    }
-
-    #[test]
-    fn test_truncate_utf8_cjk() {
-        // Each CJK character is 3 bytes. "你好" is 6 bytes.
-        let s = "你好";
-        assert_eq!(s.len(), 6);
-        // Truncate at 4 should yield "你" (3 bytes)
-        assert_eq!(truncate_utf8(s, 4), "你");
-    }
-
-    #[test]
-    fn test_truncate_utf8_empty() {
-        assert_eq!(truncate_utf8("", 10), "");
-    }
-
-    #[test]
-    fn test_truncate_utf8_zero_limit() {
-        assert_eq!(truncate_utf8("hello", 0), "");
-    }
+    // `truncate_utf8` itself now lives in `crate::text_util` (shared with
+    // `reasoning::knowledge_bridge`) and is covered by its own unit tests
+    // there; this module keeps only server-specific behavior.
 
     /// C4 (RUSTSEC-2023-0071): the asymmetric Bearer-token verifier must
     /// pin its algorithm allowlist to ES256 + EdDSA. Any RSA / PS / HS /
@@ -1168,5 +1156,301 @@ mod tests {
                 forbidden
             );
         }
+    }
+
+    // ---- Governed reasoning-loop tests ----
+    //
+    // These drive the real HTTP server (`HttpInputServer::start()`) end to
+    // end with a scripted `InferenceProvider` (no network access) and a
+    // real `ToolCladExecutor` backed by a throwaway manifest whose tool has
+    // an observable side effect (creating a file via `touch`). That side
+    // effect — not a response string — is what proves a denied call didn't
+    // run and an allowed one did.
+
+    use crate::reasoning::inference::{
+        FinishReason, InferenceError, InferenceOptions, InferenceResponse, ToolCallRequest, Usage,
+    };
+    use crate::reasoning::policy_bridge::ToolFilterPolicyGate;
+    use async_trait::async_trait;
+
+    /// A scripted [`InferenceProvider`]: returns queued responses in order,
+    /// making no network calls. Mirrors the `MockProvider` pattern used in
+    /// `reasoning_loop.rs`'s own tests.
+    struct ScriptedProvider {
+        responses: std::sync::Mutex<std::collections::VecDeque<InferenceResponse>>,
+    }
+
+    impl ScriptedProvider {
+        fn new(responses: Vec<InferenceResponse>) -> Self {
+            Self {
+                responses: std::sync::Mutex::new(responses.into()),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl InferenceProvider for ScriptedProvider {
+        async fn complete(
+            &self,
+            _conversation: &Conversation,
+            _options: &InferenceOptions,
+        ) -> Result<InferenceResponse, InferenceError> {
+            self.responses
+                .lock()
+                .unwrap()
+                .pop_front()
+                .ok_or_else(|| InferenceError::Provider("ScriptedProvider exhausted".into()))
+        }
+
+        fn provider_name(&self) -> &str {
+            "scripted-test"
+        }
+        fn default_model(&self) -> &str {
+            "scripted-test-model"
+        }
+        fn supports_native_tools(&self) -> bool {
+            true
+        }
+        fn supports_structured_output(&self) -> bool {
+            false
+        }
+    }
+
+    fn tool_call_response(id: &str, name: &str, args: &serde_json::Value) -> InferenceResponse {
+        InferenceResponse {
+            content: String::new(),
+            tool_calls: vec![ToolCallRequest {
+                id: id.to_string(),
+                name: name.to_string(),
+                arguments: args.to_string(),
+            }],
+            finish_reason: FinishReason::ToolCalls,
+            usage: Usage::default(),
+            model: "scripted-test-model".into(),
+        }
+    }
+
+    fn final_text_response(text: &str) -> InferenceResponse {
+        InferenceResponse {
+            content: text.to_string(),
+            tool_calls: vec![],
+            finish_reason: FinishReason::Stop,
+            usage: Usage::default(),
+            model: "scripted-test-model".into(),
+        }
+    }
+
+    /// Write a minimal ToolClad manifest for a `write_marker` tool: running
+    /// it creates a file at the given path via `touch`.
+    fn write_marker_manifest(tools_dir: &std::path::Path) {
+        std::fs::write(
+            tools_dir.join("write_marker.clad.toml"),
+            r#"
+[tool]
+name = "write_marker"
+version = "1.0.0"
+binary = "touch"
+description = "create a marker file (test fixture)"
+
+[args.path]
+position = 1
+required = true
+type = "string"
+description = "file path to touch"
+
+[command]
+template = "touch {path}"
+
+[output]
+format = "text"
+
+[output.schema]
+type = "object"
+"#,
+        )
+        .unwrap();
+    }
+
+    async fn find_available_port() -> u16 {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        port
+    }
+
+    async fn wait_for_port(port: u16) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            if tokio::net::TcpStream::connect(("127.0.0.1", port))
+                .await
+                .is_ok()
+            {
+                return;
+            }
+            if std::time::Instant::now() > deadline {
+                panic!("server on port {} never came up", port);
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+    }
+
+    fn test_config(port: u16) -> HttpInputConfig {
+        HttpInputConfig {
+            bind_address: "127.0.0.1".to_string(),
+            port,
+            path: "/webhook".to_string(),
+            agent: AgentId::new(),
+            auth_header: Some("Bearer test-token".to_string()),
+            jwt_public_key_path: None,
+            max_body_bytes: 65_536,
+            concurrency: 5,
+            routing_rules: None,
+            response_control: None,
+            forward_headers: vec![],
+            cors_origins: vec![],
+            audit_enabled: false,
+            webhook_verify: None,
+        }
+    }
+
+    /// A fail-closed gate must stop a proposed tool call from executing —
+    /// proven by a real side effect (a file) not existing, not merely by an
+    /// error string in the response. The denial must still be visible to
+    /// the caller in `tool_runs`.
+    #[tokio::test]
+    async fn denied_tool_call_does_not_execute_and_denial_is_visible() {
+        let tools_dir = tempfile::tempdir().unwrap();
+        write_marker_manifest(tools_dir.path());
+        let marker = tools_dir.path().join("marker.txt");
+
+        let executor = build_tool_executor(tools_dir.path());
+        assert!(
+            executor
+                .tool_definitions()
+                .iter()
+                .any(|d| d.name == "write_marker"),
+            "fixture executor must advertise write_marker"
+        );
+
+        let provider = Arc::new(ScriptedProvider::new(vec![
+            tool_call_response(
+                "call_1",
+                "write_marker",
+                &serde_json::json!({ "path": marker.display().to_string() }),
+            ),
+            final_text_response("I was not able to run that tool."),
+        ]));
+
+        let port = find_available_port().await;
+        let server = HttpInputServer::new(test_config(port))
+            .with_executor(executor)
+            .with_inference_provider(provider)
+            // Fail-closed: no policies wired, no insecure-allow-all opt-in.
+            .with_policy_gate(Arc::new(DefaultPolicyGate::new()));
+
+        let handle = tokio::spawn(async move {
+            let _ = server.start().await;
+        });
+        wait_for_port(port).await;
+
+        let client = reqwest::Client::new();
+        let resp = client
+            .post(format!("http://127.0.0.1:{}/webhook", port))
+            .header("Authorization", "Bearer test-token")
+            .header("Content-Type", "application/json")
+            .json(&serde_json::json!({ "prompt": "please run write_marker" }))
+            .send()
+            .await
+            .expect("request");
+
+        assert!(resp.status().is_success(), "status: {}", resp.status());
+        let body: serde_json::Value = resp.json().await.expect("json body");
+
+        // The whole point: the tool's real side effect must NOT have
+        // happened, not merely "some error string appeared".
+        assert!(
+            !marker.exists(),
+            "denied tool call must not execute — marker file should not exist"
+        );
+
+        let tool_runs = body["tool_runs"].as_array().expect("tool_runs array");
+        assert_eq!(tool_runs.len(), 1, "tool_runs: {:?}", tool_runs);
+        assert_eq!(tool_runs[0]["tool"], "write_marker");
+        let preview = tool_runs[0]["output_preview"].as_str().unwrap();
+        assert!(
+            preview.contains("Policy denied"),
+            "expected a policy-denial marker in tool_runs, got: {}",
+            preview
+        );
+
+        handle.abort();
+        let _ = handle.await;
+    }
+
+    /// An allowed tool call must actually execute (real side effect), and
+    /// the response must still carry per-tool results.
+    #[tokio::test]
+    async fn allowed_tool_call_executes_and_response_carries_tool_results() {
+        let tools_dir = tempfile::tempdir().unwrap();
+        write_marker_manifest(tools_dir.path());
+        let marker = tools_dir.path().join("marker.txt");
+
+        let executor = build_tool_executor(tools_dir.path());
+
+        let provider = Arc::new(ScriptedProvider::new(vec![
+            tool_call_response(
+                "call_1",
+                "write_marker",
+                &serde_json::json!({ "path": marker.display().to_string() }),
+            ),
+            final_text_response("Done."),
+        ]));
+
+        let port = find_available_port().await;
+        let server = HttpInputServer::new(test_config(port))
+            .with_executor(executor)
+            .with_inference_provider(provider)
+            .with_policy_gate(Arc::new(ToolFilterPolicyGate::allow_all()));
+
+        let handle = tokio::spawn(async move {
+            let _ = server.start().await;
+        });
+        wait_for_port(port).await;
+
+        let client = reqwest::Client::new();
+        let resp = client
+            .post(format!("http://127.0.0.1:{}/webhook", port))
+            .header("Authorization", "Bearer test-token")
+            .header("Content-Type", "application/json")
+            .json(&serde_json::json!({ "prompt": "please run write_marker" }))
+            .send()
+            .await
+            .expect("request");
+
+        assert!(resp.status().is_success(), "status: {}", resp.status());
+        let body: serde_json::Value = resp.json().await.expect("json body");
+
+        // The whole point: the tool's real side effect DID happen.
+        assert!(
+            marker.exists(),
+            "allowed tool call must execute — marker file should exist"
+        );
+
+        let tool_runs = body["tool_runs"].as_array().expect("tool_runs array");
+        assert_eq!(tool_runs.len(), 1, "tool_runs: {:?}", tool_runs);
+        // ToolCladExecutor's own Observation::source naming convention
+        // (`toolclad:<name>`) — see the field-fidelity note on
+        // `reconstruct_tool_runs`.
+        assert_eq!(tool_runs[0]["tool"], "toolclad:write_marker");
+        let preview = tool_runs[0]["output_preview"].as_str().unwrap();
+        assert!(
+            !preview.contains("ToolClad error"),
+            "expected a successful tool result, got: {}",
+            preview
+        );
+        assert_eq!(body["response"], "Done.");
+
+        handle.abort();
+        let _ = handle.await;
     }
 }

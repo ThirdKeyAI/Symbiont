@@ -474,7 +474,19 @@ pub fn encrypt_message(
 
 ### Cryptographic Audit Trail
 
-Every security-relevant operation generates an immutable audit event:
+Two subsystems keep a signed, hash-chained record: the critic audit chain
+(`crates/runtime/src/reasoning/critic_audit.rs`, verified with `verify_chain` /
+`verify_chain_anchored`) and session transcripts
+(`crates/runtime/src/session/transcript.rs`). The structure below describes those
+chains.
+
+This is **not** a system-wide audit log. In particular the reasoning loop's own
+record is a `JournalWriter` (`BufferedJournal` by default — in-memory, capacity
+bounded, neither signed nor hash-chained), and a delegated sub-agent's internal
+steps go to a separate journal that is not surfaced to the operator. Treat the
+guarantees below as scoped to the two chains named above.
+
+An event in those chains looks like:
 
 ```rust
 pub struct AuditEvent {
@@ -1095,7 +1107,10 @@ automatic_key_pinning = false
 
 **Compliance Metrics:**
 - Policy compliance rate: >99.9%
-- Audit trail integrity: 100%
+- Audit trail integrity: chain verification detects any reordering, mutation, or
+  tail truncation of the critic audit chain and session transcripts (see
+  [Cryptographic Audit Trail](#cryptographic-audit-trail) for what is and is not
+  covered)
 - Security event false positive rate: <1%
 - Incident resolution time: <24 hours
 

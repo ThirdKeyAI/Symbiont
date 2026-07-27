@@ -48,7 +48,9 @@ const COORDINATOR_SYSTEM_PROMPT: &str = "\
 You are the Symbiont Coordinator, a meta-agent for the Symbiont runtime.
 You help operators monitor, inspect, and manage the agent fleet.
 Be concise and factual. Format data clearly.
-All actions are policy-evaluated and audit-logged.";
+Every action you propose is policy-evaluated before it runs.
+Your own actions are journaled to the operator's session; a delegated agent's \
+internal steps are policy-evaluated but are not journaled to the operator.";
 
 /// Shared state across all coordinator WebSocket connections.
 #[cfg(feature = "http-api")]
@@ -66,6 +68,9 @@ pub struct CoordinatorState {
     /// process lifetime; if per-agent search filtering is added later, this
     /// id is what identifies the coordinator's own knowledge namespace.
     pub knowledge_agent_id: AgentId,
+    /// In-process agent-to-agent delegation handle, or `None` when no `./agents`
+    /// registry was configured. Built once at construction via `with_delegation`.
+    pub delegation: Option<Arc<dyn crate::reasoning::delegation::DelegationExecutor>>,
 }
 
 #[cfg(feature = "http-api")]
@@ -76,7 +81,7 @@ impl CoordinatorState {
         policy_gate: Arc<dyn ReasoningPolicyGate>,
         runtime_provider: Arc<dyn RuntimeApiProvider>,
     ) -> Self {
-        let tool_definitions = CoordinatorExecutor::tool_definitions();
+        let tool_definitions = CoordinatorExecutor::tool_definitions(&[]);
         Self {
             provider,
             policy_gate,
@@ -90,6 +95,7 @@ impl CoordinatorState {
             },
             knowledge_bridge: None,
             knowledge_agent_id: AgentId::new(),
+            delegation: None,
         }
     }
 
@@ -100,6 +106,36 @@ impl CoordinatorState {
     /// store.
     pub async fn with_rag(mut self, agent_id: &str) -> Self {
         self.knowledge_bridge = build_knowledge_bridge(agent_id).await;
+        self
+    }
+
+    /// Build the in-process delegation handle from a name→system-prompt registry
+    /// (scanned from `./agents`). Sub-loops reuse the coordinator's deps + a
+    /// fresh BufferedJournal (delegate internals are not streamed to the client).
+    /// No registry entries → still constructs a handle whose every lookup misses
+    /// with an honest error; pass an empty map to disable.
+    pub fn with_delegation(mut self, registry: std::collections::HashMap<String, String>) -> Self {
+        use crate::reasoning::delegation_executor::SubLoopDelegationExecutor;
+
+        // The model picks delegation targets from the tool description, so the
+        // advertised names must be exactly the registry keys that resolve.
+        let mut names: Vec<String> = registry.keys().cloned().collect();
+        names.sort();
+        self.tool_definitions = CoordinatorExecutor::tool_definitions(&names);
+
+        let executor: Arc<dyn crate::reasoning::executor::ActionExecutor> =
+            Arc::new(CoordinatorExecutor::new(self.runtime_provider.clone()));
+        let delegation = SubLoopDelegationExecutor::new(
+            self.provider.clone(),
+            executor,
+            self.policy_gate.clone(),
+            Arc::new(DefaultContextManager::default()),
+            Arc::new(CircuitBreakerRegistry::default()),
+            Arc::new(BufferedJournal::new(500)),
+            registry,
+            3,
+        );
+        self.delegation = Some(delegation);
         self
     }
 }
@@ -218,6 +254,7 @@ impl CoordinatorSession {
             circuit_breakers: Arc::new(CircuitBreakerRegistry::default()),
             journal: streaming_journal,
             knowledge_bridge: self.state.knowledge_bridge.clone(),
+            delegation: self.state.delegation.clone(),
         };
 
         // Spawn the journal→WebSocket bridge task

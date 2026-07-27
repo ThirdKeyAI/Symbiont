@@ -88,6 +88,10 @@ pub enum ProposedAction {
     },
     /// Delegate work to another agent.
     Delegate {
+        /// Unique call identifier — the id of the `delegate` tool call this
+        /// action was converted from. Delegation results are returned to the
+        /// model as a `tool_result` correlated by this id.
+        call_id: String,
         /// Target agent identifier or name.
         target: String,
         /// Message to send.
@@ -206,6 +210,15 @@ pub struct LoopConfig {
     /// each turn is min(remaining budget, this).
     #[serde(default = "default_max_output_tokens")]
     pub max_output_tokens: u32,
+    /// Maximum delegation nesting depth before a `Delegate` is refused.
+    #[serde(default = "default_max_delegation_depth")]
+    pub max_delegation_depth: u32,
+    /// Current delegation nesting depth (0 at the top level; incremented per hop).
+    #[serde(default)]
+    pub delegation_depth: u32,
+    /// Agent names already on the delegation path, for cycle detection.
+    #[serde(default)]
+    pub delegation_chain: Vec<String>,
     /// Tool definitions available during this loop run.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_definitions: Vec<ToolDefinition>,
@@ -240,6 +253,10 @@ fn default_max_output_tokens() -> u32 {
     16384
 }
 
+fn default_max_delegation_depth() -> u32 {
+    3
+}
+
 impl Default for LoopConfig {
     fn default() -> Self {
         Self {
@@ -255,6 +272,9 @@ impl Default for LoopConfig {
             context_token_budget: 32_000,
             temperature: default_loop_temperature(),
             max_output_tokens: default_max_output_tokens(),
+            max_delegation_depth: default_max_delegation_depth(),
+            delegation_depth: 0,
+            delegation_chain: Vec::new(),
             tool_definitions: Vec::new(),
             tool_choice: None,
             #[cfg(feature = "orga-adaptive")]
@@ -687,5 +707,22 @@ mod tests {
         };
         let json = serde_json::to_string(&event).unwrap();
         assert!(json.contains("Terminated"));
+    }
+
+    #[test]
+    fn loop_config_default_has_delegation_guards() {
+        let c = LoopConfig::default();
+        assert_eq!(c.max_delegation_depth, 3);
+        assert_eq!(c.delegation_depth, 0);
+        assert!(c.delegation_chain.is_empty());
+    }
+
+    #[test]
+    fn delegation_error_messages_name_the_cause() {
+        use crate::reasoning::delegation::DelegationError;
+        assert!(DelegationError::UnknownTarget("reviewer".into())
+            .to_string()
+            .contains("reviewer"));
+        assert!(DelegationError::DepthExceeded(3).to_string().contains('3'));
     }
 }

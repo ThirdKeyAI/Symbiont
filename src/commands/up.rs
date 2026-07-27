@@ -10,6 +10,7 @@ use symbi_channel_adapter::{
 use symbi_runtime::api::server::{HttpApiConfig, HttpApiServer};
 use symbi_runtime::http_input::llm_client::LlmClient;
 use symbi_runtime::http_input::{start_http_input, HttpInputConfig};
+use symbi_runtime::reasoning::policy_bridge::ReasoningPolicyGate;
 use symbi_runtime::types::{AgentId, SecurityTier};
 use symbi_runtime::AgentRuntime;
 use symbi_runtime::RuntimeConfig;
@@ -373,6 +374,35 @@ pub async fn run(matches: &ArgMatches) {
         })
         .unwrap_or_default();
 
+    // The governed policy-gate ladder (permissive-if-opted-in -> Cedar ->
+    // fail-closed), wrapped so flagged tool calls are held for human
+    // approval. Built once, unconditionally, so every entry point that acts
+    // on model output in this process — Coordinator Chat and the HTTP input
+    // server below — shares the same gate rather than each risking its own
+    // (possibly permissive-by-omission) wiring.
+    if insecure_allow_all {
+        eprintln!("\n");
+        eprintln!("================================================================");
+        eprintln!("WARNING: --insecure-allow-all / SYMBI_INSECURE_ALLOW_ALL=1 is set");
+        eprintln!("Policy gate is in PERMISSIVE mode.");
+        eprintln!("Every LLM-proposed tool call and delegation will be allowed.");
+        eprintln!("This is only safe for local development. Do NOT use in production.");
+        eprintln!("================================================================\n");
+    }
+    let policy_gate =
+        symbi_runtime::reasoning::governed_gate(symbi_runtime::reasoning::GateOptions {
+            policies_dir: PathBuf::from("policies"),
+            insecure_allow_all,
+            escalation: Some((
+                escalation_queue.clone(),
+                symbi_runtime::escalation::EscalationGateConfig {
+                    require_approval_tools: require_approval_tools.clone(),
+                    timeout: escalation_timeout,
+                },
+            )),
+        })
+        .await;
+
     // Start chat adapters if any are configured
     let any_adapter = slack_token.is_some() || teams_tenant_id.is_some() || mm_server_url.is_some();
     let mut channel_manager: Option<Arc<ChannelAdapterManager>> = None;
@@ -389,6 +419,10 @@ pub async fn run(matches: &ArgMatches) {
         let invoker: Arc<dyn AgentInvoker> = Arc::new(LlmAgentInvoker {
             llm_client,
             dsl_sources: Arc::new(dsl_sources),
+            // Same gate the coordinator and the HTTP input server receive
+            // below — no separate, possibly-forgotten ladder for the chat
+            // path. See `LlmAgentInvoker::invoke`.
+            policy_gate: Arc::clone(&policy_gate),
         });
 
         let logger = Arc::new(BasicInteractionLogger::new(None));
@@ -662,46 +696,15 @@ pub async fn run(matches: &ArgMatches) {
         if let Some(cloud_provider) =
             symbi_runtime::reasoning::providers::cloud::CloudInferenceProvider::from_env()
         {
-            let policy_gate: Arc<dyn symbi_runtime::reasoning::policy_bridge::ReasoningPolicyGate> =
-                if insecure_allow_all {
-                    eprintln!("\n");
-                    eprintln!("================================================================");
-                    eprintln!("WARNING: --insecure-allow-all / SYMBI_INSECURE_ALLOW_ALL=1 is set");
-                    eprintln!("Coordinator policy gate is in PERMISSIVE mode.");
-                    eprintln!("Every LLM-proposed tool call and delegation will be allowed.");
-                    eprintln!("This is only safe for local development. Do NOT use in production.");
-                    eprintln!("================================================================\n");
-                    Arc::new(
-                        symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate::permissive_for_dev_only(),
-                    )
-                } else if let Some(cedar_gate) = try_wire_cedar_policy_gate().await {
-                    cedar_gate
-                } else {
-                    tracing::info!(
-                        "policy gate: fail-closed default (no policies/*.cedar found); configure CedarPolicyGate, OpaPolicyGateBridge, or another ReasoningPolicyGate"
-                    );
-                    Arc::new(symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate::new())
-                };
-
-            // Wrap the policy gate so flagged tool calls are held for human approval.
-            let policy_gate: Arc<dyn symbi_runtime::reasoning::policy_bridge::ReasoningPolicyGate> =
-                Arc::new(symbi_runtime::escalation::EscalationGate::new(
-                    policy_gate,
-                    escalation_queue.clone(),
-                    symbi_runtime::escalation::EscalationGateConfig {
-                        require_approval_tools: require_approval_tools.clone(),
-                        timeout: escalation_timeout,
-                    },
-                ));
-
             let coordinator_state = Arc::new(
                 symbi_runtime::api::coordinator::CoordinatorState::new(
                     Arc::new(cloud_provider),
-                    policy_gate,
+                    policy_gate.clone(),
                     rt.clone(),
                 )
                 .with_rag("symbi-coordinator")
-                .await,
+                .await
+                .with_delegation(build_delegation_registry()),
             );
             api_server = api_server.with_coordinator(coordinator_state);
             println!("✓ Coordinator Chat enabled on /ws/chat");
@@ -716,7 +719,7 @@ pub async fn run(matches: &ArgMatches) {
                 eprintln!("✗ API server error: {}", e);
             }
         },
-        _ = start_http_input(http_config, runtime.clone(), secrets_config) => {},
+        _ = start_http_input(http_config, runtime.clone(), secrets_config, Some(policy_gate.clone())) => {},
         _ = tokio::signal::ctrl_c() => {}
     }
 
@@ -763,95 +766,6 @@ pub async fn run(matches: &ArgMatches) {
 }
 
 /// Generate a cryptographically secure random token
-/// If the `cedar` feature is compiled in AND `policies/` contains at least
-/// one `*.cedar` file, construct a [`CedarPolicyGate`] preloaded with each
-/// file as a named policy. Files that fail to parse as Cedar syntax are
-/// logged and skipped (the gate continues to load the rest); a gate is
-/// returned only when at least one policy parses successfully.
-///
-/// Returns `None` if the `cedar` feature is disabled, the `policies/`
-/// directory doesn't exist, no `*.cedar` files are present, or every file
-/// failed to parse. Callers should fall back to `DefaultPolicyGate::new()`
-/// (fail-closed) in that case.
-#[cfg(feature = "cedar")]
-pub(super) async fn try_wire_cedar_policy_gate(
-) -> Option<Arc<dyn symbi_runtime::reasoning::policy_bridge::ReasoningPolicyGate>> {
-    use symbi_runtime::reasoning::{CedarPolicy, CedarPolicyGate};
-
-    let policies_dir = Path::new("policies");
-    if !policies_dir.is_dir() {
-        return None;
-    }
-
-    let mut cedar_files: Vec<PathBuf> = match fs::read_dir(policies_dir) {
-        Ok(rd) => rd
-            .filter_map(|entry| entry.ok())
-            .map(|entry| entry.path())
-            .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("cedar"))
-            .collect(),
-        Err(e) => {
-            tracing::warn!("unable to read policies directory: {}", e);
-            return None;
-        }
-    };
-    if cedar_files.is_empty() {
-        return None;
-    }
-    cedar_files.sort();
-
-    let gate = CedarPolicyGate::deny_by_default();
-    let mut loaded = 0usize;
-    for path in cedar_files {
-        let source = match fs::read_to_string(&path) {
-            Ok(s) => s,
-            Err(e) => {
-                tracing::error!("failed to read {}: {}", path.display(), e);
-                continue;
-            }
-        };
-        // Per-file syntax validation is performed lazily by the gate at
-        // evaluation time — malformed policies produce explicit Deny
-        // decisions, which is consistent with the deny-by-default fallback.
-        let name = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("policy")
-            .to_string();
-        gate.add_policy(CedarPolicy {
-            name,
-            source,
-            active: true,
-        })
-        .await;
-        loaded += 1;
-    }
-    if loaded == 0 {
-        tracing::warn!(
-            "found .cedar files under policies/ but none parsed successfully — falling through to fail-closed default"
-        );
-        return None;
-    }
-    tracing::info!(
-        "policy gate: CedarPolicyGate auto-wired from {} policy file(s) under policies/",
-        loaded
-    );
-    println!(
-        "✓ Cedar policy gate wired ({} policy file(s) loaded)",
-        loaded
-    );
-    Some(Arc::new(gate))
-}
-
-/// Stub returned when the `cedar` feature is disabled. Always returns `None`
-/// so the caller falls through to the fail-closed default. Disabling Cedar
-/// is still supported via `--no-default-features`; operators on that path
-/// are expected to wire their own [`ReasoningPolicyGate`].
-#[cfg(not(feature = "cedar"))]
-pub(super) async fn try_wire_cedar_policy_gate(
-) -> Option<Arc<dyn symbi_runtime::reasoning::policy_bridge::ReasoningPolicyGate>> {
-    None
-}
-
 fn generate_secure_token() -> String {
     use std::io::Read;
     let mut bytes = [0u8; 24];
@@ -1094,13 +1008,84 @@ fn scan_agent_dsl_sources() -> Vec<(String, String)> {
     sources
 }
 
+/// Build a name -> system-prompt registry for in-process delegation targets,
+/// reusing the same `./agents` DSL scan as `scan_agent_dsl_sources` (no second
+/// directory read). The agent name is derived the same way the DSL declares
+/// its own identity (`dsl::extract_agent_name`), falling back to the filename
+/// stem when a file fails to parse or declares no `agent` block, so a
+/// `Delegate { target }` naming an agent by its usual name resolves.
+fn build_delegation_registry() -> std::collections::HashMap<String, String> {
+    let mut registry = std::collections::HashMap::new();
+    for (filename, dsl_source) in scan_agent_dsl_sources() {
+        let name = dsl::parse_dsl(&dsl_source)
+            .ok()
+            .and_then(|tree| dsl::extract_agent_name(&tree, &dsl_source))
+            .unwrap_or_else(|| {
+                dsl::strip_symbi_extension(&filename)
+                    .unwrap_or(&filename)
+                    .to_string()
+            });
+        let stem = dsl::strip_symbi_extension(&filename)
+            .unwrap_or(&filename)
+            .to_string();
+        let system_prompt = format!(
+            "You are agent '{}'. Follow the governance rules defined in your DSL.\n\n--- Agent DSL ---\n{}\n--- End DSL ---",
+            name, dsl_source
+        );
+        // Register under the DSL-declared name AND the filename stem when they
+        // differ: operators and `/api/v1/agents` see the stem, while the DSL
+        // declares its own identity, and a delegation naming either must work.
+        insert_delegation_entry(&mut registry, &name, &stem, &system_prompt);
+    }
+    registry
+}
+
+/// Insert one agent's prompt under every name it can legitimately be addressed
+/// by: its DSL-declared identity and its filename stem. Returns the keys used.
+fn insert_delegation_entry(
+    registry: &mut std::collections::HashMap<String, String>,
+    dsl_name: &str,
+    stem: &str,
+    system_prompt: &str,
+) -> Vec<String> {
+    let mut keys = vec![dsl_name.to_string()];
+    if stem != dsl_name {
+        keys.push(stem.to_string());
+    }
+    for key in &keys {
+        if let Some(previous) = registry.insert(key.clone(), system_prompt.to_string()) {
+            if previous != system_prompt {
+                tracing::warn!(
+                    "delegation registry: name '{}' is claimed by more than one agent file; \
+                     the last one scanned wins (directory order is unspecified)",
+                    key
+                );
+            }
+        }
+    }
+    keys
+}
+
 /// Bridge between the channel adapter's `AgentInvoker` trait and the LLM client.
 ///
 /// Builds a system prompt from DSL sources (same logic as the HTTP input server)
-/// and calls the LLM client for chat completion.
+/// and calls the LLM client for chat completion. `channel-adapter` is a
+/// community-edition crate with no policy engine of its own ("no tools, so
+/// the blast radius is text under the bot identity" per the consolidation
+/// spec) — this invoker is the boundary where model output meets governance
+/// before `ChannelAdapterManager` publishes it to Slack/Teams/Mattermost.
 struct LlmAgentInvoker {
     llm_client: Option<Arc<LlmClient>>,
     dsl_sources: Arc<Vec<(String, String)>>,
+    /// Same gate built once in `run()` and shared with the coordinator and
+    /// HTTP input server. `invoke()` evaluates a `ProposedAction::Respond`
+    /// through it before returning text to `ChannelAdapterManager` — the
+    /// full `ReasoningLoopRunner` doesn't fit this call site (`invoke`
+    /// returns a single completion, not a multi-turn loop with its own
+    /// budget/conversation), so a single gate check is used instead. See
+    /// "5. Chat adapters" in
+    /// `docs/superpowers/specs/2026-07-26-consolidate-governed-loops-design.md`.
+    policy_gate: Arc<dyn ReasoningPolicyGate>,
 }
 
 #[async_trait]
@@ -1109,6 +1094,8 @@ impl AgentInvoker for LlmAgentInvoker {
         let llm = match &self.llm_client {
             Some(client) => client,
             None => {
+                // Static configuration-status text, not model output — no
+                // gate check needed.
                 return Ok(format!(
                     "No LLM provider configured. Set OPENROUTER_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY. (agent: {})",
                     agent_name
@@ -1152,8 +1139,252 @@ impl AgentInvoker for LlmAgentInvoker {
             "Invoking LLM for chat agent"
         );
 
-        llm.chat_completion(&system_prompt, input)
+        let content = llm
+            .chat_completion(&system_prompt, input)
             .await
-            .map_err(|e| format!("LLM error: {}", e))
+            .map_err(|e| format!("LLM error: {}", e))?;
+
+        gate_chat_response(&self.policy_gate, agent_name, content).await
+    }
+}
+
+/// Evaluate a chat completion as a `ProposedAction::Respond` before it is
+/// handed back to `ChannelAdapterManager` for publishing. `Ok` means
+/// publish; `Err` means the manager logs an `AgentError` and never calls
+/// `adapter.send_response` — the same honest-failure contract every other
+/// gated path in this consolidation uses (see `managed_cli::run_claude_code`
+/// for the equivalent single-action-evaluation pattern for `ToolCall`).
+async fn gate_chat_response(
+    policy_gate: &Arc<dyn ReasoningPolicyGate>,
+    agent_name: &str,
+    content: String,
+) -> Result<String, String> {
+    use symbi_runtime::reasoning::conversation::Conversation;
+    use symbi_runtime::reasoning::loop_types::{LoopDecision, LoopState, ProposedAction};
+
+    let agent_id = AgentId::new();
+    let proposed = ProposedAction::Respond {
+        content: content.clone(),
+    };
+    let state = LoopState::new(
+        agent_id,
+        Conversation::with_system(format!("chat-adapter:{agent_name}")),
+    );
+    match policy_gate
+        .evaluate_action(&agent_id, &proposed, &state)
+        .await
+    {
+        LoopDecision::Allow => Ok(content),
+        LoopDecision::Modify {
+            modified_action, ..
+        } => match *modified_action {
+            ProposedAction::Respond { content } => Ok(content),
+            other => Err(format!(
+                "policy gate replaced this chat response with a non-response action ({other:?}); withholding it"
+            )),
+        },
+        LoopDecision::Deny { reason } => {
+            Err(format!("response withheld by policy gate: {reason}"))
+        }
+    }
+}
+
+#[cfg(test)]
+mod delegation_registry_tests {
+    use super::*;
+
+    #[test]
+    fn an_agent_resolves_under_both_its_dsl_name_and_its_filename_stem() {
+        // Live case in this repo: agents/code_review_pipeline.symbi declares
+        // `agent untrusted_developer`. Operators and /api/v1/agents show the
+        // stem; the DSL declares the other name. Both must resolve.
+        let mut registry = std::collections::HashMap::new();
+        let keys = insert_delegation_entry(
+            &mut registry,
+            "untrusted_developer",
+            "code_review_pipeline",
+            "PROMPT",
+        );
+        assert_eq!(keys.len(), 2);
+        assert_eq!(
+            registry.get("untrusted_developer").map(String::as_str),
+            Some("PROMPT")
+        );
+        assert_eq!(
+            registry.get("code_review_pipeline").map(String::as_str),
+            Some("PROMPT")
+        );
+    }
+
+    #[test]
+    fn a_matching_name_and_stem_registers_once() {
+        let mut registry = std::collections::HashMap::new();
+        let keys = insert_delegation_entry(&mut registry, "reviewer", "reviewer", "PROMPT");
+        assert_eq!(keys, vec!["reviewer".to_string()]);
+        assert_eq!(registry.len(), 1);
+    }
+}
+
+/// Step 5 of the loop consolidation: `LlmAgentInvoker`/`gate_chat_response`
+/// route chat-adapter output through the same policy gate as the
+/// coordinator and HTTP input, instead of publishing model text unchecked.
+#[cfg(test)]
+mod chat_response_gating_tests {
+    use super::*;
+    use std::sync::Mutex;
+    use symbi_channel_adapter::{
+        AdapterHealth, ChannelAdapter, ChannelAdapterError, ChatDeliveryReceipt, OutboundMessage,
+    };
+    use symbi_runtime::reasoning::loop_types::{LoopDecision, LoopState, ProposedAction};
+    use symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate;
+
+    /// Denies every action, including `Respond`. None of the shipped gates
+    /// (`DefaultPolicyGate`, `CedarPolicyGate`, `EscalationGate`) ever deny
+    /// `Respond` — the reasoning loop relies on it always passing so a
+    /// denial can still be reported back as text — so proving the chat path
+    /// actually withholds a denied response needs a gate that denies
+    /// unconditionally.
+    struct DenyAllGate;
+
+    #[async_trait]
+    impl ReasoningPolicyGate for DenyAllGate {
+        async fn evaluate_action(
+            &self,
+            _agent_id: &AgentId,
+            _action: &ProposedAction,
+            _state: &LoopState,
+        ) -> LoopDecision {
+            LoopDecision::Deny {
+                reason: "test: deny everything".to_string(),
+            }
+        }
+    }
+
+    /// Records every response text it is asked to publish. Used to assert
+    /// that a denied chat response never reaches the adapter boundary.
+    #[derive(Default)]
+    struct RecordingAdapter {
+        received: Mutex<Vec<String>>,
+    }
+
+    #[async_trait]
+    impl ChannelAdapter for RecordingAdapter {
+        async fn start(&self) -> Result<(), ChannelAdapterError> {
+            Ok(())
+        }
+        async fn stop(&self) -> Result<(), ChannelAdapterError> {
+            Ok(())
+        }
+        async fn send_response(
+            &self,
+            response: OutboundMessage,
+        ) -> Result<ChatDeliveryReceipt, ChannelAdapterError> {
+            self.received.lock().unwrap().push(response.content);
+            // The test only checks whether/what was recorded, not delivery
+            // status, so an Err avoids needing a `chrono` dependency here.
+            Err(ChannelAdapterError::SendFailed("test double".to_string()))
+        }
+        fn platform(&self) -> ChatPlatform {
+            ChatPlatform::Slack
+        }
+        async fn check_health(&self) -> Result<AdapterHealth, ChannelAdapterError> {
+            Ok(AdapterHealth {
+                connected: true,
+                platform: ChatPlatform::Slack,
+                workspace_name: None,
+                channels_active: 0,
+                last_message_at: None,
+                uptime_secs: 0,
+            })
+        }
+    }
+
+    /// A minimal `AgentInvoker` that skips the real LLM call and routes a
+    /// fixed piece of "model output" through `gate_chat_response` — the same
+    /// function `LlmAgentInvoker::invoke` calls.
+    struct StubInvoker {
+        gate: Arc<dyn ReasoningPolicyGate>,
+        content: String,
+    }
+
+    #[async_trait]
+    impl AgentInvoker for StubInvoker {
+        async fn invoke(&self, agent_name: &str, _input: &str) -> Result<String, String> {
+            gate_chat_response(&self.gate, agent_name, self.content.clone()).await
+        }
+    }
+
+    /// Reproduces `ChannelAdapterManager`'s dispatch contract (see
+    /// `symbi_channel_adapter::manager::ManagerInboundHandler::handle_message`):
+    /// publish only on `Ok`; an `Err` is logged as an agent error and never
+    /// reaches `send_response`.
+    async fn dispatch(invoker: &dyn AgentInvoker, adapter: &RecordingAdapter) {
+        if let Ok(text) = invoker.invoke("helper", "hi").await {
+            let _ = adapter
+                .send_response(OutboundMessage {
+                    channel_id: "C1".to_string(),
+                    thread_id: None,
+                    content: text,
+                    blocks: None,
+                    ephemeral: false,
+                    user_id: None,
+                    metadata: None,
+                })
+                .await;
+        }
+    }
+
+    #[tokio::test]
+    async fn gate_chat_response_allows_through_a_permissive_gate() {
+        let gate: Arc<dyn ReasoningPolicyGate> =
+            Arc::new(DefaultPolicyGate::permissive_for_dev_only());
+        let content = gate_chat_response(&gate, "helper", "hello".to_string())
+            .await
+            .expect("permissive gate should allow a chat response");
+        assert_eq!(content, "hello");
+    }
+
+    #[tokio::test]
+    async fn gate_chat_response_is_denied_by_a_gate_that_denies_respond() {
+        let gate: Arc<dyn ReasoningPolicyGate> = Arc::new(DenyAllGate);
+        let err = gate_chat_response(&gate, "helper", "hello".to_string())
+            .await
+            .expect_err("a gate that denies Respond must withhold the text");
+        assert!(err.contains("withheld"), "unexpected error: {err}");
+    }
+
+    #[tokio::test]
+    async fn denied_response_never_reaches_the_adapter() {
+        let gate: Arc<dyn ReasoningPolicyGate> = Arc::new(DenyAllGate);
+        let invoker = StubInvoker {
+            gate,
+            content: "secret model output".to_string(),
+        };
+        let adapter = RecordingAdapter::default();
+
+        dispatch(&invoker, &adapter).await;
+
+        assert!(
+            adapter.received.lock().unwrap().is_empty(),
+            "adapter must never receive a denied response"
+        );
+    }
+
+    #[tokio::test]
+    async fn allowed_response_reaches_the_adapter() {
+        let gate: Arc<dyn ReasoningPolicyGate> =
+            Arc::new(DefaultPolicyGate::permissive_for_dev_only());
+        let invoker = StubInvoker {
+            gate,
+            content: "hello world".to_string(),
+        };
+        let adapter = RecordingAdapter::default();
+
+        dispatch(&invoker, &adapter).await;
+
+        assert_eq!(
+            adapter.received.lock().unwrap().as_slice(),
+            &["hello world".to_string()]
+        );
     }
 }

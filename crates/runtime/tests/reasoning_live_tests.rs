@@ -150,6 +150,7 @@ fn make_live_runner(
         circuit_breakers,
         journal,
         knowledge_bridge: None,
+        delegation: None,
     })
 }
 

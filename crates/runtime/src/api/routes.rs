@@ -89,7 +89,7 @@ fn check_agent_access(
 /// for per-agent data plane access (send/receive/heartbeat) and must not
 /// touch the control plane.
 #[cfg(feature = "http-api")]
-fn require_admin(
+pub(super) fn require_admin(
     validated: Option<&ValidatedKey>,
 ) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
     match validated {

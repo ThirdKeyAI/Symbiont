@@ -34,6 +34,9 @@ pub struct ReasoningLoopRunner {
     pub journal: Arc<dyn JournalWriter>,
     /// Optional knowledge bridge for context-aware reasoning.
     pub knowledge_bridge: Option<Arc<KnowledgeBridge>>,
+    /// Optional agent-to-agent delegation handle. `None` → an approved
+    /// `Delegate` action surfaces an honest error instead of running.
+    pub delegation: Option<Arc<dyn crate::reasoning::delegation::DelegationExecutor>>,
 }
 
 /// Builder for `ReasoningLoopRunner` with typestate enforcement.
@@ -55,6 +58,7 @@ pub struct ReasoningLoopRunnerBuilder<P, E> {
     circuit_breakers: Option<Arc<CircuitBreakerRegistry>>,
     journal: Option<Arc<dyn JournalWriter>>,
     knowledge_bridge: Option<Arc<KnowledgeBridge>>,
+    delegation: Option<Arc<dyn crate::reasoning::delegation::DelegationExecutor>>,
 }
 
 impl ReasoningLoopRunner {
@@ -68,6 +72,7 @@ impl ReasoningLoopRunner {
             circuit_breakers: None,
             journal: None,
             knowledge_bridge: None,
+            delegation: None,
         }
     }
 }
@@ -103,6 +108,15 @@ impl<P, E> ReasoningLoopRunnerBuilder<P, E> {
         self.knowledge_bridge = Some(bridge);
         self
     }
+
+    /// Attach an agent-to-agent delegation handle.
+    pub fn delegation(
+        mut self,
+        delegation: Arc<dyn crate::reasoning::delegation::DelegationExecutor>,
+    ) -> Self {
+        self.delegation = Some(delegation);
+        self
+    }
 }
 
 // Set provider (transitions from () to Arc<dyn InferenceProvider>)
@@ -120,6 +134,7 @@ impl<E> ReasoningLoopRunnerBuilder<(), E> {
             circuit_breakers: self.circuit_breakers,
             journal: self.journal,
             knowledge_bridge: self.knowledge_bridge,
+            delegation: self.delegation,
         }
     }
 }
@@ -139,6 +154,7 @@ impl<P> ReasoningLoopRunnerBuilder<P, ()> {
             circuit_breakers: self.circuit_breakers,
             journal: self.journal,
             knowledge_bridge: self.knowledge_bridge,
+            delegation: self.delegation,
         }
     }
 }
@@ -163,6 +179,7 @@ impl ReasoningLoopRunnerBuilder<Arc<dyn InferenceProvider>, Arc<dyn ActionExecut
                 .journal
                 .unwrap_or_else(|| Arc::new(BufferedJournal::new(1000))),
             knowledge_bridge: self.knowledge_bridge,
+            delegation: self.delegation,
         }
     }
 }
@@ -331,7 +348,11 @@ impl ReasoningLoopRunner {
 
             // Phase 1: Reasoning
             let policy_phase = match current_loop
-                .produce_output(self.provider.as_ref(), self.context_manager.as_ref())
+                .produce_output(
+                    self.provider.as_ref(),
+                    self.context_manager.as_ref(),
+                    self.delegation.is_some(),
+                )
                 .await
             {
                 Ok(phase) => phase,
@@ -399,7 +420,11 @@ impl ReasoningLoopRunner {
             // Phase 3: Tool Dispatching (uses effective_executor which handles knowledge tools)
             let dispatch_start = std::time::Instant::now();
             let observe_phase = match dispatch_phase
-                .dispatch_tools(effective_executor.as_ref(), self.circuit_breakers.as_ref())
+                .dispatch_tools(
+                    effective_executor.as_ref(),
+                    self.circuit_breakers.as_ref(),
+                    self.delegation.as_deref(),
+                )
                 .await
             {
                 Ok(phase) => phase,
@@ -559,6 +584,7 @@ mod tests {
             circuit_breakers: Arc::new(CircuitBreakerRegistry::default()),
             journal: Arc::new(BufferedJournal::new(1000)),
             knowledge_bridge: None,
+            delegation: None,
         }
     }
 
@@ -855,6 +881,7 @@ mod tests {
             circuit_breakers: Arc::new(CircuitBreakerRegistry::default()),
             journal: Arc::new(BufferedJournal::new(1000)),
             knowledge_bridge: None,
+            delegation: None,
         };
 
         let conv = Conversation::with_system("test");
@@ -916,6 +943,7 @@ mod tests {
             circuit_breakers: Arc::new(CircuitBreakerRegistry::default()),
             journal: Arc::new(BufferedJournal::new(1000)),
             knowledge_bridge: None,
+            delegation: None,
         };
 
         let config = LoopConfig::default();

@@ -27,6 +27,7 @@ pub mod secrets;
 #[cfg(feature = "session")]
 pub mod session;
 pub mod skills;
+pub mod text_util;
 pub mod toolclad;
 pub mod types;
 

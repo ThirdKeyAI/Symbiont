@@ -26,6 +26,7 @@ use tokio::time::interval;
 
 use super::cron_types::*;
 use super::job_store::{JobStore, JobStoreError, SqliteJobStore};
+use super::policy_gate::{PolicyGate, ScheduleContext, SchedulePolicyDecision};
 use super::{AgentScheduler, DefaultAgentScheduler};
 use crate::types::ExecutionMode;
 
@@ -68,6 +69,8 @@ pub enum CronSchedulerError {
     NotFound(CronJobId),
     #[error("identity verification failed for job {0}: {1}")]
     IdentityVerificationFailed(CronJobId, String),
+    #[error("cron job {0} refused by schedule policy: {1}")]
+    PolicyDenied(CronJobId, String),
 }
 
 /// Live metrics for the cron scheduler (thread-safe counters).
@@ -82,6 +85,7 @@ pub struct CronMetrics {
     pub runs_failed: u64,
     pub runs_skipped_concurrency: u64,
     pub runs_skipped_identity: u64,
+    pub runs_skipped_policy: u64,
     pub average_execution_time_ms: f64,
     pub longest_run_ms: u64,
 }
@@ -104,6 +108,23 @@ pub struct CronScheduler {
     /// is refused so "AgentPin enabled at the scheduler" cannot be
     /// bypassed by leaving the JWT column null.
     agentpin_verifier: Option<Arc<dyn crate::integrations::AgentPinVerifier>>,
+    /// Optional schedule policy gate. When present, every cron-triggered run
+    /// (both `trigger_now` and the tick loop) is evaluated against it before
+    /// the agent scheduler is invoked; a `Deny` or `RequiresApproval`
+    /// decision refuses the run. `None` means no gate is installed and every
+    /// run proceeds — the same "explicit opt-in" shape as `agentpin_verifier`,
+    /// not a fail-closed default. This is the single choke point every
+    /// cron-triggered run passes through, so a future replacement of the
+    /// current placeholder task body cannot bypass it by construction.
+    ///
+    /// Held behind a lock (rather than a plain field like
+    /// `agentpin_verifier`) because `start_tick_loop` runs from inside `new`,
+    /// before a `with_policy_gate` builder call can happen — the tick loop's
+    /// background task clones this handle once at spawn time, so without a
+    /// shared lock a gate installed afterward (the only way `with_policy_gate`
+    /// is ever used) would be invisible to every tick-driven run and only
+    /// take effect for manual `trigger_now` calls.
+    policy_gate: Arc<RwLock<Option<Arc<PolicyGate>>>>,
 }
 
 impl CronScheduler {
@@ -128,6 +149,7 @@ impl CronScheduler {
             per_job_active: Arc::new(RwLock::new(HashMap::new())),
             metrics: Arc::new(RwLock::new(CronMetrics::default())),
             agentpin_verifier: None,
+            policy_gate: Arc::new(RwLock::new(None)),
         };
 
         scheduler.start_tick_loop();
@@ -144,6 +166,75 @@ impl CronScheduler {
     ) -> Self {
         self.agentpin_verifier = Some(verifier);
         self
+    }
+
+    /// Install a schedule policy gate. After this call, every cron-triggered
+    /// run — `trigger_now` and the tick loop alike — is evaluated against it
+    /// before the agent scheduler is invoked; `Deny` and `RequiresApproval`
+    /// both refuse the run (see [`Self::evaluate_schedule_policy`]). Returns
+    /// the scheduler builder-style for chaining, matching
+    /// [`Self::with_agentpin_verifier`].
+    pub fn with_policy_gate(self, gate: Arc<PolicyGate>) -> Self {
+        *self.policy_gate.write() = Some(gate);
+        self
+    }
+
+    /// Build the [`ScheduleContext`] for a job about to run and evaluate it
+    /// against `policy_gate`, if one is installed.
+    ///
+    /// `None` (no gate installed) always evaluates to `Allow` — this method
+    /// takes an `Option` rather than being a `&self` method so it can also be
+    /// called from the tick loop's spawned task, which clones the gate out
+    /// of `self` before spawning (see `start_tick_loop`) rather than
+    /// capturing `&self` across an `.await`.
+    ///
+    /// Context fields are populated only from data the job/scheduler
+    /// actually track: `consecutive_failures` and `total_runs` come straight
+    /// from the job record. `system_load` is left at its default (`0.0`) —
+    /// no system-level load metric is wired into the cron scheduler today,
+    /// so a `SystemLoadExceeds` rule cannot fire from cron yet; that is
+    /// stated here rather than fabricating a reading.
+    fn evaluate_schedule_policy(
+        policy_gate: Option<&PolicyGate>,
+        job: &CronJobDefinition,
+    ) -> SchedulePolicyDecision {
+        let Some(gate) = policy_gate else {
+            return SchedulePolicyDecision::Allow;
+        };
+        let mut extra = HashMap::new();
+        extra.insert("job_id".to_string(), job.job_id.to_string());
+        let context = ScheduleContext {
+            consecutive_failures: job.failure_count,
+            total_runs: job.run_count,
+            system_load: 0.0,
+            extra,
+        };
+        gate.evaluate(job, &context)
+    }
+
+    /// Format a human-readable refusal reason for a non-`Allow` schedule
+    /// policy decision. `RequiresApproval` is treated as a refusal, not an
+    /// automatic allow: the cron scheduler has no approval-queue wiring to
+    /// route it to, and silently allowing would defeat the point of
+    /// installing a gate in the first place.
+    fn describe_policy_refusal(decision: &SchedulePolicyDecision) -> String {
+        match decision {
+            SchedulePolicyDecision::Allow => {
+                unreachable!("describe_policy_refusal called with an Allow decision")
+            }
+            SchedulePolicyDecision::Deny { reason, policy_id } => {
+                format!("denied by policy '{}': {}", policy_id, reason)
+            }
+            SchedulePolicyDecision::RequiresApproval {
+                approver,
+                reason,
+                policy_id,
+            } => format!(
+                "requires approval from '{}' per policy '{}' ({}) — cron has no approval \
+                 routing yet, refusing rather than auto-running",
+                approver, policy_id, reason
+            ),
+        }
     }
 
     /// Verify that a job's AgentPin credential is valid before firing.
@@ -214,6 +305,7 @@ impl CronScheduler {
             per_job_active: Arc::new(RwLock::new(HashMap::new())),
             metrics: Arc::new(RwLock::new(CronMetrics::default())),
             agentpin_verifier: None,
+            policy_gate: Arc::new(RwLock::new(None)),
         };
         scheduler.start_tick_loop();
         Ok(scheduler)
@@ -367,6 +459,38 @@ impl CronScheduler {
             return Err(verify_err);
         }
 
+        // Schedule policy check BEFORE scheduling, same shape as the
+        // identity check above: a denial (or an approval requirement this
+        // scheduler cannot route) skips the agent scheduler entirely and is
+        // recorded as a failed run rather than silently dropped.
+        let gate = self.policy_gate.read().clone();
+        let decision = Self::evaluate_schedule_policy(gate.as_deref(), &job);
+        if !matches!(decision, SchedulePolicyDecision::Allow) {
+            let reason = Self::describe_policy_refusal(&decision);
+            tracing::warn!(
+                "Refusing to trigger cron job {} ({}): {}",
+                job_id,
+                job.name,
+                reason
+            );
+            {
+                let mut m = self.metrics.write();
+                m.runs_skipped_policy = m.runs_skipped_policy.saturating_add(1);
+            }
+            let record = JobRunRecord {
+                run_id: uuid::Uuid::new_v4(),
+                job_id,
+                agent_id: job.agent_config.id,
+                started_at: Utc::now(),
+                completed_at: Some(Utc::now()),
+                status: JobRunStatus::Failed,
+                error: Some(format!("policy: {}", reason)),
+                execution_time_ms: Some(0),
+            };
+            let _ = self.store.save_run_record(&record).await;
+            return Err(CronSchedulerError::PolicyDenied(job_id, reason));
+        }
+
         let mut run_config = job.agent_config.clone();
         run_config.execution_mode = ExecutionMode::CronScheduled {
             cron_expression: job.cron_expression.clone(),
@@ -486,6 +610,7 @@ impl CronScheduler {
         let per_job_active = self.per_job_active.clone();
         let metrics = self.metrics.clone();
         let agentpin_verifier = self.agentpin_verifier.clone();
+        let policy_gate = self.policy_gate.clone();
 
         tokio::spawn(async move {
             let mut ticker = interval(tick);
@@ -569,6 +694,7 @@ impl CronScheduler {
                             let pja_c = per_job_active.clone();
                             let metrics_c = metrics.clone();
                             let verifier_c = agentpin_verifier.clone();
+                            let policy_gate_c = policy_gate.clone();
 
                             *active_c.write() += 1;
                             {
@@ -641,7 +767,17 @@ impl CronScheduler {
                                             m.runs_skipped_identity =
                                                 m.runs_skipped_identity.saturating_add(1);
                                         }
-                                        *active_c.write() = active_c.read().saturating_sub(1);
+                                        {
+                                            // One write guard, no read: the
+                                            // read guard's temporary would live
+                                            // to the end of the statement, and
+                                            // parking_lot's RwLock is not
+                                            // reentrant, so taking the write
+                                            // while it is held deadlocks the
+                                            // scheduler tick.
+                                            let mut active = active_c.write();
+                                            *active = active.saturating_sub(1);
+                                        }
                                         {
                                             let mut pja = pja_c.write();
                                             if let Some(c) = pja.get_mut(&job.job_id) {
@@ -650,6 +786,55 @@ impl CronScheduler {
                                         }
                                         return;
                                     }
+                                }
+
+                                // ── Schedule policy gate ──────────────
+                                // Same shape as the AgentPin check above: a
+                                // Deny or RequiresApproval decision skips the
+                                // agent scheduler entirely and is recorded as
+                                // a failed run rather than executed anyway.
+                                let gate = policy_gate_c.read().clone();
+                                let decision = CronScheduler::evaluate_schedule_policy(
+                                    gate.as_deref(),
+                                    &job,
+                                );
+                                if !matches!(decision, SchedulePolicyDecision::Allow) {
+                                    let reason =
+                                        CronScheduler::describe_policy_refusal(&decision);
+                                    tracing::warn!(
+                                        job_id = %job.job_id,
+                                        job_name = %job.name,
+                                        "Cron run refused by schedule policy: {}",
+                                        reason
+                                    );
+                                    let now = Utc::now();
+                                    let record = JobRunRecord {
+                                        run_id: uuid::Uuid::new_v4(),
+                                        job_id: job.job_id,
+                                        agent_id: job.agent_config.id,
+                                        started_at: now,
+                                        completed_at: Some(now),
+                                        status: JobRunStatus::Failed,
+                                        error: Some(format!("policy: {}", reason)),
+                                        execution_time_ms: Some(0),
+                                    };
+                                    let _ = store_c.save_run_record(&record).await;
+                                    {
+                                        let mut m = metrics_c.write();
+                                        m.runs_skipped_policy =
+                                            m.runs_skipped_policy.saturating_add(1);
+                                    }
+                                    {
+                                        let mut active = active_c.write();
+                                        *active = active.saturating_sub(1);
+                                    }
+                                    {
+                                        let mut pja = pja_c.write();
+                                        if let Some(c) = pja.get_mut(&job.job_id) {
+                                            *c = c.saturating_sub(1);
+                                        }
+                                    }
+                                    return;
                                 }
 
                                 // ── Jitter ────────────────────────────
@@ -830,6 +1015,9 @@ fn compute_next_run_static(
 mod tests {
     use super::*;
     use crate::scheduler::heartbeat::HeartbeatContextMode;
+    use crate::scheduler::policy_gate::{
+        SchedulePolicyCondition, SchedulePolicyEffect, SchedulePolicyRule,
+    };
     use crate::scheduler::SchedulerConfig;
     use crate::types::{AgentConfig, AgentId, Priority, ResourceLimits, SecurityTier};
     use std::collections::HashMap;
@@ -870,6 +1058,7 @@ mod tests {
             per_job_active: Arc::new(RwLock::new(HashMap::new())),
             metrics: Arc::new(RwLock::new(CronMetrics::default())),
             agentpin_verifier: None,
+            policy_gate: Arc::new(RwLock::new(None)),
         };
         cron.start_tick_loop();
         (cron, sched)
@@ -1708,6 +1897,172 @@ mod tests {
             err,
             CronSchedulerError::IdentityVerificationFailed(_, _)
         ));
+        cron.shutdown().await;
+    }
+
+    // ── Schedule policy gate wiring ──────────────────────────────────
+
+    fn deny_all_gate() -> PolicyGate {
+        PolicyGate::new(
+            vec![SchedulePolicyRule {
+                id: "deny-all".to_string(),
+                name: "Deny all cron runs".to_string(),
+                condition: SchedulePolicyCondition::Always,
+                effect: SchedulePolicyEffect::Deny {
+                    reason: "cron disabled by test policy".to_string(),
+                },
+                priority: 100,
+                enabled: true,
+            }],
+            true,
+        )
+    }
+
+    fn allow_all_gate() -> PolicyGate {
+        PolicyGate::new(
+            vec![SchedulePolicyRule {
+                id: "allow-all".to_string(),
+                name: "Allow all cron runs".to_string(),
+                condition: SchedulePolicyCondition::Always,
+                effect: SchedulePolicyEffect::Allow,
+                priority: 100,
+                enabled: true,
+            }],
+            true,
+        )
+    }
+
+    #[tokio::test]
+    async fn trigger_now_refused_when_policy_denies() {
+        let (cron, _sched) = make_scheduler().await;
+        let cron = cron.with_policy_gate(Arc::new(deny_all_gate()));
+
+        let job = CronJobDefinition::new(
+            "policy-denied".to_string(),
+            "0 0 0 1 1 * 2099".to_string(), // far future — trigger_now bypasses the schedule
+            "UTC".to_string(),
+            test_agent_config(),
+        );
+        let id = cron.add_job(job).await.unwrap();
+
+        let err = cron.trigger_now(id).await.expect_err("must refuse");
+        assert!(
+            matches!(err, CronSchedulerError::PolicyDenied(_, _)),
+            "expected PolicyDenied, got {:?}",
+            err
+        );
+
+        let metrics = cron.metrics();
+        assert!(metrics.runs_skipped_policy >= 1);
+
+        let history = cron.get_run_history(id, 10).await.unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].status, JobRunStatus::Failed);
+        assert!(history[0].error.as_deref().unwrap_or("").contains("policy"));
+        cron.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn trigger_now_allowed_when_policy_permits() {
+        let (cron, _sched) = make_scheduler().await;
+        let cron = cron.with_policy_gate(Arc::new(allow_all_gate()));
+
+        let job = CronJobDefinition::new(
+            "policy-allowed".to_string(),
+            "0 0 0 1 1 * 2099".to_string(),
+            "UTC".to_string(),
+            test_agent_config(),
+        );
+        let id = cron.add_job(job).await.unwrap();
+
+        cron.trigger_now(id).await.expect("must succeed");
+
+        let metrics = cron.metrics();
+        assert_eq!(metrics.runs_skipped_policy, 0);
+
+        let history = cron.get_run_history(id, 10).await.unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].status, JobRunStatus::Succeeded);
+        cron.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn tick_loop_refuses_run_when_policy_denies() {
+        let (cron, _sched) = make_scheduler().await;
+        let cron = cron.with_policy_gate(Arc::new(deny_all_gate()));
+
+        let mut job = CronJobDefinition::new(
+            "tick-denied".to_string(),
+            "* * * * * * *".to_string(), // fires every second (7-field)
+            "UTC".to_string(),
+            test_agent_config(),
+        );
+        job.one_shot = true;
+        let id = cron.add_job(job).await.unwrap();
+
+        // Force next_run into the past so the tick loop picks it up immediately.
+        cron.store
+            .update_run_state(
+                id,
+                Utc::now(),
+                Some(Utc::now() - chrono::Duration::seconds(5)),
+                0,
+                CronJobStatus::Active,
+                true,
+            )
+            .await
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        let history = cron.get_run_history(id, 10).await.unwrap();
+        assert_eq!(history.len(), 1, "denied run must still be recorded");
+        assert_eq!(history[0].status, JobRunStatus::Failed);
+        assert!(history[0].error.as_deref().unwrap_or("").contains("policy"));
+
+        let metrics = cron.metrics();
+        assert!(metrics.runs_skipped_policy >= 1);
+        assert_eq!(
+            metrics.runs_succeeded, 0,
+            "a policy-denied run must never reach the agent scheduler"
+        );
+        cron.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn tick_loop_runs_when_policy_allows() {
+        let (cron, _sched) = make_scheduler().await;
+        let cron = cron.with_policy_gate(Arc::new(allow_all_gate()));
+
+        let mut job = CronJobDefinition::new(
+            "tick-allowed".to_string(),
+            "* * * * * * *".to_string(),
+            "UTC".to_string(),
+            test_agent_config(),
+        );
+        job.one_shot = true;
+        let id = cron.add_job(job).await.unwrap();
+
+        cron.store
+            .update_run_state(
+                id,
+                Utc::now(),
+                Some(Utc::now() - chrono::Duration::seconds(5)),
+                0,
+                CronJobStatus::Active,
+                true,
+            )
+            .await
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        let loaded = cron.get_job(id).await.unwrap();
+        assert_eq!(loaded.status, CronJobStatus::Completed);
+
+        let metrics = cron.metrics();
+        assert_eq!(metrics.runs_skipped_policy, 0);
+        assert!(metrics.runs_succeeded >= 1);
         cron.shutdown().await;
     }
 }

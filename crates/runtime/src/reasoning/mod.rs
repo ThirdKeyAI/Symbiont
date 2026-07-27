@@ -14,7 +14,10 @@ pub mod schema_validation;
 // Phase 2 modules
 pub mod circuit_breaker;
 pub mod context_manager;
+pub mod delegation;
+pub mod delegation_executor;
 pub mod executor;
+pub mod governed;
 pub mod knowledge_bridge;
 pub mod knowledge_executor;
 pub mod loop_types;
@@ -43,6 +46,7 @@ pub mod tracing_spans;
 #[cfg(feature = "cedar")]
 pub use cedar_gate::{CedarPolicy, CedarPolicyGate};
 pub use conversation::{Conversation, ConversationMessage, MessageRole};
+pub use governed::{governed_gate, GateOptions};
 pub use inference::{
     InferenceOptions, InferenceProvider, InferenceResponse, ResponseFormat, ToolCallRequest,
     ToolDefinition, Usage,

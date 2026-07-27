@@ -9,7 +9,8 @@
 
 use async_trait::async_trait;
 use std::collections::HashMap;
-use std::io::Write;
+use std::io::{Read, Write};
+use std::process::Stdio;
 use std::time::Duration;
 
 use super::manifest::Manifest;
@@ -208,16 +209,13 @@ impl ToolCladExecutor {
         let command = build_command(manifest, &validated)?;
 
         // Execute with timeout — use direct argv to prevent shell injection
-        let _timeout = Duration::from_secs(manifest.tool.timeout_seconds);
+        let timeout = Duration::from_secs(manifest.tool.timeout_seconds);
         let start = std::time::Instant::now();
         let argv = split_command_to_argv(&command)?;
         let (program, args) = argv
             .split_first()
             .ok_or_else(|| "Empty command after template interpolation".to_string())?;
-        let output = std::process::Command::new(program)
-            .args(args)
-            .output()
-            .map_err(|e| format!("Failed to execute '{}': {}", program, e))?;
+        let output = run_shell_with_timeout(name, program, args, timeout)?;
 
         let duration_ms = start.elapsed().as_millis() as u64;
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -908,6 +906,105 @@ fn json_type_name(value: &serde_json::Value) -> &'static str {
     }
 }
 
+/// Run a shell-backend command bounded by `timeout`, without an async runtime.
+///
+/// `execute_tool` is synchronous (it is called both from the `symbi tools` CLI
+/// and inline from `ToolCladExecutor::execute_actions`), so this cannot lean on
+/// `tokio::time::timeout` — and even where a caller wraps a call in one, that
+/// only abandons the *future*; it does not touch the still-running child. A
+/// hung shell tool (bad args, a command that reads from stdin and never gets
+/// input, or one that simply never exits) would otherwise block its caller
+/// forever despite the manifest declaring a `timeout_seconds`.
+///
+/// stdout/stderr are drained on background threads rather than left unread
+/// while polling `try_wait()` in a loop: a child that fills its OS pipe
+/// buffer would block on the next write forever, defeating the timeout no
+/// matter how the wait loop itself is implemented.
+///
+/// On expiry the child is killed and reaped (never left as a zombie or an
+/// orphaned live process) and a timeout error naming the tool and the limit
+/// is returned. This uses a plain kill (SIGKILL) rather than the
+/// SIGTERM-grace-SIGKILL escalation `cli_executor` uses for long-running
+/// interactive CLI sessions: ToolClad shell tools are short, template-built
+/// one-shot commands (`curl`, `nmap`, …), not processes with in-flight state
+/// worth flushing, and by construction anything hitting this path has already
+/// failed to exit on its own — porting the grace-period escalation would add
+/// process-group creation and a second nested wait-with-deadline for no
+/// proportionate benefit here.
+fn run_shell_with_timeout(
+    tool_name: &str,
+    program: &str,
+    args: &[String],
+    timeout: Duration,
+) -> Result<std::process::Output, String> {
+    let mut child = std::process::Command::new(program)
+        .args(args)
+        // Match `Command::output()`'s implicit default (stdin closed, not
+        // inherited from this process) now that we spawn manually.
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to execute '{}': {}", program, e))?;
+
+    let stdout_pipe = child.stdout.take().expect("stdout was requested as piped");
+    let stderr_pipe = child.stderr.take().expect("stderr was requested as piped");
+
+    let stdout_reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let mut pipe = stdout_pipe;
+        let _ = pipe.read_to_end(&mut buf);
+        buf
+    });
+    let stderr_reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let mut pipe = stderr_pipe;
+        let _ = pipe.read_to_end(&mut buf);
+        buf
+    });
+
+    let deadline = std::time::Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    break None;
+                }
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            Err(e) => return Err(format!("Failed waiting on '{}': {}", program, e)),
+        }
+    };
+
+    let status = match status {
+        Some(status) => status,
+        None => {
+            // Timed out: kill and reap so the child is neither left running
+            // nor left as a zombie. The drain threads exit once the child's
+            // pipe fds close, which happens once it actually terminates.
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = stdout_reader.join();
+            let _ = stderr_reader.join();
+            return Err(format!(
+                "Tool '{}' timed out after {}s and was killed",
+                tool_name,
+                timeout.as_secs()
+            ));
+        }
+    };
+
+    let stdout = stdout_reader.join().unwrap_or_default();
+    let stderr = stderr_reader.join().unwrap_or_default();
+
+    Ok(std::process::Output {
+        status,
+        stdout,
+        stderr,
+    })
+}
+
 /// Build a command string from a manifest template and validated arguments.
 fn build_command(manifest: &Manifest, args: &HashMap<String, String>) -> Result<String, String> {
     let template = manifest
@@ -1293,6 +1390,98 @@ type = "object"
         args.insert("target".to_string(), "example.com".to_string());
         let cmd = build_command(&manifest, &args).unwrap();
         assert_eq!(cmd, "scan --rate 100 example.com");
+    }
+
+    #[test]
+    fn test_execute_tool_shell_backend_succeeds_and_captures_stdout() {
+        let manifest: Manifest = toml::from_str(
+            r#"
+[tool]
+name = "echo_test"
+version = "1.0.0"
+binary = "echo"
+description = "Test"
+
+[args.message]
+position = 1
+required = true
+type = "string"
+
+[command]
+template = "echo {message}"
+
+[output]
+format = "text"
+
+[output.schema]
+type = "object"
+"#,
+        )
+        .unwrap();
+
+        let executor = ToolCladExecutor::new(vec![("echo_test".to_string(), manifest)]);
+        let result = executor
+            .execute_tool("echo_test", r#"{"message": "hello-world"}"#)
+            .expect("a fast, well-behaved command must still succeed");
+
+        assert_eq!(result["status"], "success");
+        assert_eq!(
+            result["results"]["raw_output"],
+            serde_json::Value::String("hello-world".to_string())
+        );
+    }
+
+    #[test]
+    fn test_execute_tool_shell_backend_times_out_instead_of_hanging() {
+        // Regression test: the manifest's timeout_seconds used to be computed
+        // into a discarded binding and never applied, so this would hang for
+        // the full `sleep 5` instead of failing after ~1s.
+        let manifest: Manifest = toml::from_str(
+            r#"
+[tool]
+name = "slow_test"
+version = "1.0.0"
+binary = "sleep"
+description = "Test"
+timeout_seconds = 1
+
+[args.duration]
+position = 1
+required = true
+type = "string"
+
+[command]
+template = "sleep {duration}"
+
+[output]
+format = "text"
+
+[output.schema]
+type = "object"
+"#,
+        )
+        .unwrap();
+
+        let executor = ToolCladExecutor::new(vec![("slow_test".to_string(), manifest)]);
+        let start = std::time::Instant::now();
+        let result = executor.execute_tool("slow_test", r#"{"duration": "5"}"#);
+        let elapsed = start.elapsed();
+
+        let err = result.expect_err("a tool exceeding its timeout must return an error");
+        assert!(
+            err.contains("slow_test"),
+            "timeout error should name the tool: {err}"
+        );
+        assert!(
+            err.contains("timed out"),
+            "timeout error should say it timed out: {err}"
+        );
+        assert!(
+            elapsed < Duration::from_secs(4),
+            "must return promptly after the 1s timeout instead of waiting out the full \
+             5s sleep, took {:?}",
+            elapsed
+        );
     }
 
     #[test]

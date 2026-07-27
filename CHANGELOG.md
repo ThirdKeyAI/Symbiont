@@ -7,6 +7,283 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Agent-to-agent delegation (in-process).** The chat coordinator now offers a
+  `delegate` tool listing the agents loaded from `./agents`; calling it runs that
+  agent as a bounded sub-loop and returns its reply to the model as a correlated
+  tool result. Recursion is bounded by `max_delegation_depth` (default 3) with
+  cycle detection, and every failure — unknown target, cycle, depth exceeded,
+  policy denial, or a sub-agent that does not complete — surfaces as an honest
+  error rather than a silent or empty success. A delegated run uses an id derived
+  from the target's name, so its policy decisions and journal entries are
+  attributable and can be named in a Cedar policy, and it is offered the
+  coordinator's read-only monitoring tools (not `delegate` — it has no target
+  registry of its own). Per-agent toolsets, ToolClad/MCP tools on the chat
+  surface, and operator-visible accounting of sub-loop token spend are follow-ups.
+
+### Fixed
+- **`http_input` is now a governed loop, not a free-rein one.** The webhook
+  handler's on-demand LLM path previously ran a hand-rolled tool-calling loop
+  with none of the runtime's governance: no policy gate, no journal, no circuit
+  breakers, no token/iteration budget — yet it advertised the full ToolClad
+  toolset (including `nmap_scan`, whose `extra_flags` the model supplies, and
+  `curl_fetch`) and ran approved calls through the raw `ToolCladExecutor::execute_tool`,
+  bypassing the circuit-breaker-aware dispatch the executor already implements.
+  It is started on every `symbi up` and reached over HTTP with no
+  administrator in the loop. The hand-rolled loop is deleted; the handler now
+  drives `ReasoningLoopRunner::run`, so every model-proposed tool call passes
+  through a `ReasoningPolicyGate` before it can execute, dispatch goes through
+  the same `ActionExecutor`/circuit-breaker path other entry points use, and
+  the run is recorded to a journal.
+  - `start_http_input` gains a `policy_gate: Option<Arc<dyn ReasoningPolicyGate>>`
+    parameter; `symbi up` passes the same Cedar+escalation gate it already
+    builds for Coordinator Chat (hoisted out so both share it instead of each
+    risking its own wiring). `None` resolves to **fail-closed**
+    (`DefaultPolicyGate::new()`), never permissive — an embedder that forgets
+    to pass a gate gets denial for every tool call, not free rein.
+  - **Breaking `HttpInputServer` API change:** `with_toolclad_executor(Arc<ToolCladExecutor>)`
+    is replaced by `with_executor(Arc<dyn ActionExecutor>)` (defaults to
+    `build_tool_executor(Path::new("tools"))` when unset — `ToolCladExecutor`
+    when `tools/*.clad.toml` manifests are present, otherwise the honest
+    `UnavailableToolExecutor`). New `with_inference_provider(Arc<dyn InferenceProvider>)`
+    and `with_policy_gate(Arc<dyn ReasoningPolicyGate>)` builders.
+  - **Bedrock: tool results and tool-call echoes reaching the model.**
+    `http_input::bedrock::build_converse_request` read a message's `content`
+    field with `.as_str()`, which is `None` once a turn carries tool
+    calls/results (`content` becomes an array of blocks there) — every tool
+    result, and the assistant's own prior tool_use, silently flattened to an
+    empty text block on the Bedrock path. The model never saw its own tool
+    output and kept re-issuing the same call. The old hand-rolled loop's
+    in-iteration duplicate-call dedup partly masked this by refusing to
+    re-execute an identical (tool, input) pair within one turn; removing the
+    loop removes that mask. Fixed by converting each unified content block
+    (`text` / `tool_use` / `tool_result`) into its Bedrock Converse
+    equivalent instead of flattening to a bare string; covered by a new
+    regression test (`tool_result_content_reaches_the_model_as_non_empty_text`)
+    that builds a real tool-result turn via `Conversation::to_anthropic_messages`
+    and asserts the built request carries the actual result text.
+  - **Response shape (`/webhook` JSON body):**
+    - `tool_runs[].tool` is now the label the governed conversation actually
+      recorded (`ConversationMessage.tool_name`, i.e. the executor's
+      `Observation::source`), not always the bare model-supplied tool name.
+      For calls dispatched through `ToolCladExecutor` this carries its own
+      `toolclad:<name>` naming convention; denied or schema-rejected calls
+      never reach the executor and keep the bare name. This is stated rather
+      than papered over: guessing at stripping a prefix that may not even be
+      ToolClad's (agent delegation uses `delegate:<target>`) would risk
+      fabricating a value that was never actually recorded.
+    - `tool_runs` can now include denied and schema-rejected calls (with an
+      `output_preview` of `"[Policy denied] ..."` or
+      `"[Schema validation failed] ..."`) — previously only executed,
+      errored, timed-out, or duplicate-skipped calls appeared, since there
+      was no gate to deny anything.
+    - `input` and `output_preview` are reconstructed from the same governed
+      conversation and are faithful to what the model actually sent/saw: input
+      is the assistant's original tool-call arguments (correlated by
+      `tool_call_id`), and `output_preview` is a 500-byte UTF-8-safe
+      truncation of the tool-result content, matching the previous semantics.
+    - New fields: `termination_reason` (the loop's `TerminationReason`,
+      e.g. `"Completed"`, `{"PolicyDenial":{"reason":"..."}}`) and
+      `iterations` (loop iteration count).
+    - `provider` is now lowercase (`"anthropic"`, `"openai"`, `"bedrock"`, …)
+      — the `InferenceProvider::provider_name()` convention — instead of the
+      previous `LlmProvider`'s `Display` capitalization (`"Anthropic"`).
+  - **`cloud-llm` feature now required for the LLM/tool-calling path.** The
+    provider is a `CloudInferenceProvider` (gated on the `cloud-llm` feature,
+    already enabled by every real consumer — the `symbi` binary, `symbi-shell`,
+    `repl-cli`); building `symbi-runtime` with `http-input` alone (as
+    `cargo test -p symbi-runtime --features http-input` does) still compiles
+    and the webhook/auth/routing layer is fully tested, but that build has no
+    `InferenceProvider` to construct, so the LLM path reports "no inference
+    provider configured" — the same outcome as "no API key" today.
+  - **Custom ToolClad argument types:** `start_http_input` (the production
+    entrypoint `symbi up` uses) still loads `toolclad.toml` custom argument
+    types, unchanged. `HttpInputServer::start()`'s own generic default
+    (`build_tool_executor`, used when no executor was set via `with_executor`
+    — today only exercised by direct `HttpInputServer` construction in tests)
+    has no project-root context to find that file and does not load them; no
+    shipped manifest in this repo uses a custom type, so this has no effect
+    on the current tool set.
+- **Consolidation continued: DSL `tool_call`, `symbi-eval`, and chat-adapter
+  responses now go through a policy gate.** Three more paths identified in
+  the same census acted on model output with no governance:
+  - **DSL `tool_call` builtin.** `reasoning_builtins::builtin_tool_call` took
+    `_ctx: &ReasoningBuiltinContext` — the leading underscore was the bug —
+    so `ctx.reasoning_policy_gate` was never read and every DSL `tool_call()`
+    dispatched straight to the executor. It now evaluates a
+    `ProposedAction::ToolCall` through the gate before dispatch, same as its
+    neighbour `builtin_reason`: a caller-installed gate if present, else the
+    fail-closed `DefaultPolicyGate::new()` — never permissive by omission. A
+    denial (or a gate `Modify` that replaces the call with a non-tool-call
+    action) returns `{"status": "denied", "reason": "..."}` rather than a
+    Rust-level error, matching this builtin's existing
+    `"not_executed"`/`"error"` result shapes. `repl_core::RuntimeBridge`
+    gained `set_reasoning_policy_gate`, and `symbi-shell` now installs its
+    Cedar+escalation gate there too, so DSL scripts run in the shell share
+    the same governance as the orchestrator and fleet runner instead of
+    silently falling back to the default. (Other `RuntimeBridge`
+    constructors — `repl-cli`, tests, the DSL evaluator fuzz target — are
+    unchanged and stay at the fail-closed default.)
+  - **`symbi-eval`.** Replaced its hardcoded
+    `DefaultPolicyGate::permissive_for_dev_only()` — the only non-test
+    permissive gate left in the tree, guarding an executor that shells out
+    via `bash -c` for non-mock tasks — with the same `governed_gate` ladder
+    every other entry point uses: fail-closed by default, Cedar when
+    `policies/*.cedar` is present, permissive only via
+    `SYMBI_INSECURE_ALLOW_ALL=1` (with the same warning banner `symbi
+    run`/`symbi up` print). **Behavior change for the `symbiont-eval`
+    harness:** a non-mock eval task run against a checkout with no
+    `policies/*.cedar` will now have every tool call denied unless
+    `SYMBI_INSECURE_ALLOW_ALL=1` is set — previously every such task ran
+    unrestricted.
+  - **Chat adapters (Slack/Teams/Mattermost).** `LlmAgentInvoker::invoke`
+    (`symbi up`) completed against the LLM and handed the text straight to
+    `ChannelAdapterManager`, which publishes it under the bot identity with
+    no gate in between (`channel-adapter` is a community-edition crate with
+    no policy engine of its own). `invoke()` now evaluates the completion as
+    a `ProposedAction::Respond` through the same Cedar+escalation gate
+    `symbi up` already builds for the coordinator and HTTP input, via a new
+    `gate_chat_response` helper, before returning it — a denial becomes an
+    `Err` that `ChannelAdapterManager` logs as an agent error and never
+    forwards to `send_response`. A full `ReasoningLoopRunner` port wasn't
+    used here since `AgentInvoker::invoke` returns one completion, not a
+    multi-turn loop with its own conversation/budget; a single gate-checked
+    `Respond` was used instead. Note: none of the shipped gates
+    (`DefaultPolicyGate`, `CedarPolicyGate`, `EscalationGate`) currently deny
+    a bare `Respond` action, so this is architectural readiness for
+    operator-authored policies more than an immediate behavior change today.
+
+  Left ungated in this pass, tracked rather than overlooked:
+  `builtin_tool_call` still builds a fresh `CircuitBreakerRegistry::default()`
+  per call, so breaker state has no memory across DSL `tool_call()`
+  invocations.
+- **Pattern builtins (`director`, `debate`, `map_reduce`) are now bounded.**
+  These don't perform a host action — no tool executes, so there is nothing
+  for a policy gate to evaluate — but each turns one DSL call into an
+  unbounded number of downstream inference calls: `director`'s `assignments`
+  list is model-authored (the plan JSON) with one inference call issued per
+  assignment, `debate`'s `rounds` is caller-supplied with no upper bound, and
+  `map_reduce`'s map phase fanned every `inputs` item out via `try_join_all`
+  simultaneously with no concurrency limit. `crates/repl-core/src/dsl/pattern_builtins.rs`
+  now enforces named caps instead:
+  - `MAX_DIRECTOR_ASSIGNMENTS` (20) and `MAX_DIRECTOR_FIELD_LEN` (4,000 bytes):
+    a `director` plan proposing more assignments, or a `worker`/`subtask`
+    field longer than either bound, is rejected with an honest error before
+    any per-worker inference runs — the plan is never silently truncated,
+    it fails outright.
+  - `MAX_DEBATE_ROUNDS` (20): `debate` rejects a `rounds` value above the cap
+    before the first writer/critic call, so no partial debate runs on a
+    rejected round count.
+  - `MAX_MAP_REDUCE_CONCURRENCY` (8): unlike the two caps above, this one
+    does **not** error. The map phase now runs in chunks of at most this
+    many concurrent inference calls (chunked joins) instead of firing every
+    input at once; every input is still processed and no result is dropped,
+    it just runs in bounded-size batches. This is a scheduling clamp, not a
+    data cap, so there is nothing to reject.
+- **Mode B now requires an explicit tool allowlist.** The Mode B spawn
+  (`src/commands/managed_cli.rs`) was already gated — a synthetic
+  `claude_code` `ProposedAction` goes through the policy gate before the
+  subprocess starts — but nothing gates the child afterward: it runs with
+  `permission_mode: "dontAsk"` for the life of the session, and when the
+  agent's DSL metadata carries no `allowed_tools`, `--allowedTools` was
+  omitted entirely (`ClaudeCodeAdapter`), so the child fell back to its own
+  default tool access. One gate decision was authorizing a whole,
+  unrestricted session rather than a bounded one. Per-action gating would
+  require the child to call back into Symbiont's gate for every tool use —
+  a trust-boundary redesign that stays explicitly out of scope. Instead,
+  `run_claude_code` now refuses to spawn when `allowed_tools` is empty, with
+  an error naming the agent, pointing at the `metadata { ... }` block of its
+  `.symbi` file, and stating plainly that Symbiont's gate authorizes the
+  spawn once and cannot restrict the child afterward —
+  `allowed_tools` becomes the child's own `--allowedTools` allowlist, the
+  only in-session restriction that exists post-spawn. **Behavior break:**
+  any existing agent with `executor = "claude_code"` and no `allowed_tools`
+  in its metadata, which previously ran with the child's unrestricted
+  defaults, now refuses to spawn until `allowed_tools` is added. The shipped
+  reference agent (`agents/code_reviewer.symbi`) already declares one and is
+  unaffected. No bypass flag was added for this check.
+- **UTF-8 panic on model-controlled summary text (`reasoning::knowledge_bridge`).**
+  `persist_learnings` joined assistant messages into a working-memory summary
+  and truncated over-long results with `&combined[..2000]`, a raw byte-index
+  slice. Because the content is assistant (model) output, a multi-byte
+  character straddling byte 2000 panics the whole persistence path — reachable
+  from the now-governed chat/HTTP RAG flow, i.e. remotely triggerable. The
+  truncation now goes through a new `text_util::truncate_utf8` helper that
+  backs up to the nearest character boundary; `http_input::server` had its own
+  copy of the same logic (`truncate_utf8`, used for system-prompt and
+  tool-result previews) which is now deduplicated to this one shared
+  implementation instead of two subtly-independent ones. Covered by a
+  regression test that constructs a string whose 2000th byte falls inside a
+  2-byte `'é'` and asserts truncation completes without panicking.
+- **ToolClad shell backend now enforces the manifest's `timeout_seconds`.**
+  `ToolCladExecutor::execute_tool` computed the manifest's timeout into a
+  `_timeout` binding and never used it, then called the blocking
+  `std::process::Command::output()`, which waits for the child to exit no
+  matter how long that takes — a hung shell tool (bad args, a command
+  reading from stdin that never arrives, or one that simply never exits)
+  hung its caller indefinitely. An outer `tokio::time::timeout` at some call
+  sites only abandons the *future*; the child keeps running regardless. The
+  shell backend now spawns the child with piped stdout/stderr, drains both
+  pipes on background threads (polling `try_wait()` while leaving the pipes
+  unread would let a child that fills its OS pipe buffer block forever,
+  defeating the timeout independent of how the wait loop works), and waits
+  with a deadline; on expiry it kills the child, reaps it, and returns an
+  error naming the tool and the configured limit. Uses a plain `kill()`
+  rather than the SIGTERM→grace→SIGKILL escalation `cli_executor` uses for
+  long-running interactive CLI sessions — ToolClad shell tools are short,
+  template-built one-shot commands (`curl`, `nmap`, …) with no in-flight
+  state worth flushing, and by construction anything reaching this path has
+  already failed to exit on its own, so the extra process-group handling and
+  nested grace-period wait would add real complexity for no proportionate
+  benefit. Success/error shapes, captured stdout/stderr, and duration
+  measurement are unchanged for the (still-common) case that finishes in
+  time. No new crate dependency was needed. Covered by a regression test
+  (`sleep 5` against a 1s `timeout_seconds`, asserting the call returns a
+  named timeout error in well under the full 5s) and a normal-success test
+  asserting stdout capture is unaffected.
+- **Scheduler policy gate wired to cron runs (ahead of real task bodies, not
+  a claim that cron is fully governed today).** `scheduler::policy_gate::PolicyGate`
+  was fully implemented, exported, and unit-tested, but had zero call sites;
+  `CronJobDefinition.policy_ids` was populated when DSL `schedule` blocks
+  declared a `policy` and then never read anywhere. Cron is not an ungoverned
+  loop *today* only because its task body is a placeholder that shells out to
+  `echo … sleep 1` (`scheduler/task_manager.rs`); this wires the check in now,
+  at the one seam every cron-triggered run already passes through, so that
+  placeholder can be replaced with real agent execution later without the
+  gate being forgotten.
+  - `CronScheduler` gains an optional `policy_gate` (installed via
+    `with_policy_gate(Arc<PolicyGate>)`, mirroring the existing
+    `with_agentpin_verifier` builder — an explicit opt-in, not a fail-closed
+    default; `None` runs every job same as before). It is evaluated in both
+    `trigger_now` and the tick loop, immediately before the agent scheduler
+    is invoked — the same choke point both paths already share to run
+    identity verification — so neither the manual nor the automatic
+    cron-execution path can reach the agent scheduler around it. A `Deny`
+    refuses the run; `RequiresApproval` also refuses it (logged as such)
+    rather than auto-allowing, since cron has no approval-queue wiring to
+    route it to and silently allowing would defeat the point of installing a
+    gate. Both are recorded as a `Failed` run (mirroring how identity
+    failures are recorded) and counted in a new `CronMetrics::runs_skipped_policy`.
+  - `ScheduleContext` is populated only from data already tracked:
+    `consecutive_failures`/`total_runs` come straight from the job record;
+    `system_load` is left at its default (`0.0`) because no system-level load
+    metric is wired into the cron scheduler — stated here rather than
+    fabricating a reading, so a `SystemLoadExceeds` rule cannot fire from
+    cron yet.
+  - Not wired into `symbi up` by default in this change, matching how
+    `with_agentpin_verifier` itself is available but not called there today —
+    an embedder opts in explicitly rather than the CLI silently gating (or
+    silently not gating) cron jobs.
+  - **Adjacent finding, not fixed here (out of scope):** the tick loop's
+    pre-existing AgentPin identity-check-failure branch contains
+    `*active_c.write() = active_c.read().saturating_sub(1);` — acquiring a
+    write guard and a read guard on the same non-reentrant `parking_lot::RwLock`
+    within one statement, which self-deadlocks. It has no test coverage via
+    the tick loop (only via `trigger_now`, which doesn't hit this line), so
+    it has never been observed to hang in CI. The equivalent line added for
+    the policy-gate refusal path here was written as two separate guard
+    acquisitions specifically to avoid this trap.
+
 ## [1.18.0] - 2026-07-22
 
 ### Added
@@ -28,8 +305,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `store_knowledge` tools run for live agents. RAG turns on when built with the
   `vector-lancedb` feature and an embedding provider is configured
   (`EMBEDDING_*` / `OPENAI_API_KEY`); otherwise it stays off with a clear log.
-  The previously-silent mock-embedding fallback now warns loudly, and
-  `SYMBIONT_REQUIRE_REAL_EMBEDDINGS=1` makes an unconfigured provider fail fast.
+  The previously-silent mock-embedding fallback now warns loudly.
+  `SYMBIONT_REQUIRE_REAL_EMBEDDINGS=1` makes the general runtime's context
+  manager refuse to start without a configured provider; chat RAG does not
+  consult it — with no provider the bridge is simply not built and chat runs
+  without retrieval.
 - **Reasoning-loop robustness (issue #20).** The ORGA loop now fails over on
   model refusal and no-progress turns instead of stalling; Anthropic requests
   support prompt caching and extra-parameter passthrough; the output-token cap

@@ -231,6 +231,7 @@ fn make_runner(
         circuit_breakers: Arc::new(CircuitBreakerRegistry::default()),
         journal: Arc::new(BufferedJournal::new(1000)),
         knowledge_bridge,
+        delegation: None,
     }
 }
 

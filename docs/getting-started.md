@@ -499,12 +499,12 @@ cd crates/runtime && cargo run --example context_example
 |---------|-------------|---------|
 | `keychain` | OS keychain integration for secrets | Yes |
 | `vector-lancedb` | LanceDB embedded vector backend | Yes |
-| `vector-qdrant` | Qdrant distributed vector backend | No |
+| `vector-qdrant` | Qdrant distributed vector backend | No — always on in `symbi` |
 | `embedding-models` | Local embedding models via Candle | No |
-| `http-api` | REST API with Swagger UI | No |
-| `http-input` | Webhook server with JWT auth | No |
+| `http-api` | REST API with Swagger UI | No — always on in `symbi` |
+| `http-input` | Webhook server with JWT auth | No — always on in `symbi` |
 | `bedrock` | AWS Bedrock LLM provider (implies `http-input`) | No |
-| `cloud-llm` | Cloud LLM inference (OpenRouter / OpenAI / Anthropic) | No |
+| `cloud-llm` | Cloud LLM inference (OpenRouter / OpenAI / Anthropic) | No — always on in `symbi` |
 | `standalone-agent` | Cloud LLM meta-feature | No |
 | `cedar` | Cedar policy engine — auto-wires from `policies/*.cedar` at startup | **Yes** |
 | `orga-adaptive` | Advanced reasoning primitives | No |
@@ -513,12 +513,21 @@ cd crates/runtime && cargo run --example context_example
 | `native-sandbox` | Native process sandboxing | No |
 | `metrics` | OpenTelemetry metrics/tracing | No |
 | `session` | Experimental multiparty session-type protocol monitor | No |
-| `mcp-client` | MCP-backed ToolClad tool execution over stdio (SchemaPin-verified) | No |
+| `mcp-client` | MCP-backed ToolClad tool execution over stdio (SchemaPin-verified) | No — always on in `symbi` |
 | `toolclad-session` | Persistent ToolClad tool sessions (PTY-backed) | No |
 | `toolclad-browser` | Browser (CDP) ToolClad backend — seam only; returns an honest error until the CDP backend lands | No |
 | `interactive` | Interactive prompts for `symbi init` (dialoguer) | Default |
 | `minimal` | Minimal build for faster CI (no optional backends) | No |
-| `full` | All optional runtime, vector, and policy features | No |
+| `fips` | FIPS-oriented crypto configuration | No |
+| `vendored-openssl` | Statically link a vendored OpenSSL | No |
+| `full` | Aggregate of the vector, HTTP, policy and LLM features (see `full` in `crates/runtime/Cargo.toml`; it does not include `mcp-client`, `toolclad-browser`, `cli-executor`, `native-sandbox`, `orga-adaptive`, `session`, `bedrock`, `fips`, or the enterprise features) | No |
+
+The **Default** column is `crates/runtime`'s own default feature set. The rows
+marked "always on in `symbi`" are requested unconditionally by the published
+`symbi` binary (see the `symbi-runtime` dependency in the root `Cargo.toml`), so
+they are present in a released binary whether or not you pass `--features`, and
+`--no-default-features` on the CLI does not remove them. Build the library
+directly if you need them absent.
 
 ```bash
 # Build with specific features

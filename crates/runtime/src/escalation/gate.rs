@@ -38,10 +38,15 @@ impl EscalationGate {
         }
     }
 
-    /// Extract the tool name from a `ProposedAction`, if it is a `ToolCall`.
+    /// Extract the tool name from a `ProposedAction`, if it is a `ToolCall`
+    /// or a `Delegate` (which originates from a `delegate` tool call and
+    /// must remain subject to the same approval allowlist).
     fn tool_name(action: &ProposedAction) -> Option<String> {
         match action {
             ProposedAction::ToolCall { name, .. } => Some(name.clone()),
+            ProposedAction::Delegate { .. } => {
+                Some(crate::reasoning::phases::DELEGATE_TOOL_NAME.to_string())
+            }
             _ => None,
         }
     }
@@ -171,6 +176,65 @@ mod tests {
 
         let d = gate
             .evaluate_action(&agent, &action("read_file"), &st)
+            .await;
+        assert!(matches!(d, LoopDecision::Allow));
+        assert!(q.list_pending_async().await.is_empty());
+    }
+
+    fn delegate_action(call_id: &str, target: &str) -> ProposedAction {
+        ProposedAction::Delegate {
+            call_id: call_id.into(),
+            target: target.into(),
+            message: "hello".into(),
+        }
+    }
+
+    fn delegate_config() -> EscalationGateConfig {
+        EscalationGateConfig {
+            require_approval_tools: vec!["delegate".into()],
+            timeout: Duration::from_secs(5),
+        }
+    }
+
+    #[tokio::test]
+    async fn delegate_action_is_subject_to_approval_allowlist() {
+        let q = Arc::new(EscalationQueue::new());
+        let gate = Arc::new(EscalationGate::new(
+            Arc::new(AlwaysAllow),
+            q.clone(),
+            delegate_config(),
+        ));
+        let agent = AgentId::new();
+        let act = delegate_action("cid-1", "other_agent");
+        let st = state(&agent);
+
+        let gate2 = gate.clone();
+        let agent2 = agent;
+        let fut = tokio::spawn(async move { gate2.evaluate_action(&agent2, &act, &st).await });
+
+        let id = loop {
+            if let Some(h) = q.list_pending_async().await.first() {
+                break h.id.clone();
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        };
+
+        q.resolve_async(&id, Decision::Approve { reason: None }, approver())
+            .await
+            .unwrap();
+        assert!(matches!(fut.await.unwrap(), LoopDecision::Allow));
+    }
+
+    #[tokio::test]
+    async fn delegate_action_not_in_allowlist_delegates_to_inner() {
+        let q = Arc::new(EscalationQueue::new());
+        // `config()` only requires approval for "http_post" — unrelated to delegation.
+        let gate = EscalationGate::new(Arc::new(AlwaysAllow), q.clone(), config());
+        let agent = AgentId::new();
+        let st = state(&agent);
+
+        let d = gate
+            .evaluate_action(&agent, &delegate_action("cid-2", "other_agent"), &st)
             .await;
         assert!(matches!(d, LoopDecision::Allow));
         assert!(q.list_pending_async().await.is_empty());

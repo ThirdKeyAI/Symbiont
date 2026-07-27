@@ -157,7 +157,9 @@ impl ReasoningPolicyGate for OpaPolicyGateBridge {
                 "tool_name": name,
                 "arguments": arguments,
             }),
-            ProposedAction::Delegate { target, message } => serde_json::json!({
+            ProposedAction::Delegate {
+                target, message, ..
+            } => serde_json::json!({
                 "type": "delegate",
                 "target": target,
                 "message_length": message.len(),
@@ -274,6 +276,7 @@ mod tests {
         assert!(matches!(decision, LoopDecision::Allow));
 
         let delegate = ProposedAction::Delegate {
+            call_id: "test-call".into(),
             target: "other_agent".into(),
             message: "hello".into(),
         };
@@ -309,6 +312,7 @@ mod tests {
         assert!(matches!(decision, LoopDecision::Deny { .. }));
 
         let delegate = ProposedAction::Delegate {
+            call_id: "test-call".into(),
             target: "other".into(),
             message: "hi".into(),
         };
@@ -376,6 +380,7 @@ mod tests {
         assert!(matches!(decision, LoopDecision::Allow));
 
         let delegate = ProposedAction::Delegate {
+            call_id: "test-call".into(),
             target: "other".into(),
             message: "hi".into(),
         };

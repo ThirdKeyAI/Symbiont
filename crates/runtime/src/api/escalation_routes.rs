@@ -69,6 +69,10 @@ pub async fn approve(
     validated: Option<Extension<ValidatedKey>>,
     body: Option<Json<ResolveBody>>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    // Resolving a held action is the human-in-the-loop control that policy falls
+    // back on, so it is admin-only. Without this an agent-scoped key could
+    // approve an action held on its own behalf.
+    super::routes::require_admin(validated.as_deref())?;
     let reason = body.and_then(|b| b.0.reason);
     do_resolve(
         queue,
@@ -87,6 +91,9 @@ pub async fn deny(
     validated: Option<Extension<ValidatedKey>>,
     body: Option<Json<ResolveBody>>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    // Admin-only for the same reason as `approve`: a scoped key must not be able
+    // to resolve a held action.
+    super::routes::require_admin(validated.as_deref())?;
     let reason = body.and_then(|b| b.0.reason);
     do_resolve(
         queue,
@@ -127,6 +134,32 @@ async fn do_resolve(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::api::api_keys::ValidatedKey;
+
+    fn scoped_key(scope: Option<Vec<String>>) -> ValidatedKey {
+        ValidatedKey {
+            key_id: "k1".to_string(),
+            agent_scope: scope,
+        }
+    }
+
+    /// Resolving a held action is the control policy falls back on. An
+    /// agent-scoped key must not be able to approve — otherwise an agent whose
+    /// action was held can release it with its own credential.
+    #[test]
+    fn scoped_keys_cannot_resolve_held_actions() {
+        let scoped = scoped_key(Some(vec!["agent-a".to_string()]));
+        assert!(
+            crate::api::routes::require_admin(Some(&scoped)).is_err(),
+            "a scoped key must be refused"
+        );
+
+        // An unscoped (admin) key still can.
+        let admin = scoped_key(None);
+        assert!(crate::api::routes::require_admin(Some(&admin)).is_ok());
+    }
+
     use super::*;
     use crate::escalation::{EscalationQueue, EscalationRequest, HeldActionKind};
     use std::sync::Arc;

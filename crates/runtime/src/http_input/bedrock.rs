@@ -3,6 +3,71 @@
 
 use serde_json::{json, Value};
 
+/// Convert one message's `content` field into Bedrock Converse's
+/// content-block array.
+///
+/// The unified message shape used across this crate (see
+/// `Conversation::to_anthropic_messages` and the message-building code in
+/// `http_input::server`) represents `content` either as a plain string (a
+/// simple turn) or as an array of content blocks once tool calls/results are
+/// involved (`{"type":"text",...}`, `{"type":"tool_use",...}`,
+/// `{"type":"tool_result",...}`). Bedrock's Converse API always wants an
+/// array of `{"text":...}` / `{"toolUse":{...}}` / `{"toolResult":{...}}`
+/// blocks.
+///
+/// Naively reading `content.as_str()` — the previous implementation — is
+/// `None` for the array shape and silently flattened to `""`. That shape is
+/// exactly what a tool_use/tool_result turn takes, so every tool result (and
+/// every assistant tool-call echo) vanished on the Bedrock path: the model
+/// never saw its own tool output and re-issued the same call every turn.
+fn bedrock_content_blocks(content: Option<&Value>) -> Vec<Value> {
+    match content {
+        Some(Value::String(s)) => vec![json!({ "text": s })],
+        Some(Value::Array(blocks)) => blocks.iter().filter_map(convert_unified_block).collect(),
+        _ => vec![json!({ "text": "" })],
+    }
+}
+
+/// Convert one unified content block (as emitted by `Conversation` and the
+/// http_input message builders) into a Bedrock Converse block. Returns
+/// `None` for a block type Bedrock has no equivalent for — skipped rather
+/// than guessed at.
+fn convert_unified_block(block: &Value) -> Option<Value> {
+    match block.get("type").and_then(|t| t.as_str()) {
+        Some("text") => {
+            let text = block.get("text").and_then(|t| t.as_str()).unwrap_or("");
+            Some(json!({ "text": text }))
+        }
+        Some("tool_use") => {
+            let id = block.get("id").and_then(|i| i.as_str()).unwrap_or("");
+            let name = block.get("name").and_then(|n| n.as_str()).unwrap_or("");
+            let input = block.get("input").cloned().unwrap_or_else(|| json!({}));
+            Some(json!({
+                "toolUse": { "toolUseId": id, "name": name, "input": input }
+            }))
+        }
+        Some("tool_result") => {
+            let tool_use_id = block
+                .get("tool_use_id")
+                .and_then(|i| i.as_str())
+                .unwrap_or("");
+            // The unified tool_result block's own `content` is a plain
+            // string in every producer in this crate; fall back to a
+            // stringified JSON representation for anything else rather
+            // than dropping the result.
+            let text = match block.get("content") {
+                Some(Value::String(s)) => s.clone(),
+                Some(other) => other.to_string(),
+                None => String::new(),
+            };
+            Some(json!({
+                "toolResult": { "toolUseId": tool_use_id, "content": [ { "text": text } ] }
+            }))
+        }
+        _ => None,
+    }
+}
+
 /// Build a Bedrock Converse request body from the unified message/tool shape.
 pub(crate) fn build_converse_request(
     system: &str,
@@ -15,8 +80,8 @@ pub(crate) fn build_converse_request(
         .iter()
         .map(|m| {
             let role = m.get("role").and_then(|r| r.as_str()).unwrap_or("user");
-            let text = m.get("content").and_then(|c| c.as_str()).unwrap_or("");
-            json!({ "role": role, "content": [ { "text": text } ] })
+            let content = bedrock_content_blocks(m.get("content"));
+            json!({ "role": role, "content": content })
         })
         .collect();
 
@@ -188,6 +253,70 @@ mod tests {
         assert_eq!(spec["description"], "Get the time");
         assert_eq!(spec["inputSchema"]["json"]["type"], "object");
         assert_eq!(req["inferenceConfig"]["maxTokens"], 1024);
+    }
+
+    /// Regression for the bug found while porting `http_input` onto the
+    /// governed reasoning-loop runner: `Conversation::to_anthropic_messages`
+    /// (used by `CloudInferenceProvider` on the Bedrock path) renders an
+    /// assistant tool_use turn and its matching tool_result as array-shaped
+    /// `content`. The previous `build_converse_request` read
+    /// `content.as_str()`, which is `None` for an array, so both turns
+    /// silently flattened to an empty text block — the model never saw its
+    /// own tool output (or even its own prior tool_use) and would re-issue
+    /// the same call every turn. Assert the tool's actual result text
+    /// survives into the built request, not an empty string.
+    #[test]
+    fn tool_result_content_reaches_the_model_as_non_empty_text() {
+        use crate::reasoning::conversation::{Conversation, ConversationMessage, ToolCall};
+
+        let mut conv = Conversation::new();
+        conv.push(ConversationMessage::user("scan the target"));
+        conv.push(ConversationMessage::assistant_tool_calls(vec![ToolCall {
+            id: "call_1".into(),
+            name: "search".into(),
+            arguments: "{}".into(),
+        }]));
+        conv.push(ConversationMessage::tool_result(
+            "call_1",
+            "search",
+            "search result: 42 open ports",
+        ));
+
+        let (_system, messages) = conv.to_anthropic_messages();
+        let req = build_converse_request("be brief", &messages, &[], 0.3, 1024);
+
+        let bedrock_messages = req["messages"].as_array().expect("messages array");
+        let tool_result_text = bedrock_messages
+            .iter()
+            .flat_map(|m| m["content"].as_array().cloned().unwrap_or_default())
+            .find_map(|block| {
+                block
+                    .get("toolResult")
+                    .and_then(|tr| tr.get("content"))
+                    .and_then(|c| c.as_array())
+                    .and_then(|arr| arr.first())
+                    .and_then(|item| item.get("text"))
+                    .and_then(|t| t.as_str())
+                    .map(|s| s.to_string())
+            });
+
+        assert_eq!(
+            tool_result_text.as_deref(),
+            Some("search result: 42 open ports"),
+            "tool result must survive into the Bedrock request as non-empty text, got: {:#?}",
+            req
+        );
+
+        // The assistant's own tool_use echo must also survive (not just the
+        // result): the second message is the assistant turn.
+        let tool_use_block = bedrock_messages[1]["content"]
+            .as_array()
+            .expect("assistant content array")
+            .iter()
+            .find_map(|b| b.get("toolUse").cloned())
+            .expect("assistant tool_use block must be present, not flattened away");
+        assert_eq!(tool_use_block["name"], "search");
+        assert_eq!(tool_use_block["toolUseId"], "call_1");
     }
 
     #[test]

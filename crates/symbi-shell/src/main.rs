@@ -384,6 +384,12 @@ async fn main() -> Result<()> {
                 },
             ));
 
+        // Give DSL script execution (`tool_call`, `reason`, `delegate` run
+        // via `ReplEngine`/`runtime_bridge.reasoning_context()`) the same
+        // Cedar+escalation gate the orchestrator and fleet runner use,
+        // instead of silently falling back to `DefaultPolicyGate::new()`.
+        runtime_bridge.set_reasoning_policy_gate(Arc::clone(&policy_gate));
+
         let fleet_factory = fleet_runner::FleetRunnerFactory::new(
             Arc::clone(&provider)
                 as Arc<dyn symbi_runtime::reasoning::inference::InferenceProvider>,

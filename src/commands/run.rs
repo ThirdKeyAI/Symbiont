@@ -89,7 +89,6 @@ pub async fn run(matches: &ArgMatches) {
     use symbi_runtime::reasoning::context_manager::DefaultContextManager;
     use symbi_runtime::reasoning::conversation::{Conversation, ConversationMessage};
     use symbi_runtime::reasoning::loop_types::{BufferedJournal, LoopConfig};
-    use symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate;
     use symbi_runtime::reasoning::reasoning_loop::ReasoningLoopRunner;
     use symbi_runtime::types::AgentId;
 
@@ -99,24 +98,22 @@ pub async fn run(matches: &ArgMatches) {
     // unrestricted dev-mode behaviour can opt in via the
     // `SYMBI_INSECURE_ALLOW_ALL=1` env var (matching `symbi up`).
     let insecure_allow_all = std::env::var("SYMBI_INSECURE_ALLOW_ALL").as_deref() == Ok("1");
-    let policy_gate: Arc<dyn symbi_runtime::reasoning::policy_bridge::ReasoningPolicyGate> =
-        if insecure_allow_all {
-            eprintln!("\n");
-            eprintln!("================================================================");
-            eprintln!("WARNING: SYMBI_INSECURE_ALLOW_ALL=1 is set");
-            eprintln!("Policy gate is in PERMISSIVE mode for this `symbi run` invocation.");
-            eprintln!("Every LLM-proposed tool call and delegation will be allowed.");
-            eprintln!("This is only safe for local development. Do NOT use in production.");
-            eprintln!("================================================================\n");
-            Arc::new(DefaultPolicyGate::permissive_for_dev_only())
-        } else if let Some(cedar_gate) = super::up::try_wire_cedar_policy_gate().await {
-            cedar_gate
-        } else {
-            tracing::info!(
-                "policy gate: fail-closed default (no policies/*.cedar found); configure CedarPolicyGate, OpaPolicyGateBridge, or another ReasoningPolicyGate"
-            );
-            Arc::new(DefaultPolicyGate::new())
-        };
+    if insecure_allow_all {
+        eprintln!("\n");
+        eprintln!("================================================================");
+        eprintln!("WARNING: SYMBI_INSECURE_ALLOW_ALL=1 is set");
+        eprintln!("Policy gate is in PERMISSIVE mode for this `symbi run` invocation.");
+        eprintln!("Every LLM-proposed tool call and delegation will be allowed.");
+        eprintln!("This is only safe for local development. Do NOT use in production.");
+        eprintln!("================================================================\n");
+    }
+    let policy_gate =
+        symbi_runtime::reasoning::governed_gate(symbi_runtime::reasoning::GateOptions {
+            policies_dir: Path::new("policies").to_path_buf(),
+            insecure_allow_all,
+            escalation: None,
+        })
+        .await;
 
     let runner = ReasoningLoopRunner {
         provider,
@@ -130,6 +127,7 @@ pub async fn run(matches: &ArgMatches) {
         circuit_breakers: Arc::new(CircuitBreakerRegistry::default()),
         journal: Arc::new(BufferedJournal::new(1000)),
         knowledge_bridge: None,
+        delegation: None,
     };
 
     // Build conversation from DSL system prompt + user input

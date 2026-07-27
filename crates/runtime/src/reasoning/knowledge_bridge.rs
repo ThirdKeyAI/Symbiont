@@ -135,17 +135,7 @@ impl KnowledgeBridge {
             return Ok(());
         }
 
-        let summary = if assistant_messages.len() == 1 {
-            assistant_messages[0].to_string()
-        } else {
-            // Combine into a summary, truncating if very long
-            let combined = assistant_messages.join("\n---\n");
-            if combined.len() > 2000 {
-                format!("{}...", &combined[..2000])
-            } else {
-                combined
-            }
-        };
+        let summary = summarize_assistant_messages(&assistant_messages);
 
         let memory_update = MemoryUpdate {
             operation: UpdateOperation::Add,
@@ -424,6 +414,25 @@ fn store_tool_def() -> ToolDefinition {
     }
 }
 
+/// Combine assistant messages into a single persisted summary.
+///
+/// A lone assistant message is stored verbatim. Multiple messages are joined
+/// and, if the result is long, truncated to a byte budget. The content here
+/// is model output, so truncation must land on a UTF-8 character boundary —
+/// a raw byte-index slice (`&s[..2000]`) panics if a multi-byte character
+/// straddles that boundary, and would be remotely triggerable via chat RAG.
+fn summarize_assistant_messages(assistant_messages: &[&str]) -> String {
+    if assistant_messages.len() == 1 {
+        return assistant_messages[0].to_string();
+    }
+    let combined = assistant_messages.join("\n---\n");
+    if combined.len() > 2000 {
+        format!("{}...", crate::text_util::truncate_utf8(&combined, 2000))
+    } else {
+        combined
+    }
+}
+
 /// Extract search terms from the most recent user and tool messages in the conversation.
 fn extract_search_terms(conversation: &Conversation) -> Vec<String> {
     let messages = conversation.messages();
@@ -469,6 +478,48 @@ mod tests {
         assert_eq!(config.max_context_items, 5);
         assert!((config.relevance_threshold - 0.3).abs() < f32::EPSILON);
         assert!(config.auto_persist);
+    }
+
+    #[test]
+    fn test_summarize_assistant_messages_single_message_untruncated() {
+        let messages = vec!["short reply"];
+        assert_eq!(summarize_assistant_messages(&messages), "short reply");
+    }
+
+    #[test]
+    fn test_summarize_assistant_messages_joins_multiple_short_messages() {
+        let messages = vec!["first", "second"];
+        assert_eq!(
+            summarize_assistant_messages(&messages),
+            "first\n---\nsecond"
+        );
+    }
+
+    #[test]
+    fn test_summarize_assistant_messages_truncates_on_char_boundary_not_mid_multibyte() {
+        // Regression test: byte 2000 of the joined string must land inside a
+        // 2-byte 'é' so a raw `&combined[..2000]` slice would panic. Chosen
+        // so `msg1.len() + "\n---\n".len() == 1999`, putting the first byte
+        // of 'é' at offset 1999 and its continuation byte at offset 2000.
+        let msg1 = "a".repeat(1994);
+        let msg2 = "é";
+        let messages = vec![msg1.as_str(), msg2];
+
+        let combined_len = msg1.len() + "\n---\n".len() + msg2.len();
+        assert_eq!(combined_len, 2001, "combined must exceed the 2000 byte cap");
+
+        // Must not panic even though byte index 2000 is a continuation byte.
+        let summary = summarize_assistant_messages(&messages);
+
+        assert_eq!(summary, format!("{}\n---\n...", msg1));
+        assert!(summary.is_char_boundary(summary.len()));
+    }
+
+    #[test]
+    fn test_summarize_assistant_messages_untruncated_when_under_limit() {
+        let messages = vec!["one", "two"];
+        let summary = summarize_assistant_messages(&messages);
+        assert!(!summary.ends_with("..."));
     }
 
     #[test]

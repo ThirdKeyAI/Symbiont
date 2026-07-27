@@ -495,6 +495,7 @@ mod tests {
 
         let agent = AgentId::new();
         let action = ProposedAction::Delegate {
+            call_id: "test-call".into(),
             target: "reviewer".into(),
             message: "review this".into(),
         };

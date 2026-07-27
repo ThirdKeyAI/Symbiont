@@ -19,7 +19,7 @@ use symbi_runtime::cli_executor::{
 };
 use symbi_runtime::reasoning::conversation::Conversation;
 use symbi_runtime::reasoning::loop_types::{LoopDecision, LoopState, ProposedAction};
-use symbi_runtime::reasoning::policy_bridge::{DefaultPolicyGate, ReasoningPolicyGate};
+use symbi_runtime::reasoning::policy_bridge::ReasoningPolicyGate;
 use symbi_runtime::types::AgentId;
 
 const DEFAULT_MAX_TURNS: u32 = 12;
@@ -70,6 +70,23 @@ pub async fn run_claude_code(
         })
         .unwrap_or_default();
     let system_prompt = meta_str(meta, "system_prompt");
+
+    // --- require an explicit tool allowlist ---
+    //
+    // The spawn below is gated once (see the policy-gate check further
+    // down), but nothing gates the child afterward: it runs
+    // `permission_mode: "dontAsk"` for the whole session, and when
+    // `allowed_tools` is empty `ClaudeCodeAdapter` omits `--allowedTools`
+    // entirely (see `cli_executor/adapters/claude_code.rs`), so the child
+    // falls back to its own defaults. One gate decision would then be
+    // authorizing an unrestricted session, not a bounded one. Per-action
+    // gating would require the child to call back into Symbiont's gate,
+    // which is a trust-boundary redesign out of scope here — so refuse the
+    // spawn instead of silently handing over an unrestricted session.
+    if let Err(e) = require_allowed_tools(agent_name, &allowed_tools) {
+        eprintln!("✗ {e}");
+        std::process::exit(1);
+    }
 
     // Task prompt: explicit `--input`, else a default review instruction.
     let prompt = if input.trim().is_empty() || input.trim() == "{}" {
@@ -184,6 +201,34 @@ pub async fn run_claude_code(
     }
 }
 
+/// Refuse to spawn a Mode B session when the agent's DSL declares no
+/// `allowed_tools`.
+///
+/// Symbiont's policy gate evaluates the spawn itself (once, up front); it
+/// has no way to evaluate the child's tool calls after that — Mode B runs
+/// `--permission-mode dontAsk` for the life of the session. The only
+/// in-session restriction available is the child's own `--allowedTools`
+/// flag, sourced from this DSL metadata. An empty list is not "no
+/// restriction configured yet", it is "the child gets its own unrestricted
+/// defaults" (`ClaudeCodeAdapter` omits `--allowedTools` entirely when the
+/// vec is empty) — so refuse rather than let that pass silently.
+fn require_allowed_tools(
+    agent_name: &str,
+    allowed_tools: &[String],
+) -> std::result::Result<(), String> {
+    if allowed_tools.is_empty() {
+        return Err(format!(
+            "agent '{agent_name}' declares no `allowed_tools`; refusing to spawn an unrestricted \
+             Mode B session.\n  Add `allowed_tools = \"Tool1,Tool2,...\"` to the `metadata {{ ... }}` \
+             block of the agent's .symbi file (see agents/code_reviewer.symbi for an example).\n  \
+             Symbiont's policy gate authorizes the spawn itself, once; it cannot restrict what the \
+             child does for the rest of the session — `allowed_tools` becomes the child's own \
+             --allowedTools allowlist, the only in-session restriction that exists after spawn."
+        ));
+    }
+    Ok(())
+}
+
 fn flag_u32(m: &ArgMatches, key: &str) -> Option<u32> {
     m.get_one::<String>(key).and_then(|s| s.parse().ok())
 }
@@ -254,12 +299,48 @@ fn candidate_sibling_dirs() -> Vec<PathBuf> {
 }
 
 async fn build_policy_gate() -> Arc<dyn ReasoningPolicyGate> {
-    if std::env::var("SYMBI_INSECURE_ALLOW_ALL").as_deref() == Ok("1") {
+    let insecure_allow_all = std::env::var("SYMBI_INSECURE_ALLOW_ALL").as_deref() == Ok("1");
+    if insecure_allow_all {
         eprintln!("WARNING: SYMBI_INSECURE_ALLOW_ALL=1 — policy gate permissive (dev only).");
-        Arc::new(DefaultPolicyGate::permissive_for_dev_only())
-    } else if let Some(cedar) = super::up::try_wire_cedar_policy_gate().await {
-        cedar
-    } else {
-        Arc::new(DefaultPolicyGate::new())
+    }
+    symbi_runtime::reasoning::governed_gate(symbi_runtime::reasoning::GateOptions {
+        policies_dir: PathBuf::from("policies"),
+        insecure_allow_all,
+        escalation: None,
+    })
+    .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn refuses_when_allowed_tools_is_empty() {
+        let err = require_allowed_tools("code_reviewer", &[])
+            .expect_err("an agent with no allowed_tools must be refused");
+        assert!(
+            err.contains("allowed_tools"),
+            "error must name the missing field, got: {err}"
+        );
+        assert!(
+            err.contains("metadata"),
+            "error must point at the DSL metadata block, got: {err}"
+        );
+        assert!(
+            err.contains("code_reviewer"),
+            "error must name the offending agent, got: {err}"
+        );
+        assert!(
+            err.to_lowercase().contains("cannot restrict"),
+            "error must say Symbiont cannot restrict the session after spawn, got: {err}"
+        );
+    }
+
+    #[test]
+    fn proceeds_when_allowed_tools_is_declared() {
+        let tools = vec!["Read".to_string(), "Grep".to_string()];
+        require_allowed_tools("code_reviewer", &tools)
+            .expect("an agent that declares allowed_tools must proceed past the check");
     }
 }

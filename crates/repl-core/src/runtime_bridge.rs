@@ -10,6 +10,7 @@ use symbi_runtime::integrations::policy_engine::engine::{
 use symbi_runtime::lifecycle::{DefaultLifecycleController, LifecycleConfig, LifecycleController};
 use symbi_runtime::reasoning::agent_registry::AgentRegistry;
 use symbi_runtime::reasoning::inference::InferenceProvider;
+use symbi_runtime::reasoning::policy_bridge::ReasoningPolicyGate;
 use symbi_runtime::types::agent::AgentConfig;
 use symbi_runtime::types::security::Capability;
 use symbi_runtime::types::AgentId;
@@ -27,6 +28,13 @@ pub struct RuntimeBridge {
     comm_bus: Arc<Mutex<Option<Arc<dyn CommunicationBus + Send + Sync>>>>,
     /// Communication policy gate (deny-by-default; replaced via set_comm_policy).
     comm_policy: Arc<Mutex<Arc<CommunicationPolicyGate>>>,
+    /// Policy gate for the reasoning builtins (`tool_call`, `reason`,
+    /// `delegate`). `None` until a caller installs one via
+    /// [`Self::set_reasoning_policy_gate`]; the builtins themselves fall
+    /// back to the non-permissive `DefaultPolicyGate::new()` in that case
+    /// (see `reasoning_builtins::builtin_reason`/`builtin_tool_call`), so
+    /// leaving this unset is fail-closed, never permissive.
+    reasoning_policy_gate: Arc<Mutex<Option<Arc<dyn ReasoningPolicyGate>>>>,
     /// Active session id shared across all clones of the reasoning context.
     #[cfg(feature = "session")]
     active_session: Arc<Mutex<Option<symbi_session::monitor::SessionId>>>,
@@ -72,6 +80,7 @@ impl RuntimeBridge {
         let agent_registry = Arc::new(AgentRegistry::new());
         let comm_bus = Arc::new(Mutex::new(None));
         let comm_policy = Arc::new(Mutex::new(comm_policy_gate));
+        let reasoning_policy_gate = Arc::new(Mutex::new(None));
 
         Self {
             lifecycle_controller,
@@ -81,6 +90,7 @@ impl RuntimeBridge {
             agent_registry,
             comm_bus,
             comm_policy,
+            reasoning_policy_gate,
             #[cfg(feature = "session")]
             active_session: Arc::new(Mutex::new(None)),
             #[cfg(feature = "session")]
@@ -91,6 +101,17 @@ impl RuntimeBridge {
     /// Set the inference provider for reasoning builtins.
     pub fn set_inference_provider(&self, provider: Arc<dyn InferenceProvider>) {
         *self.inference_provider.lock().unwrap() = Some(provider);
+    }
+
+    /// Install the policy gate that governs the `reason`, `tool_call`, and
+    /// `delegate` DSL builtins. Callers that have wired Cedar/escalation
+    /// governance (e.g. `symbi-shell`'s startup ladder) should call this so
+    /// the same gate reaches DSL script execution, not just the
+    /// orchestrator/fleet-runner paths. Without a call to this, builtins
+    /// fall back to the fail-closed `DefaultPolicyGate::new()` default —
+    /// never permissive.
+    pub fn set_reasoning_policy_gate(&self, gate: Arc<dyn ReasoningPolicyGate>) {
+        *self.reasoning_policy_gate.lock().unwrap() = Some(gate);
     }
 
     /// Get the agent registry.
@@ -165,11 +186,10 @@ impl RuntimeBridge {
             sender_agent_id: None,
             comm_bus,
             comm_policy,
-            // RuntimeBridge today does not own a ReasoningPolicyGate; the
-            // reasoning builtin will fall back to DefaultPolicyGate::new()
-            // (production-default). Callers embedding the runtime should
-            // install their concrete gate directly via the SDK.
-            reasoning_policy_gate: None,
+            // Populated by `set_reasoning_policy_gate` when a caller has
+            // wired real governance; `None` here makes the builtins fall
+            // back to `DefaultPolicyGate::new()` (fail-closed default).
+            reasoning_policy_gate: self.reasoning_policy_gate.lock().unwrap().clone(),
             #[cfg(feature = "session")]
             active_session: self.active_session.clone(),
             #[cfg(feature = "session")]

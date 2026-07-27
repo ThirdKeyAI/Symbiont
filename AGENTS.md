@@ -141,6 +141,8 @@ reference agent is `agents/code_reviewer.symbi`; the path lives in
 `src/commands/managed_cli.rs`.
 
 `symbi run code_reviewer --target <dir>`:
+- refuses to run at all unless the agent's metadata declares `allowed_tools`
+  (required — see below);
 - passes the spawn through the policy Gate (fail-closed; allow via Cedar or
   `SYMBI_INSECURE_ALLOW_ALL=1`);
 - injects the env handshake `SYMBIONT_MANAGED=true`, `SYMBIONT_SESSION_ID`,
@@ -155,6 +157,19 @@ reference agent is `agents/code_reviewer.symbi`; the path lives in
 Do **not** pass `--bare` to the spawned `claude` — it skips reading `~/.claude`
 (credentials included) and breaks subscription auth.
 
+**One Gate decision authorizes the whole session, not each action inside it.**
+The policy Gate evaluates the spawn itself; it has no way to evaluate the
+child's individual tool calls afterward, since the session runs
+`--permission-mode dontAsk` for its full lifetime. Per-action gating would
+require the child to call back into Symbiont's Gate — a trust-boundary
+redesign, explicitly out of scope. The only in-session restriction is the
+child's own `--allowedTools` allowlist, sourced from the agent's DSL
+`metadata { allowed_tools = "Tool1,Tool2,..." }` — that is the *child's*
+allowlist, not Symbiont's Gate, and it is required: `run_claude_code` in
+`src/commands/managed_cli.rs` refuses to spawn when it is empty rather than
+handing the child its own unrestricted defaults for the whole run. There is
+no bypass flag for this check.
+
 ## ToolClad Tools
 
 Tools live in `tools/<name>.clad.toml` and are auto-discovered at startup by `symbi up`, the HTTP Input server, and `symbi tools`. The watcher (`crates/runtime/src/toolclad/watcher.rs`) hot-reloads on file changes — no restart needed.
@@ -166,6 +181,42 @@ Argument types are validated in `crates/runtime/src/toolclad/validator.rs`. `age
 **Adding a new tool does not require Rust code.** Drop a `.clad.toml` in `tools/`, the runtime picks it up.
 
 **MCP backend (`mcp-client` feature).** A manifest can carry an `[mcp]` block (`server`, `tool`, optional `field_map`) to route the tool to an upstream MCP server over stdio instead of a local binary. Servers are declared in `mcp-config.toml` (per-project, then `~/.symbiont/`). Invocation is SchemaPin-verified fail-closed by default (TOFU key pinning; a post-pin key swap is rejected); `ToolCladExecutor::with_mcp_verification(false)` opts out for local dev. This is how `symbi run` and the DSL `reason()`/`tool_call()` builtins execute real tools — see `docs/mcp-tools.md`.
+
+## Agent Delegation (chat coordinator)
+
+The `symbi up` chat coordinator advertises a `delegate` tool listing the agents
+found in `./agents`. Calling it resolves the target in a name→prompt registry
+(both the DSL-declared name and the filename stem are registered), runs it as a
+bounded sub-loop (`crates/runtime/src/reasoning/delegation_executor.rs`), and
+returns its reply as a tool result correlated to the originating call id.
+
+Bounds and current limits, all worth knowing before relying on it:
+
+- Depth is capped (`max_delegation_depth`, default 3) with cycle detection; both
+  guards reject before the target runs.
+- Failures are explicit: unknown target, cycle, depth exceeded, policy denial, or
+  a sub-agent that does not reach `Completed` each produce an error observation.
+- The sub-agent is offered the coordinator's read-only monitoring tools, via
+  `CoordinatorExecutor`'s `ActionExecutor::tool_definitions` impl. It is not
+  offered `delegate` (no target registry of its own), so nested delegation is not
+  reachable from a sub-loop today even though the depth guard allows it. It gets
+  **no knowledge bridge**, so no retrieval.
+- The sub-loop runs under an id derived from the target's name
+  (`delegated_agent_id`), so its policy decisions and journal entries are
+  attributable and a Cedar policy can name the principal.
+- Sub-loop token usage is recorded on the delegation handle but has no reader, so
+  the operator-visible token count excludes it. Each hop inherits the parent's
+  configured ceiling rather than its remaining budget.
+- The sub-loop's journal is not surfaced to the operator.
+- The chat surface cannot run ToolClad/MCP tools: `build_tool_executor` is wired
+  into `symbi run` and the DSL builtins, not the coordinator, so a delegated agent
+  cannot reach them either.
+- Conversion of a `delegate` tool call into a delegation only happens when the
+  runner holds a delegation handle. Runners that implement their own `delegate`
+  tool (symbi-shell) keep receiving it as a plain tool call.
+
+`delegate` names three different mechanisms across the tree — see the table in
+SKILL.md before assuming which guarantees apply.
 
 ## MCP Server
 

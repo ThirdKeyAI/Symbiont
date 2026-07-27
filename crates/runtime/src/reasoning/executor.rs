@@ -339,6 +339,7 @@ mod tests {
                 content: "done".into(),
             },
             ProposedAction::Delegate {
+                call_id: "test-call".into(),
                 target: "other".into(),
                 message: "hi".into(),
             },

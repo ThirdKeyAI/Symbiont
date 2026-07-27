@@ -191,6 +191,21 @@ Action mapping: `tool_call::<name>`, `respond`, `delegate::<target>`, `terminate
 
 Cedar semantics enforced: forbid overrides permit, default deny, skip-on-error.
 
+A policy file under `policies/` may be raw Cedar source or a JSON array of
+`{name, active, source}` entries; both are loaded, and an active entry whose
+source does not parse is reported at startup rather than denying every action
+later.
+
+### Three things named "delegate"
+
+They are separate mechanisms with different guarantees — check which one you mean:
+
+| Name | What it is | Governance |
+|------|-----------|------------|
+| `delegate` tool (chat coordinator) | Runs a `./agents` agent as a bounded in-process sub-loop (`SubLoopDelegationExecutor`), depth-limited with cycle detection, result returned as a correlated tool result | Policy-evaluated as `delegate::<target>`; participates in `SYMBIONT_REQUIRE_APPROVAL_TOOLS`. The sub-agent is offered the coordinator's read-only monitoring tools and runs under an id derived from the target name; its internal steps are not journaled to the operator, and it cannot reach ToolClad/MCP tools |
+| `delegate` DSL builtin | Single completion against the target's prompt via `RuntimeBridge::delegate` → `governed_ask` | CommunicationPolicyGate |
+| `delegate` shell tool | symbi-shell's fleet delegation, implemented in its own executor | CommunicationPolicyGate |
+
 ### Knowledge Bridge (Optional)
 
 Add context-aware reasoning with vector-backed retrieval:
@@ -472,6 +487,18 @@ plugin then defers its hooks to the outer Gate), loads the plugin via
 `--plugin-dir`, and wires the stdio `symbi mcp` back-channel. `--max-turns` is the
 primary cooperative bound; `--budget-timeout` is a hard wall-clock backstop
 (graceful SIGTERM → SIGKILL). Requires the `cli-executor` feature (on by default).
+
+**The Gate decision covers the spawn, not the session.** One `Allow` at the Gate
+authorizes the *entire* subprocess run — Symbiont cannot evaluate the child's
+individual tool calls once it starts, since the child runs
+`--permission-mode dontAsk` for its whole lifetime and per-action gating would
+require it to call back into Symbiont's gate (a trust-boundary redesign, out of
+scope). The only in-session restriction is the child's own `--allowedTools`
+allowlist, sourced from the agent's DSL `metadata { allowed_tools = "Tool1,Tool2,..." }`
+— that is the child's allowlist, not Symbiont's gate. Because of that,
+`allowed_tools` is **required**: `symbi run` refuses to spawn an agent whose
+metadata omits it rather than silently handing over a session with the child's
+own unrestricted defaults. See `agents/code_reviewer.symbi` for the syntax.
 
 ---
 
