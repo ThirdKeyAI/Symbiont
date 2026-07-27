@@ -5779,9 +5779,9 @@ dependencies = [
 
 [[package]]
 name = "quinn-proto"
-version = "0.11.14"
+version = "0.11.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "434b42fec591c96ef50e21e886936e66d3cc3f737104fdb9b737c40ffb94c098"
+checksum = "4fcb935c5bec503c2f0e306bdd3e58bb9029dcb14fa8d9ac76e3a5256ac0763e"
 dependencies = [
  "bytes",
  "getrandom 0.3.4",
@@ -6082,7 +6082,7 @@ checksum = "ba39f3699c378cd8970968dcbff9c43159ea4cfbd88d43c00b22f2ef10a435d2"
 
 [[package]]
 name = "repl-core"
-version = "1.17.0"
+version = "1.18.0"
 dependencies = [
  "bytes",
  "chrono",
@@ -6759,6 +6759,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha1_smol"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbfa15b3dddfee50a0fff136974b3e1bde555604ba463834a7eb7deb6417705d"
+
+[[package]]
 name = "sha2"
 version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7103,7 +7109,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-dsl"
-version = "1.17.0"
+version = "1.18.0"
 dependencies = [
  "anyhow",
  "cc",
@@ -7150,7 +7156,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-runtime"
-version = "1.17.0"
+version = "1.18.0"
 dependencies = [
  "aes-gcm",
  "agentpin",
@@ -8207,6 +8213,7 @@ dependencies = [
  "getrandom 0.4.2",
  "js-sys",
  "serde_core",
+ "sha1_smol",
  "wasm-bindgen",
 ]
 
