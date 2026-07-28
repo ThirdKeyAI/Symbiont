@@ -348,6 +348,21 @@ Operadores têm dois caminhos:
 
 O construtor legado `permissive()` foi renomeado para `permissive_for_dev_only()` e marcado como `#[doc(hidden)]` para desencorajar uso incidental em caminhos de código de produção.
 
+#### Escopo de políticas por superfície (desde a v1.19.0)
+
+Antes, todos os pontos de entrada carregavam o mesmo conjunto plano de `policies/*.cedar`, de modo que um `permit` escrito para um deles se aplicava silenciosamente a todos. Os pontos de entrada não compartilham modelo de ameaças: `symbi run` e o servidor de entrada HTTP despacham chamadas reais de ferramentas, `symbi shell` expõe seu próprio conjunto de ferramentas de edição de arquivos, e o coordenador de chat do `symbi up` não executa ferramenta alguma.
+
+As políticas agora são aplicadas em camadas:
+
+- `policies/*.cedar` — **compartilhadas**, carregadas pelo gate de todas as superfícies.
+- `policies/<surface>/*.cedar` — carregadas **apenas** pela superfície que nomeiam.
+
+Os nomes de superfície são `run`, `coordinator`, `http-input`, `managed-cli`, `eval` e `shell`. O `symbi up` constrói um gate por superfície (`coordinator` e `http-input`) em vez de um compartilhado, de modo que uma permissão destinada a agentes de webhook não supervisionados não alcança o caminho de chat do operador, e vice-versa. Ambos continuam compartilhando uma única fila de escalonamento, para que ações retidas cheguem aos mesmos aprovadores.
+
+Arquivos planos permanecem globais, então nenhum deployment existente muda de comportamento até criar um subdiretório. Reserve o diretório plano para regras que realmente se aplicam em todo lugar e coloque o que for específico de ferramentas sob a sua superfície. Note que o Mode B lê `policies/managed-cli/`, não `policies/run/` — iniciar um subprocesso gerenciado tem um raio de impacto diferente do loop de raciocínio em processo, e uma política deixada no diretório errado não é carregada por nada, embora pareça idêntica a não ter escrito nenhuma.
+
+Quando um gate cai para fail-closed, o log nomeia os dois diretórios que pesquisou.
+
 #### Endurecimento de transporte do backend OPA
 
 Ao usar `OpaPolicyGateBridge` com `SYMBIONT_OPA_URL`, o cliente **recusa HTTP em texto puro para um host não-loopback** e falha de forma fechada (nega) — caso contrário, um atacante na rota poderia forjar uma decisão `allow`. O texto puro só é permitido para loopback (um sidecar OPA local) ou quando `SYMBIONT_OPA_ALLOW_INSECURE=1` está definido (somente para testes locais). Defina `SYMBIONT_OPA_AUTH_TOKEN` para enviar um token bearer em cada consulta de autorização. Use `https://` para qualquer endpoint OPA remoto.

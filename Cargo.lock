@@ -8363,7 +8363,7 @@ checksum = "ba39f3699c378cd8970968dcbff9c43159ea4cfbd88d43c00b22f2ef10a435d2"
 
 [[package]]
 name = "repl-cli"
-version = "1.18.0"
+version = "1.19.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -8378,7 +8378,7 @@ dependencies = [
 
 [[package]]
 name = "repl-core"
-version = "1.18.0"
+version = "1.19.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -8399,7 +8399,7 @@ dependencies = [
 
 [[package]]
 name = "repl-lsp"
-version = "1.18.0"
+version = "1.19.0"
 dependencies = [
  "repl-core",
  "tokio",
@@ -8408,7 +8408,7 @@ dependencies = [
 
 [[package]]
 name = "repl-proto"
-version = "1.18.0"
+version = "1.19.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -9685,7 +9685,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "symbi"
-version = "1.18.0"
+version = "1.19.0"
 dependencies = [
  "async-trait",
  "cedar-policy",
@@ -9767,7 +9767,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-dsl"
-version = "1.18.0"
+version = "1.19.0"
 dependencies = [
  "anyhow",
  "cc",
@@ -9810,7 +9810,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-runtime"
-version = "1.18.0"
+version = "1.19.0"
 dependencies = [
  "aes-gcm",
  "agentpin",
@@ -9906,7 +9906,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-session"
-version = "1.18.0"
+version = "1.19.0"
 dependencies = [
  "proptest",
  "serde",
@@ -9915,7 +9915,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-shell"
-version = "1.18.0"
+version = "1.19.0"
 dependencies = [
  "aes-gcm",
  "anyhow",

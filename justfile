@@ -15,7 +15,16 @@ clippy:
     cargo clippy --all-targets --all-features -- -D warnings
 
 test:
-    cargo test --all-features
+    # --workspace matters: without it this runs only the root `symbi`
+    # package's tests, so every crate under crates/ goes unverified
+    # while the sweep still reports success.
+    #
+    # Not --all-features: that pulls the embedding-model and vector-backend
+    # suites, which download large model/data files and link test binaries fat
+    # enough to exhaust RAM during `ld`. CI skips them for the same reason and
+    # leans on `just clippy` (--all-targets --all-features) to compile every
+    # feature-gated path, plus its own targeted per-feature test steps.
+    cargo test --workspace
 
 machete:
     cargo machete

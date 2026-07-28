@@ -376,10 +376,16 @@ pub async fn run(matches: &ArgMatches) {
 
     // The governed policy-gate ladder (permissive-if-opted-in -> Cedar ->
     // fail-closed), wrapped so flagged tool calls are held for human
-    // approval. Built once, unconditionally, so every entry point that acts
-    // on model output in this process — Coordinator Chat and the HTTP input
-    // server below — shares the same gate rather than each risking its own
-    // (possibly permissive-by-omission) wiring.
+    // approval. Built unconditionally, so no entry point that acts on model
+    // output in this process can end up permissive by omission.
+    //
+    // One ladder per surface, not one gate for the process. Coordinator Chat
+    // only gates what the model says back to an operator; the HTTP input
+    // server dispatches real tool calls on behalf of unattended callers.
+    // Sharing a single gate meant every grant written for either had to be
+    // held by both. Each surface now also layers `policies/<surface>/*.cedar`
+    // on top of the shared `policies/*.cedar` set, so a permit can be scoped
+    // to the surface it was actually written for.
     if insecure_allow_all {
         eprintln!("\n");
         eprintln!("================================================================");
@@ -389,17 +395,27 @@ pub async fn run(matches: &ArgMatches) {
         eprintln!("This is only safe for local development. Do NOT use in production.");
         eprintln!("================================================================\n");
     }
+    // Both gates share the one escalation queue, so a held action reaches the
+    // same approvers (chat interceptor / Gate panel) whichever surface raised
+    // it. Only the policy surface differs.
+    let escalation_gate_config = symbi_runtime::escalation::EscalationGateConfig {
+        require_approval_tools: require_approval_tools.clone(),
+        timeout: escalation_timeout,
+    };
     let policy_gate =
         symbi_runtime::reasoning::governed_gate(symbi_runtime::reasoning::GateOptions {
             policies_dir: PathBuf::from("policies"),
+            surface: Some("coordinator".to_string()),
             insecure_allow_all,
-            escalation: Some((
-                escalation_queue.clone(),
-                symbi_runtime::escalation::EscalationGateConfig {
-                    require_approval_tools: require_approval_tools.clone(),
-                    timeout: escalation_timeout,
-                },
-            )),
+            escalation: Some((escalation_queue.clone(), escalation_gate_config.clone())),
+        })
+        .await;
+    let http_input_policy_gate =
+        symbi_runtime::reasoning::governed_gate(symbi_runtime::reasoning::GateOptions {
+            policies_dir: PathBuf::from("policies"),
+            surface: Some("http-input".to_string()),
+            insecure_allow_all,
+            escalation: Some((escalation_queue.clone(), escalation_gate_config)),
         })
         .await;
 
@@ -419,9 +435,10 @@ pub async fn run(matches: &ArgMatches) {
         let invoker: Arc<dyn AgentInvoker> = Arc::new(LlmAgentInvoker {
             llm_client,
             dsl_sources: Arc::new(dsl_sources),
-            // Same gate the coordinator and the HTTP input server receive
-            // below — no separate, possibly-forgotten ladder for the chat
-            // path. See `LlmAgentInvoker::invoke`.
+            // Same gate Coordinator Chat receives below — no separate,
+            // possibly-forgotten ladder for the chat path, and the same
+            // "coordinator" policy surface, since both govern what the model
+            // says back to a human. See `LlmAgentInvoker::invoke`.
             policy_gate: Arc::clone(&policy_gate),
         });
 
@@ -719,7 +736,7 @@ pub async fn run(matches: &ArgMatches) {
                 eprintln!("✗ API server error: {}", e);
             }
         },
-        _ = start_http_input(http_config, runtime.clone(), secrets_config, Some(policy_gate.clone())) => {},
+        _ = start_http_input(http_config, runtime.clone(), secrets_config, Some(http_input_policy_gate.clone())) => {},
         _ = tokio::signal::ctrl_c() => {}
     }
 

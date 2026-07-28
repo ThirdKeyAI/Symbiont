@@ -440,3 +440,22 @@ ToolClad tools are exposed to the [reasoning loop](/reasoning-loop) as MCP-compa
 9. **Observation** — the result is returned to the reasoning loop as an Observation
 
 The policy gate and argument validation happen before execution. A failed policy check or invalid argument blocks the tool call entirely.
+
+## Which surfaces execute tools
+
+Not every entry point runs ToolClad tools. Knowing which do is the difference between a policy that governs real execution and one that governs nothing:
+
+| Surface | Executes ToolClad/MCP tools | Notes |
+|---|---|---|
+| `symbi run <agent>` | Yes | Loads `tools/` at startup |
+| DSL reasoning builtins | Yes | Same loader, invoked from `.symbi` programs |
+| `symbi tools test` | Yes | Single manifest, for validating one tool |
+| HTTP input server | Yes, when `tools/` exists and holds at least one manifest | Otherwise starts with no executor and every tool call is refused |
+| `symbi up` chat coordinator | **No** | Has no ToolClad executor at all |
+| `symbi shell` (ORCH) | No | Ships its own fixed tool set — `read_file`, `search`, `edit_file`, `save_artifact` — which are not ToolClad manifests |
+
+The chat coordinator is deliberately monitoring-only: it answers questions about a running fleet and cannot act on it. A Cedar `permit` for `tool_call::<name>` has no effect there, because no tool call is ever proposed.
+
+This matters when writing policy. Policies sitting flat in `policies/*.cedar` are loaded by **every** surface's gate. A permit written for `symbi run` reaches the coordinator's gate too — harmless while the coordinator executes nothing, but it becomes a real grant the moment a surface gains an executor. Put surface-specific grants in `policies/<surface>/` instead, which only the named surface reads. The surface names are `run`, `coordinator`, `http-input`, `managed-cli`, `eval`, and `shell`.
+
+If you want the coordinator to execute tools later, scope it per tool rather than switching it on globally — otherwise every permit already written for another surface applies to chat on day one.

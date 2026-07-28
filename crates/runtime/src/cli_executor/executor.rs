@@ -85,12 +85,27 @@ impl Default for CliExecutorConfig {
 /// CLI executor that spawns AI CLI tools with full process management.
 pub struct CliExecutor {
     config: CliExecutorConfig,
+    stdout_line_sink: Option<super::watchdog::LineSink>,
 }
 
 impl CliExecutor {
     /// Create a new executor with the given configuration.
     pub fn new(config: CliExecutorConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            stdout_line_sink: None,
+        }
+    }
+
+    /// Observe the child's stdout line by line as it runs.
+    ///
+    /// The accumulated buffer is dropped when the wall-clock timeout fires, so
+    /// a caller that needs a durable record of what the child did cannot wait
+    /// for `execute` to return. The sink runs inline on the read path and must
+    /// not block.
+    pub fn with_stdout_line_sink(mut self, sink: super::watchdog::LineSink) -> Self {
+        self.stdout_line_sink = Some(sink);
+        self
     }
 
     /// Execute an AI CLI tool via the given adapter and request.
@@ -243,7 +258,12 @@ impl CliExecutor {
         let max_output = self.config.max_output_bytes;
 
         let output_result = tokio::time::timeout(self.config.max_runtime, async {
-            let stdout_watchdog = OutputWatchdog::new(idle_timeout, max_output);
+            let stdout_watchdog = match &self.stdout_line_sink {
+                Some(sink) => {
+                    OutputWatchdog::new(idle_timeout, max_output).with_line_sink(sink.clone())
+                }
+                None => OutputWatchdog::new(idle_timeout, max_output),
+            };
             let stderr_watchdog = OutputWatchdog::new(idle_timeout, max_output);
 
             let stdout_future = async {

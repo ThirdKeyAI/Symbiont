@@ -93,8 +93,32 @@ Os agentes gerenciados via CLI (Modo B) reconhecem estas chaves de metadados adi
 |-------|------|-----------|
 | `executor` | String | Defina como `"claude_code"` para executar o agente como um subprocesso governado do Claude Code em vez do loop de raciocínio |
 | `model` | String | Modelo passado ao subprocesso (ex.: `"claude-sonnet-4-5"`) |
-| `allowed_tools` | String | Lista de permissão de ferramentas separada por vírgulas para o subprocesso (ex.: `"Read,Grep,Glob"`) |
+| `allowed_tools` | String | Lista de permissão de ferramentas separada por vírgulas para o subprocesso (ex.: `"Read,Grep,Glob"`). **Obrigatório** — um agente que não a declare é recusado em vez de iniciado sem restrições |
 | `system_prompt` | String | Prompt de sistema adicional anexado ao subprocesso |
+| `permission_mode` | String | Opcional. Repassado como `--permission-mode`. Quando ausente, a flag é omitida e o subprocesso mantém o próprio padrão, que continua pedindo confirmação para qualquer coisa fora de `allowed_tools`. Use `"dontAsk"` para agentes que precisem rodar sem supervisão |
+
+O spawn passa uma vez pelo gate de política, como `tool_call::claude_code`, mas nada governa o subprocesso depois disso — o que `allowed_tools` e `permission_mode` resolverem vale para a sessão inteira. Por isso `allowed_tools` é obrigatório e `permission_mode` é opt-in: uma decisão do gate deve autorizar uma sessão delimitada, não uma irrestrita.
+
+Essa única decisão do gate é lida de `policies/managed-cli/` — **não** de
+`policies/run/`. Iniciar um subprocesso tem um raio de impacto diferente do loop
+de raciocínio em processo, então as duas superfícies não compartilham diretório
+de políticas. Um permit mínimo:
+
+```cedar
+// policies/managed-cli/claude_code.cedar
+permit(principal, action == Action::"tool_call::claude_code", resource);
+```
+
+Como o gate não consegue ver o que o subprocesso faz em seguida, cada execução é
+registrada em journal. O filho roda com `--output-format stream-json` e cada
+chamada de ferramenta é anexada a `.symbiont/audit/mode-b-<session>.jsonl`
+conforme acontece — nome da ferramenta, argumentos, se o resultado deu erro, e um
+registro final com a contagem de turnos e quaisquer negações de permissão. São
+gravados ao vivo, não na saída, de modo que uma execução encerrada pelo timeout
+ainda deixa rastro. Valores sob chaves como `token`, `api_key` ou `password` são
+redigidos e argumentos muito grandes são truncados, para que o log identifique o
+que o filho fez sem virar uma segunda cópia do payload.
+
 
 ---
 

@@ -5,8 +5,16 @@
 //! producing output for longer than `idle_timeout`, reading is aborted
 //! and the caller is notified so it can kill the stalled process.
 
+use std::sync::Arc;
 use tokio::io::AsyncReadExt;
 use tokio::time::Duration;
+
+/// Callback invoked with each complete line as it arrives.
+///
+/// Used to observe a child's output while it still running rather than after
+/// it exits — the accumulated buffer is discarded on a runtime timeout, so a
+/// caller that needs a durable record of a long run cannot wait for the end.
+pub type LineSink = Arc<dyn Fn(&str) + Send + Sync>;
 
 /// Per-execution helper that wraps output reading with idle-timeout detection.
 pub struct OutputWatchdog {
@@ -14,6 +22,8 @@ pub struct OutputWatchdog {
     idle_timeout: Duration,
     /// Maximum bytes to read before truncating.
     max_bytes: usize,
+    /// Optional per-line observer, invoked as each newline arrives.
+    line_sink: Option<LineSink>,
 }
 
 /// Result of reading output through the watchdog.
@@ -35,7 +45,17 @@ impl OutputWatchdog {
         Self {
             idle_timeout,
             max_bytes,
+            line_sink: None,
         }
+    }
+
+    /// Observe each complete line as it arrives, in addition to accumulating.
+    ///
+    /// The sink runs inline on the read path, so it must not block: a slow
+    /// sink stalls reading and can trip the idle timeout on a healthy child.
+    pub fn with_line_sink(mut self, sink: LineSink) -> Self {
+        self.line_sink = Some(sink);
+        self
     }
 
     /// Read from `reader` with idle-timeout detection.
@@ -53,15 +73,33 @@ impl OutputWatchdog {
         let mut buf = vec![0u8; self.max_bytes + 1];
         let mut total = 0usize;
         let mut idle_triggered = false;
+        // Byte offset up to which complete lines have been handed to the sink.
+        let mut emitted = 0usize;
+        let mut clean_eof = false;
 
         loop {
             match tokio::time::timeout(self.idle_timeout, reader.read(&mut buf[total..])).await {
-                Ok(Ok(0)) => break, // EOF
+                Ok(Ok(0)) => {
+                    clean_eof = true;
+                    break; // EOF
+                }
                 Ok(Ok(n)) => {
                     total += n;
                     if total > self.max_bytes {
                         total = self.max_bytes;
                         break;
+                    }
+                    if let Some(sink) = &self.line_sink {
+                        // `\n` cannot appear inside a multi-byte UTF-8 sequence,
+                        // so every slice between newlines is a whole line even
+                        // when a read splits the stream mid-character.
+                        while let Some(rel) = buf[emitted..total].iter().position(|b| *b == b'\n') {
+                            let end = emitted + rel;
+                            sink(
+                                String::from_utf8_lossy(&buf[emitted..end]).trim_end_matches('\r'),
+                            );
+                            emitted = end + 1;
+                        }
                     }
                 }
                 Ok(Err(_)) => break, // Read error
@@ -70,6 +108,15 @@ impl OutputWatchdog {
                     idle_triggered = true;
                     break;
                 }
+            }
+        }
+
+        // A final line with no trailing newline is only complete at clean EOF;
+        // after truncation or an idle timeout the remainder is a partial line
+        // and handing it over would emit a torn record.
+        if clean_eof && emitted < total {
+            if let Some(sink) = &self.line_sink {
+                sink(String::from_utf8_lossy(&buf[emitted..total]).trim_end_matches('\r'));
             }
         }
 
@@ -99,6 +146,93 @@ impl OutputWatchdog {
 mod tests {
     use super::*;
     use tokio::io::duplex;
+
+    /// Collect every line the sink observes, in order.
+    fn recording_sink() -> (LineSink, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let handle = seen.clone();
+        let sink: LineSink = std::sync::Arc::new(move |line: &str| {
+            handle.lock().unwrap().push(line.to_string());
+        });
+        (sink, seen)
+    }
+
+    /// A JSON event split across two reads must still arrive as one line.
+    /// The child writes whenever it likes, so read boundaries fall mid-record
+    /// routinely; framing on them would hand the journal torn JSON.
+    #[tokio::test]
+    async fn line_sink_reassembles_records_split_across_reads() {
+        let (mut writer, mut reader) = duplex(1024);
+        let (sink, seen) = recording_sink();
+        let watchdog = OutputWatchdog::new(Duration::from_secs(5), 4096).with_line_sink(sink);
+
+        tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            writer.write_all(b"{\"type\":\"assis").await.unwrap();
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            writer
+                .write_all(b"tant\"}\n{\"type\":\"result\"}\n")
+                .await
+                .unwrap();
+            drop(writer);
+        });
+
+        let out = watchdog.read_with_idle_detection(&mut reader).await;
+        assert!(!out.idle_timeout_triggered);
+        let lines = seen.lock().unwrap().clone();
+        assert_eq!(
+            lines,
+            vec![
+                r#"{"type":"assistant"}"#.to_string(),
+                r#"{"type":"result"}"#.to_string(),
+            ],
+            "a record split across reads must be reassembled, not framed on the read boundary"
+        );
+    }
+
+    /// A final line with no trailing newline is complete at EOF, so it counts.
+    #[tokio::test]
+    async fn line_sink_emits_final_unterminated_line_at_eof() {
+        let (mut writer, mut reader) = duplex(1024);
+        let (sink, seen) = recording_sink();
+        let watchdog = OutputWatchdog::new(Duration::from_secs(5), 4096).with_line_sink(sink);
+
+        tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            writer.write_all(b"first\nlast-no-newline").await.unwrap();
+            drop(writer);
+        });
+
+        watchdog.read_with_idle_detection(&mut reader).await;
+        assert_eq!(
+            seen.lock().unwrap().clone(),
+            vec!["first".to_string(), "last-no-newline".to_string()]
+        );
+    }
+
+    /// Truncation cuts mid-record, so the remainder is a partial line. Handing
+    /// it to the sink would append a torn record to the journal.
+    #[tokio::test]
+    async fn line_sink_drops_partial_line_on_truncation() {
+        let (mut writer, mut reader) = duplex(1024);
+        let (sink, seen) = recording_sink();
+        // Cap below the second line so it is cut mid-record.
+        let watchdog = OutputWatchdog::new(Duration::from_secs(5), 12).with_line_sink(sink);
+
+        tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            let _ = writer.write_all(b"ok\nthis-one-is-cut-off\n").await;
+            drop(writer);
+        });
+
+        let out = watchdog.read_with_idle_detection(&mut reader).await;
+        assert!(out.truncated);
+        let lines = seen.lock().unwrap().clone();
+        assert!(
+            !lines.iter().any(|l| l.starts_with("this-one")),
+            "a partial line must not reach the sink, got: {lines:?}"
+        );
+    }
 
     #[tokio::test]
     async fn test_continuous_output_no_idle_timeout() {

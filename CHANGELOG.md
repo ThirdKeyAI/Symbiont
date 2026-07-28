@@ -7,7 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.19.0] - 2026-07-28
+
 ### Added
+- **Mode B runs are journalled as they happen.** The policy gate authorizes a
+  managed-CLI spawn once and has no say over the subprocess afterward, which
+  left everything it did invisible. The child now runs with `--output-format
+  stream-json`, and `CliExecutor` gained an optional stdout line sink
+  (`with_stdout_line_sink`) so its events can be observed while the run is still
+  in flight. `symbi run` uses it to append each tool call, tool result, and the
+  closing summary — turn count and permission denials — to
+  `.symbiont/audit/mode-b-<session>.jsonl`. Writing live rather than at exit
+  matters: a run killed by the wall-clock timeout never returns its buffered
+  stdout at all, so a post-hoc parse would lose the trail exactly when it is
+  most wanted. Values under keys like `token`/`api_key`/`password` are redacted
+  and oversize arguments truncated, so a `Write` call does not put a whole file
+  in the audit log. `parse_output` folds the stream back into the same shape the
+  `json` format returned, so the printed result is unchanged.
+- **Surface-scoped Cedar policies.** `GateOptions` takes a `surface`, and the
+  loader now layers `policies/<surface>/*.cedar` on top of the shared
+  `policies/*.cedar` set. Flat files stay global, so nothing changes for an
+  existing deployment until it creates a subdirectory — but a grant written for
+  one entry point can now be kept out of the others' gates. `symbi up` builds
+  two gates instead of one (`coordinator` and `http-input`, sharing the same
+  escalation queue), since the chat coordinator only gates what the model says
+  back while the HTTP input server dispatches real tool calls; `symbi run`,
+  `managed_cli` and `symbi-eval` name their own surfaces. This closes a latent
+  grant: `policies/orchestrator.cedar` is written for `symbi shell`'s tools
+  (`read_file`, `edit_file`, `search`, `save_artifact`) but, being flat, was
+  loaded into the coordinator's gate too — harmless only because that surface
+  executes no tools. `symbi shell` now prefers
+  `policies/shell/orchestrator.cedar` and falls back to the flat path, and the
+  policy this repo ships has moved to the scoped location. `symbi init`
+  scaffolds no shell policy at all — the shell's tools stay fail-closed until
+  an operator writes one, rather than every new project starting with file
+  read/write grants it never asked for.
 - **Agent-to-agent delegation (in-process).** The chat coordinator now offers a
   `delegate` tool listing the agents loaded from `./agents`; calling it runs that
   agent as a bounded sub-loop and returns its reply to the model as a correlated
@@ -21,7 +55,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   registry of its own). Per-agent toolsets, ToolClad/MCP tools on the chat
   surface, and operator-visible accounting of sub-loop token spend are follow-ups.
 
+### Security
+- **Resolving a held action now requires an admin key.** `POST
+  /escalations/{id}/approve` and `/deny` read the caller's API key only to
+  attribute the decision, never to authorize it, so any key scoped to any
+  endpoint could release actions the gate had deliberately held for human
+  review — including the escalation an agent's own scoped key had just
+  triggered. Both routes now go through `require_admin` first. The legacy
+  single-token `SYMBIONT_API_TOKEN` path is unchanged and still admin by
+  design.
+- **HTTP input no longer serves requests when no authentication is
+  configured.** With neither a static token nor JWT verification set up, the
+  auth middleware fell through and accepted the request, so a deployment that
+  simply forgot to configure auth exposed webhook-triggered agent runs to
+  anyone who could reach the port. It now logs the misconfiguration and returns
+  401 — failing closed rather than open.
+- **Cedar policy files in JSON form are loaded instead of denying everything.**
+  `symbi up` read every `policies/*.cedar` as raw Cedar source. The file this
+  repo ships is a JSON array of policy entries, so parsing failed, the gate
+  ended up with an empty policy set, and *every* action was denied — including
+  `respond`, which is why an affected chat surface answered nothing at all
+  rather than reporting a policy error. The loader now detects both forms.
+
 ### Fixed
+- **Mode B no longer forces `dontAsk` on every agent.** The managed CLI child
+  was spawned with `permission_mode: "dontAsk"` hardcoded, so every Mode B
+  session ran without prompting regardless of what the agent declared. The
+  spawn is policy-gated once, but nothing gates the child afterward, which made
+  the hardcoded value a blanket grant no agent had asked for. It is now read
+  from the agent's `metadata` block; unset omits `--permission-mode` entirely
+  and the child keeps its own default, which still prompts for anything outside
+  `allowed_tools`. An agent that must run unattended declares
+  `permission_mode = "dontAsk"` and owns the trade-off.
+- **CWD-swapping tests no longer race.** `secrets_store`'s tests serialize on
+  `serial_test`'s binary-wide lock while `orchestrator_executor::with_cwd` used
+  a private mutex. The two locks knew nothing about each other, so both mutated
+  process-global CWD at once and whichever finished second tried to restore a
+  directory the other had already deleted — a reliable failure under
+  `cargo test --workspace` that never reproduced in isolation. It had also been
+  writing a stray `crates/symbi-shell/.symbi/secrets.enc` into the tree.
+- **CI clippy now runs `--all-targets`,** so a warning inside a `#[cfg(test)]`
+  module can no longer merge green.
 - **`http_input` is now a governed loop, not a free-rein one.** The webhook
   handler's on-demand LLM path previously ran a hand-rolled tool-calling loop
   with none of the runtime's governance: no policy gate, no journal, no circuit

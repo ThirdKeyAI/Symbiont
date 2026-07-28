@@ -1169,8 +1169,8 @@ impl App {
     }
 
     /// Emit a one-time hint when tools are unavailable purely because no
-    /// `policies/orchestrator.cedar` exists (the gate fails closed). Only fires
-    /// for tool-bearing interactions, once per session.
+    /// `policies/shell/orchestrator.cedar` exists (the gate fails closed). Only
+    /// fires for tool-bearing interactions, once per session.
     fn maybe_warn_missing_policy(&mut self, tools: &[String]) {
         if self.policy_present || self.policy_hint_shown || tools.is_empty() {
             return;
@@ -1178,7 +1178,7 @@ impl App {
         self.policy_hint_shown = true;
         self.output.push(OutputEntry {
             source: EntrySource::Meta,
-            content: "Note: no policies/orchestrator.cedar found, so the policy gate fails closed and tool calls are denied. Create that file to grant tools (e.g. read_file, search). See docs/shell-agent-orchestration.md.".to_string(),
+            content: "Note: no policies/shell/orchestrator.cedar found, so the policy gate fails closed and tool calls are denied. Create that file to grant tools (e.g. read_file, search). See docs/shell-agent-orchestration.md.".to_string(),
         });
     }
 

@@ -14,4 +14,4 @@ pub mod watchdog;
 pub use adapter::{AiCliAdapter, CodeGenRequest, CodeGenResult};
 pub use adapters::{AiderAdapter, ClaudeCodeAdapter, CodexAdapter, CodexApprovalMode};
 pub use executor::{CliExecutor, CliExecutorConfig, StdinStrategy};
-pub use watchdog::{OutputWatchdog, WatchdogOutput};
+pub use watchdog::{LineSink, OutputWatchdog, WatchdogOutput};

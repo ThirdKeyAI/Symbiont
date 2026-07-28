@@ -93,8 +93,28 @@ metadata {
 |-------|------|-------------|
 | `executor` | String | 设为 `"claude_code"` 可将智能体作为受治理的 Claude Code 子进程运行，而非使用推理循环 |
 | `model` | String | 传递给子进程的模型（例如 `"claude-sonnet-4-5"`） |
-| `allowed_tools` | String | 子进程的逗号分隔工具允许列表（例如 `"Read,Grep,Glob"`） |
+| `allowed_tools` | String | 子进程的逗号分隔工具允许列表（例如 `"Read,Grep,Glob"`）。**必填** —— 未声明该字段的智能体会被拒绝，而不会以不受限制的方式启动 |
 | `system_prompt` | String | 为子进程追加的额外系统提示 |
+| `permission_mode` | String | 可选。作为 `--permission-mode` 透传。未设置时将省略该标志，子进程保留自身默认值；该默认值对 `allowed_tools` 之外的任何操作仍会请求确认。需要无人值守运行的智能体请设为 `"dontAsk"` |
+
+启动本身会作为 `tool_call::claude_code` 经过一次策略门控，但此后没有任何机制约束子进程 —— `allowed_tools` 与 `permission_mode` 的最终取值将在整个会话期间生效。这正是 `allowed_tools` 为必填、而 `permission_mode` 采用选择加入的原因：一次门控决策应当授权一个受限会话，而非不受限的会话。
+
+这一次门控决策读取自 `policies/managed-cli/` —— **而非** `policies/run/`。启动子进程
+与进程内推理循环的影响范围不同，因此这两个界面不共享策略目录。最小的 permit 如下：
+
+```cedar
+// policies/managed-cli/claude_code.cedar
+permit(principal, action == Action::"tool_call::claude_code", resource);
+```
+
+由于门控无法看到子进程随后的行为，因此改为对每次运行进行日志记录。子进程以
+`--output-format stream-json` 运行，其每次工具调用都会在发生的同时追加到
+`.symbiont/audit/mode-b-<session>.jsonl` —— 包括工具名称、参数、结果是否出错，
+以及一条包含轮次数和权限拒绝记录的收尾条目。这些记录是实时写入而非退出时写入，
+因此即使运行被超时终止也仍会留下痕迹。`token`、`api_key`、`password` 等键对应的
+值会被脱敏，超长参数会被截断，从而让日志既能说明子进程做了什么，又不会变成
+负载数据的第二份副本。
+
 
 ---
 

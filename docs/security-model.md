@@ -346,6 +346,21 @@ Operators have two paths:
 
 The legacy `permissive()` constructor was renamed `permissive_for_dev_only()` and marked `#[doc(hidden)]` to discourage incidental use in production code paths.
 
+#### Per-surface policy scoping (since v1.19.0)
+
+Every entry point used to load the same flat pile of `policies/*.cedar`, so a `permit` written for one of them silently applied to all of them. Entry points do not share a threat model: `symbi run` and the HTTP input server dispatch real tool calls, `symbi shell` exposes its own file-editing toolset, and the `symbi up` chat coordinator executes no tools at all.
+
+Policies are now layered:
+
+- `policies/*.cedar` — **shared**, loaded by every surface's gate.
+- `policies/<surface>/*.cedar` — loaded **only** by the surface it names.
+
+The surface names are `run`, `coordinator`, `http-input`, `managed-cli`, `eval`, and `shell`. `symbi up` builds one gate per surface (`coordinator` and `http-input`) rather than one shared between them, so a grant intended for unattended webhook agents does not reach the operator chat path, and vice versa. They still share one escalation queue, so held actions reach the same approvers.
+
+Flat files remain global, so no existing deployment changes behaviour until it creates a subdirectory. Reserve the flat directory for rules that genuinely apply everywhere, and put anything tool-specific under its surface. Note that Mode B reads `policies/managed-cli/`, not `policies/run/` — spawning a managed subprocess is a different blast radius from the in-process reasoning loop, and a policy left in the wrong directory is loaded by nothing while looking identical to having written none.
+
+When a gate falls through to fail-closed, the log names both directories it searched.
+
 #### OPA backend transport hardening
 
 When using `OpaPolicyGateBridge` with `SYMBIONT_OPA_URL`, the client **refuses plaintext HTTP to a non-loopback host** and fails closed (denies) — an on-path attacker could otherwise spoof an `allow` decision. Plaintext is permitted only for loopback (a local OPA sidecar) or when `SYMBIONT_OPA_ALLOW_INSECURE=1` is set (local testing only). Set `SYMBIONT_OPA_AUTH_TOKEN` to send a bearer token with each authorization query. Use `https://` for any remote OPA endpoint.

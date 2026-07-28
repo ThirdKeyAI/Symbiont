@@ -106,9 +106,16 @@ fail-closed — this is intentional: an unverifiable tool does not run.
 
 MCP tool calls go through the same reasoning-loop policy gate as any other
 action. `symbi run` defaults to a fail-closed gate that denies tool calls
-unless a Cedar policy (`policies/*.cedar`) allows them, or you opt into
-permissive local mode with `SYMBI_INSECURE_ALLOW_ALL=1`. ToolClad manifests can
-generate Cedar policy stubs (see `toolclad::cedar_gen`).
+unless a Cedar policy allows them, or you opt into permissive local mode with
+`SYMBI_INSECURE_ALLOW_ALL=1`. ToolClad manifests can generate Cedar policy
+stubs (see `toolclad::cedar_gen`).
+
+Policies in `policies/*.cedar` are loaded by every surface's gate; policies in
+`policies/<surface>/` are read only by the surface they name. Prefer the
+scoped form for anything tool-specific — see
+[Which surfaces execute tools](/toolclad#which-surfaces-execute-tools) for the
+full list of which entry points actually run MCP-backed tools. The `symbi up`
+chat coordinator is not one of them.
 
 ## Fallback (no tools configured)
 

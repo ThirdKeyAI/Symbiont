@@ -36,7 +36,10 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - run: cargo fmt --check
-      - run: cargo clippy --workspace -- -D warnings
+      # --all-targets so test and bench code is linted too. Without it a
+      # warning inside a #[cfg(test)] module merges green and only surfaces
+      # when someone runs clippy locally.
+      - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
       - name: Lint Cedar policies
         run: |

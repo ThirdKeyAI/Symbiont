@@ -691,6 +691,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let policy_gate =
         symbi_runtime::reasoning::governed_gate(symbi_runtime::reasoning::GateOptions {
             policies_dir: std::path::Path::new("policies").to_path_buf(),
+            surface: Some("eval".to_string()),
             insecure_allow_all,
             escalation: None,
         })

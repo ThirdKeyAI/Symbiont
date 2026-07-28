@@ -15,12 +15,17 @@ use clap::ArgMatches;
 use tokio::time::Duration;
 
 use symbi_runtime::cli_executor::{
-    ClaudeCodeAdapter, CliExecutor, CliExecutorConfig, CodeGenRequest,
+    ClaudeCodeAdapter, CliExecutor, CliExecutorConfig, CodeGenRequest, LineSink,
 };
 use symbi_runtime::reasoning::conversation::Conversation;
 use symbi_runtime::reasoning::loop_types::{LoopDecision, LoopState, ProposedAction};
 use symbi_runtime::reasoning::policy_bridge::ReasoningPolicyGate;
 use symbi_runtime::types::AgentId;
+
+/// Policy surface Mode B reads. `symbi run` spawning a managed subprocess is a
+/// different blast radius from its in-process reasoning loop, so the two do not
+/// share a policy directory.
+const MANAGED_CLI_SURFACE: &str = "managed-cli";
 
 const DEFAULT_MAX_TURNS: u32 = 12;
 const DEFAULT_BUDGET_TOKENS: u64 = 100_000;
@@ -70,12 +75,18 @@ pub async fn run_claude_code(
         })
         .unwrap_or_default();
     let system_prompt = meta_str(meta, "system_prompt");
+    // Opt-in only. Unset means `--permission-mode` is omitted and the child
+    // applies its own default, which still prompts for anything outside
+    // `allowed_tools`; an agent that must run unattended declares
+    // `permission_mode = "dontAsk"` in its `metadata { ... }` block and takes
+    // that trade-off explicitly.
+    let permission_mode = meta_str(meta, "permission_mode");
 
     // --- require an explicit tool allowlist ---
     //
     // The spawn below is gated once (see the policy-gate check further
-    // down), but nothing gates the child afterward: it runs
-    // `permission_mode: "dontAsk"` for the whole session, and when
+    // down), but nothing gates the child afterward: whatever
+    // `permission_mode` resolves to applies for the whole session, and when
     // `allowed_tools` is empty `ClaudeCodeAdapter` omits `--allowedTools`
     // entirely (see `cli_executor/adapters/claude_code.rs`), so the child
     // falls back to its own defaults. One gate decision would then be
@@ -116,7 +127,18 @@ pub async fn run_claude_code(
         LoopDecision::Allow => {}
         LoopDecision::Deny { reason } | LoopDecision::Modify { reason, .. } => {
             eprintln!("✗ policy gate denied claude_code spawn: {reason}");
-            eprintln!("  Add a Cedar policy allowing it, or set SYMBI_INSECURE_ALLOW_ALL=1.");
+            // Name the exact file. Mode B reads the `managed-cli` surface, not
+            // `run`, so a policy dropped next to the command the operator typed
+            // is loaded by nothing and looks the same as having written none.
+            eprintln!(
+                "  Permit it in policies/{MANAGED_CLI_SURFACE}/ (read only by Mode B, not by\n  \
+                 `symbi run`'s in-process loop), e.g. \
+                 policies/{MANAGED_CLI_SURFACE}/claude_code.cedar:"
+            );
+            eprintln!(
+                "      permit(principal, action == Action::\"tool_call::claude_code\", resource);"
+            );
+            eprintln!("  Or set SYMBI_INSECURE_ALLOW_ALL=1 for local development.");
             std::process::exit(1);
         }
     }
@@ -143,7 +165,11 @@ pub async fn run_claude_code(
         // --strict-mcp-config already restricts MCP to ours, so --bare is
         // unnecessary here.
         bare: false,
-        permission_mode: Some("dontAsk".to_string()),
+        permission_mode,
+        // Stream the child's events so its tool calls can be journalled while
+        // it runs. `parse_output` folds the stream back to the same shape the
+        // `json` format returns, so the printed result is unchanged.
+        stream_json: true,
         append_system_prompt: system_prompt,
         managed: true,
         session_id: Some(session_id.clone()),
@@ -171,9 +197,15 @@ pub async fn run_claude_code(
     println!("  target:     {}", target_dir.display());
     println!("  bounds:     max-turns={max_turns}, timeout={budget_secs}s, tokens~{budget_tokens}");
     println!("  session:    {session_id}");
+
+    let mut executor = CliExecutor::new(config);
+    if let Some(sink) =
+        mode_b_journal_sink(session_id.clone(), PathBuf::from(".symbiont").join("audit"))
+    {
+        executor = executor.with_stdout_line_sink(sink);
+    }
     println!();
 
-    let executor = CliExecutor::new(config);
     match executor.execute(&adapter, &request).await {
         Ok(result) => {
             if let Some(json) = &result.parsed_output {
@@ -199,6 +231,160 @@ pub async fn run_claude_code(
             std::process::exit(1);
         }
     }
+}
+
+/// Argument keys whose values are replaced before a tool call is journalled.
+///
+/// `mask_sensitive_arguments` matches keys exactly, so the common spellings are
+/// listed rather than a single canonical one.
+const SENSITIVE_ARG_KEYS: &[&str] = &[
+    "password",
+    "passwd",
+    "token",
+    "access_token",
+    "refresh_token",
+    "secret",
+    "client_secret",
+    "api_key",
+    "apiKey",
+    "authorization",
+    "credential",
+    "credentials",
+    "private_key",
+];
+
+/// Cap on the journalled rendering of one tool call's arguments.
+///
+/// A `Write` call carries an entire file in `content`, so the raw arguments are
+/// unbounded. The audit record needs enough to identify what the child did, not
+/// a second copy of the payload.
+const MAX_JOURNALLED_ARGS_BYTES: usize = 2_048;
+
+/// Build the stdout sink that records what the Mode B child does, as it does it.
+///
+/// The policy gate authorizes the spawn once and has no say over the child
+/// afterward, which leaves its tool calls invisible. With `--output-format
+/// stream-json` the child emits one JSON event per line, so this sink can turn
+/// them into an append-only record at
+/// `.symbiont/audit/mode-b-<session>.jsonl` while the run is still going —
+/// worth doing live, because a run killed by the wall-clock timeout never
+/// returns its buffered stdout at all.
+///
+/// Journalling never fails the run: a record that cannot be written is dropped
+/// with a warning rather than aborting a session that is otherwise fine.
+fn mode_b_journal_sink(session_id: String, audit_dir: PathBuf) -> Option<LineSink> {
+    if let Err(e) = std::fs::create_dir_all(&audit_dir) {
+        eprintln!(
+            "⚠ cannot create {} ({e}) — this run will not be journalled",
+            audit_dir.display()
+        );
+        return None;
+    }
+    let path = audit_dir.join(format!("mode-b-{session_id}.jsonl"));
+    let file = match std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        Ok(f) => std::sync::Mutex::new(f),
+        Err(e) => {
+            eprintln!(
+                "⚠ cannot open {} ({e}) — this run will not be journalled",
+                path.display()
+            );
+            return None;
+        }
+    };
+
+    println!("  journal:    {}", path.display());
+
+    let sink = move |line: &str| {
+        let Ok(event) = serde_json::from_str::<serde_json::Value>(line) else {
+            return; // non-JSON chatter on stdout is not an audit record
+        };
+        let mut records: Vec<serde_json::Value> = Vec::new();
+
+        match event.get("type").and_then(|t| t.as_str()) {
+            // Tool calls and their results ride inside message content blocks.
+            Some("assistant") | Some("user") => {
+                let blocks = event
+                    .get("message")
+                    .and_then(|m| m.get("content"))
+                    .and_then(|c| c.as_array());
+                for block in blocks.into_iter().flatten() {
+                    match block.get("type").and_then(|t| t.as_str()) {
+                        Some("tool_use") => {
+                            let name = block.get("name").and_then(|n| n.as_str()).unwrap_or("?");
+                            let masked = symbi_runtime::integrations::mask_sensitive_arguments(
+                                block.get("input").unwrap_or(&serde_json::Value::Null),
+                                &SENSITIVE_ARG_KEYS
+                                    .iter()
+                                    .map(|s| s.to_string())
+                                    .collect::<Vec<_>>(),
+                            );
+                            let rendered = masked.to_string();
+                            eprintln!("  ↳ tool_use {name}");
+                            records.push(serde_json::json!({
+                                "event": "tool_use",
+                                "tool": name,
+                                "tool_use_id": block.get("id"),
+                                "arguments": symbi_runtime::text_util::truncate_utf8(
+                                    &rendered, MAX_JOURNALLED_ARGS_BYTES),
+                                "arguments_truncated": rendered.len() > MAX_JOURNALLED_ARGS_BYTES,
+                            }));
+                        }
+                        Some("tool_result") => {
+                            records.push(serde_json::json!({
+                                "event": "tool_result",
+                                "tool_use_id": block.get("tool_use_id"),
+                                "is_error": block.get("is_error").and_then(|e| e.as_bool())
+                                    .unwrap_or(false),
+                            }));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            // Terminal event: the child's own summary of the whole session.
+            Some("result") => {
+                records.push(serde_json::json!({
+                    "event": "result",
+                    "subtype": event.get("subtype"),
+                    "is_error": event.get("is_error"),
+                    "num_turns": event.get("num_turns"),
+                    "permission_denials": event.get("permission_denials"),
+                    "usage": event.get("usage"),
+                }));
+            }
+            _ => {}
+        }
+
+        if records.is_empty() {
+            return;
+        }
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let mut out = String::new();
+        for mut record in records {
+            if let Some(obj) = record.as_object_mut() {
+                obj.insert("ts_ms".to_string(), serde_json::json!(ts));
+                obj.insert("session".to_string(), serde_json::json!(session_id));
+            }
+            out.push_str(&record.to_string());
+            out.push('\n');
+        }
+        // Local append under a mutex. This runs inline on the child's read
+        // path, so it must stay fast — a slow sink stalls reading and can trip
+        // the idle timeout on a healthy child.
+        if let Ok(mut f) = file.lock() {
+            use std::io::Write as _;
+            let _ = f.write_all(out.as_bytes());
+        }
+    };
+
+    Some(Arc::new(sink))
 }
 
 /// Refuse to spawn a Mode B session when the agent's DSL declares no
@@ -305,6 +491,7 @@ async fn build_policy_gate() -> Arc<dyn ReasoningPolicyGate> {
     }
     symbi_runtime::reasoning::governed_gate(symbi_runtime::reasoning::GateOptions {
         policies_dir: PathBuf::from("policies"),
+        surface: Some(MANAGED_CLI_SURFACE.to_string()),
         insecure_allow_all,
         escalation: None,
     })
@@ -342,5 +529,87 @@ mod tests {
         let tools = vec!["Read".to_string(), "Grep".to_string()];
         require_allowed_tools("code_reviewer", &tools)
             .expect("an agent that declares allowed_tools must proceed past the check");
+    }
+
+    /// Feed the sink the event shapes a real `--output-format stream-json` run
+    /// emits and check what lands in the journal.
+    #[test]
+    fn journal_records_tool_calls_and_masks_sensitive_arguments() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = "sess-abc".to_string();
+        let sink = mode_b_journal_sink(session.clone(), dir.path().to_path_buf())
+            .expect("a writable audit dir must yield a sink");
+
+        sink(r#"{"type":"system","subtype":"init","session_id":"s1"}"#);
+        sink(
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1",
+                "name":"Bash","input":{"command":"ls","api_key":"sk-live-SHOULD-NOT-APPEAR"}}]}}"#,
+        );
+        sink(
+            r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","is_error":true}]}}"#,
+        );
+        sink("this line is not JSON and must be ignored");
+        sink(
+            r#"{"type":"result","subtype":"success","is_error":false,"num_turns":2,"permission_denials":["Write"]}"#,
+        );
+        drop(sink);
+
+        let body = std::fs::read_to_string(dir.path().join("mode-b-sess-abc.jsonl")).unwrap();
+        let records: Vec<serde_json::Value> = body
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| serde_json::from_str(l).expect("every journal line must be valid JSON"))
+            .collect();
+
+        let kinds: Vec<&str> = records
+            .iter()
+            .map(|r| r["event"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            kinds,
+            vec!["tool_use", "tool_result", "result"],
+            "system events and non-JSON noise are not audit records"
+        );
+
+        assert_eq!(records[0]["tool"], "Bash");
+        assert_eq!(records[0]["tool_use_id"], "t1");
+        assert_eq!(records[0]["session"], "sess-abc");
+        assert!(records[0]["ts_ms"].as_u64().unwrap() > 0);
+
+        let args = records[0]["arguments"].as_str().unwrap();
+        assert!(
+            !args.contains("sk-live-SHOULD-NOT-APPEAR"),
+            "a sensitive argument value must never reach the journal, got: {args}"
+        );
+        assert!(args.contains("[REDACTED:api_key]"), "got: {args}");
+        assert!(
+            args.contains("ls"),
+            "non-sensitive arguments stay legible: {args}"
+        );
+
+        assert_eq!(records[1]["is_error"], true);
+        assert_eq!(records[2]["permission_denials"][0], "Write");
+        assert_eq!(records[2]["num_turns"], 2);
+    }
+
+    /// A `Write` call carries a whole file in `content`; the journal records
+    /// what the child did, not a second copy of the payload.
+    #[test]
+    fn journal_truncates_oversize_arguments() {
+        let dir = tempfile::tempdir().unwrap();
+        let sink = mode_b_journal_sink("s".to_string(), dir.path().to_path_buf()).unwrap();
+        let huge = "x".repeat(MAX_JOURNALLED_ARGS_BYTES * 2);
+        sink(&format!(
+            r#"{{"type":"assistant","message":{{"content":[{{"type":"tool_use","id":"t1","name":"Write","input":{{"content":"{huge}"}}}}]}}}}"#
+        ));
+        drop(sink);
+
+        let body = std::fs::read_to_string(dir.path().join("mode-b-s.jsonl")).unwrap();
+        let record: serde_json::Value = serde_json::from_str(body.lines().next().unwrap()).unwrap();
+        assert_eq!(record["arguments_truncated"], true);
+        assert!(
+            record["arguments"].as_str().unwrap().len() <= MAX_JOURNALLED_ARGS_BYTES,
+            "oversize arguments must be capped"
+        );
     }
 }

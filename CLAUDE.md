@@ -143,8 +143,11 @@ reference agent is `agents/code_reviewer.symbi`; the path lives in
 `symbi run code_reviewer --target <dir>`:
 - refuses to run at all unless the agent's metadata declares `allowed_tools`
   (required — see below);
-- passes the spawn through the policy Gate (fail-closed; allow via Cedar or
-  `SYMBI_INSECURE_ALLOW_ALL=1`);
+- passes the spawn through the policy Gate (fail-closed; allow via Cedar in
+  `policies/managed-cli/` — **not** `policies/run/`, which this surface does not
+  read — or `SYMBI_INSECURE_ALLOW_ALL=1`);
+- journals the child's tool calls live to
+  `.symbiont/audit/mode-b-<session>.jsonl` (see below);
 - injects the env handshake `SYMBIONT_MANAGED=true`, `SYMBIONT_SESSION_ID`,
   `SYMBIONT_BUDGET_TOKENS`, `SYMBIONT_BUDGET_TIMEOUT`, `CLAUDE_PROJECT_DIR` (the
   symbi-claude-code plugin defers its hooks to the outer Gate on `SYMBIONT_MANAGED`);
@@ -159,16 +162,35 @@ Do **not** pass `--bare` to the spawned `claude` — it skips reading `~/.claude
 
 **One Gate decision authorizes the whole session, not each action inside it.**
 The policy Gate evaluates the spawn itself; it has no way to evaluate the
-child's individual tool calls afterward, since the session runs
-`--permission-mode dontAsk` for its full lifetime. Per-action gating would
-require the child to call back into Symbiont's Gate — a trust-boundary
-redesign, explicitly out of scope. The only in-session restriction is the
-child's own `--allowedTools` allowlist, sourced from the agent's DSL
+child's individual tool calls afterward, and whatever `permission_mode` resolves
+to applies for the session's full lifetime. Per-action gating would require the
+child to call back into Symbiont's Gate — a trust-boundary redesign, explicitly
+out of scope. The only in-session restriction is the child's own
+`--allowedTools` allowlist, sourced from the agent's DSL
 `metadata { allowed_tools = "Tool1,Tool2,..." }` — that is the *child's*
 allowlist, not Symbiont's Gate, and it is required: `run_claude_code` in
 `src/commands/managed_cli.rs` refuses to spawn when it is empty rather than
 handing the child its own unrestricted defaults for the whole run. There is
 no bypass flag for this check.
+
+`permission_mode` is opt-in per agent, read from the same `metadata` block.
+Unset omits `--permission-mode`, leaving the child its own default, which still
+prompts for anything outside `allowed_tools`; an agent that must run unattended
+declares `permission_mode = "dontAsk"` and takes that trade-off explicitly. It
+is deliberately not defaulted — a hardcoded `dontAsk` is a blanket grant no
+agent asked for.
+
+**The session is journalled because it cannot be gated.** The child runs with
+`--output-format stream-json` and `CliExecutor`'s stdout line sink
+(`with_stdout_line_sink`) appends each tool call, each tool result, and a
+closing summary (turn count, permission denials) to
+`.symbiont/audit/mode-b-<session>.jsonl` as they happen. Live, not at exit: a
+run killed by the wall-clock timeout never returns its buffered stdout, so a
+post-hoc parse would lose the trail precisely when it matters. Argument values
+under keys like `token`/`api_key`/`password` are redacted and oversize arguments
+truncated, so a `Write` call does not deposit a whole file into the audit log.
+This is a visibility mechanism, not an enforcement one — it records what the
+child did, it does not stop it.
 
 ## ToolClad Tools
 

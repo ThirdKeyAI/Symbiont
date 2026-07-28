@@ -160,7 +160,6 @@ mod tests {
         assert!(crate::api::routes::require_admin(Some(&admin)).is_ok());
     }
 
-    use super::*;
     use crate::escalation::{EscalationQueue, EscalationRequest, HeldActionKind};
     use std::sync::Arc;
     use std::time::Duration;

@@ -91,8 +91,35 @@ Managed-CLI agents (Mode B) recognize these additional metadata keys, read by `s
 |-------|------|-------------|
 | `executor` | String | Set to `"claude_code"` to run the agent as a governed Claude Code subprocess instead of the reasoning loop |
 | `model` | String | Model passed to the subprocess (e.g. `"claude-sonnet-4-5"`) |
-| `allowed_tools` | String | Comma-separated tool allowlist for the subprocess (e.g. `"Read,Grep,Glob"`) |
+| `allowed_tools` | String | Comma-separated tool allowlist for the subprocess (e.g. `"Read,Grep,Glob"`). **Required** — an agent that declares none is refused rather than spawned unrestricted |
 | `system_prompt` | String | Extra system prompt appended for the subprocess |
+| `permission_mode` | String | Optional. Passed through as `--permission-mode`. Omitted when unset, leaving the subprocess its own default, which still prompts for anything outside `allowed_tools`. Set `"dontAsk"` for agents that must run unattended |
+
+The spawn itself is policy-gated once, as `tool_call::claude_code`, but nothing
+gates the subprocess afterward — whatever `allowed_tools` and `permission_mode`
+resolve to apply for the whole session. That is why `allowed_tools` is
+mandatory and why `permission_mode` is opt-in: one gate decision should
+authorize a bounded session, not an unrestricted one.
+
+That single gate decision is read from `policies/managed-cli/` — **not**
+`policies/run/`. Spawning a subprocess is a different blast radius from the
+in-process reasoning loop, so the two surfaces do not share a policy directory.
+A minimal permit:
+
+```cedar
+// policies/managed-cli/claude_code.cedar
+permit(principal, action == Action::"tool_call::claude_code", resource);
+```
+
+Because the gate cannot see what the subprocess does next, each run is
+journalled instead. The child runs with `--output-format stream-json` and every
+tool call it makes is appended to `.symbiont/audit/mode-b-<session>.jsonl` as it
+happens — tool name, arguments, whether the result errored, and a closing record
+with the turn count and any permission denials. Records are written live rather
+than at exit, so a run killed by its timeout still leaves a trail. Argument
+values under keys like `token`, `api_key` or `password` are redacted, and
+oversize arguments are truncated, so the log identifies what the child did
+without becoming a second copy of the payload.
 
 ---
 

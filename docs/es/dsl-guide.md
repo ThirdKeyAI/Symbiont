@@ -93,8 +93,33 @@ Los agentes gestionados por CLI (Modo B) reconocen estas claves de metadatos adi
 |-------|------|-------------|
 | `executor` | String | Establecer en `"claude_code"` para ejecutar el agente como un subproceso de Claude Code gobernado en lugar del bucle de razonamiento |
 | `model` | String | Modelo pasado al subproceso (p. ej. `"claude-sonnet-4-5"`) |
-| `allowed_tools` | String | Lista blanca de herramientas separadas por comas para el subproceso (p. ej. `"Read,Grep,Glob"`) |
+| `allowed_tools` | String | Lista blanca de herramientas separadas por comas para el subproceso (p. ej. `"Read,Grep,Glob"`). **Obligatorio** — un agente que no la declare es rechazado en lugar de iniciarse sin restricciones |
 | `system_prompt` | String | Prompt de sistema adicional anexado para el subproceso |
+| `permission_mode` | String | Opcional. Se pasa como `--permission-mode`. Si no se indica, la bandera se omite y el subproceso conserva su valor por defecto, que sigue pidiendo confirmacion para cualquier cosa fuera de `allowed_tools`. Usa `"dontAsk"` para agentes que deban ejecutarse sin supervision |
+
+El arranque se somete una vez a la politica, como `tool_call::claude_code`, pero despues nada gobierna al subproceso: lo que resulte de `allowed_tools` y `permission_mode` rige toda la sesion. Por eso `allowed_tools` es obligatorio y `permission_mode` es opt-in: una sola decision del gate debe autorizar una sesion acotada, no una sin restricciones.
+
+Esa unica decision del gate se lee de `policies/managed-cli/` — **no** de
+`policies/run/`. Lanzar un subproceso tiene un radio de impacto distinto al del
+bucle de razonamiento en proceso, asi que las dos superficies no comparten
+directorio de politicas. Un permit minimo:
+
+```cedar
+// policies/managed-cli/claude_code.cedar
+permit(principal, action == Action::"tool_call::claude_code", resource);
+```
+
+Como el gate no puede ver lo que hace el subproceso despues, cada ejecucion se
+registra. El hijo corre con `--output-format stream-json` y cada llamada a
+herramienta se anexa a `.symbiont/audit/mode-b-<session>.jsonl` a medida que
+ocurre: nombre de la herramienta, argumentos, si el resultado fallo, y un
+registro final con el numero de turnos y las denegaciones de permisos. Se
+escriben en vivo y no al salir, de modo que una ejecucion cortada por su tiempo
+limite igual deja rastro. Los valores bajo claves como `token`, `api_key` o
+`password` se redactan, y los argumentos demasiado grandes se truncan, para que
+el registro identifique que hizo el hijo sin convertirse en una segunda copia
+de la carga util.
+
 
 ---
 

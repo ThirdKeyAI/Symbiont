@@ -50,6 +50,14 @@ pub struct ClaudeCodeAdapter {
     /// Extra system prompt appended via `--append-system-prompt`.
     #[serde(default)]
     pub append_system_prompt: Option<String>,
+    /// Emit `--output-format stream-json` instead of `json`.
+    ///
+    /// The child then writes one JSON event per line as it works, so a caller
+    /// with a line sink can record its tool calls while the run is still in
+    /// flight. `parse_output` folds the stream back into the same shape the
+    /// `json` format produces, so consumers see no difference.
+    #[serde(default)]
+    pub stream_json: bool,
 
     // ── Mode B env handshake (emitted via non_interactive_env) ────────────
     /// When true, set `SYMBIONT_MANAGED=true` so the plugin defers enforcement.
@@ -69,6 +77,30 @@ pub struct ClaudeCodeAdapter {
     pub project_dir: Option<String>,
 }
 
+/// Pull the terminal `result` event out of a `stream-json` stdout stream.
+///
+/// The stream is newline-delimited JSON: `system` events, then `assistant` /
+/// `user` turns, then exactly one `{"type":"result", ...}` carrying the final
+/// text, token usage and turn count. That last event is the same object the
+/// `json` output format emits on its own, so lifting it out keeps every
+/// consumer of `parsed_output` working across both formats.
+///
+/// Returns `None` when no terminal event is present — a killed or timed-out
+/// child never writes one, and reporting that honestly is better than
+/// synthesising a result the run never reached. Scans from the end so a run
+/// whose output was truncated mid-stream still finds the newest complete
+/// event, and tolerates unparseable lines rather than giving up on the stream.
+fn terminal_result_event(stdout: &str) -> Option<serde_json::Value> {
+    stdout.lines().rev().find_map(|line| {
+        let line = line.trim();
+        if line.is_empty() {
+            return None;
+        }
+        let value = serde_json::from_str::<serde_json::Value>(line).ok()?;
+        (value.get("type").and_then(|t| t.as_str()) == Some("result")).then_some(value)
+    })
+}
+
 impl Default for ClaudeCodeAdapter {
     fn default() -> Self {
         Self {
@@ -83,6 +115,7 @@ impl Default for ClaudeCodeAdapter {
             bare: false,
             permission_mode: None,
             append_system_prompt: None,
+            stream_json: false,
             managed: false,
             session_id: None,
             budget_tokens: None,
@@ -103,11 +136,14 @@ impl AiCliAdapter for ClaudeCodeAdapter {
     }
 
     fn build_args(&self, request: &CodeGenRequest) -> Vec<String> {
-        let mut args = vec![
-            "--print".to_string(),
-            "--output-format".to_string(),
-            "json".to_string(),
-        ];
+        let mut args = vec!["--print".to_string(), "--output-format".to_string()];
+        if self.stream_json {
+            args.push("stream-json".to_string());
+            // stream-json in --print mode emits nothing without --verbose.
+            args.push("--verbose".to_string());
+        } else {
+            args.push("json".to_string());
+        }
 
         if self.bare {
             args.push("--bare".to_string());
@@ -202,7 +238,11 @@ impl AiCliAdapter for ClaudeCodeAdapter {
     }
 
     fn parse_output(&self, _request: &CodeGenRequest, result: ExecutionResult) -> CodeGenResult {
-        let parsed = serde_json::from_str::<serde_json::Value>(&result.stdout).ok();
+        let parsed = if self.stream_json {
+            terminal_result_event(&result.stdout)
+        } else {
+            serde_json::from_str::<serde_json::Value>(&result.stdout).ok()
+        };
 
         let files_modified = parsed
             .as_ref()
@@ -457,6 +497,116 @@ mod tests {
         assert_eq!(args[asp + 1], "Review rules.");
         // Prompt stays the final positional arg.
         assert_eq!(*args.last().unwrap(), "Fix the bug in main.rs");
+    }
+
+    /// `permission_mode` is opt-in: Mode B passes through whatever the agent
+    /// declares in its `metadata { ... }` block, and an agent that declares
+    /// nothing must not silently inherit `dontAsk` for the whole session.
+    #[test]
+    fn omits_permission_mode_flag_when_unset() {
+        let adapter = ClaudeCodeAdapter {
+            permission_mode: None,
+            ..Default::default()
+        };
+        let args = adapter.build_args(&sample_request());
+        assert!(
+            !args.contains(&"--permission-mode".to_string()),
+            "unset permission_mode must omit the flag so the child keeps its \
+             own prompting default, got: {args:?}"
+        );
+        assert!(
+            !args.iter().any(|a| a == "dontAsk"),
+            "unset permission_mode must never yield dontAsk, got: {args:?}"
+        );
+    }
+
+    /// stream-json emits nothing in --print mode without --verbose, so the two
+    /// flags have to travel together.
+    #[test]
+    fn stream_json_requests_verbose_output() {
+        let adapter = ClaudeCodeAdapter {
+            stream_json: true,
+            ..Default::default()
+        };
+        let args = adapter.build_args(&sample_request());
+        let of = args.iter().position(|a| a == "--output-format").unwrap();
+        assert_eq!(args[of + 1], "stream-json");
+        assert!(
+            args.contains(&"--verbose".to_string()),
+            "stream-json without --verbose produces no events, got: {args:?}"
+        );
+    }
+
+    #[test]
+    fn default_output_format_stays_json() {
+        let args = ClaudeCodeAdapter::default().build_args(&sample_request());
+        let of = args.iter().position(|a| a == "--output-format").unwrap();
+        assert_eq!(args[of + 1], "json");
+        assert!(!args.contains(&"--verbose".to_string()));
+    }
+
+    /// Shape taken from a real `--output-format stream-json` run: system events,
+    /// an assistant turn carrying a tool_use, a user turn carrying the result,
+    /// then one terminal `result` event.
+    const STREAM_FIXTURE: &str = concat!(
+        r#"{"type":"system","subtype":"init","session_id":"s1"}"#,
+        "\n",
+        r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"/x"}}]}}"#,
+        "\n",
+        r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}"#,
+        "\n",
+        r#"{"type":"result","subtype":"success","is_error":false,"num_turns":2,"result":"done"}"#,
+        "\n",
+    );
+
+    #[test]
+    fn terminal_result_event_is_lifted_from_the_stream() {
+        let ev = terminal_result_event(STREAM_FIXTURE).expect("fixture ends with a result event");
+        assert_eq!(ev["subtype"], "success");
+        assert_eq!(ev["result"], "done");
+        assert_eq!(ev["num_turns"], 2);
+    }
+
+    /// A killed or timed-out child never writes a terminal event. Reporting
+    /// that honestly beats synthesising a result the run never reached.
+    #[test]
+    fn terminal_result_event_is_none_when_the_run_did_not_finish() {
+        let truncated = STREAM_FIXTURE
+            .lines()
+            .take(2)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(terminal_result_event(&truncated).is_none());
+    }
+
+    /// Non-JSON chatter on stdout must not abort the scan.
+    #[test]
+    fn terminal_result_event_skips_unparseable_lines() {
+        let noisy = format!("{STREAM_FIXTURE}\nnot json at all\n");
+        let ev = terminal_result_event(&noisy).expect("result event still reachable past noise");
+        assert_eq!(ev["subtype"], "success");
+    }
+
+    /// parse_output must fold the stream back to the same shape the `json`
+    /// format returns, so nothing downstream has to know which was used.
+    #[test]
+    fn parse_output_normalises_stream_json_to_the_result_event() {
+        let adapter = ClaudeCodeAdapter {
+            stream_json: true,
+            ..Default::default()
+        };
+        let exec = ExecutionResult {
+            exit_code: 0,
+            stdout: STREAM_FIXTURE.to_string(),
+            stderr: String::new(),
+            execution_time_ms: 1000,
+            success: true,
+            stdout_truncated: false,
+            stderr_truncated: false,
+        };
+        let out = adapter.parse_output(&sample_request(), exec);
+        let parsed = out.parsed_output.expect("stream-json must still parse");
+        assert_eq!(parsed["result"], "done");
     }
 
     #[test]

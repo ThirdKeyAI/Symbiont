@@ -725,6 +725,7 @@ fn scan_file_for_matches(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
     use symbi_runtime::reasoning::conversation::Conversation;
     use symbi_runtime::reasoning::inference::{
         FinishReason, InferenceError, InferenceOptions, InferenceProvider, InferenceResponse, Usage,
@@ -819,11 +820,11 @@ mod tests {
 
     // Helper: run a closure with CWD temporarily set to `dir`. The
     // read_file/search tools are repo-relative, so tests pin CWD to a temp
-    // dir. Serialized via a mutex because CWD is process-global.
+    // dir. CWD is process-global, so every caller is #[serial]: that lock is
+    // binary-wide and also covers secrets_store's CWD-swapping tests. A lock
+    // private to this module would not — the two would interleave and each
+    // would restore a directory the other had already deleted.
     fn with_cwd<T>(dir: &std::path::Path, f: impl FnOnce() -> T) -> T {
-        use std::sync::Mutex;
-        static CWD_LOCK: Mutex<()> = Mutex::new(());
-        let _guard = CWD_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let prev = std::env::current_dir().unwrap();
         std::env::set_current_dir(dir).unwrap();
         let result = f();
@@ -832,6 +833,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn read_file_reads_repo_relative_file() {
         let tmp = std::env::temp_dir().join(format!("symbi_rf_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(tmp.join("sub")).unwrap();
@@ -852,6 +854,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn read_file_truncates_oversize() {
         let tmp = std::env::temp_dir().join(format!("symbi_rf_big_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&tmp).unwrap();
@@ -866,6 +869,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn search_finds_known_string() {
         let tmp = std::env::temp_dir().join(format!("symbi_search_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(tmp.join("nested")).unwrap();
@@ -881,6 +885,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn search_respects_cap() {
         let tmp = std::env::temp_dir().join(format!("symbi_search_cap_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&tmp).unwrap();
@@ -901,6 +906,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    #[serial]
     fn read_file_rejects_symlink_escape() {
         // A symlink inside the repo pointing at a file OUTSIDE it must not be
         // readable — the lexical `..` check can't catch this; canonicalization does.
@@ -923,6 +929,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    #[serial]
     fn search_does_not_follow_symlinked_dir_escape() {
         // A symlinked directory inside the repo pointing OUTSIDE must not be walked.
         let base = std::env::temp_dir().join(format!("symbi_symd_{}", uuid::Uuid::new_v4()));
@@ -946,6 +953,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn edit_file_writes_within_root() {
         let tmp = std::env::temp_dir().join(format!("symbi_ef_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&tmp).unwrap();
@@ -967,6 +975,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    #[serial]
     fn edit_file_rejects_symlinked_target() {
         // An existing symlink as the final component must not be written through —
         // it could point outside the repo root even though the parent is contained.

@@ -348,6 +348,21 @@ let runner = ReasoningLoopRunner::builder()
 
 旧的 `permissive()` 构造函数被重命名为 `permissive_for_dev_only()` 并标记为 `#[doc(hidden)]`，以阻止在生产代码路径中无意使用。
 
+#### 按界面划分的策略作用域（自 v1.19.0 起）
+
+此前每个入口点都加载同一套扁平的 `policies/*.cedar`，因此为某一个入口点编写的 `permit` 会悄然适用于全部入口点。但各入口点的威胁模型并不相同：`symbi run` 与 HTTP 输入服务器会派发真实的工具调用，`symbi shell` 暴露自己的文件编辑工具集，而 `symbi up` 的聊天协调器根本不执行任何工具。
+
+策略现在采用分层加载：
+
+- `policies/*.cedar` —— **共享**，由每个界面的门控加载。
+- `policies/<surface>/*.cedar` —— **仅**由其命名的界面加载。
+
+界面名称为 `run`、`coordinator`、`http-input`、`managed-cli`、`eval` 和 `shell`。`symbi up` 现在按界面各构建一个门控（`coordinator` 与 `http-input`），而不是二者共用一个，这样为无人值守 Webhook 智能体授予的权限不会波及操作员聊天路径，反之亦然。二者仍共享同一个升级队列，因此被保留的操作会送达相同的审批人。
+
+扁平文件仍然是全局的，因此在创建子目录之前，现有部署的行为不会发生变化。请将扁平目录保留给确实需要处处适用的规则，并把与工具相关的内容放到其所属界面之下。请注意，Mode B 读取的是 `policies/managed-cli/` 而非 `policies/run/` —— 启动受管子进程与进程内推理循环的影响范围不同，放错目录的策略不会被任何组件加载，但看起来却和根本没写策略一模一样。
+
+当门控回退到故障关闭时，日志会指明它搜索过的两个目录。
+
 #### OPA 后端传输加固
 
 在配合 `SYMBIONT_OPA_URL` 使用 `OpaPolicyGateBridge` 时，客户端**拒绝向非环回主机发送明文 HTTP**，并故障关闭（拒绝）—— 否则路径上的攻击者可能伪造 `allow` 决策。仅在环回（本地 OPA sidecar）或设置了 `SYMBIONT_OPA_ALLOW_INSECURE=1`（仅限本地测试）时才允许明文。设置 `SYMBIONT_OPA_AUTH_TOKEN` 可在每次授权查询中发送 bearer 令牌。任何远程 OPA 端点都应使用 `https://`。

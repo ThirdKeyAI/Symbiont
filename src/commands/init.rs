@@ -603,6 +603,12 @@ fn init_project(
         .expect("Failed to write default.cedar");
     println!("\u{2713} Created policies/default.cedar");
 
+    // No shell policy is scaffolded. `symbi shell`'s orchestrator tools
+    // (read_file, edit_file, search, ...) stay fail-closed until an operator
+    // writes policies/shell/orchestrator.cedar themselves; the shell logs the
+    // exact path it looked for. Scaffolding those grants would hand every new
+    // project file read/write it never asked for.
+
     std::fs::create_dir_all(dir.join(".symbiont/audit"))
         .expect("Failed to create .symbiont/audit/");
     println!("\u{2713} Created .symbiont/audit/");
@@ -1203,6 +1209,25 @@ mod firecracker_init_tests {
         assert!(dir.path().join(".gitignore").exists());
         assert!(!dir.path().join("agents").exists());
         assert!(!dir.path().join("AGENTS.md").exists());
+    }
+
+    /// A new project gets no shell grants at all. `symbi shell`'s tools stay
+    /// fail-closed until an operator writes the policy themselves, and nothing
+    /// flat lands in `policies/` that every other surface's gate would load.
+    #[test]
+    fn init_scaffolds_no_shell_policy() {
+        let dir = tempfile::tempdir().unwrap();
+        init_project(dir.path(), "minimal", "tofu", "tier1", None);
+        assert!(
+            !dir.path()
+                .join("policies/shell/orchestrator.cedar")
+                .exists(),
+            "scaffolding shell grants would give every new project file read/write"
+        );
+        assert!(
+            !dir.path().join("policies/orchestrator.cedar").exists(),
+            "a flat orchestrator.cedar would be loaded by every surface"
+        );
     }
 
     #[test]

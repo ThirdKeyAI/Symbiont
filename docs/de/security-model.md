@@ -352,6 +352,21 @@ Betreiber haben zwei Pfade:
 
 Der bisherige Konstruktor `permissive()` wurde in `permissive_for_dev_only()` umbenannt und mit `#[doc(hidden)]` markiert, um eine versehentliche Verwendung in Produktionscodepfaden zu verhindern.
 
+#### Policy-Scoping pro Surface (seit v1.19.0)
+
+Frueher luden alle Einstiegspunkte denselben flachen Satz `policies/*.cedar`, sodass ein `permit`, das fuer einen davon geschrieben wurde, stillschweigend fuer alle galt. Die Einstiegspunkte haben jedoch nicht dasselbe Bedrohungsmodell: `symbi run` und der HTTP-Input-Server fuehren echte Tool-Aufrufe aus, `symbi shell` stellt ein eigenes Toolset zum Bearbeiten von Dateien bereit, und der Chat-Koordinator von `symbi up` fuehrt ueberhaupt keine Tools aus.
+
+Policies werden jetzt geschichtet:
+
+- `policies/*.cedar` — **gemeinsam**, wird von der Gate jedes Surface geladen.
+- `policies/<surface>/*.cedar` — wird **nur** von dem benannten Surface geladen.
+
+Die Surface-Namen sind `run`, `coordinator`, `http-input`, `managed-cli`, `eval` und `shell`. `symbi up` baut je eine Gate pro Surface (`coordinator` und `http-input`) statt einer gemeinsamen, sodass eine Berechtigung fuer unbeaufsichtigte Webhook-Agenten nicht den Operator-Chat erreicht und umgekehrt. Beide teilen sich weiterhin eine Escalation-Queue, damit zurueckgehaltene Aktionen dieselben Genehmiger erreichen.
+
+Flache Dateien bleiben global, sodass sich fuer bestehende Deployments nichts aendert, bis sie ein Unterverzeichnis anlegen. Reservieren Sie das flache Verzeichnis fuer Regeln, die wirklich ueberall gelten, und legen Sie alles Tool-Spezifische unter das jeweilige Surface. Beachten Sie: Mode B liest `policies/managed-cli/`, nicht `policies/run/` — das Starten eines verwalteten Subprozesses hat einen anderen Wirkungsradius als die interne Reasoning-Schleife, und eine Policy im falschen Verzeichnis wird von nichts geladen, sieht aber genauso aus, als haette man gar keine geschrieben.
+
+Faellt eine Gate auf fail-closed zurueck, nennt das Log beide durchsuchten Verzeichnisse.
+
 #### Transport-Haertung des OPA-Backends
 
 Bei Verwendung von `OpaPolicyGateBridge` mit `SYMBIONT_OPA_URL` **verweigert der Client unverschluesseltes HTTP zu einem Nicht-Loopback-Host** und faellt fail-closed aus (verweigert) -- ein Angreifer auf dem Pfad koennte andernfalls eine `allow`-Entscheidung faelschen. Klartext ist nur fuer Loopback (ein lokaler OPA-Sidecar) erlaubt oder wenn `SYMBIONT_OPA_ALLOW_INSECURE=1` gesetzt ist (nur lokale Tests). Setzen Sie `SYMBIONT_OPA_AUTH_TOKEN`, um bei jeder Autorisierungsabfrage ein Bearer-Token mitzusenden. Verwenden Sie `https://` fuer jeden entfernten OPA-Endpunkt.

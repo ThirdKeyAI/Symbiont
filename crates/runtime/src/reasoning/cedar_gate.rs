@@ -583,10 +583,10 @@ mod tests {
         // Locate the shipped policy relative to the workspace root. Tests
         // run with CWD = the crate dir (crates/runtime), so walk up two.
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../policies/orchestrator.cedar");
+            .join("../../policies/shell/orchestrator.cedar");
         assert!(
             path.exists(),
-            "policies/orchestrator.cedar must ship at the workspace root (looked at {})",
+            "policies/shell/orchestrator.cedar must ship under the workspace root (looked at {})",
             path.display()
         );
 

@@ -40,8 +40,8 @@ metadata {
 
 Each pair is `identifier` `=` (or `:`) `value`, where a value is a string,
 number, boolean, identifier, array, or record. Managed-CLI (Mode B) agents also
-recognize `executor`, `model`, `allowed_tools`, and `system_prompt` — see the
-[DSL Guide](dsl-guide.md).
+recognize `executor`, `model`, `allowed_tools`, `system_prompt`, and
+`permission_mode` — see the [DSL Guide](dsl-guide.md).
 
 ## Agent definition
 

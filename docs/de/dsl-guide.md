@@ -97,8 +97,33 @@ Verwaltete-CLI-Agenten (Modus B) erkennen diese zusaetzlichen Metadaten-Schluess
 |-------|------|-------------|
 | `executor` | String | Auf `"claude_code"` setzen, um den Agenten als kontrollierten Claude-Code-Subprozess statt ueber die Reasoning-Schleife auszufuehren |
 | `model` | String | Modell, das an den Subprozess uebergeben wird (z.B. `"claude-sonnet-4-5"`) |
-| `allowed_tools` | String | Kommagetrennte Tool-Zulassungsliste fuer den Subprozess (z.B. `"Read,Grep,Glob"`) |
+| `allowed_tools` | String | Kommagetrennte Tool-Zulassungsliste fuer den Subprozess (z.B. `"Read,Grep,Glob"`). **Erforderlich** — ein Agent ohne diese Angabe wird abgelehnt statt unbeschraenkt gestartet |
 | `system_prompt` | String | Zusaetzlicher System-Prompt, der fuer den Subprozess angehaengt wird |
+| `permission_mode` | String | Optional. Wird als `--permission-mode` durchgereicht. Ohne Angabe entfaellt das Flag, und der Subprozess behaelt seinen eigenen Standard, der weiterhin fuer alles ausserhalb von `allowed_tools` nachfragt. Fuer unbeaufsichtigte Agenten `"dontAsk"` setzen |
+
+Der Start selbst wird einmalig per Policy als `tool_call::claude_code` geprueft, danach unterliegt der Subprozess keiner weiteren Kontrolle — was `allowed_tools` und `permission_mode` ergeben, gilt fuer die gesamte Sitzung. Deshalb ist `allowed_tools` verpflichtend und `permission_mode` opt-in: eine Gate-Entscheidung soll eine begrenzte Sitzung autorisieren, keine unbeschraenkte.
+
+Diese eine Gate-Entscheidung wird aus `policies/managed-cli/` gelesen — **nicht**
+aus `policies/run/`. Einen Subprozess zu starten hat einen anderen Wirkungsradius
+als die interne Reasoning-Schleife, daher teilen sich die beiden Surfaces kein
+Policy-Verzeichnis. Ein minimales Permit:
+
+```cedar
+// policies/managed-cli/claude_code.cedar
+permit(principal, action == Action::"tool_call::claude_code", resource);
+```
+
+Da das Gate nicht sehen kann, was der Subprozess danach tut, wird stattdessen
+jeder Lauf protokolliert. Das Kind laeuft mit `--output-format stream-json`, und
+jeder Tool-Aufruf wird waehrend der Ausfuehrung an
+`.symbiont/audit/mode-b-<session>.jsonl` angehaengt — Tool-Name, Argumente, ob
+das Ergebnis fehlerhaft war, sowie ein Abschlusseintrag mit Anzahl der Turns und
+etwaigen Permission-Denials. Die Eintraege werden live geschrieben, nicht erst
+beim Beenden, damit auch ein per Timeout abgebrochener Lauf eine Spur
+hinterlaesst. Werte unter Schluesseln wie `token`, `api_key` oder `password`
+werden redigiert und uebergrosse Argumente gekuerzt, damit das Protokoll
+festhaelt, was das Kind getan hat, ohne zur zweiten Kopie der Nutzdaten zu werden.
+
 
 ---
 

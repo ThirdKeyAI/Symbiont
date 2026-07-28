@@ -23,11 +23,11 @@ approval.
 - **A working directory containing:**
   - `./agents/` — agent manifests (see §2). The repo ships an example
     `agents/researcher.toml`.
-  - `./policies/orchestrator.cedar` — the Cedar policy that governs ORCH's tools.
+  - `./policies/shell/orchestrator.cedar` — the Cedar policy that governs ORCH's tools.
     **This file is required for ORCH's tools to run** (see §5); without it the
     tools fail closed (everything denied) and ORCH can only converse.
 
-The repo root already contains both `agents/` and `policies/orchestrator.cedar`,
+The repo root already contains both `agents/` and `policies/shell/orchestrator.cedar`,
 so running from the repo root is the easiest way to test.
 
 ## 2. Building and launching
@@ -134,9 +134,24 @@ through the communication policy gate and are audited.
 ## 5. Governed tools (the security model)
 
 ORCH's tools run inside its reasoning loop **only if the policy gate allows them**.
-The gate is a Cedar policy loaded from `policies/orchestrator.cedar`
+The gate is a Cedar policy loaded from `policies/shell/orchestrator.cedar`
 (deny-by-default). If that file is missing or invalid, the gate falls back to
-**fail-closed** — all tools denied, never allow-all. So:
+**fail-closed** — all tools denied, never allow-all.
+
+The `shell/` subdirectory is load-bearing. Policies sitting flat in
+`policies/*.cedar` are loaded by **every** surface's gate — `symbi run`, the
+`symbi up` chat coordinator, the HTTP input server. A `permit` for `edit_file`
+written for this shell would reach all of them. Files under
+`policies/<surface>/` are read only by the surface they name, so keep
+surface-specific grants there and reserve the flat directory for rules that
+should genuinely apply everywhere. `symbi init` scaffolds no shell policy at
+all; you write this file yourself when you want ORCH's tools to run.
+
+The legacy flat path `policies/orchestrator.cedar` is still honoured if the
+scoped one is absent, so existing projects keep working — but it is loaded by
+every surface, and moving it into `policies/shell/` is the fix.
+
+So:
 
 - **Read-only tools** (allowed by the shipped policy, no approval needed):
   - `read_file {path}` — read a project file. Repo-rooted; absolute paths, `..`,
@@ -182,13 +197,13 @@ no separate runtime needs to be attached.
 | 11 | Don't decide on a held action for 120s | It auto-denies (fail-closed) |
 | 12 | Without `--allow-shell`, ask ORCH to run a command | `shell` unavailable / denied |
 | 13 | Relaunch with `--allow-shell`, ask ORCH to run e.g. `ls` | Action held for approval; approve → command output returned |
-| 14 | Rename/remove `policies/orchestrator.cedar`, relaunch | Notice that tools fail closed; ORCH can converse but tools are denied |
+| 14 | Rename/remove `policies/shell/orchestrator.cedar`, relaunch | Notice that tools fail closed; ORCH can converse but tools are denied |
 
 ## 7. Troubleshooting
 
 - **"No inference provider configured"** — set `ANTHROPIC_API_KEY` /
   `OPENAI_API_KEY` / `OPENROUTER_API_KEY` and relaunch.
-- **ORCH refuses every tool / delegation** — `policies/orchestrator.cedar` is
+- **ORCH refuses every tool / delegation** — `policies/shell/orchestrator.cedar` is
   missing or failed to load (check the startup notices). Run from the repo root.
 - **`shell` "disabled"** — relaunch with `--allow-shell`.
 - **Held actions never resolve** — open the Gate panel with `Ctrl+G` and approve/
@@ -200,7 +215,7 @@ no separate runtime needs to be attached.
 
 Fleet agents now execute their manifest `tools` through the same governed reasoning
 loop as the orchestrator. A tool is callable only if it is in the agent's manifest
-`tools` **and** permitted by `policies/orchestrator.cedar`:
+`tools` **and** permitted by `policies/shell/orchestrator.cedar`:
 
 - **Effective tools** = manifest `tools` ∩ `orchestrator.cedar` allowlist.
 - **`delegate`** remains orchestrator-only; `shell` still requires `--allow-shell`.
@@ -212,7 +227,7 @@ loop as the orchestrator. A tool is callable only if it is in the agent's manife
 
 Test by loading an agent with a `tools` manifest list, querying it, and
 confirming it either runs the tool (if policy permits) or denies it with a clear
-reason. When tools are denied solely because `policies/orchestrator.cedar` is
+reason. When tools are denied solely because `policies/shell/orchestrator.cedar` is
 missing, you'll see a diagnostic hint on startup or first call attempt.
 
 Deferred items (for future releases): per-agent Cedar principals, `.symbi`

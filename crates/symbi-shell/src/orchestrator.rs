@@ -95,7 +95,7 @@ impl Orchestrator {
     ///
     /// `policy_gate` governs every proposed action in the reasoning loop.
     /// The caller is responsible for supplying a real gate (e.g. a
-    /// `CedarPolicyGate` loaded from `policies/orchestrator.cedar`); the
+    /// `CedarPolicyGate` loaded from `policies/shell/orchestrator.cedar`); the
     /// fail-closed `DefaultPolicyGate::new()` denies everything, so the
     /// gate must explicitly permit the orchestrator's safe tools.
     pub fn new(

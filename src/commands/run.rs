@@ -110,6 +110,7 @@ pub async fn run(matches: &ArgMatches) {
     let policy_gate =
         symbi_runtime::reasoning::governed_gate(symbi_runtime::reasoning::GateOptions {
             policies_dir: Path::new("policies").to_path_buf(),
+            surface: Some("run".to_string()),
             insecure_allow_all,
             escalation: None,
         })

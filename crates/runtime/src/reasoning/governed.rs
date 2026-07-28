@@ -20,8 +20,23 @@ use crate::reasoning::policy_bridge::{DefaultPolicyGate, ReasoningPolicyGate};
 
 /// Options controlling how [`governed_gate`] resolves the policy gate.
 pub struct GateOptions {
-    /// Directory scanned for `*.cedar` policy files.
+    /// Directory scanned for `*.cedar` policy files. Files sitting directly in
+    /// it are shared: they apply to every surface.
     pub policies_dir: PathBuf,
+    /// Name of the surface this gate governs — the subdirectory of
+    /// `policies_dir` layered on top of the shared files, i.e.
+    /// `<policies_dir>/<surface>/*.cedar`.
+    ///
+    /// Surfaces exist because one process can hand model output to places with
+    /// very different blast radii (a chat coordinator that only emits text vs.
+    /// an HTTP endpoint that dispatches tool calls). A grant written into
+    /// `<policies_dir>/<surface>/` reaches only that surface, so it cannot
+    /// become a latent permission somewhere nobody intended.
+    ///
+    /// `None` loads the shared files only. The subdirectory is purely
+    /// additive: flat files keep applying everywhere, so existing deployments
+    /// are unaffected until they opt in by creating one.
+    pub surface: Option<String>,
     /// Opt into the permissive dev gate (`SYMBI_INSECURE_ALLOW_ALL` /
     /// `--insecure-allow-all`). Callers are responsible for surfacing their
     /// own warning banner before setting this — `governed_gate` does not
@@ -38,13 +53,29 @@ pub struct GateOptions {
 pub async fn governed_gate(opts: GateOptions) -> Arc<dyn ReasoningPolicyGate> {
     let gate: Arc<dyn ReasoningPolicyGate> = if opts.insecure_allow_all {
         Arc::new(DefaultPolicyGate::permissive_for_dev_only())
-    } else if let Some(cedar_gate) = try_wire_cedar_policy_gate(&opts.policies_dir).await {
+    } else if let Some(cedar_gate) =
+        try_wire_cedar_policy_gate(&opts.policies_dir, opts.surface.as_deref()).await
+    {
         cedar_gate
     } else {
-        tracing::info!(
-            "policy gate: fail-closed default (no {}/*.cedar found); configure CedarPolicyGate, OpaPolicyGateBridge, or another ReasoningPolicyGate",
-            opts.policies_dir.display()
-        );
+        // Name both directories that were searched. With surface scoping a
+        // policy in the wrong one looks identical to no policy at all, and the
+        // surface name is not something a caller can guess.
+        match opts.surface.as_deref() {
+            Some(surface) => tracing::info!(
+                "policy gate: fail-closed default (no *.cedar in {} or {}/{}); \
+                 put policies for this surface in {}/{}/",
+                opts.policies_dir.display(),
+                opts.policies_dir.display(),
+                surface,
+                opts.policies_dir.display(),
+                surface
+            ),
+            None => tracing::info!(
+                "policy gate: fail-closed default (no {}/*.cedar found); configure CedarPolicyGate, OpaPolicyGateBridge, or another ReasoningPolicyGate",
+                opts.policies_dir.display()
+            ),
+        }
         Arc::new(DefaultPolicyGate::new())
     };
 
@@ -58,7 +89,7 @@ pub async fn governed_gate(opts: GateOptions) -> Arc<dyn ReasoningPolicyGate> {
 ///
 /// Such a file is either raw Cedar source or a JSON array of `CedarPolicy`
 /// entries — the shape `CedarPolicyGate::reload_policies_from_file` reads, and
-/// what `policies/orchestrator.cedar` contains. Both extensions are the same, so
+/// what `policies/shell/orchestrator.cedar` contains. Both extensions are the same, so
 /// sniff the content. Loading a JSON file as if it were Cedar source yields a
 /// policy set that cannot parse, and because the gate concatenates active
 /// sources at evaluation time, one such file makes every action Deny —
@@ -97,41 +128,82 @@ fn parse_policy_file(
     Ok(entries)
 }
 
-/// If the `cedar` feature is compiled in AND `policies_dir` contains at least
-/// one `*.cedar` file, construct a [`CedarPolicyGate`] preloaded with each
-/// file as a named policy. Files that fail to parse as Cedar syntax are
-/// logged and skipped (the gate continues to load the rest); a gate is
-/// returned only when at least one policy parses successfully.
+/// The `*.cedar` files sitting directly in `dir`, sorted. A directory that
+/// does not exist yields none — an absent policy directory is not an error,
+/// the caller simply falls through to fail-closed.
+#[cfg(feature = "cedar")]
+fn cedar_files_in(dir: &Path) -> Vec<PathBuf> {
+    if !dir.is_dir() {
+        return Vec::new();
+    }
+    let mut files: Vec<PathBuf> = match std::fs::read_dir(dir) {
+        Ok(rd) => rd
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .filter(|p| p.is_file() && p.extension().and_then(|s| s.to_str()) == Some("cedar"))
+            .collect(),
+        Err(e) => {
+            tracing::warn!("unable to read policy directory {}: {}", dir.display(), e);
+            return Vec::new();
+        }
+    };
+    files.sort();
+    files
+}
+
+/// Resolve `<policies_dir>/<surface>`. A surface names a subdirectory, never a
+/// path, so anything that could reach outside `policies_dir` is refused rather
+/// than joined.
+#[cfg(feature = "cedar")]
+fn surface_dir(policies_dir: &Path, surface: &str) -> Option<PathBuf> {
+    let sane = !surface.is_empty()
+        && surface != "."
+        && surface != ".."
+        && !surface.contains('/')
+        && !surface.contains('\\');
+    if !sane {
+        tracing::warn!(
+            "ignoring policy surface {:?}: not a plain directory name",
+            surface
+        );
+        return None;
+    }
+    Some(policies_dir.join(surface))
+}
+
+/// If the `cedar` feature is compiled in AND at least one `*.cedar` file is
+/// found, construct a [`CedarPolicyGate`] preloaded with each file as a named
+/// policy.
 ///
-/// Returns `None` if the `cedar` feature is disabled, `policies_dir` doesn't
-/// exist, no `*.cedar` files are present, or every file failed to parse.
+/// Two layers are loaded into that one gate:
+/// 1. shared — `<policies_dir>/*.cedar`, which apply to every surface;
+/// 2. surface-specific — `<policies_dir>/<surface>/*.cedar`, only when
+///    `surface` is `Some`.
+///
+/// The second layer is what keeps a grant written for one surface out of
+/// another's gate: a file under `policies/http-input/` is invisible to the
+/// coordinator, and vice versa.
+///
+/// Returns `None` if the `cedar` feature is disabled, neither directory
+/// exists, no `*.cedar` files are present, or a policy failed to parse.
 /// Callers should fall back to `DefaultPolicyGate::new()` (fail-closed) in
 /// that case.
 ///
 /// [`CedarPolicyGate`]: crate::reasoning::CedarPolicyGate
 #[cfg(feature = "cedar")]
-async fn try_wire_cedar_policy_gate(policies_dir: &Path) -> Option<Arc<dyn ReasoningPolicyGate>> {
+async fn try_wire_cedar_policy_gate(
+    policies_dir: &Path,
+    surface: Option<&str>,
+) -> Option<Arc<dyn ReasoningPolicyGate>> {
     use crate::reasoning::CedarPolicyGate;
 
-    if !policies_dir.is_dir() {
-        return None;
+    let mut cedar_files = cedar_files_in(policies_dir);
+    if let Some(dir) = surface.and_then(|s| surface_dir(policies_dir, s)) {
+        cedar_files.extend(cedar_files_in(&dir));
     }
-
-    let mut cedar_files: Vec<PathBuf> = match std::fs::read_dir(policies_dir) {
-        Ok(rd) => rd
-            .filter_map(|entry| entry.ok())
-            .map(|entry| entry.path())
-            .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("cedar"))
-            .collect(),
-        Err(e) => {
-            tracing::warn!("unable to read policies directory: {}", e);
-            return None;
-        }
-    };
     if cedar_files.is_empty() {
         return None;
     }
-    cedar_files.sort();
 
     let gate = CedarPolicyGate::deny_by_default();
     let mut loaded = 0usize;
@@ -175,9 +247,10 @@ async fn try_wire_cedar_policy_gate(policies_dir: &Path) -> Option<Arc<dyn Reaso
         return None;
     }
     tracing::info!(
-        "policy gate: CedarPolicyGate auto-wired from {} policy file(s) under {}",
+        "policy gate: CedarPolicyGate auto-wired from {} policy file(s) under {} (surface: {})",
         loaded,
-        policies_dir.display()
+        policies_dir.display(),
+        surface.unwrap_or("<shared only>")
     );
     println!(
         "✓ Cedar policy gate wired ({} policy file(s) loaded)",
@@ -189,7 +262,10 @@ async fn try_wire_cedar_policy_gate(policies_dir: &Path) -> Option<Arc<dyn Reaso
 /// Stub used when the `cedar` feature is disabled. Always returns `None` so
 /// the caller falls through to the fail-closed default.
 #[cfg(not(feature = "cedar"))]
-async fn try_wire_cedar_policy_gate(_policies_dir: &Path) -> Option<Arc<dyn ReasoningPolicyGate>> {
+async fn try_wire_cedar_policy_gate(
+    _policies_dir: &Path,
+    _surface: Option<&str>,
+) -> Option<Arc<dyn ReasoningPolicyGate>> {
     None
 }
 
@@ -215,6 +291,7 @@ mod tests {
 
         let gate = governed_gate(GateOptions {
             policies_dir,
+            surface: None,
             insecure_allow_all: false,
             escalation: None,
         })
@@ -241,6 +318,7 @@ mod tests {
 
         let gate = governed_gate(GateOptions {
             policies_dir: dir.path().to_path_buf(),
+            surface: None,
             insecure_allow_all: false,
             escalation: None,
         })
@@ -265,6 +343,143 @@ mod tests {
         assert!(matches!(decision, LoopDecision::Deny { .. }));
     }
 
+    #[cfg(feature = "cedar")]
+    fn named_tool_call(name: &str) -> ProposedAction {
+        ProposedAction::ToolCall {
+            call_id: "c1".into(),
+            name: name.into(),
+            arguments: "{}".into(),
+        }
+    }
+
+    /// Lay out a policies dir with one shared policy and one policy per
+    /// surface, so each test only has to say which surface it asks for.
+    #[cfg(feature = "cedar")]
+    fn policies_fixture() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("shared.cedar"),
+            r#"permit(principal, action == Action::"tool_call::search", resource);"#,
+        )
+        .unwrap();
+
+        std::fs::create_dir_all(dir.path().join("coordinator")).unwrap();
+        std::fs::write(
+            dir.path().join("coordinator/chat.cedar"),
+            r#"permit(principal, action == Action::"tool_call::summarize", resource);"#,
+        )
+        .unwrap();
+
+        std::fs::create_dir_all(dir.path().join("http-input")).unwrap();
+        std::fs::write(
+            dir.path().join("http-input/tools.cedar"),
+            r#"permit(principal, action == Action::"tool_call::edit_file", resource);"#,
+        )
+        .unwrap();
+        dir
+    }
+
+    #[cfg(feature = "cedar")]
+    #[tokio::test]
+    async fn surface_policies_layer_on_top_of_shared_ones() {
+        let dir = policies_fixture();
+        let gate = governed_gate(GateOptions {
+            policies_dir: dir.path().to_path_buf(),
+            surface: Some("coordinator".to_string()),
+            insecure_allow_all: false,
+            escalation: None,
+        })
+        .await;
+
+        let agent_id = AgentId::new();
+        let state = LoopState::new(agent_id, Conversation::new());
+
+        let shared = gate
+            .evaluate_action(&agent_id, &named_tool_call("search"), &state)
+            .await;
+        assert!(
+            matches!(shared, LoopDecision::Allow),
+            "the shared policy must still apply, got {shared:?}"
+        );
+
+        let scoped = gate
+            .evaluate_action(&agent_id, &named_tool_call("summarize"), &state)
+            .await;
+        assert!(
+            matches!(scoped, LoopDecision::Allow),
+            "policies/coordinator/*.cedar must be layered in, got {scoped:?}"
+        );
+    }
+
+    /// The isolation property this layering exists for: a grant written for
+    /// one surface must not reach another surface's gate.
+    #[cfg(feature = "cedar")]
+    #[tokio::test]
+    async fn another_surfaces_policies_are_not_loaded() {
+        let dir = policies_fixture();
+        let gate = governed_gate(GateOptions {
+            policies_dir: dir.path().to_path_buf(),
+            surface: Some("coordinator".to_string()),
+            insecure_allow_all: false,
+            escalation: None,
+        })
+        .await;
+
+        let agent_id = AgentId::new();
+        let state = LoopState::new(agent_id, Conversation::new());
+        let decision = gate
+            .evaluate_action(&agent_id, &named_tool_call("edit_file"), &state)
+            .await;
+        assert!(
+            matches!(decision, LoopDecision::Deny { .. }),
+            "policies/http-input/*.cedar must not reach the coordinator gate, got {decision:?}"
+        );
+
+        // ...and the same file does grant the tool on its own surface, so the
+        // deny above is scoping and not a policy that simply never loaded.
+        let http_gate = governed_gate(GateOptions {
+            policies_dir: dir.path().to_path_buf(),
+            surface: Some("http-input".to_string()),
+            insecure_allow_all: false,
+            escalation: None,
+        })
+        .await;
+        let decision = http_gate
+            .evaluate_action(&agent_id, &named_tool_call("edit_file"), &state)
+            .await;
+        assert!(matches!(decision, LoopDecision::Allow), "got {decision:?}");
+    }
+
+    #[cfg(feature = "cedar")]
+    #[tokio::test]
+    async fn no_surface_loads_shared_policies_only() {
+        let dir = policies_fixture();
+        let gate = governed_gate(GateOptions {
+            policies_dir: dir.path().to_path_buf(),
+            surface: None,
+            insecure_allow_all: false,
+            escalation: None,
+        })
+        .await;
+
+        let agent_id = AgentId::new();
+        let state = LoopState::new(agent_id, Conversation::new());
+        let shared = gate
+            .evaluate_action(&agent_id, &named_tool_call("search"), &state)
+            .await;
+        assert!(matches!(shared, LoopDecision::Allow), "got {shared:?}");
+
+        for scoped in ["summarize", "edit_file"] {
+            let decision = gate
+                .evaluate_action(&agent_id, &named_tool_call(scoped), &state)
+                .await;
+            assert!(
+                matches!(decision, LoopDecision::Deny { .. }),
+                "surface: None must load no subdirectory, but {scoped} was {decision:?}"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn permissive_only_when_insecure_allow_all_is_set() {
         let dir = tempfile::tempdir().unwrap();
@@ -274,6 +489,7 @@ mod tests {
         // the fail-closed test above denies the tool call.
         let gate = governed_gate(GateOptions {
             policies_dir: policies_dir.clone(),
+            surface: None,
             insecure_allow_all: false,
             escalation: None,
         })
@@ -286,6 +502,7 @@ mod tests {
         // With the flag, the same setup allows.
         let gate = governed_gate(GateOptions {
             policies_dir,
+            surface: None,
             insecure_allow_all: true,
             escalation: None,
         })
@@ -302,6 +519,7 @@ mod tests {
 
         let gate = governed_gate(GateOptions {
             policies_dir,
+            surface: None,
             insecure_allow_all: true,
             escalation: Some((
                 queue.clone(),
@@ -329,7 +547,7 @@ mod tests {
 mod cedar_policy_file_tests {
     use super::parse_policy_file;
 
-    /// `policies/orchestrator.cedar` — the file this repo ships — is a JSON array,
+    /// `policies/shell/orchestrator.cedar` — the file this repo ships — is a JSON array,
     /// not raw Cedar. Read as raw source it produces an unparseable policy set,
     /// and because the gate concatenates active sources, every action (including
     /// `Respond`) is denied.
@@ -387,13 +605,13 @@ mod cedar_policy_file_tests {
     #[test]
     fn the_shipped_orchestrator_policy_loads() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../policies/orchestrator.cedar");
+            .join("../../policies/shell/orchestrator.cedar");
         if !path.exists() {
             return; // not all checkouts ship it
         }
         let contents = std::fs::read_to_string(&path).expect("read shipped policy");
         let entries = parse_policy_file("orchestrator", contents)
-            .expect("the shipped policies/orchestrator.cedar must load and parse as Cedar");
+            .expect("the shipped policies/shell/orchestrator.cedar must load and parse as Cedar");
         assert!(!entries.is_empty());
     }
 }

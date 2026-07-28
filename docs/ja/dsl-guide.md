@@ -93,8 +93,32 @@ metadata {
 |-------|------|-------------|
 | `executor` | String | `"claude_code"` に設定すると、推論ループの代わりに、エージェントをガバナンス下の Claude Code サブプロセスとして実行します |
 | `model` | String | サブプロセスに渡されるモデル（例：`"claude-sonnet-4-5"`） |
-| `allowed_tools` | String | サブプロセス向けのカンマ区切りツール許可リスト（例：`"Read,Grep,Glob"`） |
+| `allowed_tools` | String | サブプロセス向けのカンマ区切りツール許可リスト（例：`"Read,Grep,Glob"`）。**必須** — 宣言のないエージェントは、無制限に起動される代わりに拒否されます |
 | `system_prompt` | String | サブプロセスに追加される追加システムプロンプト |
+| `permission_mode` | String | 省略可。`--permission-mode` としてそのまま渡されます。未設定の場合はフラグ自体を省略し、サブプロセスは自身の既定値を保ちます。既定値は `allowed_tools` の範囲外については引き続き確認を求めます。無人実行が必要なエージェントには `"dontAsk"` を指定します |
+
+起動自体は `tool_call::claude_code` として一度だけポリシーゲートを通りますが、その後サブプロセスを統制するものはありません。`allowed_tools` と `permission_mode` の結果がセッション全体に適用されます。`allowed_tools` を必須とし、`permission_mode` をオプトインとしているのはそのためです。1 回のゲート判断が認可すべきなのは、無制限のセッションではなく、範囲の限られたセッションです。
+
+この 1 回のゲート判断は `policies/managed-cli/` から読み込まれます（`policies/run/`
+では**ありません**）。サブプロセスの起動は、プロセス内の推論ループとは影響範囲が
+異なるため、2 つのサーフェスはポリシーディレクトリを共有しません。最小限の permit は
+次のとおりです。
+
+```cedar
+// policies/managed-cli/claude_code.cedar
+permit(principal, action == Action::"tool_call::claude_code", resource);
+```
+
+ゲートはサブプロセスがその後に何をするかを見られないため、代わりに各実行を
+ジャーナルに記録します。子プロセスは `--output-format stream-json` で動作し、
+ツール呼び出しは発生するそばから `.symbiont/audit/mode-b-<session>.jsonl` に
+追記されます。記録内容はツール名、引数、結果がエラーだったかどうか、そして
+ターン数と権限拒否を含む最終レコードです。終了時ではなく実行中に書き出すため、
+タイムアウトで強制終了された実行でも記録が残ります。`token`、`api_key`、
+`password` などのキーの値は秘匿され、大きすぎる引数は切り詰められます。
+これにより、ログはペイロードの二重コピーになることなく、子プロセスが何をしたかを
+示します。
+
 
 ---
 

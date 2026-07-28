@@ -321,22 +321,34 @@ async fn main() -> Result<()> {
         let escalation_queue =
             std::sync::Arc::new(symbi_runtime::escalation::EscalationQueue::new());
 
-        // Inner reasoning gate (Phase 3A): load a Cedar policy from
-        // `policies/orchestrator.cedar` that permits the safe read-only /
-        // validation tools and denies everything else. If the policy is
-        // missing or fails to load we fall back to the fail-closed
+        // Inner reasoning gate (Phase 3A): load a Cedar policy that permits the
+        // safe read-only / validation tools and denies everything else. If the
+        // policy is missing or fails to load we fall back to the fail-closed
         // `DefaultPolicyGate` — NEVER allow-all. We keep a typed
         // `CedarPolicyGate` so we can `add_policy` for `shell` under opt-in.
+        //
+        // `policies/shell/` is the scoped home for it: these grants are for
+        // this shell's orchestrator tools, and putting them in a subdirectory
+        // keeps them out of the flat `policies/*.cedar` set that every other
+        // surface loads. The flat `policies/orchestrator.cedar` is the legacy
+        // location, still honoured so existing projects keep working.
         let mut policy_present = false;
         let inner_gate: Arc<dyn ReasoningPolicyGate> = {
-            let policy_path = std::path::Path::new("policies/orchestrator.cedar");
-            if policy_path.exists() {
+            let policy_path = [
+                "policies/shell/orchestrator.cedar",
+                "policies/orchestrator.cedar",
+            ]
+            .into_iter()
+            .map(std::path::Path::new)
+            .find(|p| p.exists());
+            if let Some(policy_path) = policy_path {
+                let loaded_from = policy_path.display().to_string();
                 let gate = CedarPolicyGate::deny_by_default();
                 match gate.reload_policies_from_file(policy_path).await {
                     Ok(n) => {
                         policy_present = true;
                         startup_notices.push(format!(
-                            "Loaded {n} orchestrator policy rule(s) from policies/orchestrator.cedar"
+                            "Loaded {n} orchestrator policy rule(s) from {loaded_from}"
                         ));
                         // `shell` is permitted ONLY under explicit operator opt-in.
                         if args.allow_shell {
@@ -357,14 +369,15 @@ async fn main() -> Result<()> {
                     }
                     Err(e) => {
                         startup_notices.push(format!(
-                            "Failed to load policies/orchestrator.cedar ({e}) — orchestrator tools fail-closed"
+                            "Failed to load {loaded_from} ({e}) — orchestrator tools fail-closed"
                         ));
                         Arc::new(DefaultPolicyGate::new())
                     }
                 }
             } else {
                 startup_notices.push(
-                    "No policies/orchestrator.cedar found — orchestrator tools fail-closed (all denied)"
+                    "No policies/shell/orchestrator.cedar (or legacy policies/orchestrator.cedar) \
+                     found — orchestrator tools fail-closed (all denied)"
                         .to_string(),
                 );
                 Arc::new(DefaultPolicyGate::new())
