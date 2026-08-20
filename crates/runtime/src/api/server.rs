@@ -2,6 +2,10 @@
 //!
 //! This module provides the main HTTP server implementation using Axum.
 
+// clippy::result_large_err — handlers return axum's idiomatic
+// `(StatusCode, Json<ErrorResponse>)` error pair (~128 bytes). Boxing it would
+// fight IntoResponse for no runtime benefit on an I/O-bound path.
+#![allow(clippy::result_large_err)]
 #[cfg(feature = "http-api")]
 use axum::{http::StatusCode, response::Json, Router};
 

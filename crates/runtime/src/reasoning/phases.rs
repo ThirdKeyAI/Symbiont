@@ -12,6 +12,13 @@
 //!
 //! Zero runtime cost: PhantomData is zero-sized.
 
+// clippy::result_large_err — the Err type is `LoopTermination` (~240 bytes),
+// returned by every typestate transition below. Boxing it would put an
+// allocation on the loop's hot path and change the signature of the whole
+// Reasoning -> PolicyCheck -> ToolDispatching -> Observing chain for a value
+// that is moved once and immediately matched on. Deliberate; revisit if
+// LoopTermination grows.
+#![allow(clippy::result_large_err)]
 use std::marker::PhantomData;
 
 use crate::reasoning::circuit_breaker::CircuitBreakerRegistry;

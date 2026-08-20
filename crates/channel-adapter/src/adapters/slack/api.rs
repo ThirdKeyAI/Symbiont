@@ -164,7 +164,7 @@ pub fn format_agent_response(content: &str, agent_name: &str) -> serde_json::Val
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": format!("_Powered by Symbiont_")
+                    "text": "_Powered by Symbiont_".to_string()
                 }
             ]
         }

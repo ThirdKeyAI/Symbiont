@@ -941,7 +941,7 @@ impl App {
 
     /// Push user input into history and return it.
     pub fn submit_input(&mut self) -> String {
-        let text = self.input.drain(..).collect::<String>();
+        let text = std::mem::take(&mut self.input);
         self.cursor = 0;
         self.history_index = None;
         if !text.is_empty() {

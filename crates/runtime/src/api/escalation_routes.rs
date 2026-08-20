@@ -1,5 +1,8 @@
 //! REST handlers for the held-action escalation queue.
 
+// clippy::result_large_err — see the note in `server.rs`: the axum
+// `(StatusCode, Json<ErrorResponse>)` error pair is the framework's idiom.
+#![allow(clippy::result_large_err)]
 #[cfg(feature = "http-api")]
 use axum::{
     extract::{Extension, Path},
