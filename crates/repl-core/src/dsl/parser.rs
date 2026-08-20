@@ -66,8 +66,6 @@ impl Parser {
             Ok(Declaration::Behavior(self.parse_behavior_definition()?))
         } else if self.match_keyword(Keyword::Function) {
             Ok(Declaration::Function(self.parse_function_definition()?))
-        } else if self.match_keyword(Keyword::On) {
-            Ok(Declaration::EventHandler(self.parse_event_handler()?))
         } else if self.match_keyword(Keyword::Struct) {
             Ok(Declaration::Struct(self.parse_struct_definition()?))
         } else {
@@ -245,34 +243,6 @@ impl Parser {
         })
     }
 
-    /// Parse an event handler
-    fn parse_event_handler(&mut self) -> Result<EventHandler> {
-        let start_span = self.previous_span();
-
-        let event_name = if let TokenType::Identifier(name) = &self.advance().token_type {
-            name.clone()
-        } else {
-            return Err(ReplError::Parsing("Expected event name".to_string()));
-        };
-
-        self.consume_token(TokenType::LeftParen, "Expected '(' after event name")?;
-        let parameters = self.parse_parameter_list()?;
-        self.consume_token(TokenType::RightParen, "Expected ')' after parameters")?;
-
-        let body = self.parse_block()?;
-        let end_span = self.previous_span();
-
-        Ok(EventHandler {
-            event_name,
-            parameters,
-            body,
-            span: Span {
-                start: start_span.start,
-                end: end_span.end,
-            },
-        })
-    }
-
     /// Parse a struct definition
     fn parse_struct_definition(&mut self) -> Result<StructDefinition> {
         let start_span = self.previous_span();
@@ -364,8 +334,6 @@ impl Parser {
             Ok(Statement::If(self.parse_if_statement()?))
         } else if self.match_keyword(Keyword::Return) {
             Ok(Statement::Return(self.parse_return_statement()?))
-        } else if self.match_keyword(Keyword::Emit) {
-            Ok(Statement::Emit(self.parse_emit_statement()?))
         } else if self.match_keyword(Keyword::Require) {
             Ok(Statement::Require(self.parse_require_statement()?))
         } else {
@@ -478,34 +446,6 @@ impl Parser {
 
         Ok(ReturnStatement {
             value,
-            span: Span {
-                start: start_span.start,
-                end: end_span.end,
-            },
-        })
-    }
-
-    /// Parse an emit statement
-    fn parse_emit_statement(&mut self) -> Result<EmitStatement> {
-        let start_span = self.previous_span();
-
-        let event_name = if let TokenType::Identifier(name) = &self.advance().token_type {
-            name.clone()
-        } else {
-            return Err(ReplError::Parsing("Expected event name".to_string()));
-        };
-
-        let data = if self.check_token(&TokenType::LeftBrace) {
-            Some(self.parse_expression()?)
-        } else {
-            None
-        };
-
-        let end_span = self.previous_span();
-
-        Ok(EmitStatement {
-            event_name,
-            data,
             span: Span {
                 start: start_span.start,
                 end: end_span.end,

@@ -279,7 +279,10 @@ async fn cmd_sign(matches: &ArgMatches) {
 
 fn truncate(s: &str, max_len: usize) -> String {
     if s.len() > max_len {
-        format!("{}...", &s[..max_len.saturating_sub(3)])
+        format!(
+            "{}...",
+            symbi_runtime::text_util::truncate_utf8(s, max_len.saturating_sub(3))
+        )
     } else {
         s.to_string()
     }

@@ -7,8 +7,13 @@
 //! - Runtime with success-mock + matching subject accepts.
 //! - Runtime with subject mismatch rejects.
 //! - Runtime with failure-mock rejects.
-
-#![cfg(feature = "http-api")]
+//!
+//! Deliberately ungated. Every symbol used here — `AgentRuntime`,
+//! `agentpin_verifier`, `verify_agentpin_for_agent`, `MockAgentPinVerifier` —
+//! is unconditional, and AgentPin covers the cron and heartbeat ingress paths
+//! as well as the HTTP ones. A previous `#![cfg(feature = "http-api")]` meant
+//! these ran only when some other workspace member happened to unify that
+//! feature in, so `cargo test -p symbi-runtime` silently reported zero tests.
 
 use std::sync::Arc;
 

@@ -208,11 +208,6 @@ pub const REGISTRY: &[SlashCommand] = &[
         summary: "First successful agent reply wins",
         category: "orchestration",
     },
-    SlashCommand {
-        name: "/exec",
-        summary: "Execute a shell command in the dev agent",
-        category: "orchestration",
-    },
     // ── operations ───────────────────────────────────────────────────
     SlashCommand {
         name: "/monitor",
@@ -249,11 +244,6 @@ pub const REGISTRY: &[SlashCommand] = &[
     SlashCommand {
         name: "/skills",
         summary: "Manage skills available to agents",
-        category: "tools",
-    },
-    SlashCommand {
-        name: "/verify",
-        summary: "Verify a SchemaPin-signed artifact",
         category: "tools",
     },
     // ── channels ─────────────────────────────────────────────────────

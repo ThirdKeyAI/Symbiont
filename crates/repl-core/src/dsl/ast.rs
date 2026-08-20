@@ -32,7 +32,6 @@ pub enum Declaration {
     Agent(AgentDefinition),
     Behavior(BehaviorDefinition),
     Function(FunctionDefinition),
-    EventHandler(EventHandler),
     Struct(StructDefinition),
 }
 
@@ -127,15 +126,6 @@ pub struct FunctionDefinition {
     pub span: Span,
 }
 
-/// Event handler definition
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct EventHandler {
-    pub event_name: String,
-    pub parameters: ParameterList,
-    pub body: Block,
-    pub span: Span,
-}
-
 /// Struct definition
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StructDefinition {
@@ -200,7 +190,6 @@ pub enum Statement {
     While(WhileStatement),
     Try(TryStatement),
     Return(ReturnStatement),
-    Emit(EmitStatement),
     Require(RequireStatement),
     Check(CheckStatement),
     Expression(Expression),
@@ -287,14 +276,6 @@ pub struct TryStatement {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReturnStatement {
     pub value: Option<Expression>,
-    pub span: Span,
-}
-
-/// Emit statement for events
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct EmitStatement {
-    pub event_name: String,
-    pub data: Option<Expression>,
     pub span: Span,
 }
 

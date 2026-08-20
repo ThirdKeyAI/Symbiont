@@ -72,10 +72,3 @@ pub fn race(app: &mut App, args: &str) -> CommandResult {
         CommandResult::Error("No inference provider configured.".to_string())
     }
 }
-
-pub fn exec(_app: &mut App, args: &str) -> CommandResult {
-    if args.is_empty() {
-        return CommandResult::Error("Usage: /exec <command>".to_string());
-    }
-    CommandResult::Output(format!("[CLI executor not yet connected: {}]", args))
-}

@@ -100,13 +100,3 @@ pub fn skills(_app: &mut App, args: &str) -> CommandResult {
         CommandResult::Output(format!("[skills {} not yet connected]", args))
     }
 }
-
-pub fn verify(_app: &mut App, args: &str) -> CommandResult {
-    if args.is_empty() {
-        return CommandResult::Error("Usage: /verify @tool_name".to_string());
-    }
-    CommandResult::Output(format!(
-        "[SchemaPin verification not yet connected for: {}]",
-        args
-    ))
-}

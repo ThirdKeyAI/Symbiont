@@ -199,9 +199,5 @@ fn resolve_agent_path(name: &str) -> std::path::PathBuf {
 }
 
 fn truncate(s: &str, max: usize) -> &str {
-    if s.len() <= max {
-        s
-    } else {
-        &s[..max]
-    }
+    symbi_runtime::text_util::truncate_utf8(s, max)
 }

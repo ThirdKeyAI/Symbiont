@@ -81,10 +81,8 @@ pub enum Keyword {
     Try,
     Catch,
     Return,
-    Emit,
     Require,
     Check,
-    On,
     In,
     Invoke,
     True,
@@ -165,10 +163,8 @@ impl Lexer {
         keywords.insert("try".to_string(), Keyword::Try);
         keywords.insert("catch".to_string(), Keyword::Catch);
         keywords.insert("return".to_string(), Keyword::Return);
-        keywords.insert("emit".to_string(), Keyword::Emit);
         keywords.insert("require".to_string(), Keyword::Require);
         keywords.insert("check".to_string(), Keyword::Check);
-        keywords.insert("on".to_string(), Keyword::On);
         keywords.insert("in".to_string(), Keyword::In);
         keywords.insert("invoke".to_string(), Keyword::Invoke);
         keywords.insert("true".to_string(), Keyword::True);

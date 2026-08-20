@@ -74,6 +74,9 @@ pub use routing::{
 };
 pub use sandbox::{E2BSandbox, ExecutionResult, SandboxRunner, SandboxTier};
 #[cfg(feature = "cron")]
+#[allow(deprecated)] // re-exported for the one release of its deprecation window
+pub use scheduler::delivery::CustomDeliveryHandler;
+#[cfg(feature = "cron")]
 pub use scheduler::{
     cron_scheduler::{
         CronMetrics, CronScheduler, CronSchedulerConfig, CronSchedulerError, CronSchedulerHealth,
@@ -82,7 +85,7 @@ pub use scheduler::{
         AuditLevel, CronJobDefinition, CronJobId, CronJobStatus, DeliveryChannel, DeliveryConfig,
         DeliveryReceipt, JobRunRecord, JobRunStatus,
     },
-    delivery::{CustomDeliveryHandler, DefaultDeliveryRouter, DeliveryResult, DeliveryRouter},
+    delivery::{DefaultDeliveryRouter, DeliveryResult, DeliveryRouter},
     heartbeat::{
         HeartbeatAssessment, HeartbeatConfig, HeartbeatContextMode, HeartbeatSeverity,
         HeartbeatState,

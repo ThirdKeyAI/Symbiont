@@ -50,8 +50,12 @@ jobs:
             echo "No .cedar files tracked — skipping lint."
           fi
       # Feature combination tests — verify minimal and no-default builds compile
+      # clippy, not check: this is the combination downstream consumers build
+      # with (the enterprise console pulls symbi-runtime with
+      # default-features = false), and `check` does not fail on lint warnings,
+      # so warnings that only appear with features off went unnoticed here.
       - name: Test minimal build (no default features)
-        run: cargo check -p symbi-runtime --no-default-features
+        run: cargo clippy -p symbi-runtime --no-default-features --all-targets -- -D warnings
       - name: Test without vector backends
         run: cargo test -p symbi-runtime --no-default-features --features keychain
       # Lint ALL feature-gated code with -D warnings (compile-only; mirrors the

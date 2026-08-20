@@ -7,8 +7,8 @@ use std::time::SystemTime;
 use symbi_runtime::context::{
     ContextError, EmbeddingService, KnowledgeItem, KnowledgeSource, KnowledgeType, MemoryItem,
     MemoryType, MockEmbeddingService, QdrantClientWrapper, QdrantConfig, QdrantDistance,
-    TfIdfEmbeddingService, VectorBatchItem, VectorBatchOperation, VectorContentType,
-    VectorDatabase, VectorMetadata, VectorOperationType,
+    TfIdfEmbeddingService, VectorBatchItem, VectorBatchOperation, VectorContentType, VectorDb,
+    VectorMetadata, VectorOperationType,
 };
 use symbi_runtime::types::AgentId;
 

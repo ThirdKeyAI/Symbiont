@@ -200,12 +200,7 @@ fn truncate_for_error(s: &str, limit: usize) -> String {
     if s.len() <= limit {
         return s.to_string();
     }
-    // Walk back from the limit to the nearest char boundary.
-    let mut end = limit;
-    while end > 0 && !s.is_char_boundary(end) {
-        end -= 1;
-    }
-    format!("{}…", &s[..end])
+    format!("{}…", crate::text_util::truncate_utf8(s, limit))
 }
 
 fn check_base_url_security(base_url: &str, has_token: bool) -> Result<(), String> {

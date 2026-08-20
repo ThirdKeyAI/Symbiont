@@ -77,7 +77,6 @@ Authoring commands write to disk only after validation passes. Constraint violat
 | `/parallel <a,b,c> <input>` | Run agents in parallel with the same input; aggregate results. |
 | `/race <a,b,c> <input>` | Run in parallel, first successful reply wins, rest are cancelled. |
 | `/debate <a,b,c> <topic>` | Structured multi-agent debate on a topic. |
-| `/exec <command>` | Execute a shell command inside the sandboxed dev agent. |
 
 ### Operations
 
@@ -92,13 +91,12 @@ Authoring commands write to disk only after validation passes. Constraint violat
 | `/debug <agent>` | Inspect an agent's internal state. |
 | `/pause`, `/resume-agent`, `/stop`, `/destroy` | Agent lifecycle controls. |
 
-### Tools, skills, and verification
+### Tools and skills
 
 | Command | What it does |
 |---------|-------------|
 | `/tools [list\|add\|remove]` | Manage ToolClad tools available to agents. |
 | `/skills [list\|install\|remove]` | Manage skills available to agents. |
-| `/verify <artifact>` | Verify a signed artifact (tool manifest, skill) against its SchemaPin signature. |
 
 ### Scheduling
 

@@ -77,7 +77,6 @@ shell 使用与现有滚动缓冲区共享终端的内联视口。从上到下�
 | `/parallel <a,b,c> <input>` | 使用相同输入并行运行多个智能体；聚合结果。 |
 | `/race <a,b,c> <input>` | 并行运行，第一个成功回复获胜，其余被取消。 |
 | `/debate <a,b,c> <topic>` | 围绕某个话题进行结构化的多智能体辩论。 |
-| `/exec <command>` | 在沙箱化的开发智能体中执行一条 shell 命令。 |
 
 ### 运维
 
@@ -92,13 +91,12 @@ shell 使用与现有滚动缓冲区共享终端的内联视口。从上到下�
 | `/debug <agent>` | 检查智能体的内部状态。 |
 | `/pause`、`/resume-agent`、`/stop`、`/destroy` | 智能体生命周期控制。 |
 
-### 工具、技能与校验
+### 工具与技能
 
 | 命令 | 作用 |
 |------|------|
 | `/tools [list\|add\|remove]` | 管理可供智能体使用的 ToolClad 工具。 |
 | `/skills [list\|install\|remove]` | 管理可供智能体使用的技能。 |
-| `/verify <artifact>` | 针对 SchemaPin 签名校验一个已签名的工件（工具清单、技能）。 |
 
 ### 调度
 

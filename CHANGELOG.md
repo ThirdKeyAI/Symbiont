@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- **The `VectorDatabase` trait, merged into `VectorDb`.** Two identical traits
+  (modulo `health_check`) covered the same job, and every backend implemented
+  both — the `VectorDb` impls were pure forwarding shims onto `VectorDatabase`,
+  ~90 lines each for Qdrant and the no-op backend. Nothing consumed
+  `dyn VectorDatabase`; the factory, `ContextManager`, and the integration
+  suite all take `dyn VectorDb`. Backends now implement `VectorDb` directly.
+  Breaking for code that imported `symbi_runtime::context::VectorDatabase` —
+  switch to `VectorDb` (same methods plus `health_check`).
+- **The DSL `emit` statement and `on` event handlers.** Both parsed but
+  terminated in stubs: `emit` logged and discarded its payload, and an `on`
+  handler's body was never executed because nothing dispatches events. They
+  were absent from the DSL spec, the docs, the published tree-sitter grammar,
+  and every shipped agent — the interpreter accepted syntax the language does
+  not define, and silently doing nothing is worse than a parse error. `emit`
+  and `on` are no longer keywords, so they are usable as identifiers, matching
+  the tree-sitter grammar.
+- **The shell's `/exec` and `/verify` commands.** Both were registered,
+  completable, documented placeholders that returned "not yet connected".
+  Removed from the registry, help, and docs until there is something to wire
+  them to.
+
+### Deprecated
+- **`CustomDeliveryHandler` / `register_custom_handler`.** No implementation
+  or caller exists anywhere in the tree, so the scheduler's
+  `DeliveryChannel::Custom` lookup always misses. Deprecated rather than
+  removed because it shipped in published crates; slated for removal unless a
+  consumer appears.
+
+### Fixed
+- **Latent panics in three CLI truncation helpers.** `symbi run`, `symbi
+  cron`, and `symbi skills` truncated display strings with raw byte slicing
+  (`&s[..max]`), which panics when the cut lands inside a multi-byte UTF-8
+  character — and job names, skill names, and input previews are user data.
+  All now delegate to `text_util::truncate_utf8`, as does the equivalent
+  boundary walk in `communication::remote`.
+
 ## [1.19.0] - 2026-07-28
 
 ### Added

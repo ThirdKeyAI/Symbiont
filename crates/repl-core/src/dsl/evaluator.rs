@@ -473,38 +473,6 @@ impl DslEvaluator {
                     func_def.name.clone(),
                 )))
             }
-            Declaration::EventHandler(handler) => {
-                // Register event handler with runtime bridge
-                let agent_id = context.agent_id.unwrap_or_else(Uuid::new_v4);
-
-                match self
-                    .runtime_bridge
-                    .register_event_handler(
-                        &agent_id.to_string(),
-                        &handler.event_name,
-                        &handler.event_name,
-                    )
-                    .await
-                {
-                    Ok(_) => {
-                        tracing::info!(
-                            "Registered event handler '{}' for agent {}",
-                            handler.event_name,
-                            agent_id
-                        );
-                        Ok(ExecutionResult::Value(DslValue::Function(
-                            handler.event_name.clone(),
-                        )))
-                    }
-                    Err(e) => {
-                        tracing::error!("Failed to register event handler: {}", e);
-                        Err(ReplError::Runtime(format!(
-                            "Failed to register event handler: {}",
-                            e
-                        )))
-                    }
-                }
-            }
             Declaration::Struct(struct_def) => {
                 // Register struct type in the context for later use
                 let struct_info = format!("{}:{}", struct_def.name, struct_def.fields.len());
@@ -651,39 +619,6 @@ impl DslEvaluator {
                     DslValue::Null
                 };
                 Ok(ExecutionResult::Return(value))
-            }
-            Statement::Emit(emit_stmt) => {
-                let data = if let Some(expr) = &emit_stmt.data {
-                    self.evaluate_expression_impl(expr, context).await?
-                } else {
-                    DslValue::Null
-                };
-
-                // Emit event through runtime bridge
-                let agent_id = context.agent_id.unwrap_or_else(Uuid::new_v4);
-
-                match self
-                    .runtime_bridge
-                    .emit_event(
-                        &agent_id.to_string(),
-                        &emit_stmt.event_name,
-                        &data.to_json(),
-                    )
-                    .await
-                {
-                    Ok(_) => {
-                        tracing::info!(
-                            "Successfully emitted event: {} with data: {:?}",
-                            emit_stmt.event_name,
-                            data
-                        );
-                    }
-                    Err(e) => {
-                        tracing::error!("Failed to emit event '{}': {}", emit_stmt.event_name, e);
-                        return Err(ReplError::Runtime(format!("Failed to emit event: {}", e)));
-                    }
-                }
-                Ok(ExecutionResult::Value(DslValue::Null))
             }
             Statement::Require(req_stmt) => {
                 match &req_stmt.requirement {

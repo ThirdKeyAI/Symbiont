@@ -42,7 +42,6 @@ const DSL_KEYWORDS: &[(&str, &str)] = &[
     ("match", "statement"),
     ("try", "statement"),
     ("catch", "statement"),
-    ("emit", "statement"),
     ("require", "statement"),
     ("invoke", "statement"),
     // Types
@@ -93,7 +92,7 @@ pub fn complete(
     let text = &input[..cursor];
 
     // /command completion (works in both modes). Fuzzy match across the
-    // full registry so typing `/ex` surfaces `/exit`, `/exec`, and any
+    // full registry so typing `/de` surfaces `/debug`, `/debate`, and any
     // other command whose name contains those characters in order. The
     // popup is sorted by score so prefix matches come first.
     //
@@ -368,12 +367,14 @@ mod tests {
 
     #[test]
     fn test_command_completion_fuzzy_subsequence() {
-        // "/ex" is a subsequence of /exec, /exit, /extra…. Non-prefix
-        // matches (e.g. via 'x' in /exec) still appear and rank below
-        // the prefix matches.
-        let (_, candidates) = complete("/ex", 3, &[], false);
-        assert!(candidates.iter().any(|c| c.replacement == "/exit"));
-        assert!(candidates.iter().any(|c| c.replacement == "/exec"));
+        // "/dt" is a subsequence of /doctor (d…t) but a prefix of nothing,
+        // so this exercises the non-prefix fuzzy path; "/de" checks that
+        // multiple prefix matches (/debug, /debate) both surface.
+        let (_, candidates) = complete("/de", 3, &[], false);
+        assert!(candidates.iter().any(|c| c.replacement == "/debug"));
+        assert!(candidates.iter().any(|c| c.replacement == "/debate"));
+        let (_, candidates) = complete("/dt", 3, &[], false);
+        assert!(candidates.iter().any(|c| c.replacement == "/doctor"));
     }
 
     #[test]

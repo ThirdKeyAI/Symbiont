@@ -495,7 +495,10 @@ fn print_history(history: &[symbi_runtime::JobRunRecord]) {
 
 fn truncate(s: &str, max: usize) -> String {
     if s.len() > max {
-        format!("{}…", &s[..max - 1])
+        format!(
+            "{}…",
+            symbi_runtime::text_util::truncate_utf8(s, max.saturating_sub(1))
+        )
     } else {
         s.to_string()
     }

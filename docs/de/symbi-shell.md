@@ -77,7 +77,6 @@ Authoring-Befehle schreiben erst nach erfolgreicher Validierung auf die Festplat
 | `/parallel <a,b,c> <input>` | Agenten parallel mit derselben Eingabe ausfuehren; Ergebnisse aggregieren. |
 | `/race <a,b,c> <input>` | Parallel ausfuehren, die erste erfolgreiche Antwort gewinnt, der Rest wird abgebrochen. |
 | `/debate <a,b,c> <topic>` | Strukturierte Multi-Agent-Debatte zu einem Thema. |
-| `/exec <command>` | Einen Shell-Befehl innerhalb des sandboxed Dev-Agenten ausfuehren. |
 
 ### Betrieb
 
@@ -92,13 +91,12 @@ Authoring-Befehle schreiben erst nach erfolgreicher Validierung auf die Festplat
 | `/debug <agent>` | Den internen Zustand eines Agenten inspizieren. |
 | `/pause`, `/resume-agent`, `/stop`, `/destroy` | Lifecycle-Steuerung fuer Agenten. |
 
-### Tools, Skills und Verifikation
+### Tools und Skills
 
 | Befehl | Funktion |
 |---------|-------------|
 | `/tools [list\|add\|remove]` | Fuer Agenten verfuegbare ToolClad-Tools verwalten. |
 | `/skills [list\|install\|remove]` | Fuer Agenten verfuegbare Skills verwalten. |
-| `/verify <artifact>` | Ein signiertes Artefakt (Tool-Manifest, Skill) gegen seine SchemaPin-Signatur verifizieren. |
 
 ### Scheduling
 

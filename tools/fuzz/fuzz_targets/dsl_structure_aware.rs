@@ -57,8 +57,8 @@ fn escape_str(s: &str) -> String {
 // ---------------------------------------------------------------------------
 
 const IDENT_POOL: &[&str] = &[
-    "x", "y", "z", "val", "count", "name", "result", "data", "msg", "item",
-    "ctx", "state", "cfg", "buf", "idx", "tmp", "err", "ok", "inner", "outer",
+    "x", "y", "z", "val", "count", "name", "result", "data", "msg", "item", "ctx", "state", "cfg",
+    "buf", "idx", "tmp", "err", "ok", "inner", "outer",
 ];
 
 const TYPE_NAMES: &[&str] = &[
@@ -115,11 +115,6 @@ enum DslDeclaration {
         return_type_idx: u8,
         body: Vec<DslStatement>,
     },
-    EventHandler {
-        event_name: String,
-        params: Vec<ParamDef>,
-        body: Vec<DslStatement>,
-    },
     StructDef {
         name: String,
         fields: Vec<FieldDef>,
@@ -168,10 +163,10 @@ struct FieldDef {
 
 #[derive(Arbitrary, Debug)]
 enum DslType {
-    Simple(u8),             // indexes into TYPE_NAMES
-    List(u8),               // list<T>
-    Map(u8, u8),            // map<K, V>
-    Custom(String),         // user-defined type name
+    Simple(u8),     // indexes into TYPE_NAMES
+    List(u8),       // list<T>
+    Map(u8, u8),    // map<K, V>
+    Custom(String), // user-defined type name
 }
 
 #[derive(Arbitrary, Debug)]
@@ -192,9 +187,6 @@ enum DslStatement {
         has_value: bool,
         value: DslExpr,
     },
-    Emit {
-        event_name: String,
-    },
     Require {
         kind: RequireKind,
     },
@@ -210,13 +202,13 @@ enum RequireKind {
 #[derive(Arbitrary, Debug)]
 enum DslExpr {
     StringLit(String),
-    NumberLit(u8),          // kept small to avoid huge floats
+    NumberLit(u8), // kept small to avoid huge floats
     IntegerLit(i16),
     BoolLit(bool),
     NullLit,
-    DurationLit(u16, u8),   // value, unit index
-    SizeLit(u16, u8),       // value, unit index
-    Identifier(u8),         // indexes into IDENT_POOL
+    DurationLit(u16, u8), // value, unit index
+    SizeLit(u16, u8),     // value, unit index
+    Identifier(u8),       // indexes into IDENT_POOL
     FunctionCall {
         func_name: u8,
         args: Vec<DslExpr>,
@@ -439,23 +431,6 @@ impl DslDeclaration {
                 out.push_str("}\n");
             }
 
-            DslDeclaration::EventHandler {
-                event_name,
-                params,
-                body,
-            } => {
-                let ident = to_ident(&clamp(event_name.clone(), 32, "fuzz_event"), "fuzz_event");
-                out.push_str(&format!("on {}(", ident));
-                render_param_list(out, params);
-                out.push_str(") {\n");
-                for stmt in body.iter().take(6) {
-                    out.push_str("  ");
-                    stmt.render(out, 1);
-                    out.push('\n');
-                }
-                out.push_str("}\n");
-            }
-
             DslDeclaration::StructDef { name, fields } => {
                 let ident = to_ident(&clamp(name.clone(), 32, "FuzzStruct"), "FuzzStruct");
                 out.push_str(&format!("struct {} {{\n", ident));
@@ -596,11 +571,6 @@ impl DslStatement {
                 }
             }
 
-            DslStatement::Emit { event_name } => {
-                let ident = to_ident(&clamp(event_name.clone(), 24, "fuzz_evt"), "fuzz_evt");
-                out.push_str(&format!("emit {}", ident));
-            }
-
             DslStatement::Require { kind } => match kind {
                 RequireKind::SingleCapability(cap) => {
                     let ident = to_ident(&clamp(cap.clone(), 24, "read"), "read");
@@ -612,7 +582,10 @@ impl DslStatement {
                         .take(4)
                         .enumerate()
                         .map(|(i, c)| {
-                            to_ident(&clamp(c.clone(), 24, &format!("cap{}", i)), &format!("cap{}", i))
+                            to_ident(
+                                &clamp(c.clone(), 24, &format!("cap{}", i)),
+                                &format!("cap{}", i),
+                            )
                         })
                         .collect();
                     out.push_str(&format!("require capabilities [{}]", idents.join(", ")));

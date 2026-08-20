@@ -81,7 +81,6 @@ Os comandos de autoria gravam em disco apenas após a validação passar. Viola�
 | `/parallel <a,b,c> <input>` | Executar agentes em paralelo com a mesma entrada; agregar resultados. |
 | `/race <a,b,c> <input>` | Executar em paralelo; a primeira resposta bem-sucedida vence, o restante é cancelado. |
 | `/debate <a,b,c> <topic>` | Debate estruturado entre múltiplos agentes sobre um tópico. |
-| `/exec <command>` | Executar um comando de shell dentro do agente dev em sandbox. |
 
 ### Operações
 
@@ -96,13 +95,12 @@ Os comandos de autoria gravam em disco apenas após a validação passar. Viola�
 | `/debug <agent>` | Inspecionar o estado interno de um agente. |
 | `/pause`, `/resume-agent`, `/stop`, `/destroy` | Controles de ciclo de vida do agente. |
 
-### Ferramentas, skills e verificação
+### Ferramentas e skills
 
 | Comando | O que faz |
 |---------|-----------|
 | `/tools [list\|add\|remove]` | Gerenciar ferramentas ToolClad disponíveis para os agentes. |
 | `/skills [list\|install\|remove]` | Gerenciar skills disponíveis para os agentes. |
-| `/verify <artifact>` | Verificar um artefato assinado (manifesto de ferramenta, skill) contra sua assinatura SchemaPin. |
 
 ### Agendamento
 

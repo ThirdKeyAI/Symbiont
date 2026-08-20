@@ -72,7 +72,7 @@ pub use embedding::{
 
 pub use vector_db::{
     EmbeddingService, MockEmbeddingService, NoOpVectorDatabase, QdrantConfig, QdrantDistance,
-    TfIdfEmbeddingService, VectorDatabase, VectorDatabaseStats,
+    TfIdfEmbeddingService, VectorDatabaseStats,
 };
 
 #[cfg(feature = "vector-qdrant")]

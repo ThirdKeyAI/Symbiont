@@ -908,6 +908,9 @@ impl Config {
                 .map_err(|e| ConfigError::IoError {
                     message: e.to_string(),
                 }),
+            // Bindings are only read by the `keychain` arm below; without that
+            // feature they are genuinely unused.
+            #[cfg_attr(not(feature = "keychain"), allow(unused_variables))]
             KeyProvider::Keychain { service, account } => {
                 #[cfg(feature = "keychain")]
                 {

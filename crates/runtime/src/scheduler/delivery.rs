@@ -27,6 +27,14 @@ pub trait DeliveryRouter: Send + Sync {
 }
 
 /// Handler for a single custom delivery channel.
+///
+/// Nothing in the tree implements this or calls `register_custom_handler`, so
+/// every `DeliveryChannel::Custom` lookup misses and reports "no handler
+/// registered". Deprecated pending removal — speak up if you depend on it.
+#[deprecated(
+    since = "1.19.0",
+    note = "never wired: no dispatcher registers custom handlers; slated for removal"
+)]
 #[async_trait]
 pub trait CustomDeliveryHandler: Send + Sync {
     async fn deliver(
@@ -38,6 +46,7 @@ pub trait CustomDeliveryHandler: Send + Sync {
 
 /// Default implementation that dispatches to built-in channel handlers.
 pub struct DefaultDeliveryRouter {
+    #[allow(deprecated)] // carried until CustomDeliveryHandler is removed
     custom_handlers: HashMap<String, Arc<dyn CustomDeliveryHandler>>,
     /// Allowlisted base directory for `LogFile` delivery. When `None`, log-file
     /// delivery is refused (fail-closed). Initialized from `SYMBIONT_LOG_DIR`.
@@ -60,6 +69,11 @@ impl DefaultDeliveryRouter {
     }
 
     /// Register a custom delivery handler.
+    #[deprecated(
+        since = "1.19.0",
+        note = "never wired: no caller registers custom handlers; slated for removal"
+    )]
+    #[allow(deprecated)] // signature references the trait it is deprecated with
     pub fn register_custom_handler(
         &mut self,
         name: String,
@@ -444,6 +458,7 @@ impl DefaultDeliveryRouter {
         }
     }
 
+    #[allow(deprecated)] // reads the registry the deprecated API fills
     async fn deliver_custom(
         &self,
         payload: &serde_json::Value,

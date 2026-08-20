@@ -88,7 +88,6 @@ fn intercept_help(command: &str, args: &str) -> Option<CommandResult> {
             "/race <agent1,agent2,...> <input>\n  \
              Run agents in parallel; first successful reply wins, others are cancelled."
         }
-        "/exec" => "/exec <command>\n  Execute a shell command inside the sandboxed dev agent.",
         "/monitor" => "/monitor [agent]\n  Stream live status for the given agent (or all agents).",
         "/logs" => "/logs [agent]\n  Show recent logs for the given agent (or all agents).",
         "/doctor" => "/doctor\n  Diagnose the local runtime environment.",
@@ -96,10 +95,6 @@ fn intercept_help(command: &str, args: &str) -> Option<CommandResult> {
         "/cron" => "/cron [list|add|remove|history] …\n  Manage cron-scheduled agent runs.",
         "/tools" => "/tools [list|add|remove] …\n  Manage ToolClad tools available to agents.",
         "/skills" => "/skills [list|install|remove] …\n  Manage skills available to agents.",
-        "/verify" => {
-            "/verify <artifact>\n  Verify a signed artifact (tool manifest, skill, etc.) \
-             against its SchemaPin signature."
-        }
         "/channels" => "/channels\n  List registered channel adapters (Slack, Mattermost, …).",
         "/connect" => "/connect <channel> [options]\n  Register a new channel adapter.",
         "/disconnect" => "/disconnect <channel>\n  Remove a channel adapter.",
@@ -180,7 +175,6 @@ pub fn dispatch(app: &mut App, command: &str, args: &str) -> Option<CommandResul
         "/debate" => Some(orchestration::debate(app, args)),
         "/parallel" => Some(orchestration::parallel(app, args)),
         "/race" => Some(orchestration::race(app, args)),
-        "/exec" => Some(orchestration::exec(app, args)),
 
         // Operations
         "/monitor" => Some(operations::monitor(app, args)),
@@ -194,7 +188,6 @@ pub fn dispatch(app: &mut App, command: &str, args: &str) -> Option<CommandResul
         // Tools
         "/tools" => Some(tools::tools(app, args)),
         "/skills" => Some(tools::skills(app, args)),
-        "/verify" => Some(tools::verify(app, args)),
 
         // Channels
         "/channels" => Some(channels::channels(app)),

@@ -275,21 +275,6 @@ impl RuntimeBridge {
             .map_err(|e| e.to_string())
     }
 
-    /// Register an event handler for an agent (stub implementation)
-    pub async fn register_event_handler(
-        &self,
-        agent_id: &str,
-        event_name: &str,
-        _event_type: &str,
-    ) -> Result<(), String> {
-        tracing::info!(
-            "Registered event handler '{}' for agent {}",
-            event_name,
-            agent_id
-        );
-        Ok(())
-    }
-
     /// Open a session: establish the protocol on the registry, attach the monitor to
     /// the shared communication gate, and set the active session so the DSL builtins
     /// tag + enforce subsequent inter-agent messages.
@@ -321,17 +306,6 @@ impl RuntimeBridge {
         &self,
     ) -> std::sync::Arc<std::sync::Mutex<symbi_runtime::session::SessionTranscript>> {
         self.session_registry.transcript()
-    }
-
-    /// Emit an event from an agent (stub implementation)
-    pub async fn emit_event(
-        &self,
-        agent_id: &str,
-        event_name: &str,
-        _data: &serde_json::Value,
-    ) -> Result<(), String> {
-        tracing::info!("Agent {} emitted event: {}", agent_id, event_name);
-        Ok(())
     }
 }
 

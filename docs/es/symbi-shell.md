@@ -77,7 +77,6 @@ Los comandos de autoria escriben a disco solo despues de que pasa la validacion.
 | `/parallel <a,b,c> <input>` | Ejecutar agentes en paralelo con la misma entrada; agregar resultados. |
 | `/race <a,b,c> <input>` | Ejecutar en paralelo; la primera respuesta exitosa gana y el resto se cancelan. |
 | `/debate <a,b,c> <topic>` | Debate multi-agente estructurado sobre un tema. |
-| `/exec <command>` | Ejecutar un comando shell dentro del agente de desarrollo aislado en sandbox. |
 
 ### Operaciones
 
@@ -92,13 +91,12 @@ Los comandos de autoria escriben a disco solo despues de que pasa la validacion.
 | `/debug <agent>` | Inspecciona el estado interno de un agente. |
 | `/pause`, `/resume-agent`, `/stop`, `/destroy` | Controles del ciclo de vida del agente. |
 
-### Herramientas, skills y verificacion
+### Herramientas y skills
 
 | Comando | Que hace |
 |---------|----------|
 | `/tools [list\|add\|remove]` | Gestiona las herramientas ToolClad disponibles para los agentes. |
 | `/skills [list\|install\|remove]` | Gestiona los skills disponibles para los agentes. |
-| `/verify <artifact>` | Verifica un artefacto firmado (manifiesto de herramienta, skill) contra su firma SchemaPin. |
 
 ### Programacion
 

@@ -2,15 +2,22 @@
 //!
 //! Tests LanceDB (when feature enabled) and Qdrant (when feature enabled + server available).
 
+// Everything below is exercised only by the feature-gated backend tests; with
+// no backend feature the file compiles to nothing.
+#[cfg(any(feature = "vector-lancedb", feature = "vector-qdrant"))]
 use std::sync::Arc;
+#[cfg(any(feature = "vector-lancedb", feature = "vector-qdrant"))]
 use symbi_runtime::context::types::{KnowledgeId, KnowledgeItem, KnowledgeSource, KnowledgeType};
 #[cfg(feature = "vector-lancedb")]
 use symbi_runtime::context::LanceDbConfig;
+#[cfg(any(feature = "vector-lancedb", feature = "vector-qdrant"))]
 use symbi_runtime::context::{create_vector_backend, VectorBackendConfig, VectorDb};
+#[cfg(any(feature = "vector-lancedb", feature = "vector-qdrant"))]
 use symbi_runtime::types::AgentId;
 #[cfg(feature = "vector-lancedb")]
 use tempfile::TempDir;
 
+#[cfg(any(feature = "vector-lancedb", feature = "vector-qdrant"))]
 fn make_test_item(content: &str) -> KnowledgeItem {
     KnowledgeItem {
         id: KnowledgeId::new(),
@@ -23,6 +30,7 @@ fn make_test_item(content: &str) -> KnowledgeItem {
     }
 }
 
+#[cfg(any(feature = "vector-lancedb", feature = "vector-qdrant"))]
 async fn run_store_and_search_suite(backend: Arc<dyn VectorDb>) {
     backend.initialize().await.unwrap();
 
