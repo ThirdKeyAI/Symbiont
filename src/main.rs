@@ -376,6 +376,12 @@ async fn main() {
                         .long("content")
                         .value_name("CONTENT")
                         .help("DSL content to parse directly"),
+                )
+                .arg(
+                    Arg::new("check")
+                        .long("check")
+                        .action(ArgAction::SetTrue)
+                        .help("Validate only: print one line per file and set the exit code"),
                 ),
         )
         .subcommand(
@@ -809,6 +815,9 @@ async fn main() {
                 eprintln!("Either --file or --content must be provided for DSL command");
                 std::process::exit(1);
             };
+            if sub_matches.get_flag("check") {
+                std::process::exit(commands::dsl::check(&source.0, source.1));
+            }
             commands::dsl::run(&source.0, source.1);
         }
         Some(("chat", sub_matches)) => {

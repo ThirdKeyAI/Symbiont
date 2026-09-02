@@ -1,0 +1,13 @@
+apiVersion: v2
+name: symbi
+description: Policy-governed agent runtime — the OSS Symbiont runtime
+type: application
+version: 0.1.0
+appVersion: "1.19.0"
+home: https://symbiont.dev
+sources:
+  - https://github.com/ThirdKeyAI/Symbiont
+keywords:
+  - agents
+  - policy
+  - cedar

@@ -1,0 +1,13 @@
+{{- if .Values.policies }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "symbi.fullname" . }}-policies
+  labels:
+    {{- include "symbi.labels" . | nindent 4 }}
+data:
+  {{- range $name, $body := .Values.policies }}
+  {{ $name }}: |
+    {{- $body | nindent 4 }}
+  {{- end }}
+{{- end }}

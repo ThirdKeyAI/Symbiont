@@ -78,29 +78,27 @@ impl LlmClient {
     ///
     /// Returns `None` if no API key is found.
     pub fn from_env() -> Option<Self> {
-        // LLM providers legitimately redirect (e.g. `/v1` → `/v1/`) and the
-        // LLM hostname comes from env, so we explicitly keep redirect
-        // following within reason — but force DNS through the SSRF-safe
-        // resolver so a malicious DNS response can't point us at an
-        // internal IP for the legitimate hostname.
-        let client = crate::net_guard::customise_ssrf_safe_client(
-            std::time::Duration::from_secs(120),
-            |b| b.redirect(reqwest::redirect::Policy::limited(2)),
-        )
-        .ok()?;
+        // LLM providers legitimately redirect (e.g. `/v1` → `/v1/`), so keep
+        // redirect following within reason. DNS is deliberately NOT routed
+        // through the SSRF-safe resolver here: that resolver refuses any
+        // hostname resolving to a non-public IP, which would make
+        // `OPENAI_BASE_URL=http://localhost:11434/v1` — a local model, the
+        // ordinary way to run without a cloud key — fail at connect time.
+        // See `net_guard::customise_operator_client`.
+        let client =
+            crate::net_guard::customise_operator_client(std::time::Duration::from_secs(120), |b| {
+                b.redirect(reqwest::redirect::Policy::limited(2))
+            })
+            .ok()?;
 
-        // Validate a base URL against the SSRF guard before the API key is
-        // ever sent to it. Rejects private IPs, loopback, cloud metadata,
-        // non-http(s) schemes, and obfuscated IPv4 literals.
+        /// Operator-supplied LLM endpoints are configuration, not untrusted
+        /// input — they sit at the same trust level as the API key beside
+        /// them. `reject_ssrf_url` is deliberately NOT applied here: it blocks
+        /// loopback, which is where every local model server listens, and an
+        /// operator who can set the base URL can already reach any host. The
+        /// guard stays on the paths where a destination IS attacker-influenced
+        /// (`toolclad::executor` HTTP backends, SchemaPin key discovery).
         fn validate_base_url(env_var: &str, url: &str) -> bool {
-            if let Err(reason) = crate::net_guard::reject_ssrf_url(url) {
-                tracing::error!(
-                    "Refusing LLM base URL from {}: {} — falling back or disabling provider",
-                    env_var,
-                    reason
-                );
-                return false;
-            }
             if url.starts_with("http://") {
                 tracing::warn!(
                     "LLM base URL from {} uses plaintext HTTP ({}); \
@@ -233,21 +231,20 @@ impl LlmClient {
     pub async fn from_env_or_secrets(
         store: Option<std::sync::Arc<dyn crate::secrets::SecretStore + Send + Sync>>,
     ) -> Option<Self> {
-        let client = crate::net_guard::customise_ssrf_safe_client(
-            std::time::Duration::from_secs(120),
-            |b| b.redirect(reqwest::redirect::Policy::limited(2)),
-        )
-        .ok()?;
+        let client =
+            crate::net_guard::customise_operator_client(std::time::Duration::from_secs(120), |b| {
+                b.redirect(reqwest::redirect::Policy::limited(2))
+            })
+            .ok()?;
 
+        /// Operator-supplied LLM endpoints are configuration, not untrusted
+        /// input — they sit at the same trust level as the API key beside
+        /// them. `reject_ssrf_url` is deliberately NOT applied here: it blocks
+        /// loopback, which is where every local model server listens, and an
+        /// operator who can set the base URL can already reach any host. The
+        /// guard stays on the paths where a destination IS attacker-influenced
+        /// (`toolclad::executor` HTTP backends, SchemaPin key discovery).
         fn validate_base_url(env_var: &str, url: &str) -> bool {
-            if let Err(reason) = crate::net_guard::reject_ssrf_url(url) {
-                tracing::error!(
-                    "Refusing LLM base URL from {}: {} — falling back or disabling provider",
-                    env_var,
-                    reason
-                );
-                return false;
-            }
             if url.starts_with("http://") {
                 tracing::warn!(
                     "LLM base URL from {} uses plaintext HTTP ({}); \
@@ -927,6 +924,85 @@ impl LlmClient {
 mod tests {
     use super::*;
     use serial_test::serial;
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        LOCK.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// The LLM base URL is operator configuration, not attacker-influenced input,
+    /// so a local model endpoint must be usable. Ollama/vLLM/LM Studio all listen
+    /// on loopback; rejecting it made free evaluation impossible.
+    #[serial]
+    #[test]
+    fn local_llm_endpoint_is_actually_reachable() {
+        // `from_env().is_some()` proves nothing here: `validate_base_url` now
+        // always returns true, so it would pass for "ftp://nope" just as
+        // readily. The property that matters is whether a request reaches a
+        // local server, so this drives a real one.
+        //
+        // Both spellings are covered on purpose. URL screening only ever saw
+        // IP literals, so an implementation that drops `reject_ssrf_url` but
+        // keeps the SSRF DNS resolver passes for "127.0.0.1" and fails for
+        // "localhost" — which is the spelling this repo's own docs recommend.
+        let _g = env_lock();
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().unwrap().port();
+        let hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let hits_srv = hits.clone();
+        std::thread::spawn(move || {
+            use std::io::{Read, Write};
+            for stream in listener.incoming().take(2) {
+                let Ok(mut s) = stream else { continue };
+                let mut buf = [0u8; 1024];
+                let _ = s.read(&mut buf);
+                hits_srv.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let body = concat!(
+                    r#"{"id":"x","object":"chat.completion","created":0,"model":"m","#,
+                    r#""choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"#,
+                    r#""finish_reason":"stop"}],"#,
+                    r#""usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}"#
+                );
+                let _ = s.write_all(
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                        body.len(),
+                        body
+                    )
+                    .as_bytes(),
+                );
+            }
+        });
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+
+        for host in ["127.0.0.1", "localhost"] {
+            std::env::remove_var("OPENROUTER_API_KEY");
+            std::env::remove_var("ANTHROPIC_API_KEY");
+            std::env::set_var("OPENAI_API_KEY", "test-key");
+            std::env::set_var("OPENAI_BASE_URL", format!("http://{host}:{port}/v1"));
+
+            let client = LlmClient::from_env()
+                .unwrap_or_else(|| panic!("provider must be configured for {host}"));
+
+            let before = hits.load(std::sync::atomic::Ordering::SeqCst);
+            let res = rt.block_on(client.chat_completion("you are a test", "hi"));
+            let after = hits.load(std::sync::atomic::Ordering::SeqCst);
+
+            assert!(
+                after > before,
+                "no request reached the local server via {host} \u{2014} the endpoint is \
+                 still blocked (result: {res:?})"
+            );
+        }
+
+        std::env::remove_var("OPENAI_API_KEY");
+        std::env::remove_var("OPENAI_BASE_URL");
+    }
 
     #[test]
     fn test_provider_display() {

@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "symbi.fullname" . }}
+  labels:
+    {{- include "symbi.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "symbi.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "symbi.selectorLabels" . | nindent 8 }}
+      annotations:
+        {{- if .Values.policies }}
+        checksum/policies: {{ toYaml .Values.policies | sha256sum }}
+        {{- end }}
+    spec:
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: symbi
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["up"]
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            {{- range $k, $v := .Values.config }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          {{- if or .Values.env .Values.existingSecret }}
+          envFrom:
+            - secretRef:
+                name: {{ include "symbi.secretName" . }}
+          {{- end }}
+          # Both probe paths are served by the runtime API; see
+          # crates/runtime/src/api/server.rs.
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health/live
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health/ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            {{- if .Values.policies }}
+            - name: policies
+              mountPath: /app/policies
+              readOnly: true
+            {{- end }}
+            # readOnlyRootFilesystem is on, so anything the runtime writes
+            # needs an explicit writable mount.
+            - name: audit
+              mountPath: /app/.symbiont
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        {{- if .Values.policies }}
+        - name: policies
+          configMap:
+            name: {{ include "symbi.fullname" . }}-policies
+        {{- end }}
+        - name: audit
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

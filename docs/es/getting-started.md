@@ -130,6 +130,31 @@ docker run --rm symbi:latest mcp --help
 
 ---
 
+## Probarlo sin clave de API
+
+Dos cosas funcionan sin conexion, antes de configurar cualquier proveedor de modelos. Ambas demuestran lo que Symbiont hace realmente — empieza aqui.
+
+**Define una herramienta y ejecutala en seco.** Los tipos de argumento, los limites de alcance y las comprobaciones de inyeccion se aplican antes de ejecutar nada:
+
+```bash
+symbi tools init greet
+symbi tools validate
+symbi tools test greet --arg target=example
+```
+
+```
+greet                                    OK
+
+  ✓ target (string): example → OK
+
+  Command:   greet example
+  Cedar:     Tool::Greet / execute_tool
+
+  [dry run — command not executed]
+```
+
+Ejecutar un *agente* requiere un proveedor de modelos — una clave en la nube o un modelo local, ambos cubiertos mas abajo.
+
 ## Inicializacion de Proyecto
 
 La forma mas rapida de iniciar un nuevo proyecto Symbiont es `symbi init`:
@@ -227,6 +252,20 @@ El comando resuelve nombres de agentes buscando: ruta directa, luego el director
 symbi run assistant -i 'Summarize this document'
 symbi run agents/recon.symbi -i '{"target": "10.0.1.5"}' --max-iterations 5
 ```
+
+### Usar un modelo local
+
+El proveedor no tiene por que ser un servicio en la nube. Apunta `OPENAI_BASE_URL` a cualquier servidor compatible con OpenAI — [Ollama](https://ollama.com), vLLM, LM Studio y llama.cpp exponen uno — y no interviene ninguna clave de nube:
+
+```bash
+export OPENAI_API_KEY=ollama
+export OPENAI_BASE_URL=http://localhost:11434/v1
+export CHAT_MODEL=llama3.1
+
+symbi run assistant -i 'hello'
+```
+
+Las mismas tres variables sirven para `symbi up`. Symbiont advierte cuando una URL base usa `http://` en texto plano, porque la clave viaja con la peticion. Eso es lo esperado para un modelo en tu propia maquina.
 
 ### Partir desde una plantilla (`symbi new`)
 

@@ -1,0 +1,42 @@
+# A tool contract. Every constraint here is enforced by the runtime before the
+# command is constructed, let alone executed.
+[tool]
+name = "wordcount"
+version = "1.0.0"
+binary = "wc"
+description = "Count words, lines, or characters in a file"
+timeout_seconds = 10
+risk_tier = "low"
+
+# Every tool is gated by a Cedar action. A policy must permit this action or
+# the call is denied — the runtime is fail-closed.
+[tool.cedar]
+resource = "Tool::Wordcount"
+action = "execute_tool"
+
+# A closed set. Anything outside it is refused, so the model cannot invent a
+# flag — this is the difference between a contract and string interpolation.
+[args.mode]
+position = 1
+required = true
+# `enum` is what activates the `allowed` check — a `string` with an `allowed`
+# list is silently unconstrained.
+type = "enum"
+description = "What to count"
+allowed = ["words", "lines", "chars"]
+
+# A pattern the value must match. Keeps the argument to a plain relative
+# filename with no path separators.
+[args.path]
+position = 2
+required = true
+type = "string"
+description = "File to count, a plain filename in the current directory"
+pattern = "^[A-Za-z0-9._-]+$"
+
+[command]
+template = "wc --{mode} {path}"
+
+[output]
+format = "text"
+envelope = true

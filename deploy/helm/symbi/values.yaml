@@ -1,0 +1,55 @@
+image:
+  repository: ghcr.io/thirdkeyai/symbi
+  # Defaults to .Chart.AppVersion when empty.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+service:
+  type: ClusterIP
+  # Runtime API / MCP. The container also exposes 8081 for HTTP input.
+  port: 8080
+
+# Cedar policies, written into a ConfigMap and mounted at /app/policies.
+# The runtime is fail-closed: with no policy present every tool call is
+# denied. That is the safe default, not a misconfiguration — add a policy
+# here when you want the agent to be able to act.
+#
+#   policies:
+#     default.cedar: |
+#       permit(principal, action == Action::"respond", resource);
+#       permit(principal, action == Action::"terminate", resource);
+policies: {}
+
+# Written into a Secret and exposed as environment variables. Use this for
+# OPENROUTER_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY, or set
+# existingSecret to a Secret you manage yourself.
+env: {}
+existingSecret: ""
+
+# Non-secret environment (model choice, log level, a local model endpoint).
+config:
+  RUST_LOG: info
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 1Gi
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

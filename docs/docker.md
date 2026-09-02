@@ -289,3 +289,17 @@ Images include metadata:
 - Build timestamp  
 - Vulnerability scan results
 - SBOM (Software Bill of Materials)
+## Kubernetes
+
+A minimal Helm chart ships in [`deploy/helm/symbi`](../deploy/helm/symbi):
+
+```bash
+helm install symbi ./deploy/helm/symbi
+```
+
+It deploys the runtime with its Cedar policies mounted at `/app/policies` and
+liveness/readiness probes on `/api/v1/health/live` and `/api/v1/health/ready`.
+Editing a policy rolls the pods, because the Deployment carries a checksum of
+the policy set. See [`deploy/helm/README.md`](../deploy/helm/README.md) for
+supplying policies, wiring a model provider (cloud or local), and the
+hardening defaults.

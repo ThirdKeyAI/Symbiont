@@ -134,6 +134,45 @@ cargo run -- mcp --help
 
 ---
 
+## Try it without an API key
+
+Two things work offline, before you configure any model provider. Both
+demonstrate what Symbiont actually does, so start here.
+
+**Evaluate a policy.** The Cedar gate is the same one the runtime wires into
+the live reasoning loop:
+
+```bash
+mkdir -p /tmp/p && cat > /tmp/p/policy.cedar <<'EOF'
+forbid(principal, action == Symbi::Action::"tool_call::list_agents",   resource);
+permit(principal, action == Symbi::Action::"tool_call::system_health", resource);
+EOF
+echo '{"tool_name":"list_agents"}' | symbi policy evaluate --stdin --policies /tmp/p --json
+```
+
+**Define a governed tool and dry-run it.** Argument types, scope limits and
+injection checks are enforced before anything executes:
+
+```bash
+symbi tools init greet
+symbi tools validate
+symbi tools test greet --arg target=example
+```
+
+```
+greet                                    OK
+
+  ✓ target (string): example → OK
+
+  Command:   greet example
+  Cedar:     Tool::Greet / execute_tool
+
+  [dry run — command not executed]
+```
+
+Running an *agent* needs a model provider — either a cloud key or a local
+model, both covered below.
+
 ## Project Initialization
 
 The fastest way to start a new Symbiont project is `symbi init`:
@@ -299,13 +338,48 @@ symbi dsl -f my_agent.symbi
 ```
 
 Then run it. `symbi run` executes the agent through the ORGA reasoning loop,
-which needs a cloud LLM key — export one of `OPENROUTER_API_KEY`,
+which needs a model provider — export one of `OPENROUTER_API_KEY`,
 `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY` first:
 
 ```bash
 export OPENROUTER_API_KEY=sk-...            # or OPENAI_API_KEY / ANTHROPIC_API_KEY
 symbi run my_agent.symbi -i '{"name": "World"}'
 ```
+
+### Using a local model
+
+The provider does not have to be a cloud service. Point `OPENAI_BASE_URL` at
+any OpenAI-compatible server — [Ollama](https://ollama.com), vLLM, LM Studio
+and llama.cpp all expose one — and no cloud key is involved:
+
+```bash
+export OPENAI_API_KEY=ollama                     # any non-empty value
+export OPENAI_BASE_URL=http://localhost:11434/v1
+export CHAT_MODEL=llama3.1
+
+symbi run my_agent.symbi -i '{"name": "World"}'
+```
+
+The same three variables work for `symbi up`. Each provider has its own base
+URL override — `OPENROUTER_BASE_URL`, `OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL`
+— and the model is chosen with `CHAT_MODEL` (OpenAI-compatible),
+`OPENROUTER_MODEL`, or `ANTHROPIC_MODEL`.
+
+> Symbiont warns when a base URL uses plaintext `http://`, since the key
+> travels with the request. That is expected for a model on your own machine.
+
+### Metrics
+
+The runtime always serves `GET /api/v1/metrics`. OTLP *export* to a collector
+is separate: it sits behind the `metrics` feature and is off in the default
+build to keep it lean. Enable it when you need one:
+
+```bash
+cargo install symbi --features metrics
+```
+
+Export settings (service name, interval) come from the runtime's metrics
+configuration rather than environment variables.
 
 ---
 

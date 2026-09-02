@@ -294,6 +294,36 @@ where
     builder.dns_resolver(Arc::new(SsrfSafeResolver)).build()
 }
 
+/// Build a client for an endpoint the **operator** configured, with no SSRF
+/// DNS filtering.
+///
+/// [`customise_ssrf_safe_client`] installs [`SsrfSafeResolver`], which refuses
+/// any hostname resolving only to non-public IPs. That is correct when a
+/// destination is attacker-influenced, and wrong for a destination the
+/// operator typed into their own environment: it makes
+/// `OPENAI_BASE_URL=http://localhost:11434/v1` — a local Ollama, the ordinary
+/// way to run a model without a cloud key — fail at DNS resolve time with
+/// "hostname resolves only to non-public IPs".
+///
+/// Note that dropping [`reject_ssrf_url`] alone does NOT achieve this: URL
+/// screening only sees IP literals, so `127.0.0.1` would start working while
+/// `localhost` kept failing inside the connector. Both have to go for the
+/// operator-config path.
+///
+/// Use this ONLY where the URL comes from operator configuration at the same
+/// trust level as the credential sent with it. Anything reachable from
+/// untrusted input keeps [`customise_ssrf_safe_client`].
+pub fn customise_operator_client<F>(
+    timeout: std::time::Duration,
+    customise: F,
+) -> Result<reqwest::Client, reqwest::Error>
+where
+    F: FnOnce(reqwest::ClientBuilder) -> reqwest::ClientBuilder,
+{
+    let builder = reqwest::Client::builder().timeout(timeout);
+    customise(builder).build()
+}
+
 /// Normalise legacy IPv4 literal forms into dotted-decimal so the standard
 /// `Ipv4Addr::is_*` checks can see through shorthand like `127.1` or
 /// `0x7f000001`. Returns `None` when the input doesn't look like a legacy

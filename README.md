@@ -83,6 +83,53 @@ echo "{\"tool_name\":\"system_health\"}" | symbi policy evaluate --stdin --polic
 
 That's the same Cedar gate the runtime wires into the live reasoning loop — exactly the denial shown in the demo above.
 
+### Define a governed tool and dry-run it — still no API key
+
+Tool contracts are declarative. Scaffold one, validate it, and see exactly what
+would run and which Cedar action gates it — all offline:
+
+```bash
+symbi tools init greet
+symbi tools validate
+symbi tools test greet --arg target=example
+```
+
+```
+greet                                    OK
+
+  ✓ target (string): example → OK
+
+  Command:   greet example
+  Cedar:     Tool::Greet / execute_tool
+
+  [dry run — command not executed]
+```
+
+Argument types, scope limits and injection checks are enforced before anything
+executes, and the dry run names the Cedar action that gates the call.
+
+### Run an agent against a local model — no cloud key
+
+Point `OPENAI_BASE_URL` at any OpenAI-compatible server. With
+[Ollama](https://ollama.com) on its default port:
+
+```bash
+export OPENAI_API_KEY=ollama
+export OPENAI_BASE_URL=http://localhost:11434/v1
+export CHAT_MODEL=llama3.1
+
+symbi init --no-interact
+symbi run assistant --input '{"query":"hello"}'
+```
+
+```
+→ Running agent: assistant (agents/assistant.symbi)
+✓ Cedar policy gate wired (1 policy file(s) loaded)
+Hello from the local model.
+
+--- 1 iterations, 2 tokens, terminated: Completed ---
+```
+
 ### Install the CLI
 
 ```bash

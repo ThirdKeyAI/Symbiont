@@ -112,6 +112,31 @@ docker run --rm symbi:latest mcp --help
 
 ---
 
+## 无需 API 密钥即可试用
+
+在配置任何模型提供方之前，有两项功能可以离线运行。二者都展示了 Symbiont 的实际能力，建议从这里开始。
+
+**定义一个工具并进行试运行。** 参数类型、作用域限制和注入检查都会在任何内容执行之前强制生效：
+
+```bash
+symbi tools init greet
+symbi tools validate
+symbi tools test greet --arg target=example
+```
+
+```
+greet                                    OK
+
+  ✓ target (string): example → OK
+
+  Command:   greet example
+  Cedar:     Tool::Greet / execute_tool
+
+  [dry run — command not executed]
+```
+
+运行*智能体*需要模型提供方 —— 云端密钥或本地模型均可，下文均有说明。
+
 ## 项目初始化
 
 启动新 Symbiont 项目的最快方式是 `symbi init`：
@@ -209,6 +234,20 @@ symbi run <agent-name-or-file> --input <json>
 symbi run assistant -i 'Summarize this document'
 symbi run agents/recon.symbi -i '{"target": "10.0.1.5"}' --max-iterations 5
 ```
+
+### 使用本地模型
+
+提供方不必是云服务。将 `OPENAI_BASE_URL` 指向任意兼容 OpenAI 的服务器 —— [Ollama](https://ollama.com)、vLLM、LM Studio 和 llama.cpp 都提供此接口 —— 完全无需云端密钥：
+
+```bash
+export OPENAI_API_KEY=ollama
+export OPENAI_BASE_URL=http://localhost:11434/v1
+export CHAT_MODEL=llama3.1
+
+symbi run assistant -i 'hello'
+```
+
+同样的三个变量也适用于 `symbi up`。当基础 URL 使用明文 `http://` 时 Symbiont 会发出警告，因为密钥会随请求一同发送。对于本机上的模型，这属于预期情况。
 
 ### 从模板开始（`symbi new`）
 

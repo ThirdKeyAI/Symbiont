@@ -112,6 +112,31 @@ docker run --rm symbi:latest mcp --help
 
 ---
 
+## API キーなしで試す
+
+モデルプロバイダーを設定する前に、2 つの機能がオフラインで動作します。どちらも Symbiont が実際に行うことを示すため、ここから始めてください。
+
+**ツールを定義してドライランする。** 引数の型、スコープ制限、インジェクション検査は、何かが実行される前に強制されます。
+
+```bash
+symbi tools init greet
+symbi tools validate
+symbi tools test greet --arg target=example
+```
+
+```
+greet                                    OK
+
+  ✓ target (string): example → OK
+
+  Command:   greet example
+  Cedar:     Tool::Greet / execute_tool
+
+  [dry run — command not executed]
+```
+
+*エージェント*の実行にはモデルプロバイダーが必要です — クラウドキーまたはローカルモデルのいずれかで、どちらも以下で説明します。
+
 ## プロジェクト初期化
 
 新しいSymbiontプロジェクトを始める最も速い方法は `symbi init` です：
@@ -209,6 +234,20 @@ symbi run <agent-name-or-file> --input <json>
 symbi run assistant -i 'Summarize this document'
 symbi run agents/recon.symbi -i '{"target": "10.0.1.5"}' --max-iterations 5
 ```
+
+### ローカルモデルを使う
+
+プロバイダーはクラウドサービスである必要はありません。`OPENAI_BASE_URL` を OpenAI 互換のサーバー — [Ollama](https://ollama.com)、vLLM、LM Studio、llama.cpp はいずれも提供します — に向ければ、クラウドキーは一切不要です。
+
+```bash
+export OPENAI_API_KEY=ollama
+export OPENAI_BASE_URL=http://localhost:11434/v1
+export CHAT_MODEL=llama3.1
+
+symbi run assistant -i 'hello'
+```
+
+同じ 3 つの変数が `symbi up` でも使えます。ベース URL が平文の `http://` の場合、キーがリクエストとともに送られるため Symbiont は警告します。自分のマシン上のモデルであれば想定内です。
 
 ### テンプレートから始める（`symbi new`）
 
