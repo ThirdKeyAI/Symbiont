@@ -2,7 +2,7 @@
 name: symbiont
 title: Symbiont
 description: AI-native agent runtime with typestate-enforced ORGA reasoning loop, Cedar policy authorization, CommunicationPolicyGate for inter-agent governance, ToolClad declarative tool contracts, knowledge bridge, zero-trust security, multi-tier sandboxing, webhook verification, markdown memory, skill scanning, metrics, scheduling, symbi init/run/up/shell/repl CLI, interactive TUI (Beta), cross-instance agent messaging, human approval relay, and a declarative DSL
-version: 1.19.0
+version: 1.20.0
 ---
 
 # Symbiont Agent Development Skills Guide
@@ -35,6 +35,30 @@ version: 1.19.0
 - **AI Assistant Plugins**: Governance plugins for [Claude Code](https://github.com/thirdkeyai/symbi-claude-code) and [Gemini CLI](https://github.com/thirdkeyai/symbi-gemini-cli)
 
 ---
+
+## Running without a cloud key
+
+Two paths need no API key, which makes them the fastest way to see what the
+runtime enforces:
+
+```bash
+symbi tools init greet && symbi tools validate && symbi tools test greet --arg target=example
+symbi policy evaluate --stdin --policies ./policies --json <<< '{"tool_name":"list_agents"}'
+```
+
+To run an actual agent, point at a local OpenAI-compatible server instead of a
+cloud provider:
+
+```bash
+export OPENAI_API_KEY=ollama
+export OPENAI_BASE_URL=http://localhost:11434/v1
+export CHAT_MODEL=llama3.1
+symbi run assistant --input '{"query":"hello"}'
+```
+
+Validate a `.symbi` file with `symbi dsl --check -f <file>` — one line per file
+and an exit code. The bare `symbi dsl -f` prints the full parse tree, which is
+for debugging.
 
 ## Quick Start Template
 

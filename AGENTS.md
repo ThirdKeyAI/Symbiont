@@ -46,6 +46,24 @@ All four commands must pass before committing. Clippy must produce zero warnings
 - No mention of AI assistants or co-authoring in commit messages
 - Use `date` command to determine the current date when adding dates to docs
 
+## Local models
+
+`symbi run` and `symbi up` accept any OpenAI-compatible endpoint, so a local
+model works with no cloud key:
+
+```bash
+export OPENAI_API_KEY=ollama
+export OPENAI_BASE_URL=http://localhost:11434/v1
+export CHAT_MODEL=llama3.1
+```
+
+The SSRF guard is deliberately not applied to these operator-supplied base
+URLs — they are configuration at the same trust level as the key beside them.
+It stays on every attacker-influenced destination (ToolClad HTTP backends,
+SchemaPin key discovery). Both the URL check and the SSRF-filtering DNS
+resolver had to be lifted for this path; see
+`net_guard::customise_operator_client`.
+
 ## Security
 
 - Zero-trust by default: all inputs are untrusted
@@ -100,6 +118,10 @@ memory context_store { store markdown, path "data/agents", retention "90d" }
 ```
 
 Parse agent definitions with `symbi dsl -f agents/<name>.symbi`. (The `symbi dsl` subcommand name is intentionally preserved — it's a stable CLI surface, even though the file extension flipped.)
+
+For validation rather than inspection, use `symbi dsl --check -f <file>`: one
+line per file and an exit code, so it can gate CI. The bare form prints the
+full parse tree, which is for debugging, not for checking.
 
 ## Sandbox Tiers (all OSS)
 

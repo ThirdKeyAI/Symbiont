@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.20.0] - 2026-09-02
+
+Adoption release. Evaluating Symbiont no longer requires a paid API key, and
+the first commands in the getting-started guide no longer break in CI or bury
+the reader in output.
+
+### Added
+- **Local models work.** `OPENAI_BASE_URL` (and the OpenRouter/Anthropic
+  equivalents) can now point at any OpenAI-compatible server, so Ollama, vLLM,
+  LM Studio and llama.cpp all work with no cloud key. Two separate guards had
+  to give way: `reject_ssrf_url` was applied to the operator's own base URL,
+  and — less obviously — the HTTP client installed an SSRF-filtering DNS
+  resolver, so even after the URL check was dropped `127.0.0.1` worked while
+  `localhost` still failed at resolve time. The guard remains on every path
+  where a destination is attacker-influenced (ToolClad HTTP backends, SchemaPin
+  key discovery); only operator configuration is exempt, since it sits at the
+  same trust level as the API key beside it.
+- **`symbi dsl --check`** validates a `.symbi` file in one line and sets the
+  exit code, so it can gate CI. The `init` epilogue points at it. Previously
+  the advertised "Validate" step printed 164 lines of AST with no verdict.
+- **A Helm chart for the OSS runtime** at `deploy/helm/symbi`: policies mount
+  from a ConfigMap whose checksum rolls the pods on edit, probes hit
+  `/api/v1/health/live` and `/api/v1/health/ready`, and the pod runs non-root
+  with a read-only root filesystem. Charts were previously enterprise-only.
+- **Two offline examples** — `examples/policy-denial` (the Cedar gate deciding
+  allow/deny, and why the empty state is fail-closed) and
+  `examples/governed-tool` (a `.clad.toml` refusing out-of-set and malformed
+  arguments before a command exists). Both run with no API key.
+
+### Changed
+- **`symbi init` no longer panics without a terminal.** A non-TTY stdin now
+  implies `--no-interact`, so the guide's first command works in Dockerfiles,
+  CI steps and piped shells instead of aborting with a Rust backtrace.
+- **The README and getting-started guide lead with the paths that need no API
+  key.** The offline tool dry-run and policy evaluation come first; running an
+  agent, which needs a model provider, follows. Mirrored into all five
+  translations.
+- Release-binary signatures are verified against a fully anchored cosign
+  identity — the workflow file at a tag or `main` ref — rather than an
+  unanchored substring that a certificate from any workflow in the repo, or a
+  similarly-named repo, would have satisfied.
+
+### Deprecated
+- **`CustomDeliveryHandler` / `register_custom_handler`.** No implementation
+  or caller exists anywhere in the tree, so the scheduler's
+  `DeliveryChannel::Custom` lookup always misses. Deprecated rather than
+  removed because it shipped in published crates; slated for removal unless a
+  consumer appears.
+
 ### Removed
 - **The `VectorDatabase` trait, merged into `VectorDb`.** Two identical traits
   (modulo `health_check`) covered the same job, and every backend implemented
@@ -29,20 +78,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Removed from the registry, help, and docs until there is something to wire
   them to.
 
-### Deprecated
-- **`CustomDeliveryHandler` / `register_custom_handler`.** No implementation
-  or caller exists anywhere in the tree, so the scheduler's
-  `DeliveryChannel::Custom` lookup always misses. Deprecated rather than
-  removed because it shipped in published crates; slated for removal unless a
-  consumer appears.
-
 ### Fixed
+- Two lints Rust 1.98 introduced (`useless_format`, `drain_collect`).
+  `result_large_err` is allowed at module scope in the axum handlers and the
+  reasoning loop's typestate transitions, with the reasoning recorded: boxing
+  there fights `IntoResponse` and puts an allocation on the loop's hot path.
+- Patched `nanoid` (GHSA-2v37-7h3g-55p8), `dompurify`
+  (GHSA-55q2-fjhq-7xh7), `postcss`, `js-yaml` and `brace-expansion` in the
+  bundled UIs.
+
 - **Latent panics in three CLI truncation helpers.** `symbi run`, `symbi
   cron`, and `symbi skills` truncated display strings with raw byte slicing
   (`&s[..max]`), which panics when the cut lands inside a multi-byte UTF-8
   character — and job names, skill names, and input previews are user data.
   All now delegate to `text_util::truncate_utf8`, as does the equivalent
   boundary walk in `communication::remote`.
+
+### Security
+- **`h2` upgraded to 0.4.19** (RUSTSEC-2026-0258, unbounded empty DATA
+  frames). A remote peer could hold an HTTP/2 connection open sending empty
+  DATA frames without bound — a denial-of-service vector on any surface the
+  runtime serves. Caught by the pre-release `cargo audit` sweep, which is why
+  it runs.
 
 ## [1.19.0] - 2026-07-28
 
