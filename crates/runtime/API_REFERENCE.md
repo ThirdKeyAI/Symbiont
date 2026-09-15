@@ -752,36 +752,78 @@ curl http://localhost:8080/api/v1/agents/agent-id-1/status
 #### Execute Workflow
 
 **Endpoint:** `POST /api/v1/workflows/execute`
-**Description:** Executes a workflow with specified parameters.
+**Description:** An administrator submits raw DSL source for a scheduled invocation.
+`workflow_id` contains the source, up to 1 MiB. The request uses the same governed
+scheduler as registered-agent execution. `parameters` becomes its JSON input.
+
+Authentication is required. Agent-scoped keys receive `403 ADMIN_REQUIRED`, even
+when `agent_id` matches their scope. Scoped callers invoke registered source through
+`POST /api/v1/agents/{id}/execute` with `{"input": ...}`. The legacy
+`SYMBIONT_API_TOKEN`, where enabled, carries administrative authority.
+
+Both execution endpoints require an `Idempotency-Key` UUID retained for retries.
+Omit `agent_id` to derive a registration ID from that UUID. Supplying an existing UUID replaces its
+source for subsequent invocations. The first declared agent is selected by default;
+`metadata { name = "selected" }` can select another declaration. The registered
+name is the selected declaration's actual name. Parsing, selection and supported
+inline policies are validated before registration. Unsupported policies are refused.
+This endpoint retains its Docker/Tier1 registration default; conflicting sandbox
+selection fails during governed execution. It does not interpret arbitrary executable
+DSL bodies. See [inline policies](../../docs/inline-policies.md).
 
 **Request Body:**
 ```json
 {
-  "workflow_id": "data-processing",
+  "workflow_id": "agent report() { with sandbox = \"docker\" {} }",
   "parameters": {
-    "input_file": "/data/input.csv",
+    "input_file": "input.csv",
     "output_format": "json"
   },
-  "agent_id": "agent-id-1"
+  "agent_id": "19b183f7-97c4-4e42-9c62-5e9c940bfae3"
 }
 ```
 
-**Response:**
+**Fresh response (200):**
 ```json
 {
-  "result": "success",
-  "output": {
-    "processed_records": 1000,
-    "output_file": "/data/output.json"
-  }
+  "status": "queued",
+  "invocation_id": "0949b393-a3b1-4564-a206-6dbe3e19dd57",
+  "agent_id": "19b183f7-97c4-4e42-9c62-5e9c940bfae3",
+  "execution_id": "c7022f13-7140-4a09-8e30-b1941e0cbb32",
+  "replayed": false,
+  "audit": {"run_id": "c7022f13-7140-4a09-8e30-b1941e0cbb32", "path": "/project/.symbiont/governed/agent.run.jsonl", "public_key": "hex"}
 }
 ```
+
+Repeat the same authenticated submission with the same UUID to retrieve the
+saved completion without execution. HTTP 409 distinguishes `in_progress`,
+`unresolved` and `conflict`; HTTP 422 returns a saved known failure. Changed caller,
+source, agent configuration or input cannot reuse an ID. Invalid source returns
+400; an unavailable registered agent returns 404; admission/storage refusal returns
+503. See [scheduler idempotency](../../docs/scheduler-idempotency.md) for the complete
+contract, restart behavior and limits.
+
+Agent history records `queued`, then `Completed`, `Failed`, `TimedOut`,
+`Terminated` or `Unresolved` under `execution_id`. It remains a bounded in-memory
+view; the durable claim and signed journal preserve retry evidence across restart.
+Completed saved results expose output, usage, shared budget and audit information.
+
+The focused `workflow_execution` target requires Unix, `http-api` and `cedar`.
+It uses actual HTTP authentication and protected execution to test authority,
+source selection, parameter delivery and caller isolation. The shipping
+`scripts/test-scheduler-invocations.py` adds actual Docker effects, concurrent
+admission and crash/restart checks. `scripts/test-workflow-execution.py` retains
+source-selection and file-grant coverage.
 
 **Example:**
 ```bash
+# Generate once and retain for retries.
+INVOCATION_ID=$(cat /proc/sys/kernel/random/uuid)
 curl -X POST http://localhost:8080/api/v1/workflows/execute \
+  -H "Idempotency-Key: $INVOCATION_ID" \
+  -H "Authorization: Bearer $SYMBIONT_API_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"workflow_id": "example", "parameters": {}}'
+  -d '{"workflow_id":"agent report() { with sandbox = \"docker\" {} }","parameters":{"input_file":"input.csv"}}'
 ```
 
 #### Get System Metrics
@@ -839,9 +881,63 @@ All endpoints return consistent error responses:
 The HTTP API includes middleware for:
 - CORS handling (configurable)
 - Request tracing and logging
-- Rate limiting (planned)
-- Authentication (planned)
+- Configurable rate limiting
+- Bearer authentication on protected routes
+- Security response headers
 
-Current implementation uses placeholder middleware that can be extended for production use.
+Administrative endpoints additionally reject agent-scoped keys. Health is public;
+callback routes use their route-specific verification. Swagger is opt-in and
+protected by bearer authentication.
 
 This API reference provides complete type definitions and interface specifications for all components of the Symbiont Agent Runtime System, including the optional HTTP API.
+
+### Persistent cron triggers
+
+`POST /api/v1/schedules/{id}/trigger` requires an administrative bearer token and
+one `Idempotency-Key` UUID. It returns the same queued/saved/in-progress/unresolved/
+conflict contract as agent execution. Reuse the UUID after a lost response;
+changing it requests new work. Schedule history persists occurrence IDs, protected
+admission audit references and final execution results. Unknown occurrences block
+resume and further execution of that job. See [cron recovery](../../docs/cron-recovery.md)
+for project storage migration, timer identities and restart behavior.
+
+## Coordinator chat admission
+
+Coordinator WebSocket messages at `/ws/chat` require a retained non-nil UUID in
+`ChatSend.id`. The server durably admits that caller/content identity before
+queueing and correlates replies through the same `request_id`. `ChatInspect`
+with the same UUID/content performs read-only lookup. Completed replies include
+`ChatChunk.replayed`; active, unresolved, reconciled and conflicting IDs never
+repeat execution. See [chat recovery](../../docs/chat-recovery.md) for the protocol,
+error codes, queue contract and console migration from arbitrary string IDs.
+
+## Verified run inspection
+
+`GET /api/v1/audit/runs/{agent_uuid}/{run_uuid}?public_key={64_hex_characters}`
+requires an administrative bearer key. It returns a bounded signed-journal
+snapshot from the trusted project, including parent/child links, recorded shared
+budgets, per-action permissions, original unknown/incomplete outcomes and a
+separate invocation assessment when available. It never executes or retries work.
+Scoped keys receive 403; malformed keys receive 400; invalid or unavailable
+evidence receives 422. See [operator run inspection](../../docs/run-inspector.md)
+for trust inputs, limits and response interpretation.
+
+The run view's `recovery.recovered_budget` reconstructs signed root-family
+reservation accounting, with unknown requests retaining their full charge even
+without a final budget snapshot. Older or child journals without root history
+return null. A child's `budget_root` links to the root history when available.
+These fields are read-only evidence and never authorize execution resumption or
+provider-request replay. See [inference budget recovery](../../docs/provider-budget-recovery.md).
+
+## Worker capacity inspection
+
+`GET /api/v1/sandbox/capacity` returns the running supervisor's retained worker,
+memory and CPU reservations, pool limits, remaining capacity and unknown resource
+metadata count. `GET /api/v1/sandbox/workers/{lease_uuid}/usage` separately samples
+one retained worker. Both require an administrative bearer key and never start a
+missing helper or release capacity. Scoped keys receive 403; unavailable or busy
+inspection receives 503 with `CAPACITY_UNAVAILABLE`. Unknown values remain null,
+and successful/handler-generated error responses are not cacheable. These are
+live observations, not signed run snapshots. See
+[worker capacity](../../docs/worker-capacity.md) for response fields, units,
+backend semantics and deployment scope.

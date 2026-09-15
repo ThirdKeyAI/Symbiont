@@ -151,7 +151,17 @@ pub fn parse_event_to_message(
 /// Parse a slash command payload into a normalized `InboundMessage`.
 pub fn parse_slash_command(cmd: &SlackSlashCommand) -> InboundMessage {
     let text = cmd.text.as_deref().unwrap_or("");
-    let parsed = parse_command_text(text);
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let parsed = if cmd.command == "/symbi" && words.first() == Some(&"gate") {
+        SlashCommand {
+            name: "symbi".into(),
+            subcommand: Some("gate".into()),
+            args: words[1..].iter().map(|word| (*word).to_owned()).collect(),
+            agent_name: None,
+        }
+    } else {
+        parse_command_text(text)
+    };
 
     InboundMessage {
         id: cmd.trigger_id.clone(),
@@ -353,5 +363,30 @@ mod tests {
         let (agent, rest) = extract_agent_mention(text);
         assert!(agent.is_none());
         assert_eq!(rest, "hello world");
+    }
+    #[test]
+    fn slash_gate_commands_preserve_the_control_command_and_all_arguments() {
+        let mut payload = SlackSlashCommand {
+            command: "/symbi".into(),
+            text: Some("gate approve 0123456789abcdef review-digest".into()),
+            user_id: "operator".into(),
+            user_name: "Operator".into(),
+            channel_id: "approvers".into(),
+            channel_name: None,
+            team_id: "workspace".into(),
+            team_domain: None,
+            response_url: "https://example.invalid/unused".into(),
+            trigger_id: "fixture".into(),
+        };
+        let normalized = parse_slash_command(&payload).command.unwrap();
+        assert_eq!(normalized.name, "symbi");
+        assert_eq!(normalized.subcommand.as_deref(), Some("gate"));
+        assert_eq!(
+            normalized.args,
+            vec!["approve", "0123456789abcdef", "review-digest"]
+        );
+        assert!(normalized.agent_name.is_none());
+        payload.command = "/other".into();
+        assert_ne!(parse_slash_command(&payload).command.unwrap().name, "symbi");
     }
 }

@@ -8,6 +8,14 @@ Understanding the Symbi runtime system architecture and core components.
 
 ## Overview
 
+For the implemented changes on `fix/containment-boundary`, see the
+[branch operator and architecture guide](containment-branch-guide.md). The branch
+binds prepared calls through validation, approval, Cedar, required audit and
+single-use dispatch; an independent supervisor owns contained workers. Covered
+CLI, HTTP, scheduler and DSL defaults use protected journals. The principles
+below describe the design; remaining execution and audit paths prevent a complete
+containment claim.
+
 The Symbi runtime system provides a secure, scalable, and policy-aware execution environment for autonomous agents. Built on Rust for performance and safety, it implements a multi-tier security model with comprehensive audit capabilities.
 
 ### Core Principles
@@ -225,7 +233,7 @@ The runtime ships three host-isolation tiers — all OSS — plus one separate h
 - Hardware virtualization via KVM with a dedicated kernel per execution
 - Operator-supplied vmlinux + rootfs (read-only by default)
 - No shared kernel surface with the host
-- Requires the `firecracker` binary plus an init script implementing the Symbiont in-VM contract — see [`docs/firecracker-setup.md`](firecracker-setup.md).
+- Requires the `firecracker` binary plus the matching `symbi-sandbox-guest` PID 1 service and supervisor — see [`docs/firecracker-setup.md`](firecracker-setup.md).
 
 #### Hosted execution: E2B (not a tier)
 E2B is a separate hosted-cloud backend, **not** a peer of Tier 1/2/3. It maps to `SecurityTier::Hosted` which sorts below `Tier1` for ordering — policies that require host isolation (`tier >= Tier1`) reject hosted execution. Opt-in only via DSL (`with { sandbox = "e2b" }`).
@@ -679,7 +687,7 @@ pub struct AuditEvent {
 - **Leak Prevention**: Automatic cleanup and monitoring
 
 **CPU Utilization:**
-- **Scheduler Overhead**: <2% CPU for 10,000 agents
+- **Scheduler Overhead**: Registration and bounded-queue latency are tested. CPU overhead for 10,000 executing agents has not been established.
 - **Context Switching**: Hardware-assisted virtual threads
 - **Load Balancing**: Dynamic load distribution
 - **Priority Scheduling**: Real-time and batch processing tiers

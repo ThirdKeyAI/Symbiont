@@ -86,6 +86,9 @@ export interface ScheduleDetail {
 }
 
 export interface ScheduleRunEntry {
+  admission_audit?: unknown;
+  execution?: { run_id?: string; audit?: { path?: string; public_key?: string } | null; [key: string]: unknown };
+  resolution?: unknown;
   run_id: string;
   started_at: string;
   completed_at: string | null;
@@ -166,6 +169,9 @@ export interface ErrorResponse {
 export type AuditSource = 'agent' | 'schedule' | 'channel' | 'inter_agent';
 
 export interface UnifiedAuditEntry {
+  audit?: unknown;
+  executionAudit?: unknown;
+  resolution?: unknown;
   id: string;
   timestamp: string;
   source: AuditSource;

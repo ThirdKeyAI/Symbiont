@@ -49,7 +49,7 @@ pub trait JobStore: Send + Sync {
         status: CronJobStatus,
     ) -> Result<(), JobStoreError>;
 
-    /// Append a run record to the history log.
+    /// Insert a run record or finish its existing running record.
     async fn save_run_record(&self, record: &JobRunRecord) -> Result<(), JobStoreError>;
 
     /// Query run history for a job, newest first.
@@ -63,6 +63,8 @@ pub trait JobStore: Send + Sync {
 /// Errors produced by the job store.
 #[derive(Debug, thiserror::Error)]
 pub enum JobStoreError {
+    #[error("invocation ID conflicts with a different request")]
+    InvocationConflict,
     #[error("SQLite error: {0}")]
     Sqlite(String),
     #[error("Serialization error: {0}")]
@@ -73,19 +75,107 @@ pub enum JobStoreError {
 
 /// SQLite-backed persistent store for cron jobs.
 pub struct SqliteJobStore {
-    conn: tokio::sync::Mutex<rusqlite::Connection>,
+    pub(super) conn: tokio::sync::Mutex<rusqlite::Connection>,
 }
 
 impl SqliteJobStore {
+    pub(super) async fn persist_job(
+        &self,
+        job: &CronJobDefinition,
+        replace: bool,
+    ) -> Result<(), JobStoreError> {
+        let agent_json = serde_json::to_string(&job.agent_config)
+            .map_err(|e| JobStoreError::Serialization(e.to_string()))?;
+        let policy_json = serde_json::to_string(&job.policy_ids)
+            .map_err(|e| JobStoreError::Serialization(e.to_string()))?;
+        let delivery_json = job
+            .delivery_config
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|e| JobStoreError::Serialization(e.to_string()))?;
+        let audit_str = serde_json::to_string(&job.audit_level)
+            .map_err(|e| JobStoreError::Serialization(e.to_string()))?;
+        let status_str = serde_json::to_string(&job.status)
+            .map_err(|e| JobStoreError::Serialization(e.to_string()))?;
+
+        let session_mode_str = serde_json::to_string(&job.session_mode)
+            .map_err(|e| JobStoreError::Serialization(e.to_string()))?;
+
+        let conn = self.conn.lock().await;
+        conn.execute(
+            "INSERT INTO cron_jobs
+                (job_id, name, cron_expr, timezone, agent_json, policy_ids,
+                 audit_level, status, enabled, one_shot, created_at, updated_at,
+                 last_run, next_run, run_count, failure_count, max_retries,
+                 max_concurrent, delivery_json, jitter_max_secs, session_mode, agentpin_jwt, input_json)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23)
+             ON CONFLICT(job_id) DO UPDATE SET
+                name=excluded.name,
+                cron_expr=excluded.cron_expr,
+                timezone=excluded.timezone,
+                agent_json=excluded.agent_json,
+                policy_ids=excluded.policy_ids,
+                audit_level=excluded.audit_level,
+                status=excluded.status,
+                enabled=excluded.enabled,
+                one_shot=excluded.one_shot,
+                created_at=excluded.created_at,
+                updated_at=excluded.updated_at,
+                last_run=excluded.last_run,
+                next_run=excluded.next_run,
+                run_count=excluded.run_count,
+                failure_count=excluded.failure_count,
+                max_retries=excluded.max_retries,
+                max_concurrent=excluded.max_concurrent,
+                delivery_json=excluded.delivery_json,
+                jitter_max_secs=excluded.jitter_max_secs,
+                session_mode=excluded.session_mode,
+                agentpin_jwt=excluded.agentpin_jwt,
+                input_json=excluded.input_json WHERE ?24",
+            rusqlite::params![
+                job.job_id.to_string(),
+                job.name,
+                job.cron_expression,
+                job.timezone,
+                agent_json,
+                policy_json,
+                audit_str,
+                status_str,
+                job.enabled as i32,
+                job.one_shot as i32,
+                job.created_at.to_rfc3339(),
+                job.updated_at.to_rfc3339(),
+                job.last_run.map(|t| t.to_rfc3339()),
+                job.next_run.map(|t| t.to_rfc3339()),
+                job.run_count as i64,
+                job.failure_count as i64,
+                job.max_retries as i32,
+                job.max_concurrent as i32,
+                delivery_json,
+                job.jitter_max_secs as i32,
+                session_mode_str,
+                job.agentpin_jwt,
+                job.input.to_string(),
+                replace,
+            ],
+        )
+        .map_err(|e| JobStoreError::Sqlite(e.to_string()))?;
+        Ok(())
+    }
+
     /// Open (or create) the store at the given path.
     pub fn open(path: &std::path::Path) -> Result<Self, JobStoreError> {
-        // Ensure parent directory exists.
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| JobStoreError::Sqlite(format!("create dir: {e}")))?;
-        }
-        let conn =
-            rusqlite::Connection::open(path).map_err(|e| JobStoreError::Sqlite(e.to_string()))?;
+        #[cfg(unix)]
+        Self::protect_store(path)?;
+        let conn = rusqlite::Connection::open_with_flags(
+            path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE
+                | rusqlite::OpenFlags::SQLITE_OPEN_CREATE
+                | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX
+                | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
+        )
+        .map_err(|e| JobStoreError::Sqlite(e.to_string()))?;
 
         // WAL mode for concurrent access.
         conn.pragma_update(None, "journal_mode", "WAL")
@@ -97,6 +187,89 @@ impl SqliteJobStore {
         Ok(Self {
             conn: tokio::sync::Mutex::new(conn),
         })
+    }
+
+    #[cfg(unix)]
+    fn protect_store(path: &std::path::Path) -> Result<(), JobStoreError> {
+        use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+        let invalid = JobStoreError::Sqlite;
+        let parent = path
+            .parent()
+            .ok_or_else(|| invalid("cron store needs a private parent directory".into()))?;
+        crate::reasoning::protected_journal::private_directory(parent).map_err(invalid)?;
+        // Check existing sidecars before SQLite can follow them. The private
+        // parent is runtime authority and must never be granted to workers.
+        for suffix in ["", "-wal", "-shm", "-journal"] {
+            let mut name = path.as_os_str().to_os_string();
+            name.push(suffix);
+            let candidate = std::path::PathBuf::from(name);
+            let metadata = match std::fs::symlink_metadata(&candidate) {
+                Ok(metadata) => metadata,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) => return Err(invalid(e.to_string())),
+            };
+            // SAFETY: geteuid has no memory-safety preconditions.
+            if !metadata.is_file()
+                || metadata.uid() != unsafe { libc::geteuid() }
+                || metadata.mode() & 0o077 != 0
+                || metadata.nlink() != 1
+            {
+                return Err(invalid(
+                    "cron store and sidecars must be private runtime-owned regular files".into(),
+                ));
+            }
+        }
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(path)
+            .map_err(|e| invalid(e.to_string()))?;
+        file.sync_all()
+            .and_then(|_| std::fs::File::open(parent)?.sync_all())
+            .map_err(|e| invalid(e.to_string()))
+    }
+
+    /// A persisted schedule must execute under the project that owns its store.
+    pub async fn bind_project(&self, project: &std::path::Path) -> Result<(), JobStoreError> {
+        let project = project
+            .canonicalize()
+            .map_err(|e| JobStoreError::Sqlite(e.to_string()))?;
+        let project = project.to_str().ok_or_else(|| {
+            JobStoreError::Serialization("cron project path must be UTF-8".into())
+        })?;
+        let mut conn = self.conn.lock().await;
+        let tx = conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|e| JobStoreError::Sqlite(e.to_string()))?;
+        tx.execute_batch("CREATE TABLE IF NOT EXISTS cron_store_owner (singleton INTEGER PRIMARY KEY CHECK(singleton=1),project TEXT NOT NULL)")
+            .map_err(|e| JobStoreError::Sqlite(e.to_string()))?;
+        let saved: Option<String> = tx
+            .query_row(
+                "SELECT project FROM cron_store_owner WHERE singleton=1",
+                [],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|e| JobStoreError::Sqlite(e.to_string()))?;
+        if let Some(saved) = saved {
+            if saved != project {
+                return Err(JobStoreError::Serialization(
+                    "cron store belongs to a different execution project".into(),
+                ));
+            }
+        } else {
+            tx.execute(
+                "INSERT INTO cron_store_owner(singleton,project) VALUES(1,?1)",
+                [project],
+            )
+            .map_err(|e| JobStoreError::Sqlite(e.to_string()))?;
+        }
+        tx.commit()
+            .map_err(|e| JobStoreError::Sqlite(e.to_string()))
     }
 
     /// Open an in-memory store (useful for tests).
@@ -111,13 +284,18 @@ impl SqliteJobStore {
         })
     }
 
-    /// Default database path: `$XDG_DATA_HOME/symbi/cron_jobs.db`
+    /// Legacy global path, retained only for explicit operator migration.
+    /// New schedulers use their execution project's protected store.
     pub fn default_path() -> std::path::PathBuf {
         let base = dirs::data_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
         base.join("symbi").join("cron_jobs.db")
     }
 
     fn init_schema(conn: &rusqlite::Connection) -> Result<(), JobStoreError> {
+        conn.busy_timeout(std::time::Duration::from_secs(2))
+            .map_err(|e| JobStoreError::Sqlite(e.to_string()))?;
+        conn.pragma_update(None, "synchronous", "FULL")
+            .map_err(|e| JobStoreError::Sqlite(e.to_string()))?;
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS schema_version (
                 version INTEGER PRIMARY KEY
@@ -162,11 +340,53 @@ impl SqliteJobStore {
                 FOREIGN KEY (job_id) REFERENCES cron_jobs(job_id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS cron_occurrences (
+                invocation_id TEXT PRIMARY KEY,
+                job_id TEXT NOT NULL,
+                request_hash TEXT NOT NULL,
+                request_json TEXT NOT NULL,
+                state TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_cron_occurrences_state ON cron_occurrences(state,created_at);
+            CREATE INDEX IF NOT EXISTS idx_cron_occurrences_job ON cron_occurrences(job_id,state);
+
             CREATE INDEX IF NOT EXISTS idx_cron_jobs_next_run ON cron_jobs(next_run);
             CREATE INDEX IF NOT EXISTS idx_job_run_log_job_id ON job_run_log(job_id);
             CREATE INDEX IF NOT EXISTS idx_job_run_log_started ON job_run_log(started_at);",
         )
         .map_err(|e| JobStoreError::Sqlite(e.to_string()))?;
+        // Additive migration preserves existing jobs and run history.
+        for (table, column, declaration) in [
+            ("cron_jobs", "input_json", "TEXT NOT NULL DEFAULT 'null'"),
+            ("job_run_log", "execution_json", "TEXT"),
+            ("job_run_log", "admission_audit_json", "TEXT"),
+            ("job_run_log", "resolution_json", "TEXT"),
+        ] {
+            let mut statement = conn
+                .prepare(&format!("PRAGMA table_info({table})"))
+                .map_err(|e| JobStoreError::Sqlite(e.to_string()))?;
+            let names = statement
+                .query_map([], |row| row.get::<_, String>(1))
+                .map_err(|e| JobStoreError::Sqlite(e.to_string()))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| JobStoreError::Sqlite(e.to_string()))?;
+            if !names.iter().any(|name| name == column) {
+                conn.execute_batch(&format!(
+                    "ALTER TABLE {table} ADD COLUMN {column} {declaration}"
+                ))
+                .map_err(|e| JobStoreError::Sqlite(e.to_string()))?;
+            }
+        }
+        // Legacy running records have no durable caller identity. Preserve them
+        // as unresolved and stop their jobs instead of manufacturing a retry.
+        conn.execute_batch("UPDATE cron_jobs SET status='\"DeadLetter\"',enabled=0 WHERE job_id IN
+            (SELECT job_id FROM job_run_log WHERE status IN ('pending','running') AND NOT EXISTS
+                (SELECT 1 FROM cron_occurrences WHERE invocation_id=job_run_log.run_id));
+            UPDATE job_run_log SET status='unresolved',error='legacy run has no durable invocation identity; inspect original effects before retry'
+                WHERE status IN ('pending','running') AND NOT EXISTS
+                (SELECT 1 FROM cron_occurrences WHERE invocation_id=job_run_log.run_id);")
+            .map_err(|e|JobStoreError::Sqlite(e.to_string()))?;
         Ok(())
     }
 }
@@ -174,59 +394,7 @@ impl SqliteJobStore {
 #[async_trait]
 impl JobStore for SqliteJobStore {
     async fn save_job(&self, job: &CronJobDefinition) -> Result<(), JobStoreError> {
-        let agent_json = serde_json::to_string(&job.agent_config)
-            .map_err(|e| JobStoreError::Serialization(e.to_string()))?;
-        let policy_json = serde_json::to_string(&job.policy_ids)
-            .map_err(|e| JobStoreError::Serialization(e.to_string()))?;
-        let delivery_json = job
-            .delivery_config
-            .as_ref()
-            .map(serde_json::to_string)
-            .transpose()
-            .map_err(|e| JobStoreError::Serialization(e.to_string()))?;
-        let audit_str = serde_json::to_string(&job.audit_level)
-            .map_err(|e| JobStoreError::Serialization(e.to_string()))?;
-        let status_str = serde_json::to_string(&job.status)
-            .map_err(|e| JobStoreError::Serialization(e.to_string()))?;
-
-        let session_mode_str = serde_json::to_string(&job.session_mode)
-            .map_err(|e| JobStoreError::Serialization(e.to_string()))?;
-
-        let conn = self.conn.lock().await;
-        conn.execute(
-            "INSERT OR REPLACE INTO cron_jobs
-                (job_id, name, cron_expr, timezone, agent_json, policy_ids,
-                 audit_level, status, enabled, one_shot, created_at, updated_at,
-                 last_run, next_run, run_count, failure_count, max_retries,
-                 max_concurrent, delivery_json, jitter_max_secs, session_mode, agentpin_jwt)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22)",
-            rusqlite::params![
-                job.job_id.to_string(),
-                job.name,
-                job.cron_expression,
-                job.timezone,
-                agent_json,
-                policy_json,
-                audit_str,
-                status_str,
-                job.enabled as i32,
-                job.one_shot as i32,
-                job.created_at.to_rfc3339(),
-                job.updated_at.to_rfc3339(),
-                job.last_run.map(|t| t.to_rfc3339()),
-                job.next_run.map(|t| t.to_rfc3339()),
-                job.run_count as i64,
-                job.failure_count as i64,
-                job.max_retries as i32,
-                job.max_concurrent as i32,
-                delivery_json,
-                job.jitter_max_secs as i32,
-                session_mode_str,
-                job.agentpin_jwt,
-            ],
-        )
-        .map_err(|e| JobStoreError::Sqlite(e.to_string()))?;
-        Ok(())
+        self.persist_job(job, true).await
     }
 
     async fn get_job(&self, job_id: CronJobId) -> Result<Option<CronJobDefinition>, JobStoreError> {
@@ -236,7 +404,7 @@ impl JobStore for SqliteJobStore {
                 "SELECT job_id, name, cron_expr, timezone, agent_json, policy_ids,
                         audit_level, status, enabled, one_shot, created_at, updated_at,
                         last_run, next_run, run_count, failure_count, max_retries,
-                        max_concurrent, delivery_json, jitter_max_secs, session_mode, agentpin_jwt
+                        max_concurrent, delivery_json, jitter_max_secs, session_mode, agentpin_jwt, input_json
                  FROM cron_jobs WHERE job_id = ?1",
             )
             .map_err(|e| JobStoreError::Sqlite(e.to_string()))?;
@@ -277,7 +445,7 @@ impl JobStore for SqliteJobStore {
                     "SELECT job_id, name, cron_expr, timezone, agent_json, policy_ids,
                             audit_level, status, enabled, one_shot, created_at, updated_at,
                             last_run, next_run, run_count, failure_count, max_retries,
-                            max_concurrent, delivery_json, jitter_max_secs, session_mode, agentpin_jwt
+                            max_concurrent, delivery_json, jitter_max_secs, session_mode, agentpin_jwt, input_json
                      FROM cron_jobs WHERE status = ?1 ORDER BY created_at",
                     vec![Box::new(status_str)],
                 )
@@ -286,7 +454,7 @@ impl JobStore for SqliteJobStore {
                 "SELECT job_id, name, cron_expr, timezone, agent_json, policy_ids,
                         audit_level, status, enabled, one_shot, created_at, updated_at,
                         last_run, next_run, run_count, failure_count, max_retries,
-                        max_concurrent, delivery_json, jitter_max_secs, session_mode, agentpin_jwt
+                        max_concurrent, delivery_json, jitter_max_secs, session_mode, agentpin_jwt, input_json
                  FROM cron_jobs ORDER BY created_at",
                 vec![],
             ),
@@ -320,12 +488,14 @@ impl JobStore for SqliteJobStore {
                 "SELECT job_id, name, cron_expr, timezone, agent_json, policy_ids,
                         audit_level, status, enabled, one_shot, created_at, updated_at,
                         last_run, next_run, run_count, failure_count, max_retries,
-                        max_concurrent, delivery_json, jitter_max_secs, session_mode, agentpin_jwt
+                        max_concurrent, delivery_json, jitter_max_secs, session_mode, agentpin_jwt, input_json
                  FROM cron_jobs
                  WHERE enabled = 1
                    AND status = '\"Active\"'
                    AND next_run IS NOT NULL
                    AND next_run <= ?1
+                   AND NOT EXISTS(SELECT 1 FROM job_run_log WHERE job_run_log.job_id=cron_jobs.job_id AND job_run_log.status='unresolved')
+                   AND NOT EXISTS(SELECT 1 FROM cron_occurrences WHERE cron_occurrences.job_id=cron_jobs.job_id AND cron_occurrences.state='unresolved')
                  ORDER BY next_run",
             )
             .map_err(|e| JobStoreError::Sqlite(e.to_string()))?;
@@ -405,10 +575,15 @@ impl JobStore for SqliteJobStore {
 
     async fn save_run_record(&self, record: &JobRunRecord) -> Result<(), JobStoreError> {
         let conn = self.conn.lock().await;
-        conn.execute(
+        let changed = conn.execute(
             "INSERT INTO job_run_log
-                (run_id, job_id, agent_id, started_at, completed_at, status, error, exec_time_ms)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+                (run_id, job_id, agent_id, started_at, completed_at, status, error, exec_time_ms, execution_json, admission_audit_json)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
+             ON CONFLICT(run_id) DO UPDATE SET completed_at=excluded.completed_at,
+                status=excluded.status, error=excluded.error, exec_time_ms=excluded.exec_time_ms,
+                execution_json=excluded.execution_json, admission_audit_json=excluded.admission_audit_json
+             WHERE job_run_log.job_id=excluded.job_id AND job_run_log.agent_id=excluded.agent_id
+                AND job_run_log.status='running' AND job_run_log.started_at=excluded.started_at",
             rusqlite::params![
                 record.run_id.to_string(),
                 record.job_id.to_string(),
@@ -418,9 +593,18 @@ impl JobStore for SqliteJobStore {
                 record.status.to_string(),
                 record.error,
                 record.execution_time_ms.map(|v| v as i64),
+                record.execution.as_ref().map(serde_json::to_string).transpose()
+                    .map_err(|e| JobStoreError::Serialization(e.to_string()))?,
+                record.admission_audit.as_ref().map(serde_json::to_string).transpose()
+                    .map_err(|e| JobStoreError::Serialization(e.to_string()))?,
             ],
         )
         .map_err(|e| JobStoreError::Sqlite(e.to_string()))?;
+        if changed != 1 {
+            return Err(JobStoreError::Serialization(
+                "run record is already terminal or its identity does not match".into(),
+            ));
+        }
         Ok(())
     }
 
@@ -432,7 +616,7 @@ impl JobStore for SqliteJobStore {
         let conn = self.conn.lock().await;
         let mut stmt = conn
             .prepare(
-                "SELECT run_id, job_id, agent_id, started_at, completed_at, status, error, exec_time_ms
+                "SELECT run_id, job_id, agent_id, started_at, completed_at, status, error, exec_time_ms, execution_json, admission_audit_json, resolution_json
                  FROM job_run_log
                  WHERE job_id = ?1
                  ORDER BY started_at DESC
@@ -483,6 +667,7 @@ fn row_to_job(
     let jitter_max_secs: i32 = row.get(19)?;
     let session_mode_str: String = row.get(20)?;
     let agentpin_jwt: Option<String> = row.get(21)?;
+    let input_json: String = row.get(22)?;
 
     Ok((|| -> Result<CronJobDefinition, JobStoreError> {
         let job_id: CronJobId = job_id_str
@@ -546,6 +731,8 @@ fn row_to_job(
             jitter_max_secs: jitter_max_secs as u32,
             session_mode,
             agentpin_jwt,
+            input: serde_json::from_str(&input_json)
+                .map_err(|e| JobStoreError::Serialization(e.to_string()))?,
         })
     })())
 }
@@ -561,6 +748,9 @@ fn row_to_run_record(
     let status_str: String = row.get(5)?;
     let error: Option<String> = row.get(6)?;
     let exec_time: Option<i64> = row.get(7)?;
+    let execution_json: Option<String> = row.get(8)?;
+    let admission_audit_json: Option<String> = row.get(9)?;
+    let resolution_json: Option<String> = row.get(10)?;
 
     Ok((|| -> Result<JobRunRecord, JobStoreError> {
         let run_id = Uuid::parse_str(&run_id_str)
@@ -586,6 +776,14 @@ fn row_to_run_record(
             .map_err(|e: String| JobStoreError::Serialization(e))?;
 
         Ok(JobRunRecord {
+            resolution: resolution_json
+                .map(|s| serde_json::from_str(&s))
+                .transpose()
+                .map_err(|e| JobStoreError::Serialization(e.to_string()))?,
+            admission_audit: admission_audit_json
+                .map(|s| serde_json::from_str(&s))
+                .transpose()
+                .map_err(|e| JobStoreError::Serialization(e.to_string()))?,
             run_id,
             job_id,
             agent_id,
@@ -594,6 +792,10 @@ fn row_to_run_record(
             status,
             error,
             execution_time_ms: exec_time.map(|v| v as u64),
+            execution: execution_json
+                .map(|s| serde_json::from_str(&s))
+                .transpose()
+                .map_err(|e| JobStoreError::Serialization(e.to_string()))?,
         })
     })())
 }
@@ -765,6 +967,8 @@ mod tests {
         store.save_job(&job).await.unwrap();
 
         let record = JobRunRecord {
+            resolution: None,
+            admission_audit: None,
             run_id: Uuid::new_v4(),
             job_id: job.job_id,
             agent_id: job.agent_config.id,
@@ -773,6 +977,7 @@ mod tests {
             status: JobRunStatus::Succeeded,
             error: None,
             execution_time_ms: Some(1234),
+            execution: None,
         };
         store.save_run_record(&record).await.unwrap();
 
@@ -800,5 +1005,79 @@ mod tests {
             let loaded = h.await.unwrap();
             assert_eq!(loaded.name, "hourly_check");
         }
+    }
+    #[tokio::test]
+    async fn old_schema_migration_preserves_history_and_adds_input_and_results() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("private/jobs.sqlite");
+        let store = SqliteJobStore::open(&path).unwrap();
+        let mut job = test_job();
+        store.save_job(&job).await.unwrap();
+        let record = JobRunRecord {
+            resolution: None,
+            admission_audit: None,
+            run_id: Uuid::new_v4(),
+            job_id: job.job_id,
+            agent_id: job.agent_config.id,
+            started_at: Utc::now(),
+            completed_at: Some(Utc::now()),
+            status: JobRunStatus::Succeeded,
+            error: None,
+            execution_time_ms: Some(10),
+            execution: None,
+        };
+        store.save_run_record(&record).await.unwrap();
+        drop(store);
+        // These columns are absent from the prior persisted schema.
+        let connection = rusqlite::Connection::open(&path).unwrap();
+        connection.execute_batch("ALTER TABLE cron_jobs DROP COLUMN input_json; ALTER TABLE job_run_log DROP COLUMN execution_json;").unwrap();
+        drop(connection);
+        let store = SqliteJobStore::open(&path).unwrap();
+        assert!(store
+            .get_job(job.job_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .input
+            .is_null());
+        assert_eq!(
+            store.get_run_history(job.job_id, 10).await.unwrap()[0].run_id,
+            record.run_id
+        );
+        assert!(
+            store.save_run_record(&record).await.is_err(),
+            "terminal runs are immutable"
+        );
+        job.input = serde_json::json!({"message":"payload"});
+        store.save_job(&job).await.unwrap();
+        let task = super::super::ScheduledTask::new(job.agent_config.clone());
+        let mut completion = super::super::task_manager::TaskCompletion::new(
+            &task,
+            super::super::task_manager::TaskStatus::Completed,
+            None,
+        );
+        completion.output = Some("actual result".into());
+        let mut pending = record.clone();
+        pending.run_id = Uuid::new_v4();
+        pending.completed_at = None;
+        pending.status = JobRunStatus::Running;
+        store.save_run_record(&pending).await.unwrap();
+        pending.completed_at = Some(Utc::now());
+        pending.status = JobRunStatus::Succeeded;
+        pending.execution = Some(completion);
+        store.save_run_record(&pending).await.unwrap();
+        drop(store);
+        let store = SqliteJobStore::open(&path).unwrap();
+        assert_eq!(
+            store.get_job(job.job_id).await.unwrap().unwrap().input,
+            job.input
+        );
+        let history = store.get_run_history(job.job_id, 10).await.unwrap();
+        assert_eq!(history.len(), 2);
+        let run = history.iter().find(|r| r.run_id == pending.run_id).unwrap();
+        assert_eq!(
+            run.execution.as_ref().unwrap().output.as_deref(),
+            Some("actual result")
+        );
     }
 }

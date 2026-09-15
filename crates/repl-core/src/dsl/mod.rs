@@ -6,6 +6,7 @@
 pub mod agent_composition;
 pub mod ast;
 pub mod evaluator;
+pub mod inference_audit;
 pub mod lexer;
 pub mod parser;
 pub mod pattern_builtins;

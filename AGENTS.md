@@ -156,63 +156,90 @@ E2B is a separate hosted-cloud backend, **not** a peer of Tier 1/2/3. Code runs 
 
 ## Managed CLI agents (Mode B)
 
-An agent whose metadata declares `executor = "claude_code"` is run by spawning a
-governed Claude Code subprocess via `crates/runtime/src/cli_executor` (the
-`cli-executor` feature, on by default) instead of the ORGA reasoning loop. The
-reference agent is `agents/code_reviewer.symbi`; the path lives in
-`src/commands/managed_cli.rs`.
+An agent with `executor = "claude_code"` uses the project-selected Docker,
+gVisor or Firecracker worker with a scratch workspace and private runtime channels.
+VMs use `/tmp` and fixed tool/inference vsock capabilities. Their `--target` is an
+absolute guest path; host source is not automatically transferred. Readable
+rootfs contents are shared between the CLI and backend images. Source
+mounts belong to ToolClad backends. The child has no direct source mount or
+network access; provider credentials, policy, approval state and audit keys
+remain outside it. Configure `[managed_cli.inference]` with an explicit endpoint,
+model and credential variable, and provision an image with Claude Code and Python.
+The reference reviewer also needs Git.
 
-`symbi run code_reviewer --target <dir>`:
-- refuses to run at all unless the agent's metadata declares `allowed_tools`
-  (required — see below);
-- passes the spawn through the policy Gate (fail-closed; allow via Cedar in
-  `policies/managed-cli/` — **not** `policies/run/`, which this surface does not
-  read — or `SYMBI_INSECURE_ALLOW_ALL=1`);
-- journals the child's tool calls live to
-  `.symbiont/audit/mode-b-<session>.jsonl` (see below);
-- injects the env handshake `SYMBIONT_MANAGED=true`, `SYMBIONT_SESSION_ID`,
-  `SYMBIONT_BUDGET_TOKENS`, `SYMBIONT_BUDGET_TIMEOUT`, `CLAUDE_PROJECT_DIR` (the
-  symbi-claude-code plugin defers its hooks to the outer Gate on `SYMBIONT_MANAGED`);
-- loads the plugin via `--plugin-dir` (resolve order: `--plugin-dir` flag,
-  `SYMBIONT_CLAUDE_PLUGIN_DIR`, then sibling-repo autodetect) and wires the stdio
-  `symbi mcp` back-channel via `--mcp-config --strict-mcp-config`;
-- bounds the run with `--max-turns` (primary, cooperative) and `--budget-timeout`
-  (hard wall-clock backstop; `CliExecutor` kills with graceful SIGTERM → SIGKILL).
+`allowed_tools` is an exact subset of registered ToolClad names. The runtime
+disables built-in tools, automatic discovery and plugins. Both the session spawn
+and individual actions require Cedar authorization in `policies/managed-cli/`
+plus shared policies. Actions use the prepared-call dispatcher and mandatory
+exact approvals. Ordinary and managed CLI runs can enable operator approvals with
+`--approval-terminal` and an optional `--approval-timeout` in seconds. The relay
+uses the controlling terminal, displays the complete escaped request and requires
+its exact ID in the answer. Without a relay, approval-required manifests fail
+closed. SDK sessions can attach the shared escalation queue. See
+`docs/approval-lifecycle.md`.
+Managed admission and broker calls enforce the supported inline effect policy
+subset from the complete source. Allowlists must include `claude_code` for
+admission. That name is reserved and is not exposed as a child tool. Managed
+metadata `human_approval = true` requires an exact admission review; omission
+keeps direct operator launches governed by source and Cedar policy. Executable
+DSL bodies remain unsupported on this route.
 
-Do **not** pass `--bare` to the spawned `claude` — it skips reading `~/.claude`
-(credentials included) and breaks subscription auth.
+Required signed journals live in private `.symbiont/governed/` storage. Pre-effect
+records must sync before execution; outcomes and inference hashes are correlated.
+Retain the printed public audit key through a trusted channel for verification.
+A signed prefix without a terminal record is incomplete. Ordinary CLI, HTTP and
+scheduled ORGA runs also require protected per-invocation storage. DSL `reason()` and
+`tool_call()` defaults also use protected run journals. Direct DSL inference,
+composition and pattern provider calls require per-call journals, with references
+in `:audit`. Their hashes bind typed provider contracts, not arbitrary provider
+internals or complete pattern lifetimes. Shell orchestrator and fleet turns also require protected per-turn journals;
+fixed file operations use bounded snapshots and retained handles within configured
+workspace ceilings. Writes require exact approval and bind prior content; arbitrary
+commands use private container scratch without host mounts. Canonical fleet conversations retain source and supported per-agent
+sandbox/timeout settings and supported inline allow/deny effect rules. Ordinary
+CLI and registered HTTP/scheduler ORGA routes also enforce these rules before
+approval on normalized calls. See `docs/inline-policies.md` for the bounded
+subset; unsupported rules are refused. Executable canonical DSL bodies still
+require a separate interpreter and are refused by fleet loading. Legacy REPL
+registration rejects unsupported per-agent tier, sandbox, resource and execution
+policy requirements; its supported builtins use the captured project boundary.
+SDK loop builders require explicit journal configuration before inference.
+See `docs/run-audit.md` and `docs/dsl-invocation-context.md`.
 
-**One Gate decision authorizes the whole session, not each action inside it.**
-The policy Gate evaluates the spawn itself; it has no way to evaluate the
-child's individual tool calls afterward, and whatever `permission_mode` resolves
-to applies for the session's full lifetime. Per-action gating would require the
-child to call back into Symbiont's Gate — a trust-boundary redesign, explicitly
-out of scope. The only in-session restriction is the child's own
-`--allowedTools` allowlist, sourced from the agent's DSL
-`metadata { allowed_tools = "Tool1,Tool2,..." }` — that is the *child's*
-allowlist, not Symbiont's Gate, and it is required: `run_claude_code` in
-`src/commands/managed_cli.rs` refuses to spawn when it is empty rather than
-handing the child its own unrestricted defaults for the whole run. There is
-no bypass flag for this check.
+`symbi audit inspect JOURNAL --run-id UUID --public-key HEX` verifies a stable
+run snapshot and reports incomplete and unknown outcomes without replay. Audited
+tool dispatch has durable start/result checkpoints; error results do not prove
+absence of effects. Exit 2 requires reconciliation; exit 1 rejects invalid
+evidence. Ordinary CLI ORGA runs now accept `--invocation-id UUID`: the same
+request returns its saved result or refuses an unresolved retry without another
+execution. Running loops stop before another model request after unconfirmed
+tool or child outcomes; governed tool sessions refuse later calls after uncertainty.
+HTTP Input also requires an `Idempotency-Key` UUID, bound to authenticated caller,
+URI, payload and trusted target. It returns saved results or explicit HTTP 409
+in-progress/unresolved/conflict states. Runtime API agent/workflow submissions
+now also claim before queue admission.
+Cron occurrences and manual triggers also retain durable identities. The default
+cron store is project-scoped, and unresolved runs stop later occurrences. DSL
+schedule loading preserves identity and terminal state across restart. Other
+routes still need persistent identity integration. See `docs/cron-recovery.md`. See `docs/scheduler-idempotency.md`.
+See `docs/invocation-idempotency.md` and
+`docs/crash-inspection.md`. `symbi invocation inspect|reconcile` binds signed operator
+assessments to immutable claim/journal snapshots without granting replay. Cron history
+retains a separate Reconciled receipt and requires explicit resume for timers.
+See `docs/invocation-reconciliation.md`.
 
-`permission_mode` is opt-in per agent, read from the same `metadata` block.
-Unset omits `--permission-mode`, leaving the child its own default, which still
-prompts for anything outside `allowed_tools`; an agent that must run unattended
-declares `permission_mode = "dontAsk"` and takes that trade-off explicitly. It
-is deliberately not defaulted — a hardcoded `dontAsk` is a blanket grant no
-agent asked for.
-
-**The session is journalled because it cannot be gated.** The child runs with
-`--output-format stream-json` and `CliExecutor`'s stdout line sink
-(`with_stdout_line_sink`) appends each tool call, each tool result, and a
-closing summary (turn count, permission denials) to
-`.symbiont/audit/mode-b-<session>.jsonl` as they happen. Live, not at exit: a
-run killed by the wall-clock timeout never returns its buffered stdout, so a
-post-hoc parse would lose the trail precisely when it matters. Argument values
-under keys like `token`/`api_key`/`password` are redacted and oversize arguments
-truncated, so a `Write` call does not deposit a whole file into the audit log.
-This is a visibility mechanism, not an enforcement one — it records what the
-child did, it does not stop it.
+The independent sandbox supervisor owns creation, deadline and descendant cleanup.
+Governed workers using the same private supervisor state directory reserve from
+one CPU, memory and worker pool. Configure `admission.conf` in that directory;
+uncertain leases keep their charge until cleanup is confirmed. Route limits
+remain additional bounds. See `docs/shared-budgets.md` for deployment and scope.
+Git and declared command/MCP/terminal file snapshots also reserve shared disk
+staging before copying. Caller locks and durable worker references retain charges
+until private data cleanup. See `docs/staging-capacity.md`.
+`--budget-tokens` bounds reserved inference output tokens; input traffic is bounded
+by bytes and request count. It is not a total billing limit. `--plugin-dir` is
+rejected. See `docs/managed-cli-containment.md` for configuration, evidence and
+remaining deployment requirements.
 
 ## ToolClad Tools
 
@@ -222,36 +249,73 @@ The manifest carries everything: binary path, description, risk tier, human-appr
 
 Argument types are validated in `crates/runtime/src/toolclad/validator.rs`. `agent_summary` is a best-effort defense-in-depth sanitizer for free text bound for a downstream prompt — **not** a load-bearing control. For a privileged downstream decision (routing, escalation, authorization), use typed `enum` args grounded in trusted context via Cedar, not free text: see `crates/runtime/src/toolclad/decision.rs` (`route_grounded`/`decide_route`), `tools/submit_triage.clad.toml`, and `examples/policies/triage_routing.cedar`. Mark decision-feeding args with `feeds_decision = true`; ToolClad manifest validation (`validate_toolclad`) flags free-text args that feed a privileged decision.
 
+Docker/gVisor/Firecracker command and MCP tools declare individual input and new output paths in
+`[filesystem]`; configured mounts are access ceilings. Missing declarations give
+these workers no host mounts, and custom parsers inherit no host mounts. See
+`docs/filesystem-grants.md` for limits and migration.
+The bundled read/list/search tools use an explicit `[source]` runtime broker with
+bounded results and no worker source mounts. The bundled Git operations use
+private repository snapshots in a supervised worker, with fixed configuration
+and no network. See `docs/source-queries.md` and `docs/git-source-queries.md`;
+Firecracker read/list/search uses explicit read-only `source_roots` through the
+same broker; those roots are never mounted or automatically copied to the guest.
+Declared VM command/MCP/PTY files use bounded protocol-5 byte transfer and separate
+`output_roots` new-file ceilings. Git uses a separate bounded tree stream sealed
+read-only before execution; no original source directory enters the VM. External
+Git metadata grants and cross-identity root-managed staging remain outstanding.
+Standalone MCP discovery and SDK calls also omit host mounts; SDK integrations
+with explicit files use `verified_invoke_with_files`. Schema verification and
+the actual invocation share one worker, and output publication requires success
+and confirmed cleanup.
+Persistent PTYs also receive explicit file grants. A command with `finalize = true`
+closes the worker and publishes its new output after confirmed cleanup. Other
+commands retain private state and report pending publication. Output declarations
+require a finalizer; closing without it returns an unpublished-output error.
+Changed file grants require a new run. See `docs/interactive-terminal-boundary.md`.
+
 **Adding a new tool does not require Rust code.** Drop a `.clad.toml` in `tools/`, the runtime picks it up.
 
 **MCP backend (`mcp-client` feature).** A manifest can carry an `[mcp]` block (`server`, `tool`, optional `field_map`) to route the tool to an upstream MCP server over stdio instead of a local binary. Servers are declared in `mcp-config.toml` (per-project, then `~/.symbiont/`). Invocation is SchemaPin-verified fail-closed by default (TOFU key pinning; a post-pin key swap is rejected); `ToolCladExecutor::with_mcp_verification(false)` opts out for local dev. This is how `symbi run` and the DSL `reason()`/`tool_call()` builtins execute real tools — see `docs/mcp-tools.md`.
 
 ## Agent Delegation (chat coordinator)
 
-The `symbi up` chat coordinator advertises a `delegate` tool listing the agents
-found in `./agents`. Calling it resolves the target in a name→prompt registry
-(both the DSL-declared name and the filename stem are registered), runs it as a
-bounded sub-loop (`crates/runtime/src/reasoning/delegation_executor.rs`), and
-returns its reply as a tool result correlated to the originating call id.
+The `symbi up` chat coordinator advertises `delegate` for valid conversational
+sources loaded through bounded, confined startup reads. Declared names and
+unambiguous filename aliases resolve to one source snapshot and declared policy
+principal. Conflicting identities, linked files, unsupported executable sources
+and unsupported policies are unavailable. Parent authorization binds the selected
+source hashes; child actions enforce the selected inline policy independently of
+Cedar. See `docs/coordinator-delegation.md` for selection and migration details.
 
 Bounds and current limits, all worth knowing before relying on it:
 
 - Depth is capped (`max_delegation_depth`, default 3) with cycle detection; both
   guards reject before the target runs.
 - Failures are explicit: unknown target, cycle, depth exceeded, policy denial, or
-  a sub-agent that does not reach `Completed` each produce an error observation.
+  construction failure each produce a recoverable error observation before the
+  target starts. A started child that does not reach `Completed` stops the parent
+  with `UnconfirmedEffects`; required parent/child audit failures also terminate it.
 - The sub-agent is offered the coordinator's read-only monitoring tools, via
   `CoordinatorExecutor`'s `ActionExecutor::tool_definitions` impl. It is not
   offered `delegate` (no target registry of its own), so nested delegation is not
   reachable from a sub-loop today even though the depth guard allows it. It gets
   **no knowledge bridge**, so no retrieval.
-- The sub-loop runs under an id derived from the target's name
+- The sub-loop runs under an id derived from the declared target's name
   (`delegated_agent_id`), so its policy decisions and journal entries are
   attributable and a Cedar policy can name the principal.
-- Sub-loop token usage is recorded on the delegation handle but has no reader, so
-  the operator-visible token count excludes it. Each hop inherits the parent's
-  configured ceiling rather than its remaining budget.
-- The sub-loop's journal is not surfaced to the operator.
+- Parent and child inference reserve from one shared token ledger. Child usage
+  reduces the remaining parent allowance and is included in parent results.
+  Missing usage and cancelled requests retain uncertain charges; a required
+  `BudgetUpdated` record precedes termination. Child output requests are capped
+  at 4,096 tokens; source timeout and 120 seconds tighten the remaining parent
+  authorization deadline. See `docs/shared-budgets.md` for input reservation limits.
+- Each child has a protected per-invocation journal linked from the parent's
+  required `DelegationStarted` record before child inference. Startup context
+  binds the parent principal, call fingerprint and prompt/task hashes. Completed
+  children produce a parent `DelegationFinished` record. The chat panel's Inspect run action opens the verified operator view, with
+  separate child inspection and parent backlinks. See `docs/run-inspector.md`.
+  Parent cancellation cancels retained child owners and awaits their cleanup and
+  terminal audit before normal completion. See `docs/run-audit.md`.
 - The chat surface cannot run ToolClad/MCP tools: `build_tool_executor` is wired
   into `symbi run` and the DSL builtins, not the coordinator, so a delegated agent
   cannot reach them either.
@@ -262,16 +326,42 @@ Bounds and current limits, all worth knowing before relying on it:
 `delegate` names three different mechanisms across the tree — see the table in
 SKILL.md before assuming which guarantees apply.
 
+## Chat-platform responses
+
+Slack, Teams and Mattermost responses in `symbi up` resolve one registered
+conversational source and use protected inference, response policy and delivery
+audit. Cedar sees the final formatted message and destination at
+`context.invocation.resolved.response_delivery`. The existing shared/coordinator
+policy surface remains in use. The exact authorized message is sent once;
+negative receipts or required audit failures cannot report completion. Runtime
+logs identify the audit reference. This text-response route cannot dispatch tools.
+The prepared contract also includes the actual HTTP method, canonical URL and
+JSON body. Platform HTTP clients refuse redirects and bound response bytes and
+request duration. Teams callbacks require signature verification and an exact
+match between the signed service URL and the activity destination; development
+verification bypasses are refused. SDK adapters must implement `prepare_response`
+for governed delivery. Operator network/proxy configuration remains trusted.
+See `docs/chat-platform-responses.md` for source selection, bounds and the local
+shipping E2E driver.
+
 ## MCP Server
 
 Start with `symbi mcp` (stdio transport). Available tools:
 
-- `invoke_agent` — Run a named agent with a prompt via LLM
+- `invoke_agent` — Request a policy-checked text response from a registered
+  conversational agent, with required protected audit and cancellation ownership
 - `list_agents` — List all agents in the `agents/` directory
 - `parse_dsl` — Parse and validate DSL content (file or inline)
 - `get_agent_dsl` — Get raw agent definition source (`.symbi` or legacy `.dsl`) for a specific agent
 - `get_agents_md` — Read the project's AGENTS.md file
 - `verify_schema` — Verify MCP tool schema via SchemaPin (ECDSA P-256)
+
+MCP invocation refuses unknown/ambiguous sources, unsupported executable definitions
+and unadvertised tools. `system_prompt` is caller guidance, not runtime authority.
+Policies come from shared files and `policies/mcp-server/`; malformed configured
+policies deny responses as well as tools. Results expose protected audit references
+through `structuredContent`. Project file tools use bounded reads from a pinned
+directory, excluding links and private paths. See `docs/mcp-server.md`.
 
 ## HTTP API
 
@@ -284,11 +374,21 @@ The runtime API runs on port 8080 (configurable via `--port`):
 - `GET /api/v1/schedules` — List cron schedules
 - `POST /api/v1/schedules` — Create schedule
 - `GET /api/v1/channels` — List channel adapters
-- `POST /api/v1/workflows/execute` — Execute workflow
+- `POST /api/v1/workflows/execute` — Submit raw workflow source (admin only)
+- `GET /api/v1/audit/runs/:agent_id/:run_id?public_key=HEX` — Verified operator run view (admin only)
+- `GET /api/v1/sandbox/capacity` — Retained shared worker reservations (admin only)
+- `GET /api/v1/sandbox/workers/:lease/usage` — Separately sampled worker CPU/memory (admin only)
 - `GET /api/v1/metrics` — Runtime metrics
 - `GET /swagger-ui` — Interactive API docs
 
 All endpoints except health require `Authorization: Bearer <token>`.
+
+Workflow submissions can replace a registration and always require administrative
+authority. Scoped keys invoke registered source through `/agents/:id/execute`.
+Both execution endpoints require an `Idempotency-Key` UUID retained for retries.
+Workflow parameters become invocation input; a fresh response reports `queued` and
+the actual `execution_id`. Match that ID in agent history for the terminal status.
+See `crates/runtime/API_REFERENCE.md` for source selection and migration details.
 
 ## Agent Capabilities
 

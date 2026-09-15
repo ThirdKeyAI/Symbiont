@@ -1,5 +1,7 @@
 # Symbiont REPL 指南
 
+> 此分支在注册时拒绝显式设置旧版 `security.tier`、`security.sandbox`、资源限制和执行策略，因为该路径无法按代理强制执行这些要求。受支持的内置函数使用运维人员配置的项目沙箱。空配置块和仅声明能力要求的代理保留原有检查。注册被拒绝的模块不会替换已有代理或辅助函数。
+
 ## 其他语言
 
 
@@ -225,7 +227,6 @@ agent SecureAgent {
   name: "Secure Agent"
   security {
     capabilities: ["filesystem", "network"]
-    sandbox: true
   }
 }
 
@@ -418,13 +419,8 @@ agent DataProcessor {
 
   security {
     capabilities: ["data_read", "data_write"]
-    sandbox: true
   }
 
-  resources {
-    memory: 256MB
-    cpu: 1
-  }
 }
 
 behavior ProcessCsv {

@@ -176,6 +176,9 @@ pub struct CronJobDefinition {
     pub cron_expression: String,
     pub timezone: String,
     pub agent_config: AgentConfig,
+    /// Input supplied to every scheduled invocation.
+    #[serde(default)]
+    pub input: serde_json::Value,
     pub policy_ids: Vec<String>,
     pub audit_level: AuditLevel,
     pub status: CronJobStatus,
@@ -216,6 +219,7 @@ impl CronJobDefinition {
             cron_expression,
             timezone,
             agent_config,
+            input: serde_json::Value::Null,
             policy_ids: Vec::new(),
             audit_level: AuditLevel::default(),
             status: CronJobStatus::Active,
@@ -240,6 +244,12 @@ impl CronJobDefinition {
 /// Record of a single cron job execution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JobRunRecord {
+    /// Operator assessment; does not replace a missing runtime completion.
+    #[serde(default)]
+    pub resolution: Option<serde_json::Value>,
+    /// Protected execution reference, available once queue admission succeeds.
+    #[serde(default)]
+    pub admission_audit: Option<crate::reasoning::run_audit::RunAuditReference>,
     pub run_id: Uuid,
     pub job_id: CronJobId,
     pub agent_id: crate::types::AgentId,
@@ -248,11 +258,17 @@ pub struct JobRunRecord {
     pub status: JobRunStatus,
     pub error: Option<String>,
     pub execution_time_ms: Option<u64>,
+    /// Actual runtime result, including its run ID and protected audit reference.
+    #[serde(default)]
+    pub execution: Option<super::task_manager::TaskCompletion>,
 }
 
 /// Status of a single run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum JobRunStatus {
+    Pending,
+    Unresolved,
+    Reconciled,
     Running,
     Succeeded,
     Failed,
@@ -263,6 +279,9 @@ pub enum JobRunStatus {
 impl fmt::Display for JobRunStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            JobRunStatus::Pending => write!(f, "pending"),
+            JobRunStatus::Unresolved => write!(f, "unresolved"),
+            JobRunStatus::Reconciled => write!(f, "reconciled"),
             JobRunStatus::Running => write!(f, "running"),
             JobRunStatus::Succeeded => write!(f, "succeeded"),
             JobRunStatus::Failed => write!(f, "failed"),
@@ -276,6 +295,9 @@ impl std::str::FromStr for JobRunStatus {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
+            "pending" => Ok(JobRunStatus::Pending),
+            "unresolved" => Ok(JobRunStatus::Unresolved),
+            "reconciled" => Ok(JobRunStatus::Reconciled),
             "running" => Ok(JobRunStatus::Running),
             "succeeded" => Ok(JobRunStatus::Succeeded),
             "failed" => Ok(JobRunStatus::Failed),
@@ -318,6 +340,9 @@ mod tests {
     #[test]
     fn job_run_status_display_roundtrip() {
         for status in [
+            JobRunStatus::Pending,
+            JobRunStatus::Unresolved,
+            JobRunStatus::Reconciled,
             JobRunStatus::Running,
             JobRunStatus::Succeeded,
             JobRunStatus::Failed,

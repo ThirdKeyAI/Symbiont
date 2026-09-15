@@ -7,8 +7,38 @@ mod mcp_server;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+fn main() {
+    if std::env::args_os().nth(1).as_deref()
+        == Some(std::ffi::OsStr::new(
+            symbi_runtime::sandbox::supervisor::INTERNAL_COMMAND,
+        ))
+    {
+        let arguments = std::env::args().skip(2).collect::<Vec<_>>();
+        let result = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .map_err(|error| error.to_string())
+            .and_then(|runtime| {
+                runtime
+                    .block_on(symbi_runtime::sandbox::supervisor::run_service(&arguments))
+                    .map_err(|e| e.to_string())
+            });
+        if let Err(error) = result {
+            eprintln!("sandbox supervisor failed: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+    if let Err(error) = symbi_runtime::sandbox::supervisor::use_embedded_helper() {
+        eprintln!("cannot locate sandbox supervisor executable: {error}");
+        std::process::exit(1);
+    }
+    app_main();
+}
+
 #[tokio::main]
-async fn main() {
+async fn app_main() {
     // Load a project-local `.env` (e.g. the one `symbi init` generates with
     // SYMBIONT_MASTER_KEY) before anything reads the environment. Variables
     // already set in the real environment take precedence — dotenvy never
@@ -183,6 +213,19 @@ async fn main() {
                 .about("Check system health and dependencies")
         )
         .subcommand(
+            Command::new("audit")
+                .about("Inspect protected run evidence")
+                .subcommand_required(true)
+                .subcommand(Command::new("inspect")
+                    .about("Verify a run and report incomplete or unknown outcomes without replaying work")
+                    .arg(Arg::new("journal").required(true).value_name("JOURNAL"))
+                    .arg(Arg::new("public-key").long("public-key").required(true).value_name("HEX")
+                        .help("Public audit key retained through a trusted channel"))
+                    .arg(Arg::new("run-id").long("run-id").required(true).value_name("UUID")
+                        .help("Expected invocation ID retained through a trusted channel"))),
+        )
+        .subcommand(commands::invocation::command())
+        .subcommand(
             Command::new("logs")
                 .about("Show runtime logs")
                 .arg(
@@ -251,6 +294,20 @@ async fn main() {
             Command::new("run")
                 .about("Run a single agent and exit")
                 .arg(
+                    Arg::new("approval-terminal")
+                        .long("approval-terminal")
+                        .action(ArgAction::SetTrue)
+                        .help("Request mandatory tool approvals on the operator's controlling terminal"),
+                )
+                .arg(
+                    Arg::new("approval-timeout")
+                        .long("approval-timeout")
+                        .value_name("SECONDS")
+                        .value_parser(clap::value_parser!(u64).range(1..=3600))
+                        .requires("approval-terminal")
+                        .help("Time to display and answer each terminal approval (default: 120 seconds)"),
+                )
+                .arg(
                     Arg::new("agent")
                         .value_name("AGENT")
                         .help("Agent name or DSL file path (searches agents/ directory)")
@@ -272,10 +329,16 @@ async fn main() {
                         .default_value("10"),
                 )
                 .arg(
+                    Arg::new("invocation-id")
+                        .long("invocation-id")
+                        .value_name("UUID")
+                        .help("Ordinary ORGA run identity: reuse this ID to retrieve a result without repeating work"),
+                )
+                .arg(
                     Arg::new("target")
                         .long("target")
                         .value_name("DIR")
-                        .help("Working directory for managed-CLI agents (default: current dir)"),
+                        .help("Managed tool working directory: mapped host path for Docker/gVisor; absolute guest path for Firecracker (default: configured guest directory)"),
                 )
                 .arg(
                     Arg::new("max-turns")
@@ -296,7 +359,7 @@ async fn main() {
                         .long("budget-tokens")
                         .value_name("N")
                         .help(
-                            "Managed CLI: token budget hint passed to the subprocess (default 100000)",
+                            "Managed CLI: total reserved inference output-token allowance (default 100000)",
                         ),
                 )
                 .arg(
@@ -304,7 +367,7 @@ async fn main() {
                         .long("plugin-dir")
                         .value_name("DIR")
                         .help(
-                            "Managed CLI: path to the symbi-claude-code plugin (overrides SYMBIONT_CLAUDE_PLUGIN_DIR / autodetect)",
+                            "Legacy managed CLI plugin option; brokered runs reject plugin loading",
                         ),
                 ),
         )
@@ -773,6 +836,10 @@ async fn main() {
         Some(("doctor", _sub_matches)) => {
             commands::doctor::run().await;
         }
+        Some(("audit", sub_matches)) => {
+            commands::audit::run(sub_matches);
+        }
+        Some(("invocation", sub_matches)) => commands::invocation::run(sub_matches).await,
         Some(("logs", sub_matches)) => {
             commands::logs::run(sub_matches).await;
         }

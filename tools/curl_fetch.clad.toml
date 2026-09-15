@@ -3,7 +3,7 @@
 
 [tool]
 name = "curl_fetch"
-version = "1.0.0"
+version = "1.0.1"
 binary = "curl"
 description = "HTTP request with headers and response capture"
 timeout_seconds = 30
@@ -32,13 +32,13 @@ description = "HTTP method"
 [args.headers]
 position = 3
 required = false
-type = "string"
-sanitize = ["injection"]
+type = "regex_match"
+pattern = "\\A[A-Za-z0-9!#$%&'*+.^_`|~-]+:[^\\r\\n\\x00]*\\z"
 default = ""
-description = "Extra headers as 'Key: Value' (comma-separated)"
+description = "One extra HTTP header as Key: Value; file inputs are not allowed"
 
 [command]
-template = "curl -s -S -X {method} --max-time 25 -w '\\n%{{http_code}}' {_header_flags} {url}"
+template = "curl -s -S -X {method} --max-time 25 -w '\\n%{http_code}' {_header_flags} -- {url}"
 
 [command.conditionals]
 header_flags = { when = "headers != ''", template = "-H '{headers}'" }

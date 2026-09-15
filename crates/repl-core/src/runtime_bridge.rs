@@ -17,6 +17,8 @@ use symbi_runtime::types::AgentId;
 
 /// The RuntimeBridge manages a simulated, in-process Symbiont runtime environment.
 pub struct RuntimeBridge {
+    project_root: std::result::Result<std::path::PathBuf, String>,
+    audit_references: Arc<crate::dsl::inference_audit::AuditReferenceLog>,
     lifecycle_controller: Arc<Mutex<Option<Arc<DefaultLifecycleController>>>>,
     context_manager: Arc<Mutex<Option<Arc<StandardContextManager>>>>,
     policy_engine: Arc<Mutex<OpaPolicyEngine>>,
@@ -83,6 +85,8 @@ impl RuntimeBridge {
         let reasoning_policy_gate = Arc::new(Mutex::new(None));
 
         Self {
+            project_root: crate::dsl::reasoning_builtins::capture_project_root(),
+            audit_references: Arc::new(Default::default()),
             lifecycle_controller,
             context_manager,
             policy_engine,
@@ -96,6 +100,17 @@ impl RuntimeBridge {
             #[cfg(feature = "session")]
             session_registry: Arc::new(symbi_runtime::session::SessionRegistry::new()),
         }
+    }
+
+    /// Select a project before sharing the bridge or constructing an evaluator.
+    pub fn with_project_root(
+        mut self,
+        project: impl AsRef<std::path::Path>,
+    ) -> crate::error::Result<Self> {
+        let context = crate::dsl::reasoning_builtins::ReasoningBuiltinContext::default()
+            .with_project_root(project)?;
+        self.project_root = context.project_root;
+        Ok(self)
     }
 
     /// Set the inference provider for reasoning builtins.
@@ -117,6 +132,13 @@ impl RuntimeBridge {
     /// Get the agent registry.
     pub fn agent_registry(&self) -> Arc<AgentRegistry> {
         Arc::clone(&self.agent_registry)
+    }
+
+    /// Public references for independently verifying direct inference journals.
+    pub fn audit_references(
+        &self,
+    ) -> crate::error::Result<crate::dsl::inference_audit::AuditReferenceSnapshot> {
+        self.audit_references.snapshot()
     }
 
     /// Register an agent (name + system prompt + tool names) into the shared
@@ -181,6 +203,7 @@ impl RuntimeBridge {
         let comm_bus = self.comm_bus.lock().unwrap().clone();
         let comm_policy = Some(self.comm_policy.lock().unwrap().clone());
         crate::dsl::reasoning_builtins::ReasoningBuiltinContext {
+            project_root: self.project_root.clone(),
             provider,
             agent_registry: Some(Arc::clone(&self.agent_registry)),
             sender_agent_id: None,
@@ -190,6 +213,10 @@ impl RuntimeBridge {
             // wired real governance; `None` here makes the builtins fall
             // back to `DefaultPolicyGate::new()` (fail-closed default).
             reasoning_policy_gate: self.reasoning_policy_gate.lock().unwrap().clone(),
+            tool_executor: None,
+            reasoning_journal: None,
+            reasoning_config: None,
+            audit_references: self.audit_references.clone(),
             #[cfg(feature = "session")]
             active_session: self.active_session.clone(),
             #[cfg(feature = "session")]

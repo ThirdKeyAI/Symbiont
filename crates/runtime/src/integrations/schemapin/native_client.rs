@@ -4,7 +4,10 @@
 
 use async_trait::async_trait;
 use chrono::Utc;
-use schemapin::crypto::{calculate_key_id, generate_key_pair, sign_data, verify_signature};
+use schemapin::canonicalize::canonicalize_schema;
+#[cfg(test)]
+use schemapin::crypto::generate_key_pair;
+use schemapin::crypto::{calculate_key_id, sign_data, verify_signature, KeyManager};
 use sha2::Digest;
 
 use super::types::{
@@ -16,6 +19,22 @@ use super::types::{
 pub trait SchemaPinClient: Send + Sync {
     /// Verify a schema using the native SchemaPin implementation
     async fn verify_schema(&self, args: VerifyArgs) -> Result<VerificationResult, SchemaPinError>;
+
+    /// Verify bytes against an already pinned key without fetching a URL.
+    /// Implementations that only support URL-based verification must fail
+    /// closed rather than silently fetching a different verification anchor.
+    async fn verify_schema_bytes(
+        &self,
+        _schema_data: &[u8],
+        _source: &str,
+        _public_key_url: &str,
+        _public_key_pem: &str,
+    ) -> Result<VerificationResult, SchemaPinError> {
+        Err(SchemaPinError::VerificationFailed {
+            reason: "SchemaPin implementation does not support verification with a pinned key"
+                .into(),
+        })
+    }
 
     /// Sign a schema using the native SchemaPin implementation
     async fn sign_schema(&self, args: SignArgs) -> Result<SigningResult, SchemaPinError>;
@@ -54,7 +73,10 @@ impl NativeSchemaPinClient {
     /// - Raw PEM: response body is the PEM-encoded public key directly
     /// - SchemaPin discovery JSON: response is a JSON object with a `public_key_pem` field
     ///   (e.g., from `/.well-known/schemapin.json`)
-    async fn fetch_public_key(&self, public_key_url: &str) -> Result<String, SchemaPinError> {
+    pub(crate) async fn fetch_public_key(
+        &self,
+        public_key_url: &str,
+    ) -> Result<String, SchemaPinError> {
         use futures::StreamExt;
 
         crate::net_guard::reject_ssrf_url(public_key_url).map_err(|reason| {
@@ -170,6 +192,127 @@ impl NativeSchemaPinClient {
         }
     }
 
+    /// Verify schema bytes with the exact key already fetched and checked
+    /// against the provider pin. This function never performs a second fetch.
+    pub(crate) fn verify_schema_with_key(
+        &self,
+        schema_data: &[u8],
+        source: &str,
+        public_key_url: &str,
+        public_key_pem: &str,
+    ) -> Result<VerificationResult, SchemaPinError> {
+        // Calculate key ID for reference
+        let key_id = calculate_key_id(public_key_pem).map_err(|e| SchemaPinError::IoError {
+            reason: format!("Failed to calculate key ID: {}", e),
+        })?;
+
+        // Calculate schema hash for the response regardless of outcome
+        let schema_hash = {
+            let mut hasher = sha2::Sha256::new();
+            hasher.update(schema_data);
+            hex::encode(hasher.finalize())
+        };
+
+        // Attempt to extract an embedded signature from the schema JSON.
+        // Schemas signed by SchemaPin contain a top-level `signature` field.
+        let embedded_signature: Option<String> =
+            serde_json::from_slice::<serde_json::Value>(schema_data)
+                .ok()
+                .and_then(|v| {
+                    v.get("signature")
+                        .and_then(|s| s.as_str())
+                        .map(String::from)
+                });
+
+        if let Some(ref sig) = embedded_signature {
+            // Verify the embedded signature against the schema content and fetched public key
+            // Strip the signature field to get the canonical payload that was signed
+            let mut schema_value: serde_json::Value =
+                serde_json::from_slice(schema_data).map_err(|e| SchemaPinError::IoError {
+                    reason: format!("Failed to parse schema JSON: {}", e),
+                })?;
+            if let Some(obj) = schema_value.as_object_mut() {
+                obj.remove("signature");
+            }
+            // Explicit recursive ordering is required even when another
+            // workspace dependency enables serde_json's preserve_order feature.
+            let canonical_payload = canonicalize_schema(&schema_value);
+
+            match verify_signature(public_key_pem, canonical_payload.as_bytes(), sig) {
+                Ok(true) => {
+                    tracing::info!("Schema signature verified successfully for {}", source);
+                    Ok(VerificationResult {
+                        success: true,
+                        message: "Schema signature verified successfully using native Rust implementation".to_string(),
+                        schema_hash: Some(schema_hash),
+                        public_key_url: Some(public_key_url.to_string()),
+                        signature: Some(SignatureInfo {
+                            algorithm: "ECDSA_P256".to_string(),
+                            signature: sig.clone(),
+                            key_fingerprint: Some(key_id),
+                            valid: true,
+                        }),
+                        metadata: None,
+                        timestamp: Some(Utc::now().to_rfc3339()),
+                    })
+                }
+                Ok(false) => {
+                    tracing::warn!(
+                        "Schema signature verification failed: signature invalid for {}",
+                        source
+                    );
+                    Ok(VerificationResult {
+                        success: false,
+                        message: "Schema signature verification failed: signature is invalid"
+                            .to_string(),
+                        schema_hash: Some(schema_hash),
+                        public_key_url: Some(public_key_url.to_string()),
+                        signature: Some(SignatureInfo {
+                            algorithm: "ECDSA_P256".to_string(),
+                            signature: sig.clone(),
+                            key_fingerprint: Some(key_id),
+                            valid: false,
+                        }),
+                        metadata: None,
+                        timestamp: Some(Utc::now().to_rfc3339()),
+                    })
+                }
+                Err(e) => {
+                    tracing::warn!("Schema signature verification error for {}: {}", source, e);
+                    Ok(VerificationResult {
+                        success: false,
+                        message: format!("Schema signature verification error: {}", e),
+                        schema_hash: Some(schema_hash),
+                        public_key_url: Some(public_key_url.to_string()),
+                        signature: Some(SignatureInfo {
+                            algorithm: "ECDSA_P256".to_string(),
+                            signature: sig.clone(),
+                            key_fingerprint: Some(key_id),
+                            valid: false,
+                        }),
+                        metadata: None,
+                        timestamp: Some(Utc::now().to_rfc3339()),
+                    })
+                }
+            }
+        } else {
+            // No signature provided — fail verification (fail-closed)
+            tracing::warn!(
+                "Schema verification failed for {}: no signature provided for verification",
+                source
+            );
+            Ok(VerificationResult {
+                success: false,
+                message: "No signature provided for verification".to_string(),
+                schema_hash: Some(schema_hash),
+                public_key_url: Some(public_key_url.to_string()),
+                signature: None,
+                metadata: None,
+                timestamp: Some(Utc::now().to_rfc3339()),
+            })
+        }
+    }
+
     /// Read file contents from filesystem
     async fn read_file(&self, path: &str) -> Result<Vec<u8>, SchemaPinError> {
         tokio::fs::read(path)
@@ -188,6 +331,16 @@ impl Default for NativeSchemaPinClient {
 
 #[async_trait]
 impl SchemaPinClient for NativeSchemaPinClient {
+    async fn verify_schema_bytes(
+        &self,
+        schema_data: &[u8],
+        source: &str,
+        public_key_url: &str,
+        public_key_pem: &str,
+    ) -> Result<VerificationResult, SchemaPinError> {
+        self.verify_schema_with_key(schema_data, source, public_key_url, public_key_pem)
+    }
+
     async fn verify_schema(&self, args: VerifyArgs) -> Result<VerificationResult, SchemaPinError> {
         // Validate arguments
         if args.schema_path.is_empty() {
@@ -217,124 +370,12 @@ impl SchemaPinClient for NativeSchemaPinClient {
         // Fetch public key
         let public_key_pem = self.fetch_public_key(&args.public_key_url).await?;
 
-        // Calculate key ID for reference
-        let key_id = calculate_key_id(&public_key_pem).map_err(|e| SchemaPinError::IoError {
-            reason: format!("Failed to calculate key ID: {}", e),
-        })?;
-
-        // Calculate schema hash for the response regardless of outcome
-        let schema_hash = {
-            let mut hasher = sha2::Sha256::new();
-            hasher.update(&schema_data);
-            hex::encode(hasher.finalize())
-        };
-
-        // Attempt to extract an embedded signature from the schema JSON.
-        // Schemas signed by SchemaPin contain a top-level `signature` field.
-        let embedded_signature: Option<String> =
-            serde_json::from_slice::<serde_json::Value>(&schema_data)
-                .ok()
-                .and_then(|v| {
-                    v.get("signature")
-                        .and_then(|s| s.as_str())
-                        .map(String::from)
-                });
-
-        if let Some(ref sig) = embedded_signature {
-            // Verify the embedded signature against the schema content and fetched public key
-            // Strip the signature field to get the canonical payload that was signed
-            let mut schema_value: serde_json::Value = serde_json::from_slice(&schema_data)
-                .map_err(|e| SchemaPinError::IoError {
-                    reason: format!("Failed to parse schema JSON: {}", e),
-                })?;
-            if let Some(obj) = schema_value.as_object_mut() {
-                obj.remove("signature");
-            }
-            let canonical_payload =
-                serde_json::to_vec(&schema_value).map_err(|e| SchemaPinError::IoError {
-                    reason: format!("Failed to serialize canonical schema: {}", e),
-                })?;
-
-            match verify_signature(&public_key_pem, &canonical_payload, sig) {
-                Ok(true) => {
-                    tracing::info!(
-                        "Schema signature verified successfully for {}",
-                        args.schema_path
-                    );
-                    Ok(VerificationResult {
-                        success: true,
-                        message: "Schema signature verified successfully using native Rust implementation".to_string(),
-                        schema_hash: Some(schema_hash),
-                        public_key_url: Some(args.public_key_url.clone()),
-                        signature: Some(SignatureInfo {
-                            algorithm: "ECDSA_P256".to_string(),
-                            signature: sig.clone(),
-                            key_fingerprint: Some(key_id),
-                            valid: true,
-                        }),
-                        metadata: None,
-                        timestamp: Some(Utc::now().to_rfc3339()),
-                    })
-                }
-                Ok(false) => {
-                    tracing::warn!(
-                        "Schema signature verification failed: signature invalid for {}",
-                        args.schema_path
-                    );
-                    Ok(VerificationResult {
-                        success: false,
-                        message: "Schema signature verification failed: signature is invalid"
-                            .to_string(),
-                        schema_hash: Some(schema_hash),
-                        public_key_url: Some(args.public_key_url.clone()),
-                        signature: Some(SignatureInfo {
-                            algorithm: "ECDSA_P256".to_string(),
-                            signature: sig.clone(),
-                            key_fingerprint: Some(key_id),
-                            valid: false,
-                        }),
-                        metadata: None,
-                        timestamp: Some(Utc::now().to_rfc3339()),
-                    })
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        "Schema signature verification error for {}: {}",
-                        args.schema_path,
-                        e
-                    );
-                    Ok(VerificationResult {
-                        success: false,
-                        message: format!("Schema signature verification error: {}", e),
-                        schema_hash: Some(schema_hash),
-                        public_key_url: Some(args.public_key_url.clone()),
-                        signature: Some(SignatureInfo {
-                            algorithm: "ECDSA_P256".to_string(),
-                            signature: sig.clone(),
-                            key_fingerprint: Some(key_id),
-                            valid: false,
-                        }),
-                        metadata: None,
-                        timestamp: Some(Utc::now().to_rfc3339()),
-                    })
-                }
-            }
-        } else {
-            // No signature provided — fail verification (fail-closed)
-            tracing::warn!(
-                "Schema verification failed for {}: no signature provided for verification",
-                args.schema_path
-            );
-            Ok(VerificationResult {
-                success: false,
-                message: "No signature provided for verification".to_string(),
-                schema_hash: Some(schema_hash),
-                public_key_url: Some(args.public_key_url.clone()),
-                signature: None,
-                metadata: None,
-                timestamp: Some(Utc::now().to_rfc3339()),
-            })
-        }
+        self.verify_schema_with_key(
+            &schema_data,
+            &args.schema_path,
+            &args.public_key_url,
+            &public_key_pem,
+        )
     }
 
     async fn sign_schema(&self, args: SignArgs) -> Result<SigningResult, SchemaPinError> {
@@ -351,6 +392,12 @@ impl SchemaPinClient for NativeSchemaPinClient {
             });
         }
 
+        if !args.additional_args.is_empty() {
+            return Err(SchemaPinError::InvalidArguments {
+                args: vec!["native signing does not accept additional CLI arguments".into()],
+            });
+        }
+
         // Read schema file
         let schema_data = self.read_file(&args.schema_path).await?;
 
@@ -361,34 +408,55 @@ impl SchemaPinClient for NativeSchemaPinClient {
                 path: args.private_key_path.clone(),
             })?;
 
-        // Sign the schema data
-        let signature = sign_data(&private_key_pem, &schema_data).map_err(|e| {
+        let signing_error = |error: String| SchemaPinError::SigningFailed { reason: error };
+        let mut schema: serde_json::Value = serde_json::from_slice(&schema_data)
+            .map_err(|e| signing_error(format!("Invalid schema JSON: {e}")))?;
+        schema
+            .as_object_mut()
+            .ok_or_else(|| signing_error("Schema must be a JSON object".into()))?
+            .remove("signature");
+        let canonical = canonicalize_schema(&schema);
+        let signature = sign_data(&private_key_pem, canonical.as_bytes()).map_err(|e| {
             SchemaPinError::SigningFailed {
                 reason: format!("Failed to sign schema: {}", e),
             }
         })?;
 
-        // Calculate schema hash
-        let mut hasher = sha2::Sha256::new();
-        hasher.update(&schema_data);
-        let schema_hash = hex::encode(hasher.finalize());
-
-        // Generate key ID from the corresponding public key
-        // In practice, you'd derive the public key from the private key
-        let key_pair = generate_key_pair().map_err(|e| SchemaPinError::SigningFailed {
-            reason: format!("Failed to generate key pair for ID calculation: {}", e),
-        })?;
-
-        let key_id = calculate_key_id(&key_pair.public_key_pem).map_err(|e| {
-            SchemaPinError::SigningFailed {
-                reason: format!("Failed to calculate key ID: {}", e),
-            }
-        })?;
+        let private = KeyManager::load_private_key_pem(&private_key_pem)
+            .map_err(|e| signing_error(format!("Invalid signing key: {e}")))?;
+        let public = KeyManager::export_public_key_pem(&private.public_key())
+            .map_err(|e| signing_error(format!("Cannot derive signing public key: {e}")))?;
+        let key_id = calculate_key_id(&public)
+            .map_err(|e| signing_error(format!("Cannot identify signing key: {e}")))?;
 
         // Determine output path
         let output_path = args
             .output_path
             .unwrap_or_else(|| format!("{}.signed", args.schema_path));
+
+        schema["signature"] = serde_json::json!(signature);
+        let signed = canonicalize_schema(&schema).into_bytes();
+        let schema_hash = hex::encode(sha2::Sha256::digest(&signed));
+        let destination = std::path::PathBuf::from(&output_path);
+        // Publish complete bytes without following or replacing an existing
+        // output path. Failure never returns an invented signed-file location.
+        tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+            use std::io::Write;
+            let parent = destination
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or_else(|| std::path::Path::new("."));
+            let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+            temporary.write_all(&signed)?;
+            temporary.as_file().sync_all()?;
+            temporary.persist_noclobber(&destination)?;
+            #[cfg(unix)]
+            std::fs::File::open(parent)?.sync_all()?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| signing_error(format!("Schema publication task failed: {e}")))?
+        .map_err(|e| signing_error(format!("Cannot publish signed schema: {e}")))?;
 
         Ok(SigningResult {
             success: true,
@@ -450,6 +518,17 @@ impl MockNativeSchemaPinClient {
 
 #[async_trait]
 impl SchemaPinClient for MockNativeSchemaPinClient {
+    async fn verify_schema_bytes(
+        &self,
+        _schema_data: &[u8],
+        source: &str,
+        public_key_url: &str,
+        _public_key_pem: &str,
+    ) -> Result<VerificationResult, SchemaPinError> {
+        self.verify_schema(VerifyArgs::new(source.into(), public_key_url.into()))
+            .await
+    }
+
     async fn verify_schema(&self, _args: VerifyArgs) -> Result<VerificationResult, SchemaPinError> {
         if let Some(ref result) = self.mock_result {
             if result.success {
@@ -516,6 +595,104 @@ impl SchemaPinClient for MockNativeSchemaPinClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn verification_is_bound_to_the_supplied_key_and_exact_schema() {
+        let key = generate_key_pair().unwrap();
+        let other_key = generate_key_pair().unwrap();
+        let client = NativeSchemaPinClient::new();
+        let mut schema =
+            serde_json::json!({"type":"object", "properties":{"text":{"type":"string"}}});
+        let payload = canonicalize_schema(&schema).into_bytes();
+        let signature = sign_data(&key.private_key_pem, &payload).unwrap();
+        schema["signature"] = serde_json::json!(signature);
+        let signed = serde_json::to_vec(&schema).unwrap();
+        let verify = |bytes: &[u8], pem: &str| {
+            client
+                .verify_schema_with_key(bytes, "fixture", "https://example.com/key", pem)
+                .unwrap()
+                .success
+        };
+        assert!(verify(&signed, &key.public_key_pem));
+        // A transport may reorder object keys and whitespace, but array order
+        // and values remain significant. This also covers preserve_order builds.
+        let reordered = serde_json::json!({"signature":schema["signature"],"properties":{"text":{"type":"string"}},"type":"object"});
+        assert!(verify(
+            &serde_json::to_vec_pretty(&reordered).unwrap(),
+            &key.public_key_pem
+        ));
+        assert!(!verify(&signed, &other_key.public_key_pem));
+        assert!(!verify(&payload, &key.public_key_pem));
+        schema["properties"]["text"]["type"] = serde_json::json!("integer");
+        assert!(!verify(
+            &serde_json::to_vec(&schema).unwrap(),
+            &key.public_key_pem
+        ));
+    }
+
+    #[tokio::test]
+    async fn signing_publishes_verifiable_bytes_with_the_actual_key_identity() {
+        let root = tempfile::tempdir().unwrap();
+        let key = generate_key_pair().unwrap();
+        let schema = root.path().join("schema.json");
+        let private = root.path().join("key.pem");
+        let output = root.path().join("signed.json");
+        std::fs::write(
+            &schema,
+            r#"{ "type":"object", "properties":{"z":{"type":"string"},"a":{"enum":["b","a"]}} }"#,
+        )
+        .unwrap();
+        std::fs::write(&private, &key.private_key_pem).unwrap();
+        let args = || SignArgs {
+            schema_path: schema.display().to_string(),
+            private_key_path: private.display().to_string(),
+            output_path: Some(output.display().to_string()),
+            additional_args: vec![],
+        };
+        let client = NativeSchemaPinClient::new();
+        let result = client.sign_schema(args()).await.unwrap();
+        let bytes = std::fs::read(&output).unwrap();
+        assert!(result.success);
+        assert_eq!(result.signed_schema_path.as_deref(), output.to_str());
+        assert_eq!(
+            result
+                .signature
+                .as_ref()
+                .unwrap()
+                .key_fingerprint
+                .as_deref(),
+            Some(calculate_key_id(&key.public_key_pem).unwrap().as_str())
+        );
+        let verified = client
+            .verify_schema_with_key(&bytes, "fixture", "", &key.public_key_pem)
+            .unwrap();
+        assert!(verified.success);
+        assert_eq!(result.schema_hash, verified.schema_hash);
+        let mut changed: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        changed["properties"]["a"]["enum"] = serde_json::json!(["a", "b"]);
+        assert!(
+            !client
+                .verify_schema_with_key(
+                    &serde_json::to_vec(&changed).unwrap(),
+                    "fixture",
+                    "",
+                    &key.public_key_pem
+                )
+                .unwrap()
+                .success
+        );
+        assert!(client.sign_schema(args()).await.is_err());
+        assert_eq!(std::fs::read(&output).unwrap(), bytes);
+        let mut bad = args();
+        bad.output_path = Some(
+            root.path()
+                .join("missing/signed.json")
+                .display()
+                .to_string(),
+        );
+        assert!(client.sign_schema(bad).await.is_err());
+        assert!(!root.path().join("missing").exists());
+    }
 
     #[tokio::test]
     async fn test_native_client_creation() {

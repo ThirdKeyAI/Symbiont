@@ -3,12 +3,24 @@
 //! This module provides a unified interface for different sandbox technologies
 //! including Docker, GVisor, Firecracker, E2B.dev, and native (non-isolated) execution.
 
+pub mod command;
+pub(crate) mod command_cleanup;
 pub mod docker;
 pub mod e2b;
+pub mod files;
 pub mod firecracker;
 pub mod gvisor;
+#[cfg(target_os = "linux")]
+pub mod landlock;
 #[cfg(feature = "native-sandbox")]
 pub mod native;
+pub mod source;
+#[cfg(target_os = "linux")]
+mod source_git;
+#[cfg(any(feature = "mcp-client", feature = "toolclad-session"))]
+pub(crate) mod streams;
+pub mod supervisor;
+pub mod workspace;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};

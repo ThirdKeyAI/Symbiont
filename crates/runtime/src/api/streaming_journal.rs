@@ -1,6 +1,6 @@
 //! Streaming journal bridge for WebSocket event forwarding.
 //!
-//! Wraps a [`BufferedJournal`] and additionally pushes every
+//! Wraps a required journal writer and additionally pushes every
 //! [`JournalEntry`] into a `tokio::sync::mpsc` channel so that a
 //! WebSocket writer task can forward events to the browser in real-time.
 
@@ -11,13 +11,13 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 #[cfg(feature = "http-api")]
-use crate::reasoning::loop_types::{BufferedJournal, JournalEntry, JournalError, JournalWriter};
+use crate::reasoning::loop_types::{JournalEntry, JournalError, JournalWriter};
 
-/// A journal that writes to an inner [`BufferedJournal`] and simultaneously
+/// A journal that writes to an inner writer and then
 /// forwards each entry to an mpsc channel for real-time streaming.
 #[cfg(feature = "http-api")]
 pub struct StreamingJournal {
-    inner: Arc<BufferedJournal>,
+    inner: Arc<dyn JournalWriter>,
     tx: mpsc::Sender<JournalEntry>,
 }
 
@@ -25,10 +25,10 @@ pub struct StreamingJournal {
 impl StreamingJournal {
     /// Create a new streaming journal.
     ///
-    /// * `inner` — The underlying buffered journal for persistence.
+    /// * `inner` — The required underlying journal. Errors prevent forwarding.
     /// * `tx` — Channel sender; the receiver end is read by the WebSocket
     ///   writer task.
-    pub fn new(inner: Arc<BufferedJournal>, tx: mpsc::Sender<JournalEntry>) -> Self {
+    pub fn new(inner: Arc<dyn JournalWriter>, tx: mpsc::Sender<JournalEntry>) -> Self {
         Self { inner, tx }
     }
 }
@@ -36,8 +36,11 @@ impl StreamingJournal {
 #[cfg(feature = "http-api")]
 #[async_trait::async_trait]
 impl JournalWriter for StreamingJournal {
+    fn audit_reference(&self) -> Option<crate::reasoning::run_audit::RunAuditReference> {
+        self.inner.audit_reference()
+    }
     async fn append(&self, entry: JournalEntry) -> Result<(), JournalError> {
-        // Write to the inner journal first (always succeeds for BufferedJournal).
+        // Required persistence precedes the best-effort live display.
         self.inner.append(entry.clone()).await?;
 
         // Forward to the channel. Use `try_send` so we never block the
@@ -58,7 +61,7 @@ impl JournalWriter for StreamingJournal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::reasoning::loop_types::{LoopConfig, LoopEvent};
+    use crate::reasoning::loop_types::{BufferedJournal, LoopConfig, LoopEvent};
     use crate::types::AgentId;
 
     #[tokio::test]
@@ -75,6 +78,7 @@ mod tests {
             event: LoopEvent::Started {
                 agent_id: AgentId::new(),
                 config: Box::new(LoopConfig::default()),
+                execution_context: Default::default(),
             },
         };
 
@@ -103,6 +107,7 @@ mod tests {
             event: LoopEvent::Started {
                 agent_id: AgentId::new(),
                 config: Box::new(LoopConfig::default()),
+                execution_context: Default::default(),
             },
         };
 
@@ -113,5 +118,40 @@ mod tests {
 
         // Inner journal still has both
         assert_eq!(inner.entries().await.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn required_storage_failure_is_propagated_without_streaming_the_entry() {
+        struct FailedWriter;
+        #[async_trait::async_trait]
+        impl JournalWriter for FailedWriter {
+            async fn append(&self, _: JournalEntry) -> Result<(), JournalError> {
+                Err(JournalError::WriteFailed("fixture storage failure".into()))
+            }
+            async fn next_sequence(&self) -> u64 {
+                0
+            }
+        }
+        let (tx, mut rx) = mpsc::channel(1);
+        let journal = StreamingJournal::new(Arc::new(FailedWriter), tx);
+        let agent = AgentId::new();
+        let result = journal
+            .append(JournalEntry {
+                sequence: 0,
+                timestamp: chrono::Utc::now(),
+                agent_id: agent,
+                iteration: 0,
+                event: LoopEvent::Started {
+                    agent_id: agent,
+                    config: Box::default(),
+                    execution_context: Default::default(),
+                },
+            })
+            .await;
+        assert!(matches!(result, Err(JournalError::WriteFailed(_))));
+        assert!(matches!(
+            rx.try_recv(),
+            Err(mpsc::error::TryRecvError::Empty)
+        ));
     }
 }

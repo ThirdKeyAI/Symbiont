@@ -8,7 +8,13 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tree_sitter::{Language, Node, Parser, Tree};
 
+mod conversational_agent;
+pub mod execution_policy;
+pub use execution_policy::ExecutionPolicy;
+mod execution_settings;
+pub use conversational_agent::{conversational_agent_names, ConversationalAgent};
 pub mod format;
+pub use execution_settings::{resolve_execution_settings, AgentExecutionSettings};
 
 /// Canonical file extension for Symbiont agent definitions.
 pub const SYMBI_EXTENSION: &str = "symbi";

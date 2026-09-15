@@ -68,22 +68,10 @@ impl TeamsAdapter {
             ));
         }
 
-        // Refuse to boot with JWKS verification disabled in production. The
-        // flag exists for local development without Azure AD connectivity and
-        // must never be live in production builds.
         if config.skip_jwks_verification {
-            let env = std::env::var("SYMBIONT_ENV").unwrap_or_default();
-            if env.eq_ignore_ascii_case("production") {
-                return Err(ChannelAdapterError::Config(
-                    "TeamsConfig.skip_jwks_verification=true is not permitted when \
-                     SYMBIONT_ENV=production; enable JWKS verification before deploying"
-                        .to_string(),
-                ));
-            }
-            tracing::error!(
-                "TeamsConfig.skip_jwks_verification=true — inbound JWTs are NOT \
-                 cryptographically verified. Only use for local development."
-            );
+            return Err(ChannelAdapterError::Config(
+                "Teams signature verification cannot be disabled".into(),
+            ));
         }
 
         let api_client =
@@ -172,30 +160,16 @@ impl ChannelAdapter for TeamsAdapter {
         &self,
         response: OutboundMessage,
     ) -> Result<ChatDeliveryReceipt, ChannelAdapterError> {
-        // Extract service_url and activity_id from metadata (set by
-        // build_platform_response in the manager). Fall back to defaults
-        // for direct send_response calls without metadata.
-        let (service_url, activity_id) = if let Some(ref meta) = response.metadata {
-            let surl = meta
-                .get("service_url")
-                .and_then(|v| v.as_str())
-                .filter(|s| !s.is_empty())
-                .unwrap_or("https://smba.trafficmanager.net/teams/");
-            let aid = meta
-                .get("activity_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            (surl.to_string(), aid.to_string())
-        } else {
-            (
-                "https://smba.trafficmanager.net/teams/".to_string(),
-                response.thread_id.clone().unwrap_or_default(),
-            )
-        };
+        self.api_client.reply(&response).await
+    }
 
-        self.api_client
-            .reply_to_activity(&service_url, &response.channel_id, &activity_id, &response)
-            .await
+    fn prepare_response(
+        &self,
+        response: &OutboundMessage,
+    ) -> Result<serde_json::Value, ChannelAdapterError> {
+        Ok(serde_json::json!(self
+            .api_client
+            .prepare_reply(response)?))
     }
 
     fn platform(&self) -> ChatPlatform {
@@ -245,18 +219,19 @@ async fn handle_teams_activity(
         }
     };
 
-    // Skip-verification is driven by config (default false) and refused in production
-    // by `TeamsAdapter::new`, so reading it here fails closed on unset/default configs.
-    if let Err(e) = auth::validate_bot_framework_token(
+    let claims = match auth::validate_bot_framework_token(
         token,
         &state.config.client_id,
         state.config.skip_jwks_verification,
     )
     .await
     {
-        tracing::warn!("Teams JWT validation failed: {}", e);
-        return (StatusCode::UNAUTHORIZED, "invalid token".to_string());
-    }
+        Ok(claims) => claims,
+        Err(error) => {
+            tracing::warn!(%error, "Teams JWT validation failed");
+            return (StatusCode::UNAUTHORIZED, "invalid token".to_string());
+        }
+    };
 
     // Parse the activity
     let activity: events::Activity = match serde_json::from_slice(&body) {
@@ -266,6 +241,14 @@ async fn handle_teams_activity(
             return (StatusCode::BAD_REQUEST, format!("parse error: {}", e));
         }
     };
+
+    if let Err(error) = auth::validate_activity(&claims, &activity) {
+        tracing::warn!(%error, "Teams activity authentication failed");
+        return (
+            StatusCode::FORBIDDEN,
+            "activity does not match authenticated channel and destination".into(),
+        );
+    }
 
     // Parse into inbound message
     match events::parse_activity_to_message(&activity, &state.config.bot_id) {
@@ -365,5 +348,17 @@ mod tests {
         };
         let result = TeamsAdapter::new(config, Arc::new(NoopHandler));
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn teams_adapter_refuses_signature_bypass_in_every_environment() {
+        let config = TeamsConfig {
+            tenant_id: "tenant".into(),
+            client_id: "client".into(),
+            client_secret: "fixture".into(),
+            skip_jwks_verification: true,
+            ..TeamsConfig::default()
+        };
+        assert!(TeamsAdapter::new(config, Arc::new(NoopHandler)).is_err());
     }
 }

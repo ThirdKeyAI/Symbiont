@@ -22,7 +22,7 @@ http://127.0.0.1:8080/api/v1
 
 ### 身份验证
 
-智能体管理端点需要 Bearer 令牌认证。请设置 `API_AUTH_TOKEN` 环境变量，并在 Authorization 头中包含令牌：
+除健康检查外，运行时路由都需要 Bearer 认证。请配置私有 API 密钥文件，或使用旧版运维令牌 `SYMBIONT_API_TOKEN`。
 
 ```
 Authorization: Bearer <your-token>
@@ -30,7 +30,7 @@ Authorization: Bearer <your-token>
 
 **受保护端点：**
 - 所有 `/api/v1/agents/*` 端点需要认证
-- `/api/v1/health`、`/api/v1/workflows/execute` 和 `/api/v1/metrics` 端点不需要认证
+- 只有健康检查公开访问。提交工作流和读取指标需要管理员权限。
 
 ### 可用端点
 
@@ -67,21 +67,25 @@ GET /api/v1/health
 POST /api/v1/workflows/execute
 ```
 
-使用指定参数执行工作流。
+管理员在 `workflow_id` 中提交 DSL 源码，`parameters` 作为执行输入。指定 `agent_id` 会创建或替换注册；省略时会分配新 ID。限定代理范围的密钥会收到 `403 ADMIN_REQUIRED`，可通过 `/agents/{id}/execute` 执行已注册的源码。`queued` 仅表示已入队，请在 `/agents/{id}/history` 中按 `execution_id` 查询实际结果。参阅[完整接口约定](../../crates/runtime/API_REFERENCE.md#execute-workflow)。
 
 **请求体：**
 ```json
 {
-  "workflow_id": "string",
+  "workflow_id": "agent report() { with sandbox = \"docker\" {} }",
   "parameters": {},
-  "agent_id": "optional-agent-id"
+  "agent_id": null
 }
 ```
 
 **响应（200 OK）：**
 ```json
 {
-  "result": "workflow execution result"
+  "status": "queued",
+  "workflow_id": "agent report() { with sandbox = \"docker\" {} }",
+  "agent_id": "19b183f7-97c4-4e42-9c62-5e9c940bfae3",
+  "execution_id": "c7022f13-7140-4a09-8e30-b1941e0cbb32",
+  "metadata": {}
 }
 ```
 
@@ -210,6 +214,7 @@ Authorization: Bearer <your-token>
 ##### 执行智能体
 ```http
 POST /api/v1/agents/{id}/execute
+Idempotency-Key: <UUID retained for retries>
 Authorization: Bearer <your-token>
 ```
 
@@ -224,7 +229,7 @@ Authorization: Bearer <your-token>
 ```json
 {
   "execution_id": "uuid",
-  "status": "execution_started"
+  "status": "queued"
 }
 ```
 
@@ -678,7 +683,10 @@ POST /api/v1/schedules/{id}/pause
 POST /api/v1/schedules/{id}/resume
 POST /api/v1/schedules/{id}/trigger
 Authorization: Bearer <your-token>
+Idempotency-Key: <invocation-uuid>
 ```
+
+手动触发需要管理员令牌和 `Idempotency-Key` 标头中的 UUID。返回 `queued`、已保存的结果或 `in_progress` / `unresolved` / `conflict`。重试时应复用同一 UUID。暂停和恢复仍使用以下响应格式；存在未解决的执行时无法恢复。参见 [cron 恢复](../cron-recovery.md)。
 
 **响应（200 OK）：**
 ```json

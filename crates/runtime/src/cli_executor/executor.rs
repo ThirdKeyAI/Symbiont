@@ -1,33 +1,22 @@
-//! CLI Executor — stdin-protected process runner for AI CLI tools
+//! Selected sandbox execution for AI CLI tools.
 //!
-//! Spawns AI CLI tools (Claude Code, Gemini, Aider, Codex) with proper
-//! non-interactive handling: stdin protection, idle-timeout watchdogs,
-//! wall-clock timeouts, and process-group cleanup.
+//! No host executable, working directory, credential directory or ambient
+//! environment is implicitly made available to a contained child. The operator
+//! supplies its image and scoped mounts. Development host execution is explicit.
 
-use std::collections::HashMap;
-use std::process::Stdio;
+use std::{collections::HashMap, path::Path, process::Stdio};
 
 use serde::{Deserialize, Serialize};
-use tokio::io::AsyncWriteExt;
-use tokio::process::Command;
-use tokio::time::Duration;
-
-use crate::sandbox::ExecutionResult;
+use tokio::{io::AsyncWriteExt, process::Command, time::Duration};
 
 use super::adapter::{AiCliAdapter, CodeGenRequest, CodeGenResult};
-use super::watchdog::OutputWatchdog;
+use crate::sandbox::{
+    command::{CommandBoundary, CommandTier},
+    docker::StdioContainerGuard,
+    ExecutionResult,
+};
 
-/// Environment variables that are safe to inherit from the caller.
-///
-/// We filter the caller-provided environment to prevent accidental leakage of
-/// sensitive host variables (e.g. credentials, session tokens, internal paths)
-/// into spawned AI CLI tool processes. Only variables needed for basic
-/// operation and explicitly-required API keys are allowed through.
-/// Grace period after SIGTERM before escalating to SIGKILL when terminating a
-/// spawned CLI tool. Lets the child (e.g. Claude Code) flush its JSON result
-/// and clean up the working tree instead of being hard-killed mid-write.
-const KILL_GRACE_PERIOD: Duration = Duration::from_secs(5);
-
+// These are explicit caller overrides only, never an inheritance allowlist.
 const ENV_ALLOWLIST: &[&str] = &[
     "PATH",
     "HOME",
@@ -45,29 +34,23 @@ const ENV_ALLOWLIST: &[&str] = &[
 /// How to handle stdin for the spawned process.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub enum StdinStrategy {
-    /// Close stdin immediately after spawn (default for most tools).
     #[default]
     CloseImmediately,
-    /// Continuously write `"y\n"` to auto-accept prompts.
+    /// Cooperative prompt responses; never an authorization mechanism.
     AutoYes,
-    /// Continuously write `"n\n"` to auto-decline prompts.
     AutoNo,
-    /// Write each line in order, then close stdin.
     Scripted(Vec<String>),
-    /// Redirect stdin to /dev/null.
     DevNull,
 }
 
-/// Configuration for the CLI executor.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CliExecutorConfig {
-    /// Wall-clock timeout — kill process if it exceeds this.
+    /// Wall-clock timeout, including sandbox initialization.
     pub max_runtime: Duration,
-    /// Default stdin strategy.
     pub stdin_strategy: StdinStrategy,
-    /// Kill if no output for this long.
+    /// Maximum inactivity across both output streams.
     pub idle_timeout: Duration,
-    /// Maximum output bytes per stream before truncation.
+    /// Maximum output bytes per stream; overflow fails and removes the worker.
     pub max_output_bytes: usize,
 }
 
@@ -77,336 +60,470 @@ impl Default for CliExecutorConfig {
             max_runtime: Duration::from_secs(600),
             stdin_strategy: StdinStrategy::CloseImmediately,
             idle_timeout: Duration::from_secs(120),
-            max_output_bytes: 10 * 1024 * 1024, // 10 MB
+            max_output_bytes: 10 * 1024 * 1024,
         }
     }
 }
 
-/// CLI executor that spawns AI CLI tools with full process management.
 pub struct CliExecutor {
     config: CliExecutorConfig,
+    boundary: Result<CommandBoundary, String>,
     stdout_line_sink: Option<super::watchdog::LineSink>,
 }
 
 impl CliExecutor {
-    /// Create a new executor with the given configuration.
+    /// Defaults to a Docker worker with no host mounts or network access.
     pub fn new(config: CliExecutorConfig) -> Self {
         Self {
             config,
+            boundary: Ok(CommandBoundary::default()),
             stdout_line_sink: None,
         }
     }
 
-    /// Observe the child's stdout line by line as it runs.
-    ///
-    /// The accumulated buffer is dropped when the wall-clock timeout fires, so
-    /// a caller that needs a durable record of what the child did cannot wait
-    /// for `execute` to return. The sink runs inline on the read path and must
-    /// not block.
+    /// Freeze an operator-supplied boundary. Invalid or unavailable selections
+    /// fail at execution without falling back to a host subprocess.
+    pub fn with_command_boundary(mut self, boundary: CommandBoundary) -> Self {
+        self.boundary = Ok(boundary);
+        self
+    }
+
+    pub fn with_project_sandbox(mut self, project: &Path) -> Self {
+        self.boundary = CommandBoundary::load(project);
+        self
+    }
+
+    /// Observe untrusted child output. This is not an authoritative action
+    /// journal. The callback must not block the runtime's output reader.
     pub fn with_stdout_line_sink(mut self, sink: super::watchdog::LineSink) -> Self {
         self.stdout_line_sink = Some(sink);
         self
     }
 
-    /// Execute an AI CLI tool via the given adapter and request.
-    ///
-    /// 1. Builds args/env from the adapter
-    /// 2. Spawns the process with stdin protection
-    /// 3. Monitors output via `OutputWatchdog`
-    /// 4. Races process completion, wall-clock timeout, and idle timeout
-    /// 5. Cleans up via process group kill on timeout
+    /// Probe the executable in the same selected boundary used for work.
+    /// A version check must not turn an image executable into a host process.
+    pub async fn health_check(&self, adapter: &dyn AiCliAdapter) -> anyhow::Result<()> {
+        let boundary = self
+            .boundary
+            .as_ref()
+            .map_err(|error| anyhow::anyhow!("{error}"))?;
+        let directory = match boundary.tier {
+            CommandTier::Docker => boundary.docker.working_dir.as_str(),
+            CommandTier::GVisor => boundary.gvisor.docker.working_dir.as_str(),
+            CommandTier::Firecracker => boundary
+                .firecracker
+                .as_ref()
+                .map_or("/tmp", |config| config.working_dir.as_str()),
+            _ => "/tmp",
+        };
+        let probe = Self {
+            config: CliExecutorConfig {
+                max_runtime: self.config.max_runtime.min(Duration::from_secs(10)),
+                idle_timeout: self.config.idle_timeout.min(Duration::from_secs(10)),
+                max_output_bytes: self.config.max_output_bytes.min(65536),
+                stdin_strategy: StdinStrategy::CloseImmediately,
+            },
+            boundary: self.boundary.clone(),
+            stdout_line_sink: None,
+        };
+        let result = probe
+            .spawn_and_monitor(
+                adapter.executable(),
+                &["--version".into()],
+                Path::new(directory),
+                HashMap::new(),
+                HashMap::new(),
+                StdinStrategy::CloseImmediately,
+            )
+            .await?;
+        if !result.success {
+            anyhow::bail!(
+                "CLI health check failed with exit {}: {}",
+                result.exit_code,
+                result.stderr
+            );
+        }
+        Ok(())
+    }
+
     pub async fn execute(
         &self,
         adapter: &dyn AiCliAdapter,
         request: &CodeGenRequest,
     ) -> Result<CodeGenResult, anyhow::Error> {
-        let args = adapter.build_args(request);
-        let adapter_env = adapter.non_interactive_env();
-        let stdin_strategy = adapter.stdin_strategy();
-
         let result = self
             .spawn_and_monitor(
                 adapter.executable(),
-                &args,
+                &adapter.build_args(request),
                 &request.working_dir,
-                adapter_env,
+                adapter.non_interactive_env(),
                 request.options.clone(),
-                stdin_strategy,
+                adapter.stdin_strategy(),
             )
             .await?;
-
-        Ok(adapter.parse_output(request, result))
+        let observed = result.clone();
+        let mut parsed = adapter.parse_output(request, result);
+        // Child-reported JSON cannot replace the observed process outcome.
+        parsed.success &= observed.success;
+        parsed.execution = observed;
+        Ok(parsed)
     }
 
-    /// Low-level spawn with monitoring — reusable without an adapter.
     async fn spawn_and_monitor(
         &self,
         executable: &str,
         args: &[String],
-        working_dir: &std::path::Path,
+        working_dir: &Path,
         adapter_env: HashMap<String, String>,
         caller_env: HashMap<String, String>,
         stdin_strategy: StdinStrategy,
-    ) -> Result<ExecutionResult, anyhow::Error> {
-        let mut command = Command::new(executable);
-        command.args(args);
-        command.current_dir(working_dir);
-
-        // Merge environment: base non-interactive → adapter → filtered caller.
-        // Caller env is filtered through ENV_ALLOWLIST to prevent leaking
-        // sensitive host variables into the spawned process.
-        let mut env = HashMap::new();
-        env.insert("TERM".to_string(), "dumb".to_string());
-        env.insert("CI".to_string(), "true".to_string());
-        env.insert("NON_INTERACTIVE".to_string(), "1".to_string());
-        env.insert("NO_COLOR".to_string(), "1".to_string());
-        env.extend(adapter_env);
-        for (key, value) in caller_env {
-            if ENV_ALLOWLIST.contains(&key.as_str()) {
-                env.insert(key, value);
+    ) -> anyhow::Result<ExecutionResult> {
+        let started = std::time::Instant::now();
+        validate_limits(&self.config)?;
+        validate_stdin(&stdin_strategy)?;
+        let mut boundary = self.boundary.clone().map_err(anyhow::Error::msg)?;
+        boundary.validate().map_err(anyhow::Error::msg)?;
+        let env = worker_environment(adapter_env, caller_env)?;
+        let mut argv = vec![executable.to_owned()];
+        argv.extend_from_slice(args);
+        crate::sandbox::command::literal_command(&argv).map_err(anyhow::Error::msg)?;
+        let deadline = started + self.config.max_runtime;
+        #[cfg(target_os = "linux")]
+        let landlock_domain = if boundary.tier == CommandTier::Landlock {
+            // The child works in its own directory, so that path is granted
+            // alongside the operator's declared roots. Without it the child
+            // could not even enter its workspace.
+            let mut roots = boundary.roots.clone();
+            roots.output_roots.push(working_dir.display().to_string());
+            Some(
+                crate::sandbox::landlock::prepare(&boundary.landlock, &roots)
+                    .map_err(anyhow::Error::msg)?,
+            )
+        } else {
+            None
+        };
+        let mut worker = if boundary.tier == CommandTier::DevelopmentHost {
+            let mut command = Command::new(executable);
+            command
+                .args(args)
+                .current_dir(working_dir)
+                .env_clear()
+                .envs(env)
+                .kill_on_drop(true)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            #[cfg(unix)]
+            command.process_group(0);
+            let child = command
+                .spawn()
+                .map_err(|e| anyhow::anyhow!("failed to spawn development CLI: {e}"))?;
+            Worker { child, guard: None }
+        } else if cfg!(target_os = "linux") && boundary.tier == CommandTier::Landlock {
+            #[cfg(target_os = "linux")]
+            {
+                let domain = landlock_domain.expect("domain prepared for the landlock tier");
+                let mut command = Command::new(executable);
+                command
+                    .args(args)
+                    .current_dir(working_dir)
+                    .env_clear()
+                    .envs(env)
+                    .kill_on_drop(true)
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped());
+                command.process_group(0);
+                domain.apply_to(&mut command);
+                let child = command
+                    .spawn()
+                    .map_err(|e| anyhow::anyhow!("failed to spawn contained CLI: {e}"))?;
+                Worker { child, guard: None }
             }
-        }
-        command.envs(&env);
-
-        // Configure stdin
-        match &stdin_strategy {
-            StdinStrategy::DevNull => {
-                command.stdin(Stdio::null());
+            #[cfg(not(target_os = "linux"))]
+            unreachable!("the landlock tier is refused during validation off Linux")
+        } else {
+            configure_boundary(&mut boundary, working_dir, self.config.max_output_bytes)
+                .map_err(anyhow::Error::msg)?;
+            if boundary.tier == CommandTier::Firecracker {
+                #[cfg(unix)]
+                return self
+                    .run_vm(boundary, argv, env, stdin_strategy, started, deadline)
+                    .await;
+                #[cfg(not(unix))]
+                anyhow::bail!("Firecracker CLI transport requires Linux");
             }
-            _ => {
-                command.stdin(Stdio::piped());
+            let container = boundary
+                .spawn_stdio(
+                    &argv,
+                    env,
+                    deadline.saturating_duration_since(std::time::Instant::now()),
+                )
+                .await
+                .map_err(anyhow::Error::msg)?;
+            Worker {
+                child: container.child,
+                guard: Some(container.guard),
             }
-        }
-        command.stdout(Stdio::piped());
-        command.stderr(Stdio::piped());
-
-        // Unix: put child in its own process group for clean kill
-        #[cfg(unix)]
-        {
-            // SAFETY: the `pre_exec` closure runs in the child between fork() and
-            // exec(). In that context only async-signal-safe functions may be
-            // called; `setpgid(0, 0)` is async-signal-safe (POSIX) and merely
-            // moves the child into its own process group. The closure captures
-            // nothing and performs no allocation, so there is no risk of running
-            // non-reentrant code in the forked child.
-            unsafe {
-                command.pre_exec(|| {
-                    libc::setpgid(0, 0);
-                    Ok(())
-                });
-            }
-        }
-
-        let start = std::time::Instant::now();
-
-        let mut child = command
-            .spawn()
-            .map_err(|e| anyhow::anyhow!("Failed to spawn '{}': {}", executable, e))?;
-
-        // Handle stdin in a background task
-        if let Some(mut stdin) = child.stdin.take() {
-            match stdin_strategy {
-                StdinStrategy::CloseImmediately => {
-                    drop(stdin);
-                }
-                StdinStrategy::DevNull => {
-                    // Already set to Stdio::null(), stdin won't be Some
-                    drop(stdin);
-                }
-                StdinStrategy::AutoYes => {
-                    tokio::spawn(async move {
-                        loop {
-                            if stdin.write_all(b"y\n").await.is_err() {
-                                break;
-                            }
-                            tokio::time::sleep(Duration::from_millis(100)).await;
-                        }
-                    });
-                }
-                StdinStrategy::AutoNo => {
-                    tokio::spawn(async move {
-                        loop {
-                            if stdin.write_all(b"n\n").await.is_err() {
-                                break;
-                            }
-                            tokio::time::sleep(Duration::from_millis(100)).await;
-                        }
-                    });
-                }
-                StdinStrategy::Scripted(lines) => {
-                    tokio::spawn(async move {
-                        for line in lines {
-                            if stdin
-                                .write_all(format!("{}\n", line).as_bytes())
-                                .await
-                                .is_err()
-                            {
-                                break;
-                            }
-                        }
-                        drop(stdin);
-                    });
-                }
-            }
-        }
-
-        // Read stdout and stderr via watchdog
-        let mut child_stdout = child.stdout.take();
-        let mut child_stderr = child.stderr.take();
-
-        let idle_timeout = self.config.idle_timeout;
-        let max_output = self.config.max_output_bytes;
-
-        let output_result = tokio::time::timeout(self.config.max_runtime, async {
-            let stdout_watchdog = match &self.stdout_line_sink {
-                Some(sink) => {
-                    OutputWatchdog::new(idle_timeout, max_output).with_line_sink(sink.clone())
-                }
-                None => OutputWatchdog::new(idle_timeout, max_output),
-            };
-            let stderr_watchdog = OutputWatchdog::new(idle_timeout, max_output);
-
-            let stdout_future = async {
-                match child_stdout.as_mut() {
-                    Some(out) => stdout_watchdog.read_with_idle_detection(out).await,
-                    None => super::watchdog::WatchdogOutput {
-                        data: String::new(),
-                        truncated: false,
-                        idle_timeout_triggered: false,
-                        bytes_read: 0,
-                    },
-                }
-            };
-
-            let stderr_future = async {
-                match child_stderr.as_mut() {
-                    Some(err) => stderr_watchdog.read_with_idle_detection(err).await,
-                    None => super::watchdog::WatchdogOutput {
-                        data: String::new(),
-                        truncated: false,
-                        idle_timeout_triggered: false,
-                        bytes_read: 0,
-                    },
-                }
-            };
-
-            let (stdout_out, stderr_out) = tokio::join!(stdout_future, stderr_future);
-
-            // If either stream triggered idle timeout, kill the process
-            if stdout_out.idle_timeout_triggered || stderr_out.idle_timeout_triggered {
-                tracing::warn!(
-                    "Idle timeout triggered for '{}' — killing process",
-                    executable
-                );
-                Self::kill_process(&mut child).await;
-                return (stdout_out, stderr_out, true);
-            }
-
-            let status = child.wait().await;
-            match status {
-                Ok(_) => (stdout_out, stderr_out, false),
-                Err(e) => {
-                    tracing::error!("Failed to wait on child process: {}", e);
-                    (stdout_out, stderr_out, false)
-                }
-            }
-        })
+        };
+        let output_limit = worker
+            .guard
+            .as_ref()
+            .map_or(self.config.max_output_bytes, |guard| {
+                guard.output_limit.min(self.config.max_output_bytes)
+            });
+        let input = InputTask::start(worker.child.stdin.take(), stdin_strategy);
+        let result = super::monitor::monitor(
+            &mut worker.child,
+            deadline,
+            self.config.idle_timeout,
+            output_limit,
+            self.stdout_line_sink.as_ref(),
+            started,
+        )
         .await;
-
-        let elapsed = start.elapsed();
-
-        match output_result {
-            Ok((stdout_out, stderr_out, idle_killed)) => {
-                if idle_killed {
-                    return Ok(ExecutionResult {
-                        exit_code: -1,
-                        stdout: stdout_out.data,
-                        stderr: format!(
-                            "{}\n[killed: idle timeout after {:?}]",
-                            stderr_out.data, idle_timeout
-                        ),
-                        execution_time_ms: elapsed.as_millis() as u64,
-                        success: false,
-                        stdout_truncated: stdout_out.truncated,
-                        stderr_truncated: stderr_out.truncated,
-                    });
-                }
-
-                // Normal completion — get exit code from the already-waited child
-                // The child.wait() already happened above, so we read the stored status.
-                // Since we called child.wait() inside the future, the child is done.
-                let exit_code = child
-                    .try_wait()
-                    .ok()
-                    .flatten()
-                    .map(|s| s.code().unwrap_or(-1))
-                    .unwrap_or(0);
-
-                let success = exit_code == 0;
-
-                if stdout_out.truncated {
-                    tracing::warn!(
-                        "stdout truncated at {} bytes for '{}'",
-                        max_output,
-                        executable
-                    );
-                }
-
-                Ok(ExecutionResult {
-                    exit_code,
-                    stdout: stdout_out.data,
-                    stderr: stderr_out.data,
-                    execution_time_ms: elapsed.as_millis() as u64,
-                    success,
-                    stdout_truncated: stdout_out.truncated,
-                    stderr_truncated: stderr_out.truncated,
-                })
-            }
-            Err(_) => {
-                // Wall-clock timeout
-                tracing::error!(
-                    "Wall-clock timeout ({:?}) for '{}'",
-                    self.config.max_runtime,
-                    executable
-                );
-                Self::kill_process(&mut child).await;
-                Err(anyhow::anyhow!(
-                    "Execution timed out after {:?}",
-                    self.config.max_runtime
-                ))
+        drop(input);
+        // An otherwise successful child is a failed execution if its removal
+        // cannot be acknowledged. Drop also signals the independent owner.
+        let cleanup = worker.finish().await;
+        match (result, cleanup) {
+            (Ok(result), Ok(())) => Ok(result),
+            (Err(error), Ok(())) => Err(error),
+            (Ok(_), Err(error)) => Err(error),
+            (Err(error), Err(cleanup)) => {
+                Err(anyhow::anyhow!("{error}; cleanup failed: {cleanup}"))
             }
         }
     }
 
-    /// Kill a child process and its entire process group (Unix).
-    async fn kill_process(child: &mut tokio::process::Child) {
-        #[cfg(unix)]
-        {
-            if let Some(id) = child.id() {
-                // Graceful escalation: SIGTERM the process group first so the
-                // child can flush output and clean up, wait a grace period, then
-                // SIGKILL only if it is still alive.
-                // SAFETY: `id` is the PID of a child we spawned (from
-                // `child.id()`), so the process-group id is valid and owned by
-                // this process. `killpg` is a plain libc syscall wrapper; a stale
-                // PID just yields ESRCH, which is harmless here.
-                unsafe {
-                    libc::killpg(id as i32, libc::SIGTERM);
-                }
-                if tokio::time::timeout(KILL_GRACE_PERIOD, child.wait())
-                    .await
-                    .is_ok()
-                {
-                    return; // exited cleanly after SIGTERM
-                }
-                // SAFETY: same invariant as the SIGTERM above; escalate to
-                // SIGKILL because the child ignored the graceful signal.
+    #[cfg(unix)]
+    async fn run_vm(
+        &self,
+        boundary: CommandBoundary,
+        argv: Vec<String>,
+        env: HashMap<String, String>,
+        strategy: StdinStrategy,
+        started: std::time::Instant,
+        deadline: std::time::Instant,
+    ) -> anyhow::Result<ExecutionResult> {
+        let config = boundary
+            .firecracker
+            .ok_or_else(|| anyhow::anyhow!("missing Firecracker configuration"))?;
+        let runner = crate::sandbox::FirecrackerRunner::new(config)?;
+        let worker = runner
+            .spawn_stdio(
+                &argv,
+                env,
+                deadline.saturating_duration_since(std::time::Instant::now()),
+            )
+            .await?;
+        let crate::sandbox::firecracker::FirecrackerStdio {
+            stdin,
+            mut stdout,
+            mut stderr,
+            mut guard,
+        } = worker;
+        let input = InputTask::start(Some(stdin), strategy);
+        let result = super::monitor::Settings {
+            deadline,
+            idle: self.config.idle_timeout,
+            limit: guard.output_limit.min(self.config.max_output_bytes),
+            sink: self.stdout_line_sink.as_ref(),
+            started,
+        }
+        .collect(&mut stdout, &mut stderr, guard.wait_for_exit())
+        .await;
+        drop(input);
+        // The monitor requires a verified guest exit. Cleanup independently
+        // retains removal even when the operation failed or its caller timed out.
+        let cleanup = guard.finish_cleanup().await;
+        match (result, cleanup) {
+            (result, Ok(())) => result,
+            (Ok(_), Err(error)) => Err(error),
+            (Err(error), Err(cleanup)) => {
+                Err(anyhow::anyhow!("{error}; cleanup failed: {cleanup}"))
+            }
+        }
+    }
+}
+
+pub(crate) fn configure_boundary(
+    boundary: &mut CommandBoundary,
+    directory: &Path,
+    output: usize,
+) -> Result<(), String> {
+    let directory = directory
+        .to_str()
+        .ok_or("CLI working directory must be UTF-8")?;
+    match boundary.tier {
+        CommandTier::Docker | CommandTier::GVisor => {
+            let config = if boundary.tier == CommandTier::Docker {
+                &mut boundary.docker
+            } else {
+                &mut boundary.gvisor.docker
+            };
+            config.working_dir = directory.into();
+            config.max_output_bytes = config.max_output_bytes.min(output);
+        }
+        CommandTier::Firecracker => {
+            let config = boundary
+                .firecracker
+                .as_mut()
+                .ok_or("missing Firecracker configuration")?;
+            config.working_dir = directory.into();
+            config.max_output_bytes = config.max_output_bytes.min(output);
+        }
+        _ => return Err("selected CLI transport is unavailable; no host fallback".into()),
+    }
+    boundary.validate()
+}
+
+pub(crate) fn validate_stdin(stdin_strategy: &StdinStrategy) -> anyhow::Result<()> {
+    if let StdinStrategy::Scripted(lines) = stdin_strategy {
+        let bytes = lines.iter().try_fold(0usize, |total, line| {
+            total.checked_add(line.len())?.checked_add(1)
+        });
+        if lines.len() > 1024 || bytes.is_none_or(|bytes| bytes > 65536) {
+            anyhow::bail!("CLI scripted stdin exceeds its limit");
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_limits(config: &CliExecutorConfig) -> anyhow::Result<()> {
+    if config.max_runtime.is_zero()
+        || config.max_runtime > Duration::from_secs(86400)
+        || config.idle_timeout.is_zero()
+        || config.max_output_bytes == 0
+        || config.max_output_bytes > 10 * 1024 * 1024
+    {
+        anyhow::bail!("invalid CLI execution bounds");
+    }
+    Ok(())
+}
+
+pub(crate) fn worker_environment(
+    adapter_env: HashMap<String, String>,
+    caller_env: HashMap<String, String>,
+) -> anyhow::Result<HashMap<String, String>> {
+    let mut env = HashMap::from([
+        (
+            "PATH".into(),
+            "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin".into(),
+        ),
+        ("HOME".into(), "/tmp".into()),
+        ("TERM".into(), "dumb".into()),
+        ("CI".into(), "true".into()),
+        ("NON_INTERACTIVE".into(), "1".into()),
+        ("NO_COLOR".into(), "1".into()),
+    ]);
+    env.extend(adapter_env);
+    env.extend(
+        caller_env
+            .into_iter()
+            .filter(|(key, _)| ENV_ALLOWLIST.contains(&key.as_str())),
+    );
+    if env
+        .iter()
+        .any(|(key, value)| key.is_empty() || key.contains(['=', '\0']) || value.contains('\0'))
+    {
+        anyhow::bail!("invalid CLI worker environment");
+    }
+    Ok(env)
+}
+
+struct Worker {
+    child: tokio::process::Child,
+    guard: Option<StdioContainerGuard>,
+}
+impl Worker {
+    async fn finish(&mut self) -> anyhow::Result<()> {
+        if self.guard.is_none() {
+            #[cfg(unix)]
+            if let Some(id) = self.child.id() {
+                // SAFETY: this still-unreaped child leads the development-only
+                // process group created above. No descendant-isolation claim.
                 unsafe {
                     libc::killpg(id as i32, libc::SIGKILL);
                 }
             }
         }
-        let _ = child.kill().await;
+        let _ = self.child.start_kill();
+        let cleanup = match &mut self.guard {
+            Some(guard) => guard.finish().await,
+            None => Ok(()),
+        };
+        let wait = tokio::time::timeout(Duration::from_secs(3), self.child.wait())
+            .await
+            .map_err(|_| anyhow::anyhow!("CLI attachment cleanup timed out"))?;
+        cleanup?;
+        wait?;
+        Ok(())
+    }
+}
+impl Drop for Worker {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        if self.guard.is_none() {
+            if let Some(id) = self.child.id() {
+                // SAFETY: same unreaped development child as in finish.
+                unsafe {
+                    libc::killpg(id as i32, libc::SIGKILL);
+                }
+            }
+        }
+    }
+}
+
+struct InputTask(Option<tokio::task::JoinHandle<()>>);
+impl InputTask {
+    fn start<W: tokio::io::AsyncWrite + Unpin + Send + 'static>(
+        stdin: Option<W>,
+        strategy: StdinStrategy,
+    ) -> Self {
+        let Some(mut stdin) = stdin else {
+            return Self(None);
+        };
+        if matches!(
+            strategy,
+            StdinStrategy::CloseImmediately | StdinStrategy::DevNull
+        ) {
+            return Self(None);
+        }
+        Self(Some(tokio::spawn(async move {
+            match strategy {
+                StdinStrategy::Scripted(lines) => {
+                    for line in lines {
+                        if stdin.write_all(line.as_bytes()).await.is_err()
+                            || stdin.write_all(b"\n").await.is_err()
+                        {
+                            break;
+                        }
+                    }
+                }
+                StdinStrategy::AutoYes | StdinStrategy::AutoNo => {
+                    let response = if matches!(strategy, StdinStrategy::AutoYes) {
+                        b"y\n"
+                    } else {
+                        b"n\n"
+                    };
+                    loop {
+                        if stdin.write_all(response).await.is_err() {
+                            break;
+                        }
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                    }
+                }
+                _ => {}
+            }
+        })))
+    }
+}
+impl Drop for InputTask {
+    fn drop(&mut self) {
+        if let Some(task) = &self.0 {
+            task.abort();
+        }
     }
 }
 
@@ -429,13 +546,85 @@ mod tests {
     #[test]
     fn test_constructor() {
         let config = CliExecutorConfig::default();
-        let _executor = CliExecutor::new(config);
+        let _executor =
+            CliExecutor::new(config).with_command_boundary(CommandBoundary::development_host());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn the_managed_cli_child_cannot_read_outside_its_grants() {
+        if crate::sandbox::landlock::detect_abi() < 4 {
+            eprintln!("skipped: kernel Landlock ABI below 4");
+            return;
+        }
+        let workspace = tempfile::tempdir().unwrap();
+        let secret_dir = tempfile::tempdir().unwrap();
+        let secret = secret_dir.path().join("secret");
+        std::fs::write(&secret, b"leaked").unwrap();
+
+        let mut boundary = CommandBoundary::default();
+        boundary.tier = CommandTier::Landlock;
+        boundary.roots.source_roots = vec![format!("{}:/workspace:ro", workspace.path().display())];
+
+        let executor = CliExecutor::new(Default::default()).with_command_boundary(boundary);
+        let result = executor
+            .spawn_and_monitor(
+                "/bin/cat",
+                &[secret.display().to_string()],
+                workspace.path(),
+                HashMap::new(),
+                HashMap::new(),
+                StdinStrategy::CloseImmediately,
+            )
+            .await;
+
+        // Demand a real, contained run. Tolerating any Err here would pass
+        // vacuously whenever the tier fell through to a backend that simply is
+        // not available, which is how this test first passed before the
+        // landlock branch existed.
+        let execution = result.expect("the landlock tier must run the child, not fail to launch");
+        assert!(
+            !execution.success,
+            "reading outside every grant must not succeed"
+        );
+        assert!(
+            !execution.stdout.contains("leaked"),
+            "the denied file's content must not reach the caller"
+        );
+    }
+
+    #[tokio::test]
+    async fn invalid_boundary_cannot_execute_host_command_or_health_probe() {
+        let root = tempfile::tempdir().unwrap();
+        let marker = root.path().join("forbidden");
+        let mut boundary = CommandBoundary::default();
+        boundary.docker.pids_limit = 0;
+        let executor = CliExecutor::new(Default::default()).with_command_boundary(boundary);
+        let error = executor
+            .spawn_and_monitor(
+                "/usr/bin/touch",
+                &[marker.display().to_string()],
+                root.path(),
+                HashMap::new(),
+                HashMap::new(),
+                StdinStrategy::CloseImmediately,
+            )
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("process limits"));
+        let adapter = crate::cli_executor::ClaudeCodeAdapter {
+            executable_path: "/usr/bin/true".into(),
+            ..Default::default()
+        };
+        assert!(executor.health_check(&adapter).await.is_err());
+        assert!(!marker.exists());
     }
 
     #[tokio::test]
     async fn test_non_interactive_env_vars() {
         let config = CliExecutorConfig::default();
-        let executor = CliExecutor::new(config);
+        let executor =
+            CliExecutor::new(config).with_command_boundary(CommandBoundary::development_host());
 
         // Spawn a simple process that prints its env vars
         let result = executor
@@ -457,10 +646,31 @@ mod tests {
         assert!(result.stdout.contains("NO_COLOR=1"));
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn inherited_secrets_are_cleared_but_explicit_configuration_survives() {
+        let key = "SYMBI_CLI_PROCESS_TEST_SECRET";
+        std::env::set_var(key, "synthetic-canary");
+        let result = CliExecutor::new(CliExecutorConfig::default())
+            .with_command_boundary(CommandBoundary::development_host())
+            .spawn_and_monitor(
+                "/bin/sh",
+                &["-c".into(), "printf '%s:%s:%s' \"${SYMBI_CLI_PROCESS_TEST_SECRET-unset}\" \"$SYMBI_TEST_HANDSHAKE\" \"$PATH\"".into()],
+                std::path::Path::new("/tmp"),
+                HashMap::from([("SYMBI_TEST_HANDSHAKE".into(), "managed".into())]),
+                HashMap::from([("PATH".into(), "/explicit/bin".into()), (key.into(), "caller-canary".into())]),
+                StdinStrategy::DevNull,
+            ).await;
+        std::env::remove_var(key);
+        assert_eq!(result.unwrap().stdout, "unset:managed:/explicit/bin");
+    }
+
     #[tokio::test]
     async fn test_stdin_close_immediately() {
         let config = CliExecutorConfig::default();
-        let executor = CliExecutor::new(config);
+        let executor =
+            CliExecutor::new(config).with_command_boundary(CommandBoundary::development_host());
 
         let result = executor
             .spawn_and_monitor(
@@ -481,7 +691,8 @@ mod tests {
     #[tokio::test]
     async fn test_stdin_devnull() {
         let config = CliExecutorConfig::default();
-        let executor = CliExecutor::new(config);
+        let executor =
+            CliExecutor::new(config).with_command_boundary(CommandBoundary::development_host());
 
         let result = executor
             .spawn_and_monitor(
@@ -506,7 +717,8 @@ mod tests {
             idle_timeout: Duration::from_secs(30),
             ..Default::default()
         };
-        let executor = CliExecutor::new(config);
+        let executor =
+            CliExecutor::new(config).with_command_boundary(CommandBoundary::development_host());
 
         let result = executor
             .spawn_and_monitor(
@@ -530,7 +742,8 @@ mod tests {
             idle_timeout: Duration::from_secs(10),
             ..Default::default()
         };
-        let executor = CliExecutor::new(config);
+        let executor =
+            CliExecutor::new(config).with_command_boundary(CommandBoundary::development_host());
 
         let result = executor
             .spawn_and_monitor(
@@ -544,11 +757,9 @@ mod tests {
                 HashMap::new(),
                 StdinStrategy::CloseImmediately,
             )
-            .await
-            .unwrap();
+            .await;
 
-        assert!(result.stdout_truncated);
-        assert!(result.stdout.contains("[output truncated at 50 bytes]"));
+        assert!(result.unwrap_err().to_string().contains("output limit"));
     }
 
     #[cfg(unix)]
@@ -560,7 +771,8 @@ mod tests {
             idle_timeout: Duration::from_secs(30),
             ..Default::default()
         };
-        let executor = CliExecutor::new(config);
+        let executor =
+            CliExecutor::new(config).with_command_boundary(CommandBoundary::development_host());
 
         let result = executor
             .spawn_and_monitor(

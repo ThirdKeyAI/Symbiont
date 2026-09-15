@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
 use crate::error::ChannelAdapterError;
+use crate::transport::{self, PreparedPost};
 use crate::types::{ChatDeliveryReceipt, ChatPlatform, OutboundMessage};
 
 /// Teams API client with OAuth2 token caching.
@@ -32,7 +33,6 @@ struct CachedToken {
 struct TokenResponse {
     access_token: String,
     expires_in: u64,
-    #[allow(dead_code)]
     token_type: String,
 }
 
@@ -83,10 +83,16 @@ impl TeamsApiClient {
             ));
         }
 
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(15))
-            .build()
-            .map_err(|e| ChannelAdapterError::Internal(format!("HTTP client init: {}", e)))?;
+        if !tenant_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.'))
+            || matches!(tenant_id, "." | "..")
+        {
+            return Err(ChannelAdapterError::Config(
+                "invalid Teams tenant identifier".into(),
+            ));
+        }
+        let client = transport::client()?;
 
         Ok(Self {
             client,
@@ -136,18 +142,19 @@ impl TeamsApiClient {
                 ChannelAdapterError::Auth(format!("OAuth2 token request failed: {}", e))
             })?;
 
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
-            return Err(ChannelAdapterError::Auth(format!(
-                "OAuth2 token request rejected ({}): {}",
-                status, body
-            )));
+        let token_resp: TokenResponse =
+            transport::read_json(resp, transport::RECEIPT_LIMIT).await?;
+        if !token_resp.token_type.eq_ignore_ascii_case("bearer")
+            || token_resp.access_token.is_empty()
+            || token_resp.expires_in == 0
+        {
+            return Err(ChannelAdapterError::Auth(
+                "invalid OAuth2 token response".into(),
+            ));
         }
-
-        let token_resp: TokenResponse = resp.json().await.map_err(|e| {
-            ChannelAdapterError::Auth(format!("OAuth2 token response parse error: {}", e))
-        })?;
+        let expires_at = std::time::Instant::now()
+            .checked_add(std::time::Duration::from_secs(token_resp.expires_in))
+            .ok_or_else(|| ChannelAdapterError::Auth("invalid OAuth2 token expiry".into()))?;
 
         let access_token = token_resp.access_token.clone();
 
@@ -155,16 +162,31 @@ impl TeamsApiClient {
         let mut cache = self.token_cache.write().await;
         *cache = Some(CachedToken {
             access_token: token_resp.access_token,
-            expires_at: std::time::Instant::now()
-                + std::time::Duration::from_secs(token_resp.expires_in),
+            expires_at,
         });
 
         Ok(access_token)
     }
 
-    /// Reply to a Bot Framework activity.
-    ///
-    /// Posts to `{service_url}/v3/conversations/{conversation_id}/activities/{activity_id}`.
+    pub(crate) fn prepare_reply(
+        &self,
+        message: &OutboundMessage,
+    ) -> Result<PreparedPost, ChannelAdapterError> {
+        let (service_url, activity_id) = reply_destination(message)?;
+        prepare_reply(service_url, &message.channel_id, activity_id, message)
+    }
+
+    pub async fn reply(
+        &self,
+        message: &OutboundMessage,
+    ) -> Result<ChatDeliveryReceipt, ChannelAdapterError> {
+        let (service_url, activity_id) = reply_destination(message)?;
+        self.reply_to_activity(service_url, &message.channel_id, activity_id, message)
+            .await
+    }
+
+    /// Send only to the explicitly supplied service URL. Shipping callback routes
+    /// authenticate it against the signed serviceurl claim before invocation.
     pub async fn reply_to_activity(
         &self,
         service_url: &str,
@@ -172,72 +194,73 @@ impl TeamsApiClient {
         activity_id: &str,
         message: &OutboundMessage,
     ) -> Result<ChatDeliveryReceipt, ChannelAdapterError> {
+        let prepared = prepare_reply(service_url, conversation_id, activity_id, message)?;
         let token = self.get_oauth_token().await?;
-
-        let url = format!(
-            "{}v3/conversations/{}/activities/{}",
-            ensure_trailing_slash(service_url),
-            conversation_id,
-            activity_id
-        );
-
-        let reply = ReplyActivity {
-            activity_type: "message".to_string(),
-            text: message.content.clone(),
-            attachments: message.blocks.as_ref().map(|card| {
-                vec![Attachment {
-                    content_type: "application/vnd.microsoft.card.adaptive".to_string(),
-                    content: card.clone(),
-                }]
-            }),
-        };
-
-        let resp = self
+        let response = self
             .client
-            .post(&url)
+            .post(&prepared.url)
             .bearer_auth(&token)
-            .json(&reply)
+            .json(&prepared.body)
             .send()
             .await
             .map_err(|e| {
-                ChannelAdapterError::SendFailed(format!("Bot Framework reply failed: {}", e))
+                ChannelAdapterError::SendFailed(format!("Bot Framework reply failed: {e}"))
             })?;
-
-        let success = resp.status().is_success();
-        let status = resp.status();
-
-        if !success {
-            let body = resp.text().await.unwrap_or_default();
-            return Ok(ChatDeliveryReceipt {
-                platform: ChatPlatform::Teams,
-                channel_id: conversation_id.to_string(),
-                message_ts: None,
-                delivered_at: chrono::Utc::now(),
-                success: false,
-                error: Some(format!("HTTP {}: {}", status, body)),
-            });
-        }
-
-        let reply_resp: ReplyResponse = resp.json().await.unwrap_or(ReplyResponse { id: None });
-
+        let reply: ReplyResponse = transport::read_json(response, transport::RECEIPT_LIMIT).await?;
+        let confirmed = reply.id.as_ref().is_some_and(|id| !id.is_empty());
         Ok(ChatDeliveryReceipt {
             platform: ChatPlatform::Teams,
             channel_id: conversation_id.to_string(),
-            message_ts: reply_resp.id,
+            message_ts: reply.id,
             delivered_at: chrono::Utc::now(),
-            success: true,
-            error: None,
+            success: confirmed,
+            error: (!confirmed).then(|| "Bot Framework receipt has no activity ID".into()),
         })
     }
 }
 
-/// Ensure a URL ends with `/`.
-fn ensure_trailing_slash(url: &str) -> String {
-    if url.ends_with('/') {
-        url.to_string()
-    } else {
-        format!("{}/", url)
-    }
+fn reply_destination(message: &OutboundMessage) -> Result<(&str, &str), ChannelAdapterError> {
+    let metadata = message.metadata.as_ref().ok_or_else(|| {
+        ChannelAdapterError::Config("Teams reply requires destination metadata".into())
+    })?;
+    let service_url = metadata
+        .get("service_url")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| ChannelAdapterError::Config("Teams reply requires a service URL".into()))?;
+    let activity_id = metadata
+        .get("activity_id")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| ChannelAdapterError::Config("Teams reply requires an activity ID".into()))?;
+    Ok((service_url, activity_id))
+}
+
+fn prepare_reply(
+    service_url: &str,
+    conversation_id: &str,
+    activity_id: &str,
+    message: &OutboundMessage,
+) -> Result<PreparedPost, ChannelAdapterError> {
+    let url = transport::append_segments(
+        transport::base_url(service_url, false)?,
+        &[
+            "v3",
+            "conversations",
+            conversation_id,
+            "activities",
+            activity_id,
+        ],
+    )?;
+    let reply = ReplyActivity {
+        activity_type: "message".into(),
+        text: message.content.clone(),
+        attachments: message.blocks.as_ref().map(|card| {
+            vec![Attachment {
+                content_type: "application/vnd.microsoft.card.adaptive".into(),
+                content: card.clone(),
+            }]
+        }),
+    };
+    Ok(PreparedPost::new(url, serde_json::json!(reply)))
 }
 
 /// Format agent output as a Teams Adaptive Card.
@@ -311,22 +334,6 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("Analysis complete."));
-    }
-
-    #[test]
-    fn ensure_trailing_slash_adds_when_missing() {
-        assert_eq!(
-            ensure_trailing_slash("https://example.com"),
-            "https://example.com/"
-        );
-    }
-
-    #[test]
-    fn ensure_trailing_slash_preserves_existing() {
-        assert_eq!(
-            ensure_trailing_slash("https://example.com/"),
-            "https://example.com/"
-        );
     }
 
     #[test]

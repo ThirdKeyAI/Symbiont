@@ -1,708 +1,403 @@
-//! Task manager for executing and monitoring agent tasks
+//! Bounded concurrent task execution with exact completion and cancellation.
 
-use parking_lot::RwLock;
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::{Duration, SystemTime};
-use sysinfo::{Pid, System};
-use tokio::process::Command;
-use tokio::sync::mpsc;
-use tokio::time::timeout;
-
+use super::execution::{GovernedAgentExecutor, ScheduledAgentExecutor};
 use crate::types::*;
+use futures::FutureExt;
+use parking_lot::RwLock;
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{Duration, Instant, SystemTime},
+};
+use tokio::sync::watch;
+use tokio_util::sync::CancellationToken;
 
-/// Task manager for agent execution
+const MAX_TASKS: usize = 2048;
+const CLEANUP_TIMEOUT: Duration = Duration::from_secs(25);
+
 pub struct TaskManager {
     task_timeout: Duration,
-    running_tasks: Arc<RwLock<HashMap<AgentId, TaskHandle>>>,
-    task_sender: mpsc::Sender<TaskCommand>,
-    #[allow(dead_code)]
-    system_info: Arc<RwLock<System>>,
+    tasks: Arc<RwLock<HashMap<uuid::Uuid, TaskHandle>>>,
+    executor: Arc<dyn ScheduledAgentExecutor>,
 }
 
 impl TaskManager {
-    /// Create a new task manager
     pub fn new(task_timeout: Duration) -> Self {
-        let running_tasks = Arc::new(RwLock::new(HashMap::new()));
-        // Bounded channel prevents unbounded memory growth under load.
-        // 1024 is sufficient for most workloads; submitters block when full.
-        let (task_sender, task_receiver) = mpsc::channel(1024);
-
-        let manager = Self {
-            task_timeout,
-            running_tasks: running_tasks.clone(),
-            task_sender,
-            system_info: Arc::new(RwLock::new(System::new_all())),
-        };
-
-        // Start the task execution loop
-        manager.start_task_loop(task_receiver);
-
-        manager
+        Self::with_executor(task_timeout, Arc::new(GovernedAgentExecutor::default()))
     }
 
-    /// Start a new task
+    /// Supply a trusted execution service, for embedding or deterministic tests.
+    pub fn with_executor(
+        task_timeout: Duration,
+        executor: Arc<dyn ScheduledAgentExecutor>,
+    ) -> Self {
+        Self {
+            task_timeout,
+            tasks: Arc::new(RwLock::new(HashMap::new())),
+            executor,
+        }
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn invocation_project(&self) -> Result<&std::path::Path, String> {
+        self.executor.invocation_project()
+    }
+
     pub async fn start_task(&self, task: super::ScheduledTask) -> Result<(), SchedulerError> {
-        let handle = TaskHandle::new(task.clone());
-        let agent_id = task.agent_id;
-
-        // Store the handle
-        self.running_tasks.write().insert(agent_id, handle.clone());
-
-        // Send command to start the task (try_send avoids blocking the caller;
-        // returns an error if the bounded channel is full).
-        self.task_sender
-            .try_send(TaskCommand::Start {
-                task: Box::new(task),
-                handle,
-            })
-            .map_err(|_| SchedulerError::SchedulingFailed {
-                agent_id,
-                reason: "Task channel full — backpressure applied".into(),
-            })?;
-
-        Ok(())
-    }
-
-    /// Terminate a task
-    pub async fn terminate_task(&self, agent_id: AgentId) -> Result<(), SchedulerError> {
-        // Remove from running tasks
-        let handle = self.running_tasks.write().remove(&agent_id);
-
-        if let Some(handle) = handle {
-            // Send termination command (try_send to avoid blocking).
-            self.task_sender
-                .try_send(TaskCommand::Terminate { agent_id, handle })
-                .map_err(|_| SchedulerError::SchedulingFailed {
-                    agent_id,
-                    reason: "Task channel full — cannot send terminate command".into(),
-                })?;
-        }
-
-        Ok(())
-    }
-
-    /// Check task health
-    pub async fn check_task_health(&self, agent_id: AgentId) -> Result<TaskHealth, SchedulerError> {
-        let running_tasks = self.running_tasks.read();
-
-        if let Some(handle) = running_tasks.get(&agent_id) {
-            let health = handle.get_health();
-
-            // Check if task has exceeded timeout
-            if health.uptime > self.task_timeout {
-                return Err(SchedulerError::SchedulingFailed {
-                    agent_id,
-                    reason: "Task timeout exceeded".into(),
-                });
-            }
-
-            Ok(health)
-        } else {
-            Err(SchedulerError::AgentNotFound { agent_id })
-        }
-    }
-
-    /// Get task statistics
-    pub async fn get_task_statistics(&self) -> TaskStatistics {
-        let running_tasks = self.running_tasks.read();
-        let total_tasks = running_tasks.len();
-
-        let mut healthy_tasks = 0;
-        let mut total_uptime = Duration::from_secs(0);
-        let mut total_memory_usage = 0;
-
-        for handle in running_tasks.values() {
-            let health = handle.get_health();
-            if health.is_healthy {
-                healthy_tasks += 1;
-            }
-            total_uptime += health.uptime;
-            total_memory_usage += health.memory_usage;
-        }
-
-        TaskStatistics {
-            total_tasks,
-            healthy_tasks,
-            average_uptime: if total_tasks > 0 {
-                total_uptime / total_tasks as u32
-            } else {
-                Duration::from_secs(0)
-            },
-            total_memory_usage,
-        }
-    }
-
-    /// Start the task execution loop
-    fn start_task_loop(&self, mut task_receiver: mpsc::Receiver<TaskCommand>) {
-        let task_timeout = self.task_timeout;
-
-        tokio::spawn(async move {
-            while let Some(command) = task_receiver.recv().await {
-                match command {
-                    TaskCommand::Start { task, handle } => {
-                        Self::execute_task(*task, handle, task_timeout).await;
-                    }
-                    TaskCommand::Terminate { agent_id, handle } => {
-                        Self::terminate_task_execution(agent_id, handle).await;
-                    }
-                }
-            }
-        });
-    }
-
-    /// Execute a task
-    async fn execute_task(task: super::ScheduledTask, handle: TaskHandle, task_timeout: Duration) {
-        let agent_id = task.agent_id;
-
-        tracing::info!("Starting execution of agent {}", agent_id);
-
-        // Update handle status
-        handle.set_status(TaskStatus::Running);
-
-        // Execute the real agent task with proper monitoring and metrics
-        let execution_result = timeout(
-            task_timeout,
-            Self::execute_agent_task(task.clone(), handle.clone()),
-        )
-        .await;
-
-        match execution_result {
-            Ok(Ok(execution_metrics)) => {
-                tracing::info!("Agent {} completed successfully", agent_id);
-                handle.set_status(TaskStatus::Completed);
-                handle.update_execution_metrics(execution_metrics);
-            }
-            Ok(Err(e)) => {
-                tracing::error!("Agent {} failed: {}", agent_id, e);
-                handle.set_status(TaskStatus::Failed);
-            }
-            Err(_) => {
-                tracing::error!("Agent {} timed out", agent_id);
-                handle.set_status(TaskStatus::TimedOut);
-            }
-        }
-    }
-
-    /// Terminate task execution
-    async fn terminate_task_execution(agent_id: AgentId, handle: TaskHandle) {
-        tracing::info!("Terminating agent {}", agent_id);
-
-        // If there's a process associated with this task, terminate it
-        if let Some(process_id) = handle.get_process_id() {
-            if let Err(e) = Self::terminate_process(process_id).await {
-                tracing::warn!("Failed to terminate process {}: {}", process_id, e);
-            }
-        }
-
-        handle.set_status(TaskStatus::Terminated);
-    }
-
-    /// Execute a real agent task with comprehensive monitoring
-    async fn execute_agent_task(
-        task: super::ScheduledTask,
-        handle: TaskHandle,
-    ) -> Result<ExecutionMetrics, String> {
-        let _start_time = SystemTime::now();
-        let agent_id = task.agent_id;
-
-        tracing::debug!(
-            "Executing agent {} with config: {:?}",
-            agent_id,
-            task.config
-        );
-
-        // Create execution context
-        let execution_context = AgentExecutionContext::new(task.clone(), handle.clone());
-
-        // Execute based on agent execution mode
-        match task.config.execution_mode {
-            ExecutionMode::Ephemeral => Self::execute_ephemeral_agent(execution_context).await,
-            ExecutionMode::Persistent => Self::execute_persistent_agent(execution_context).await,
-            ExecutionMode::Scheduled { interval } => {
-                Self::execute_scheduled_agent(execution_context, interval).await
-            }
-            ExecutionMode::CronScheduled { .. } => {
-                Self::execute_cron_scheduled_agent(execution_context).await
-            }
-            ExecutionMode::EventDriven => Self::execute_event_driven_agent(execution_context).await,
-            ExecutionMode::External { .. } => {
-                Err("External agents are not executed by the runtime".to_string())
-            }
-        }
-    }
-
-    /// Execute an ephemeral agent (runs once and terminates)
-    async fn execute_ephemeral_agent(
-        mut context: AgentExecutionContext,
-    ) -> Result<ExecutionMetrics, String> {
-        tracing::debug!("Executing ephemeral agent {}", context.task.agent_id);
-
-        // Launch the agent process
-        let process_handle = Self::launch_agent_process(&context.task).await?;
-        context
-            .handle
-            .set_process_id(Some(process_handle.process_id));
-
-        // Monitor the process execution
-        let result = Self::monitor_process_execution(process_handle, &mut context).await;
-
-        // Collect final metrics
-        let end_time = SystemTime::now();
-        let execution_time = end_time
-            .duration_since(context.start_time)
-            .unwrap_or_default();
-
-        Ok(ExecutionMetrics {
-            execution_time,
-            memory_peak_mb: context.memory_peak_mb,
-            cpu_time_ms: context.cpu_time_ms,
-            exit_code: context.exit_code,
-            error_count: context.error_count,
-            success: result.is_ok(),
-        })
-    }
-
-    /// Execute a persistent agent (long-running)
-    async fn execute_persistent_agent(
-        context: AgentExecutionContext,
-    ) -> Result<ExecutionMetrics, String> {
-        tracing::debug!("Executing persistent agent {}", context.task.agent_id);
-
-        // Launch the agent process
-        let process_handle = Self::launch_agent_process(&context.task).await?;
-        context
-            .handle
-            .set_process_id(Some(process_handle.process_id));
-
-        // For persistent agents, we start monitoring but don't wait for completion
-        let _monitoring_handle =
-            tokio::spawn(
-                async move { Self::monitor_persistent_process(process_handle, context).await },
-            );
-
-        // Return immediately for persistent agents
-        Ok(ExecutionMetrics {
-            execution_time: Duration::from_secs(0),
-            memory_peak_mb: 0,
-            cpu_time_ms: 0,
-            exit_code: None,
-            error_count: 0,
-            success: true,
-        })
-    }
-
-    /// Execute a scheduled agent (single run — the CronScheduler handles recurrence).
-    async fn execute_scheduled_agent(
-        context: AgentExecutionContext,
-        interval: Duration,
-    ) -> Result<ExecutionMetrics, String> {
-        tracing::debug!(
-            "Executing scheduled agent {} (interval {:?}) as ephemeral run",
-            context.task.agent_id,
-            interval
-        );
-        // Execute exactly once and return metrics.
-        // The external CronScheduler is responsible for computing the next
-        // fire time and re-invoking.
-        Self::execute_ephemeral_agent(context).await
-    }
-
-    /// Execute a cron-scheduled agent (single run triggered by CronScheduler).
-    async fn execute_cron_scheduled_agent(
-        context: AgentExecutionContext,
-    ) -> Result<ExecutionMetrics, String> {
-        tracing::debug!("Executing cron-scheduled agent {}", context.task.agent_id,);
-        Self::execute_ephemeral_agent(context).await
-    }
-
-    /// Execute an event-driven agent
-    async fn execute_event_driven_agent(
-        context: AgentExecutionContext,
-    ) -> Result<ExecutionMetrics, String> {
-        tracing::debug!("Executing event-driven agent {}", context.task.agent_id);
-
-        // Event-driven agents are similar to persistent but triggered by events
-        Self::execute_persistent_agent(context).await
-    }
-
-    /// Launch an agent process
-    async fn launch_agent_process(task: &super::ScheduledTask) -> Result<ProcessHandle, String> {
-        let agent_id = task.agent_id;
-
-        // Create a secure execution environment based on security tier
-        let execution_env = Self::create_execution_environment(task)?;
-
-        // Build the command to execute the agent
-        let mut command = Self::build_agent_command(task, &execution_env).await?;
-
-        tracing::debug!("Launching agent {} with command: {:?}", agent_id, command);
-
-        // Spawn the process
-        let child = command
-            .spawn()
-            .map_err(|e| format!("Failed to spawn agent process: {}", e))?;
-
-        let process_id = child.id().unwrap_or(0);
-
-        Ok(ProcessHandle {
-            process_id,
-            child: Arc::new(tokio::sync::Mutex::new(child)),
-            start_time: SystemTime::now(),
-        })
-    }
-
-    /// Create execution environment for the agent
-    fn create_execution_environment(
-        task: &super::ScheduledTask,
-    ) -> Result<ExecutionEnvironment, String> {
-        use std::env;
-
-        // Per-uid working directory under /run (tmpfs, cleared on reboot) avoids
-        // sharing host /tmp across users; fall back to a per-uid subdir of
-        // std::env::temp_dir when /run/symbi is not writable.
-        let working_dir = if cfg!(test) {
-            let dir = env::temp_dir().join(format!("agent_{}", task.agent_id));
-            Self::create_dir_secure(&dir)?;
-            dir.to_string_lossy().to_string()
-        } else {
-            let dir = Self::resolve_agent_working_dir(task.agent_id)?;
-            dir.to_string_lossy().to_string()
-        };
-
-        Ok(ExecutionEnvironment {
-            working_directory: working_dir,
-            environment_variables: vec![
-                ("AGENT_ID".to_string(), task.agent_id.to_string()),
-                (
-                    "SECURITY_TIER".to_string(),
-                    format!("{:?}", task.config.security_tier),
-                ),
-            ],
-            resource_limits: task.config.resource_limits.clone(),
-        })
-    }
-
-    /// Build the command to execute the agent
-    async fn build_agent_command(
-        task: &super::ScheduledTask,
-        env: &ExecutionEnvironment,
-    ) -> Result<Command, String> {
-        // Ensure working directory exists (idempotent).
-        if let Err(e) = tokio::fs::create_dir_all(&env.working_directory).await {
-            tracing::warn!(
-                "Failed to create working directory {}: {}",
-                env.working_directory,
-                e
-            );
-        }
-
-        // Write DSL source to a sibling file so it crosses the process boundary
-        // as data on disk, never as a shell-interpolated argv token.
-        let dsl_path = std::path::Path::new(&env.working_directory).join("agent.dsl");
-        tokio::fs::write(&dsl_path, &task.config.dsl_source)
-            .await
-            .map_err(|e| format!("failed to write dsl: {e}"))?;
-
-        let mut command = Command::new("/bin/sh");
-        command.current_dir(&env.working_directory);
-
-        for (key, value) in &env.environment_variables {
-            command.env(key, value);
-        }
-
-        command.arg("-c");
-        // Quoted-literal script with NO interpolation of attacker-controlled data.
-        // DSL contents arrive via argv ($1) and are read with `cat`, never expanded.
-        if cfg!(test) {
-            command.arg(
-                r#"echo "Test execution of agent ${AGENT_ID}" >&2; echo "DSL Source:" >&2; cat "$1" >&2; echo "Agent test execution completed" >&2"#,
-            );
-        } else {
-            command.arg(
-                r#"echo "Executing agent ${AGENT_ID}" >&2; echo "DSL Source:" >&2; cat "$1" >&2; sleep 1; echo "Agent execution completed" >&2"#,
-            );
-        }
-        command.arg("--");
-        command.arg(dsl_path.as_os_str());
-
-        Ok(command)
-    }
-
-    /// Resolve a per-uid agent working directory: prefer /run/symbi/agent_<id>
-    /// (XDG runtime root style), fall back to <temp>/symbi-<uid>/agent_<id>.
-    /// Both modes are created with 0700 perms to avoid cross-user exposure.
-    fn resolve_agent_working_dir(agent_id: AgentId) -> Result<std::path::PathBuf, String> {
-        // SAFETY: `getuid()` is an always-safe POSIX syscall that takes no
-        // arguments and cannot fail; it returns the calling process's real UID.
-        #[cfg(unix)]
-        let uid = unsafe { libc::getuid() };
-        #[cfg(not(unix))]
-        let uid: u32 = 0;
-
-        let primary_root = std::path::PathBuf::from("/run/symbi");
-        let primary = primary_root.join(format!("agent_{}", agent_id));
-        if Self::create_dir_secure(&primary_root).is_ok()
-            && Self::create_dir_secure(&primary).is_ok()
-        {
-            return Ok(primary);
-        }
-
-        let fallback_root = std::env::temp_dir().join(format!("symbi-{}", uid));
-        Self::create_dir_secure(&fallback_root)?;
-        let fallback = fallback_root.join(format!("agent_{}", agent_id));
-        Self::create_dir_secure(&fallback)?;
-        Ok(fallback)
-    }
-
-    /// Create a directory with 0700 perms on Unix. Idempotent: if it already
-    /// exists, leaves perms alone.
-    fn create_dir_secure(path: &std::path::Path) -> Result<(), String> {
-        if path.exists() {
+        let handle = task.handle.clone();
+        if handle.completion().is_some() {
             return Ok(());
         }
-        #[cfg(unix)]
         {
-            use std::os::unix::fs::DirBuilderExt;
-            std::fs::DirBuilder::new()
-                .recursive(true)
-                .mode(0o700)
-                .create(path)
-                .map_err(|e| format!("failed to create {}: {e}", path.display()))
+            let mut tasks = self.tasks.write();
+            if tasks.contains_key(&handle.run_id()) {
+                return Err(failure(task.agent_id, "execution is already admitted"));
+            }
+            if tasks.len() >= MAX_TASKS {
+                if let Some(oldest) = tasks
+                    .values()
+                    .filter(|h| h.completion().is_some())
+                    .min_by_key(|h| h.created)
+                    .map(TaskHandle::run_id)
+                {
+                    tasks.remove(&oldest);
+                } else {
+                    return Err(failure(task.agent_id, "task capacity exhausted"));
+                }
+            }
+            tasks.insert(handle.run_id(), handle.clone());
         }
-        #[cfg(not(unix))]
-        {
-            std::fs::create_dir_all(path)
-                .map_err(|e| format!("failed to create {}: {e}", path.display()))
-        }
-    }
-
-    /// Monitor process execution
-    async fn monitor_process_execution(
-        process_handle: ProcessHandle,
-        context: &mut AgentExecutionContext,
-    ) -> Result<(), String> {
-        let process_id = process_handle.process_id;
-
-        // Start resource monitoring
-        let resource_monitor = tokio::spawn(Self::monitor_process_resources(
-            process_id,
-            context.handle.clone(),
-        ));
-
-        // Wait for process completion
-        let mut child = process_handle.child.lock().await;
-        let exit_status = child
-            .wait()
-            .await
-            .map_err(|e| format!("Failed to wait for process: {}", e))?;
-
-        context.exit_code = exit_status.code();
-
-        // Stop resource monitoring
-        resource_monitor.abort();
-
-        if exit_status.success() {
-            Ok(())
-        } else {
-            Err(format!(
-                "Process exited with code: {:?}",
-                exit_status.code()
+        let executor = self.executor.clone();
+        let budget = self
+            .task_timeout
+            .min(task.config.resource_limits.execution_timeout)
+            .saturating_sub(handle.created.elapsed());
+        tokio::spawn(async move {
+            if budget.is_zero() {
+                handle.finish(TaskCompletion::new(
+                    &task,
+                    TaskStatus::TimedOut,
+                    Some("execution expired in queue".into()),
+                ));
+                return;
+            }
+            if !handle.mark_running() {
+                handle.finish(TaskCompletion::new(
+                    &task,
+                    TaskStatus::Terminated,
+                    Some("execution cancelled before start".into()),
+                ));
+                return;
+            }
+            let execution = std::panic::AssertUnwindSafe(executor.execute(
+                &task,
+                budget,
+                handle.cancellation.clone(),
             ))
-        }
-    }
-
-    /// Monitor persistent process
-    async fn monitor_persistent_process(
-        process_handle: ProcessHandle,
-        context: AgentExecutionContext,
-    ) -> Result<(), String> {
-        let process_id = process_handle.process_id;
-
-        // Continuous monitoring for persistent agents
-        let monitor = tokio::spawn(Self::monitor_process_resources(
-            process_id,
-            context.handle.clone(),
-        ));
-
-        // Check if process is still running periodically
-        let mut check_interval = tokio::time::interval(Duration::from_secs(30));
-
-        loop {
-            check_interval.tick().await;
-
-            if !Self::is_process_running(process_id).await {
-                tracing::warn!(
-                    "Persistent agent {} process {} died",
-                    context.task.agent_id,
-                    process_id
+            .catch_unwind()
+            .map(|result| {
+                result.unwrap_or_else(|_| {
+                    handle.cancel();
+                    TaskCompletion::new(
+                        &task,
+                        TaskStatus::Failed,
+                        Some("execution service panicked; cleanup is unconfirmed".into()),
+                    )
+                })
+            });
+            tokio::pin!(execution);
+            let mut timed_out = false;
+            let result = tokio::select! {
+                biased;
+                _ = handle.cancellation.cancelled() => None,
+                result = &mut execution => Some(result),
+                _ = tokio::time::sleep(budget) => {
+                    timed_out = true;
+                    handle.cancellation.cancel();
+                    None
+                },
+            };
+            let mut completion = match result {
+                Some(completion) => completion,
+                None => match tokio::time::timeout(CLEANUP_TIMEOUT, &mut execution).await {
+                    Ok(completion) => completion,
+                    Err(_) => TaskCompletion::new(&task, TaskStatus::Failed,
+                        Some("execution cleanup did not acknowledge cancellation; completion is unconfirmed".into())),
+                },
+            };
+            if timed_out && completion.status != TaskStatus::Failed {
+                completion.status = TaskStatus::TimedOut;
+                completion.error = Some("scheduled execution deadline exceeded".into());
+                completion.output = None;
+            } else if handle.cancellation.is_cancelled()
+                && completion.status == TaskStatus::Completed
+            {
+                completion.status = TaskStatus::Terminated;
+                completion.error = Some("scheduled execution was cancelled".into());
+                completion.output = None;
+            }
+            if completion.agent_id != task.agent_id
+                || completion.run_id != handle.run_id()
+                || matches!(completion.status, TaskStatus::Pending | TaskStatus::Running)
+            {
+                completion = TaskCompletion::new(
+                    &task,
+                    TaskStatus::Failed,
+                    Some(
+                        "execution service returned an invalid completion identity or status"
+                            .into(),
+                    ),
                 );
-                break;
             }
-
-            // Check if termination was requested
-            if matches!(context.handle.get_status(), TaskStatus::Terminated) {
-                break;
-            }
-        }
-
-        monitor.abort();
+            handle.finish(completion);
+        });
         Ok(())
     }
 
-    /// Monitor process resources
-    async fn monitor_process_resources(process_id: u32, handle: TaskHandle) {
-        let mut interval = tokio::time::interval(Duration::from_secs(5));
-        let mut system = System::new();
-
-        loop {
-            interval.tick().await;
-
-            system.refresh_process(Pid::from(process_id as usize));
-
-            if let Some(process) = system.process(Pid::from(process_id as usize)) {
-                let memory_mb = process.memory() / 1024 / 1024;
-                let cpu_usage = process.cpu_usage();
-
-                handle.update_resource_usage(memory_mb as usize, cpu_usage);
-
-                tracing::trace!(
-                    "Process {} - Memory: {}MB, CPU: {:.2}%",
-                    process_id,
-                    memory_mb,
-                    cpu_usage
-                );
-            } else {
-                // Process no longer exists
-                break;
+    pub async fn terminate_task(&self, agent_id: AgentId) -> Result<(), SchedulerError> {
+        let handles: Vec<_> = self
+            .tasks
+            .read()
+            .values()
+            .filter(|h| h.agent_id == agent_id && h.completion().is_none())
+            .cloned()
+            .collect();
+        for handle in &handles {
+            handle.cancel();
+        }
+        for handle in handles {
+            let result =
+                tokio::time::timeout(CLEANUP_TIMEOUT + Duration::from_secs(1), handle.wait())
+                    .await
+                    .map_err(|_| failure(agent_id, "task cleanup timed out"))?;
+            if result.status == TaskStatus::Failed {
+                return Err(failure(
+                    agent_id,
+                    result.error.unwrap_or_else(|| "task cleanup failed".into()),
+                ));
             }
         }
+        Ok(())
     }
 
-    /// Check if process is still running
-    async fn is_process_running(process_id: u32) -> bool {
-        let mut system = System::new();
-        system.refresh_process(Pid::from(process_id as usize));
-        system.process(Pid::from(process_id as usize)).is_some()
+    pub fn active_count(&self) -> usize {
+        self.tasks
+            .read()
+            .values()
+            .filter(|h| h.completion().is_none())
+            .count()
     }
 
-    /// Terminate a process
-    async fn terminate_process(process_id: u32) -> Result<(), String> {
-        let mut system = System::new();
-        system.refresh_process(Pid::from(process_id as usize));
+    pub fn latest_completion(&self, agent_id: AgentId) -> Option<TaskCompletion> {
+        self.tasks
+            .read()
+            .values()
+            .filter(|h| h.agent_id == agent_id)
+            .max_by_key(|h| h.created)
+            .and_then(TaskHandle::completion)
+    }
 
-        if let Some(process) = system.process(Pid::from(process_id as usize)) {
-            if process.kill() {
-                Ok(())
+    pub async fn check_task_health(&self, agent_id: AgentId) -> Result<TaskHealth, SchedulerError> {
+        self.tasks
+            .read()
+            .values()
+            .filter(|h| h.agent_id == agent_id)
+            .max_by_key(|h| (h.completion().is_none(), h.created))
+            .map(TaskHandle::get_health)
+            .ok_or(SchedulerError::AgentNotFound { agent_id })
+    }
+
+    pub async fn get_task_statistics(&self) -> TaskStatistics {
+        let tasks = self.tasks.read();
+        let count = tasks.len();
+        let health: Vec<_> = tasks.values().map(TaskHandle::get_health).collect();
+        TaskStatistics {
+            total_tasks: count,
+            healthy_tasks: health.iter().filter(|h| h.is_healthy).count(),
+            average_uptime: if count == 0 {
+                Duration::ZERO
             } else {
-                Err("Failed to terminate process".to_string())
-            }
-        } else {
-            Ok(()) // Process already terminated
+                health.iter().map(|h| h.uptime).sum::<Duration>() / count as u32
+            },
+            // Container measurements are not exposed by the execution service.
+            total_memory_usage: 0,
         }
     }
 }
 
-/// Task command for the execution loop
-#[derive(Debug)]
-enum TaskCommand {
-    Start {
-        task: Box<super::ScheduledTask>,
-        handle: TaskHandle,
-    },
-    Terminate {
-        agent_id: AgentId,
-        handle: TaskHandle,
-    },
+impl Drop for TaskManager {
+    fn drop(&mut self) {
+        for handle in self.tasks.read().values() {
+            if handle.completion().is_none() {
+                handle.cancel();
+            }
+        }
+    }
 }
 
-/// Handle for a running task
+fn failure(agent_id: AgentId, reason: impl Into<String>) -> SchedulerError {
+    SchedulerError::SchedulingFailed {
+        agent_id,
+        reason: reason.into().into(),
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TaskAudit {
+    pub path: std::path::PathBuf,
+    pub public_key: String,
+}
+
+/// An outcome is published after execution and cleanup, never at queue admission.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TaskCompletion {
+    pub run_id: uuid::Uuid,
+    pub agent_id: AgentId,
+    pub status: TaskStatus,
+    pub output: Option<String>,
+    pub error: Option<String>,
+    pub duration: Duration,
+    pub audit: Option<TaskAudit>,
+    #[serde(default)]
+    pub total_usage: Option<crate::reasoning::inference::Usage>,
+    #[serde(default)]
+    pub budget: Option<crate::reasoning::budget::BudgetSnapshot>,
+}
+impl TaskCompletion {
+    pub fn new(task: &super::ScheduledTask, status: TaskStatus, error: Option<String>) -> Self {
+        Self {
+            run_id: task.handle.run_id(),
+            agent_id: task.agent_id,
+            status,
+            output: None,
+            error,
+            duration: task.handle.created.elapsed(),
+            audit: None,
+            total_usage: None,
+            budget: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct TaskState {
+    status: TaskStatus,
+    updated: SystemTime,
+    completion: Option<TaskCompletion>,
+}
+
+/// One run's identity and result remain distinct from every other run of an agent.
 #[derive(Debug, Clone)]
 pub struct TaskHandle {
     agent_id: AgentId,
-    status: Arc<RwLock<TaskStatus>>,
-    start_time: SystemTime,
-    metrics: Arc<RwLock<TaskMetrics>>,
+    run_id: uuid::Uuid,
+    created: Instant,
+    state: watch::Sender<TaskState>,
+    cancellation: CancellationToken,
 }
-
 impl TaskHandle {
-    fn new(task: super::ScheduledTask) -> Self {
+    pub(crate) fn new(agent_id: AgentId) -> Self {
+        Self::with_run_id(agent_id, uuid::Uuid::new_v4())
+    }
+    pub(crate) fn with_run_id(agent_id: AgentId, run_id: uuid::Uuid) -> Self {
+        let (state, _) = watch::channel(TaskState {
+            status: TaskStatus::Pending,
+            updated: SystemTime::now(),
+            completion: None,
+        });
         Self {
-            agent_id: task.agent_id,
-            status: Arc::new(RwLock::new(TaskStatus::Pending)),
-            start_time: SystemTime::now(),
-            metrics: Arc::new(RwLock::new(TaskMetrics::new())),
+            agent_id,
+            run_id,
+            created: Instant::now(),
+            state,
+            cancellation: CancellationToken::new(),
         }
     }
-
-    fn set_status(&self, status: TaskStatus) {
-        *self.status.write() = status.clone();
-        self.metrics.write().update_status(&status);
+    pub(crate) fn elapsed(&self) -> Duration {
+        self.created.elapsed()
     }
-
-    fn get_status(&self) -> TaskStatus {
-        self.status.read().clone()
+    pub fn agent_id(&self) -> AgentId {
+        self.agent_id
     }
-
-    fn set_process_id(&self, process_id: Option<u32>) {
-        self.metrics.write().process_id = process_id;
+    pub fn run_id(&self) -> uuid::Uuid {
+        self.run_id
     }
-
-    fn get_process_id(&self) -> Option<u32> {
-        self.metrics.read().process_id
+    pub fn cancel(&self) {
+        self.cancellation.cancel();
     }
-
-    fn update_resource_usage(&self, memory_mb: usize, cpu_usage: f32) {
-        let mut metrics = self.metrics.write();
-        metrics.memory_usage = memory_mb * 1024 * 1024; // Convert to bytes
-        metrics.cpu_usage = cpu_usage;
-        metrics.last_activity = SystemTime::now();
+    #[cfg(unix)]
+    pub(crate) async fn cancelled(&self) {
+        self.cancellation.cancelled().await;
     }
-
-    fn update_execution_metrics(&self, execution_metrics: ExecutionMetrics) {
-        let mut metrics = self.metrics.write();
-        metrics.execution_time = Some(execution_metrics.execution_time);
-        metrics.memory_peak_mb = execution_metrics.memory_peak_mb;
-        metrics.cpu_time_ms = execution_metrics.cpu_time_ms;
-        metrics.exit_code = execution_metrics.exit_code;
-        metrics.error_count = execution_metrics.error_count;
-        metrics.last_activity = SystemTime::now();
+    pub fn is_cancelled(&self) -> bool {
+        self.cancellation.is_cancelled()
     }
-
-    fn get_health(&self) -> TaskHealth {
-        let status = self.status.read().clone();
-        let uptime = SystemTime::now()
-            .duration_since(self.start_time)
-            .unwrap_or_default();
-        let metrics = self.metrics.read();
-
+    pub fn completion(&self) -> Option<TaskCompletion> {
+        self.state.borrow().completion.clone()
+    }
+    fn mark_running(&self) -> bool {
+        let mut running = false;
+        self.state.send_modify(|state| {
+            if state.completion.is_none() && !self.is_cancelled() {
+                state.status = TaskStatus::Running;
+                state.updated = SystemTime::now();
+                running = true;
+            }
+        });
+        running
+    }
+    pub(crate) fn finish(&self, mut completion: TaskCompletion) {
+        self.state.send_modify(|state| {
+            if state.completion.is_none() {
+                completion.duration = self.created.elapsed();
+                state.status = completion.status.clone();
+                state.updated = SystemTime::now();
+                state.completion = Some(completion);
+            }
+        });
+    }
+    pub async fn wait(&self) -> TaskCompletion {
+        let mut state = self.state.subscribe();
+        loop {
+            if let Some(completion) = state.borrow().completion.clone() {
+                return completion;
+            }
+            // This handle owns a sender, so it cannot close during this wait.
+            let _ = state.changed().await;
+        }
+    }
+    pub fn get_health(&self) -> TaskHealth {
+        let state = self.state.borrow();
         TaskHealth {
             agent_id: self.agent_id,
-            status: status.clone(),
-            uptime,
+            status: state.status.clone(),
+            uptime: state
+                .completion
+                .as_ref()
+                .map_or_else(|| self.created.elapsed(), |c| c.duration),
             is_healthy: matches!(
-                status,
-                TaskStatus::Running | TaskStatus::Pending | TaskStatus::Completed
+                state.status,
+                TaskStatus::Pending | TaskStatus::Running | TaskStatus::Completed
             ),
-            memory_usage: metrics.memory_usage,
-            cpu_usage: metrics.cpu_usage,
-            last_activity: metrics.last_activity,
+            memory_usage: 0,
+            cpu_usage: 0.0,
+            last_activity: state.updated,
         }
     }
 }
 
-/// Task execution status
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum TaskStatus {
     Pending,
     Running,
     Completed,
     Failed,
+    /// No verified durable result exists; repeating the invocation is refused.
+    Unresolved,
     TimedOut,
     Terminated,
 }
-
-/// Task health information
 #[derive(Debug, Clone)]
 pub struct TaskHealth {
     pub agent_id: AgentId,
@@ -713,101 +408,6 @@ pub struct TaskHealth {
     pub cpu_usage: f32,
     pub last_activity: SystemTime,
 }
-
-/// Task metrics for monitoring
-#[derive(Debug, Clone)]
-struct TaskMetrics {
-    memory_usage: usize,
-    cpu_usage: f32,
-    last_activity: SystemTime,
-    status_changes: u32,
-    process_id: Option<u32>,
-    execution_time: Option<Duration>,
-    memory_peak_mb: usize,
-    cpu_time_ms: u64,
-    exit_code: Option<i32>,
-    error_count: u32,
-}
-
-impl TaskMetrics {
-    fn new() -> Self {
-        Self {
-            memory_usage: 0,
-            cpu_usage: 0.0,
-            last_activity: SystemTime::now(),
-            status_changes: 0,
-            process_id: None,
-            execution_time: None,
-            memory_peak_mb: 0,
-            cpu_time_ms: 0,
-            exit_code: None,
-            error_count: 0,
-        }
-    }
-
-    fn update_status(&mut self, _status: &TaskStatus) {
-        self.status_changes += 1;
-        self.last_activity = SystemTime::now();
-    }
-}
-
-/// Metrics collected during agent execution
-#[derive(Debug, Clone)]
-struct ExecutionMetrics {
-    execution_time: Duration,
-    memory_peak_mb: usize,
-    cpu_time_ms: u64,
-    exit_code: Option<i32>,
-    error_count: u32,
-    #[allow(dead_code)]
-    success: bool,
-}
-
-/// Context for agent execution
-#[derive(Debug)]
-struct AgentExecutionContext {
-    task: super::ScheduledTask,
-    handle: TaskHandle,
-    start_time: SystemTime,
-    memory_peak_mb: usize,
-    cpu_time_ms: u64,
-    exit_code: Option<i32>,
-    error_count: u32,
-}
-
-impl AgentExecutionContext {
-    fn new(task: super::ScheduledTask, handle: TaskHandle) -> Self {
-        Self {
-            task,
-            handle,
-            start_time: SystemTime::now(),
-            memory_peak_mb: 0,
-            cpu_time_ms: 0,
-            exit_code: None,
-            error_count: 0,
-        }
-    }
-}
-
-/// Handle to a running process
-#[derive(Debug)]
-struct ProcessHandle {
-    process_id: u32,
-    child: Arc<tokio::sync::Mutex<tokio::process::Child>>,
-    #[allow(dead_code)]
-    start_time: SystemTime,
-}
-
-/// Execution environment configuration
-#[derive(Debug, Clone)]
-struct ExecutionEnvironment {
-    working_directory: String,
-    environment_variables: Vec<(String, String)>,
-    #[allow(dead_code)]
-    resource_limits: ResourceLimits,
-}
-
-/// Task statistics for monitoring
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct TaskStatistics {
     pub total_tasks: usize,
@@ -819,15 +419,37 @@ pub struct TaskStatistics {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{AgentConfig, ExecutionMode, Priority, ResourceLimits, SecurityTier};
-    use std::collections::HashMap;
+    use async_trait::async_trait;
 
-    fn create_test_task() -> super::super::ScheduledTask {
-        let agent_id = AgentId::new();
+    struct ControlledExecutor;
+    #[async_trait]
+    impl ScheduledAgentExecutor for ControlledExecutor {
+        async fn execute(
+            &self,
+            task: &super::super::ScheduledTask,
+            _: Duration,
+            cancellation: CancellationToken,
+        ) -> TaskCompletion {
+            if task.input == serde_json::json!("wait") {
+                cancellation.cancelled().await;
+                TaskCompletion::new(
+                    task,
+                    TaskStatus::Terminated,
+                    Some("cancelled fixture".into()),
+                )
+            } else {
+                let mut result = TaskCompletion::new(task, TaskStatus::Completed, None);
+                result.output = Some(task.input.to_string());
+                result
+            }
+        }
+    }
+
+    fn task(input: &str) -> super::super::ScheduledTask {
         let config = AgentConfig {
-            id: agent_id,
-            name: "test".to_string(),
-            dsl_source: "test".to_string(),
+            id: AgentId::new(),
+            name: "fixture".into(),
+            dsl_source: "agent fixture() {}".into(),
             execution_mode: ExecutionMode::Ephemeral,
             security_tier: SecurityTier::Tier1,
             resource_limits: ResourceLimits::default(),
@@ -836,67 +458,89 @@ mod tests {
             metadata: HashMap::new(),
             priority: Priority::Normal,
         };
-        super::super::ScheduledTask::new(config)
+        let mut task = super::super::ScheduledTask::new(config);
+        task.input = serde_json::json!(input);
+        task
     }
 
     #[tokio::test]
-    async fn test_task_start_and_health_check() {
-        let task_manager = TaskManager::new(Duration::from_secs(60));
-        let task = create_test_task();
-        let agent_id = task.agent_id;
-
-        // Start the task
-        let result = task_manager.start_task(task).await;
-        assert!(result.is_ok());
-
-        // Give it a moment to start
-        tokio::time::sleep(Duration::from_millis(50)).await;
-
-        // Check health
-        let health = task_manager.check_task_health(agent_id).await;
-        assert!(health.is_ok());
-
-        let health = health.unwrap();
-        assert_eq!(health.agent_id, agent_id);
-        assert!(health.is_healthy);
+    async fn blocked_execution_does_not_block_another_run_or_cancellation() {
+        let manager =
+            TaskManager::with_executor(Duration::from_secs(20), Arc::new(ControlledExecutor));
+        let slow = task("wait");
+        let fast = task("payload");
+        manager.start_task(slow.clone()).await.unwrap();
+        manager.start_task(fast.clone()).await.unwrap();
+        let completed = tokio::time::timeout(Duration::from_secs(1), fast.handle.wait())
+            .await
+            .unwrap();
+        assert_eq!(completed.status, TaskStatus::Completed);
+        assert_eq!(completed.output.as_deref(), Some("\"payload\""));
+        manager.terminate_task(slow.agent_id).await.unwrap();
+        assert_eq!(slow.handle.wait().await.status, TaskStatus::Terminated);
+        assert_eq!(manager.active_count(), 0);
     }
 
     #[tokio::test]
-    async fn test_task_termination() {
-        let task_manager = TaskManager::new(Duration::from_secs(60));
-        let task = create_test_task();
-        let agent_id = task.agent_id;
-
-        // Start the task
-        task_manager.start_task(task).await.unwrap();
-
-        // Give it a moment to start
-        tokio::time::sleep(Duration::from_millis(50)).await;
-
-        // Terminate the task
-        let result = task_manager.terminate_task(agent_id).await;
-        assert!(result.is_ok());
-
-        // Check that health check fails for terminated task
-        let health = task_manager.check_task_health(agent_id).await;
-        assert!(health.is_err());
+    async fn each_run_of_one_principal_retains_its_own_result() {
+        let manager =
+            TaskManager::with_executor(Duration::from_secs(5), Arc::new(ControlledExecutor));
+        let first = task("first");
+        let mut second = super::super::ScheduledTask::new(first.config.clone());
+        second.input = serde_json::json!("second");
+        manager.start_task(first.clone()).await.unwrap();
+        manager.start_task(second.clone()).await.unwrap();
+        let a = first.handle.wait().await;
+        let b = second.handle.wait().await;
+        assert_eq!(a.agent_id, b.agent_id);
+        assert_ne!(a.run_id, b.run_id);
+        assert_ne!(a.output, b.output);
     }
 
     #[tokio::test]
-    async fn test_task_statistics() {
-        let task_manager = TaskManager::new(Duration::from_secs(60));
+    async fn deadline_requests_cleanup_and_publishes_timeout() {
+        let manager =
+            TaskManager::with_executor(Duration::from_millis(20), Arc::new(ControlledExecutor));
+        let task = task("wait");
+        manager.start_task(task.clone()).await.unwrap();
+        let completed = task.handle.wait().await;
+        assert_eq!(completed.status, TaskStatus::TimedOut);
+        assert!(completed.output.is_none());
+    }
 
-        // Start multiple tasks
-        for _ in 0..3 {
-            let task = create_test_task();
-            task_manager.start_task(task).await.unwrap();
+    #[tokio::test]
+    async fn invalid_default_execution_never_claims_success() {
+        let manager = TaskManager::new(Duration::from_secs(10));
+        let mut task = task("input");
+        task.config.dsl_source = "not a valid agent".into();
+        manager.start_task(task.clone()).await.unwrap();
+        let completed = task.handle.wait().await;
+        assert_eq!(completed.status, TaskStatus::Failed);
+        assert!(completed.output.is_none());
+    }
+    struct PanickingFixture;
+    #[async_trait]
+    impl ScheduledAgentExecutor for PanickingFixture {
+        async fn execute(
+            &self,
+            _: &super::super::ScheduledTask,
+            _: Duration,
+            _: CancellationToken,
+        ) -> TaskCompletion {
+            panic!("fixture backend panicked")
         }
-
-        // Give them a moment to start
-        tokio::time::sleep(Duration::from_millis(50)).await;
-
-        let stats = task_manager.get_task_statistics().await;
-        assert_eq!(stats.total_tasks, 3);
-        assert!(stats.healthy_tasks <= 3); // Some might have completed already
+    }
+    #[tokio::test]
+    async fn backend_panic_publishes_failure_instead_of_hanging_a_run() {
+        let manager =
+            TaskManager::with_executor(Duration::from_secs(2), Arc::new(PanickingFixture));
+        let task = task("input");
+        manager.start_task(task.clone()).await.unwrap();
+        let result = tokio::time::timeout(Duration::from_secs(1), task.handle.wait())
+            .await
+            .unwrap();
+        assert_eq!(result.status, TaskStatus::Failed);
+        assert!(result.error.unwrap().contains("cleanup is unconfirmed"));
+        assert!(result.output.is_none());
     }
 }

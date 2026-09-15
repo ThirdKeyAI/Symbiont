@@ -71,12 +71,13 @@ pub enum VerificationStatus {
 impl VerificationStatus {
     /// Check if the tool is verified
     pub fn is_verified(&self) -> bool {
-        matches!(self, VerificationStatus::Verified { .. })
+        matches!(self, VerificationStatus::Verified { result, .. } if result.success)
     }
 
     /// Check if verification failed
     pub fn is_failed(&self) -> bool {
         matches!(self, VerificationStatus::Failed { .. })
+            || matches!(self, VerificationStatus::Verified { result, .. } if !result.success)
     }
 
     /// Check if verification is pending
@@ -217,6 +218,13 @@ mod tests {
         assert!(verified_status.is_verified());
         assert!(!verified_status.is_failed());
         assert!(!verified_status.is_pending());
+
+        let mut rejected = verified_status;
+        if let VerificationStatus::Verified { result, .. } = &mut rejected {
+            result.success = false;
+        }
+        assert!(!rejected.is_verified());
+        assert!(rejected.is_failed());
     }
 
     #[test]

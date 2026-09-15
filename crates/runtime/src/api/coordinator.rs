@@ -23,9 +23,7 @@ use crate::reasoning::conversation::{Conversation, ConversationMessage};
 #[cfg(feature = "http-api")]
 use crate::reasoning::inference::{InferenceProvider, ToolDefinition};
 #[cfg(feature = "http-api")]
-use crate::reasoning::loop_types::{
-    BufferedJournal, JournalEntry, LoopConfig, LoopEvent, TerminationReason,
-};
+use crate::reasoning::loop_types::{JournalEntry, LoopConfig, LoopEvent, TerminationReason};
 #[cfg(feature = "http-api")]
 use crate::reasoning::policy_bridge::ReasoningPolicyGate;
 #[cfg(feature = "http-api")]
@@ -49,8 +47,8 @@ You are the Symbiont Coordinator, a meta-agent for the Symbiont runtime.
 You help operators monitor, inspect, and manage the agent fleet.
 Be concise and factual. Format data clearly.
 Every action you propose is policy-evaluated before it runs.
-Your own actions are journaled to the operator's session; a delegated agent's \
-internal steps are policy-evaluated but are not journaled to the operator.";
+Your actions and delegated agents' internal steps are policy-evaluated and \
+recorded in linked protected run journals.";
 
 /// Shared state across all coordinator WebSocket connections.
 #[cfg(feature = "http-api")]
@@ -71,6 +69,10 @@ pub struct CoordinatorState {
     /// In-process agent-to-agent delegation handle, or `None` when no `./agents`
     /// registry was configured. Built once at construction via `with_delegation`.
     pub delegation: Option<Arc<dyn crate::reasoning::delegation::DelegationExecutor>>,
+    /// Frozen trusted project directory for required per-turn audit storage.
+    pub(super) audit_project: Result<std::path::PathBuf, String>,
+    registered_delegation:
+        Option<Arc<crate::reasoning::delegation_executor::RegisteredDelegationRegistry>>,
 }
 
 #[cfg(feature = "http-api")]
@@ -96,7 +98,17 @@ impl CoordinatorState {
             knowledge_bridge: None,
             knowledge_agent_id: AgentId::new(),
             delegation: None,
+            registered_delegation: None,
+            audit_project: std::env::current_dir()
+                .and_then(std::fs::canonicalize)
+                .map_err(|error| error.to_string()),
         }
+    }
+
+    /// Select audit storage from operator configuration, never chat input.
+    pub fn with_audit_project(mut self, project: &std::path::Path) -> Self {
+        self.audit_project = std::fs::canonicalize(project).map_err(|error| error.to_string());
+        self
     }
 
     /// Build and attach the live RAG knowledge bridge when RAG is usable
@@ -110,8 +122,8 @@ impl CoordinatorState {
     }
 
     /// Build the in-process delegation handle from a name→system-prompt registry
-    /// (scanned from `./agents`). Sub-loops reuse the coordinator's deps + a
-    /// fresh BufferedJournal (delegate internals are not streamed to the client).
+    /// (scanned from `./agents`). Sub-loops reuse the coordinator's deps and
+    /// open separate protected journals linked to the parent before inference.
     /// No registry entries → still constructs a handle whose every lookup misses
     /// with an honest error; pass an empty map to disable.
     pub fn with_delegation(mut self, registry: std::collections::HashMap<String, String>) -> Self {
@@ -125,17 +137,40 @@ impl CoordinatorState {
 
         let executor: Arc<dyn crate::reasoning::executor::ActionExecutor> =
             Arc::new(CoordinatorExecutor::new(self.runtime_provider.clone()));
-        let delegation = SubLoopDelegationExecutor::new(
+        let delegation = SubLoopDelegationExecutor::new_protected(
             self.provider.clone(),
             executor,
             self.policy_gate.clone(),
             Arc::new(DefaultContextManager::default()),
             Arc::new(CircuitBreakerRegistry::default()),
-            Arc::new(BufferedJournal::new(500)),
+            self.audit_project.clone(),
             registry,
             3,
         );
         self.delegation = Some(delegation);
+        self.registered_delegation = None;
+        self
+    }
+    /// Attach canonical sources loaded from bounded, confined project reads.
+    pub fn with_registered_delegation(
+        mut self,
+        registry: crate::reasoning::delegation_executor::RegisteredDelegationRegistry,
+    ) -> Self {
+        let registry = Arc::new(registry);
+        self.tool_definitions = CoordinatorExecutor::tool_definitions(&registry.names());
+        self.delegation = Some(
+            crate::reasoning::delegation_executor::SubLoopDelegationExecutor::new_registered(
+                self.provider.clone(),
+                Arc::new(CoordinatorExecutor::new(self.runtime_provider.clone())),
+                self.policy_gate.clone(),
+                Arc::new(DefaultContextManager::default()),
+                Arc::new(CircuitBreakerRegistry::default()),
+                self.audit_project.clone(),
+                registry.clone(),
+                3,
+            ),
+        );
+        self.registered_delegation = Some(registry);
         self
     }
 }
@@ -222,24 +257,111 @@ impl CoordinatorSession {
         }
     }
 
-    /// Handle a chat message from the user.
-    ///
-    /// Runs the reasoning loop and streams events to the WebSocket client.
+    /// Start new trusted SDK work. Retain a client UUID and use
+    /// `handle_chat_with_id` when retrying a previously submitted message.
     pub async fn handle_chat(&mut self, content: String) {
-        let request_id = Uuid::new_v4().to_string();
+        self.handle_chat_with_id(Uuid::new_v4(), content).await;
+    }
+
+    /// An SDK caller shares the project SDK identity. Network callers receive
+    /// identities derived from their validated credentials in the WS handler.
+    pub async fn handle_chat_with_id(&mut self, id: Uuid, content: String) {
+        #[cfg(unix)]
+        {
+            use super::chat_invocations::{self, AdmittedChat};
+            use crate::reasoning::invocation::OpenInvocation;
+            let caller = super::invocations::AuthenticatedCaller::coordinator_sdk();
+            match self.state.admit_chat(&caller, id, &content).await {
+                Ok(OpenInvocation::Fresh(invocation)) => {
+                    if self
+                        .send(ServerMessage::AuditOpened {
+                            request_id: id.to_string(),
+                            audit: invocation.audit().clone(),
+                        })
+                        .await
+                    {
+                        self.handle_admitted_cancellable(
+                            AdmittedChat {
+                                id,
+                                content,
+                                invocation,
+                            },
+                            tokio_util::sync::CancellationToken::new(),
+                        )
+                        .await;
+                    }
+                }
+                Ok(OpenInvocation::Existing(receipt)) => {
+                    chat_invocations::existing(&self.ws_tx, id, receipt, true).await;
+                }
+                Err(error) => {
+                    chat_invocations::admission_error(&self.ws_tx, id, &error).await;
+                }
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = content;
+            self.send_error(
+                &id.to_string(),
+                "AUDIT_UNAVAILABLE",
+                "Durable chat admission is unavailable on this platform",
+            )
+            .await;
+        }
+    }
+
+    #[cfg(unix)]
+    pub(super) async fn handle_admitted_cancellable(
+        &mut self,
+        request: super::chat_invocations::AdmittedChat,
+        cancellation: tokio_util::sync::CancellationToken,
+    ) {
+        let super::chat_invocations::AdmittedChat {
+            id,
+            content,
+            invocation,
+        } = request;
+        let request_id = id.to_string();
+        let _cancel_on_drop = cancellation.clone().drop_guard();
+        if content.len() > 64 * 1024
+            || self.conversation.messages().len() >= 256
+            || self
+                .conversation
+                .messages()
+                .iter()
+                .map(|message| message.content.len())
+                .sum::<usize>()
+                > 4 * 1024 * 1024
+        {
+            self.send_error(
+                &request_id,
+                "SESSION_LIMIT",
+                "Chat input or session history exceeds its limit; open a new session",
+            )
+            .await;
+            return;
+        }
+        let inner_journal = invocation.journal();
+        if cancellation.is_cancelled() {
+            return;
+        }
 
         // Push user message into conversation
         self.conversation.push(ConversationMessage::user(&content));
 
         // Set up streaming journal
-        let inner_journal = Arc::new(BufferedJournal::new(500));
         let (journal_tx, mut journal_rx) = mpsc::channel::<JournalEntry>(64);
         let streaming_journal = Arc::new(StreamingJournal::new(inner_journal, journal_tx));
 
         // Build executor
-        let executor = Arc::new(CoordinatorExecutor::new(
-            self.state.runtime_provider.clone(),
-        ));
+        let executor: Arc<dyn crate::reasoning::executor::ActionExecutor> = Arc::new(
+            CoordinatorExecutor::new(self.state.runtime_provider.clone()),
+        );
+        let executor = match &self.state.registered_delegation {
+            Some(registry) => registry.wrap(executor),
+            None => executor,
+        };
 
         // Build loop config with tool definitions
         let mut config = self.state.loop_config.clone();
@@ -272,15 +394,12 @@ impl CoordinatorSession {
                                 arguments,
                             } = action
                             {
-                                if let Err(e) = ws_tx
-                                    .send(ServerMessage::ToolCallStarted {
-                                        request_id: bridge_request_id.clone(),
-                                        call_id: call_id.clone(),
-                                        tool_name: name.clone(),
-                                        arguments: arguments.clone(),
-                                    })
-                                    .await
-                                {
+                                if let Err(e) = ws_tx.try_send(ServerMessage::ToolCallStarted {
+                                    request_id: bridge_request_id.clone(),
+                                    call_id: call_id.clone(),
+                                    tool_name: name.clone(),
+                                    arguments: arguments.clone(),
+                                }) {
                                     tracing::debug!(
                                         request_id = %bridge_request_id,
                                         call_id = %call_id,
@@ -321,7 +440,7 @@ impl CoordinatorSession {
                 };
 
                 if let Some(msg) = msg {
-                    if let Err(e) = ws_tx.send(msg).await {
+                    if let Err(e) = ws_tx.try_send(msg) {
                         tracing::debug!(
                             request_id = %bridge_request_id,
                             error = %e,
@@ -343,12 +462,23 @@ impl CoordinatorSession {
             "Starting coordinator reasoning loop"
         );
 
-        let result = runner
-            .run(agent_id, self.conversation.clone(), config)
-            .await;
+        let conversation = self.conversation.clone();
+        // Retain cleanup and terminal audit even if this session future is
+        // dropped. Its drop guard requests cancellation of this owning task.
+        let result = tokio::spawn(async move {
+            let result = runner
+                .run_cancellable(agent_id, conversation, config, cancellation)
+                .await;
+            // This owner keeps the exclusive claim through retained cleanup and
+            // required terminal storage, even if the session is dropped.
+            let receipt = invocation
+                .finish(super::chat_invocations::saved_result(&result))
+                .await;
+            (result, receipt)
+        })
+        .await;
 
         // Wait for bridge to drain
-        drop(runner);
         if let Err(e) = bridge_handle.await {
             tracing::warn!(
                 session_id = %self.session_id,
@@ -357,39 +487,35 @@ impl CoordinatorSession {
             );
         }
 
-        // Send final chat chunk
-        if let Err(e) = self
-            .ws_tx
-            .send(ServerMessage::ChatChunk {
-                request_id: request_id.clone(),
-                content: result.output.clone(),
-                done: true,
-            })
-            .await
-        {
-            tracing::debug!(
-                request_id = %request_id,
-                error = %e,
-                "Final WS ChatChunk send failed — client likely disconnected"
-            );
-        }
-
-        // Check for errors
-        if let TerminationReason::Error { ref message } = result.termination_reason {
-            if let Err(e) = self
-                .ws_tx
-                .send(ServerMessage::Error {
-                    request_id: Some(request_id),
-                    code: "LOOP_ERROR".into(),
-                    message: message.clone(),
-                })
-                .await
-            {
-                tracing::debug!(
-                    error = %e,
-                    "WS Error message send failed — client likely disconnected"
-                );
+        let (result, receipt) = match result {
+            Ok(result) => result,
+            Err(error) => {
+                tracing::error!(%request_id, %error, "Coordinator run owner failed");
+                self.send_error(
+                    &request_id,
+                    "LOOP_ERROR",
+                    "Coordinator run failed; inspect the protected audit",
+                )
+                .await;
+                return;
             }
+        };
+        let receipt = match receipt {
+            Ok(receipt) => receipt,
+            Err(error) => {
+                tracing::error!(%request_id, %error, "Required coordinator result persistence failed");
+                self.send_error(&request_id, "LOOP_ERROR", "The original outcome could not be durably recorded; inspect its audit before new work").await;
+                return;
+            }
+        };
+        let completed = matches!(result.termination_reason, TerminationReason::Completed)
+            && matches!(
+                &receipt,
+                crate::reasoning::invocation::ExistingInvocation::Recorded { .. }
+            );
+        super::chat_invocations::existing(&self.ws_tx, id, receipt, false).await;
+        if !completed {
+            return;
         }
 
         // Push assistant response into conversation for context continuity
@@ -402,6 +528,22 @@ impl CoordinatorSession {
             tokens = result.total_usage.total_tokens,
             "Coordinator reasoning loop complete"
         );
+    }
+
+    async fn send(&self, message: ServerMessage) -> bool {
+        matches!(
+            tokio::time::timeout(std::time::Duration::from_secs(2), self.ws_tx.send(message)).await,
+            Ok(Ok(()))
+        )
+    }
+
+    async fn send_error(&self, request_id: &str, code: &str, message: &str) {
+        self.send(ServerMessage::Error {
+            request_id: Some(request_id.into()),
+            code: code.into(),
+            message: message.into(),
+        })
+        .await;
     }
 }
 

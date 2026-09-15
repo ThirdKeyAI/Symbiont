@@ -165,6 +165,14 @@ pub fn strip_markdown_fences(text: &str) -> String {
 
 #[async_trait]
 impl InferenceProvider for SlmInferenceProvider {
+    fn input_token_reservation(
+        &self,
+        conversation: &Conversation,
+        options: &InferenceOptions,
+    ) -> Result<u32, InferenceError> {
+        input_reservation_from_bytes(Self::build_prompt(conversation, options).len())
+    }
+
     async fn complete(
         &self,
         conversation: &Conversation,

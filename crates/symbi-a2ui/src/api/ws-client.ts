@@ -52,10 +52,12 @@ export class WsClient extends EventTarget {
     this._setState('disconnected');
   }
 
-  send(msg: ClientMessage): void {
+  send(msg: ClientMessage): boolean {
     if (this._ws && this._ws.readyState === WebSocket.OPEN) {
       this._ws.send(JSON.stringify(msg));
+      return true;
     }
+    return false;
   }
 
   private _doConnect(): void {

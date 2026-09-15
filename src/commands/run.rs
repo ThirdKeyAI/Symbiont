@@ -7,7 +7,9 @@ use clap::ArgMatches;
 use std::path::Path;
 use std::sync::Arc;
 
+#[cfg(unix)]
 pub async fn run(matches: &ArgMatches) {
+    use symbi_runtime::reasoning::invocation::{open_invocation, InvocationId, OpenInvocation};
     let file = matches
         .get_one::<String>("agent")
         .expect("agent argument is required");
@@ -35,7 +37,21 @@ pub async fn run(matches: &ArgMatches) {
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "agent".to_string());
 
-    // Parse DSL to extract metadata
+    let execution_settings = match dsl::resolve_execution_settings(&dsl_source, &agent_name) {
+        Ok(settings) => settings,
+        Err(error) => {
+            eprintln!("✗ Invalid agent execution settings: {error}");
+            std::process::exit(1);
+        }
+    };
+
+    let source_policy = dsl::ExecutionPolicy::parse(&dsl_source, &execution_settings.agent_name)
+        .unwrap_or_else(|error| {
+            eprintln!("✗ Unsupported agent policy: {error}");
+            std::process::exit(1);
+        });
+
+    // Metadata is file-wide in the supported DSL grammar.
     let meta = match dsl::parse_dsl(&dsl_source) {
         Ok(tree) => dsl::extract_metadata(&tree, &dsl_source),
         Err(_) => std::collections::HashMap::new(),
@@ -48,9 +64,13 @@ pub async fn run(matches: &ArgMatches) {
         .get("executor")
         .map(|v| v.trim().trim_matches('"').to_string());
     if executor_kind.as_deref() == Some("claude_code") {
+        if matches.get_one::<String>("invocation-id").is_some() {
+            eprintln!("✗ --invocation-id is not yet supported by managed CLI agents; no execution started.");
+            std::process::exit(1);
+        }
         #[cfg(feature = "cli-executor")]
         {
-            super::managed_cli::run_claude_code(matches, &agent_name, &meta, &input).await;
+            super::managed_cli::run_claude_code(matches, &meta, &input, &source_policy).await;
             return;
         }
         #[cfg(not(feature = "cli-executor"))]
@@ -64,7 +84,73 @@ pub async fn run(matches: &ArgMatches) {
         }
     }
 
+    let project = std::env::current_dir()
+        .and_then(|path| path.canonicalize())
+        .unwrap_or_else(|error| {
+            eprintln!("✗ Cannot resolve the project directory: {error}");
+            std::process::exit(1);
+        });
+    let config = LoopConfig {
+        max_iterations,
+        max_total_tokens: 100_000,
+        timeout: execution_settings
+            .timeout_seconds
+            .map(std::time::Duration::from_secs)
+            .map_or(LoopConfig::default().timeout, |timeout| {
+                timeout.min(LoopConfig::default().timeout)
+            }),
+        ..Default::default()
+    };
+    let invocation_id = matches
+        .get_one::<String>("invocation-id")
+        .map(|value| value.parse::<InvocationId>())
+        .transpose()
+        .unwrap_or_else(|error| {
+            eprintln!("✗ Invalid invocation ID: {error}");
+            std::process::exit(1);
+        })
+        .unwrap_or_else(InvocationId::new_v4);
+    eprintln!("Invocation ID: {invocation_id}");
+    let request = serde_json::json!({"agent": execution_settings.agent_name,
+        "source": execution_settings.agent_source, "input": input, "config": config});
+    let invocation = match open_invocation(
+        &project,
+        "cli:orga",
+        invocation_id,
+        &request,
+        AgentId::new(),
+    )
+    .await
+    {
+        Ok(OpenInvocation::Fresh(invocation)) => *invocation,
+        Ok(OpenInvocation::Existing(result)) => {
+            eprintln!("Existing invocation; no work repeated.");
+            show_outcome(result, true)
+        }
+        Err(error) => {
+            eprintln!("✗ Invocation refused: {error}");
+            std::process::exit(1);
+        }
+    };
+    let agent_id = invocation.agent_id();
+    let journal = invocation.journal();
+    print_audit(invocation.audit());
+    let executor = match symbi_runtime::reasoning::build_agent_tool_executor(
+        &project.join("tools"),
+        &execution_settings,
+    ) {
+        Ok(executor) => executor,
+        Err(error) => {
+            eprintln!("✗ Agent sandbox selection failed: {error}");
+            std::process::exit(1);
+        }
+    };
+
     // Set up inference provider from environment
+    let executor = Arc::new(
+        symbi_runtime::reasoning::source_policy::SourcePolicyExecutor::new(executor, source_policy),
+    );
+
     let provider =
         match symbi_runtime::reasoning::providers::cloud::CloudInferenceProvider::from_env() {
             Some(p) => {
@@ -88,7 +174,7 @@ pub async fn run(matches: &ArgMatches) {
     use symbi_runtime::reasoning::circuit_breaker::CircuitBreakerRegistry;
     use symbi_runtime::reasoning::context_manager::DefaultContextManager;
     use symbi_runtime::reasoning::conversation::{Conversation, ConversationMessage};
-    use symbi_runtime::reasoning::loop_types::{BufferedJournal, LoopConfig};
+    use symbi_runtime::reasoning::loop_types::LoopConfig;
     use symbi_runtime::reasoning::reasoning_loop::ReasoningLoopRunner;
     use symbi_runtime::types::AgentId;
 
@@ -109,10 +195,15 @@ pub async fn run(matches: &ArgMatches) {
     }
     let policy_gate =
         symbi_runtime::reasoning::governed_gate(symbi_runtime::reasoning::GateOptions {
-            policies_dir: Path::new("policies").to_path_buf(),
+            policies_dir: project.join("policies"),
             surface: Some("run".to_string()),
             insecure_allow_all,
-            escalation: None,
+            escalation: super::approval::from_matches(matches)
+                .await
+                .unwrap_or_else(|error| {
+                    eprintln!("✗ Approval initialization failed: {error}");
+                    std::process::exit(1);
+                }),
         })
         .await;
 
@@ -123,10 +214,10 @@ pub async fn run(matches: &ArgMatches) {
         // HTTP, MCP-proxy, session, browser backends); otherwise falls back
         // to the honest executor that surfaces tool calls as errors rather
         // than fabricating success.
-        executor: symbi_runtime::reasoning::build_tool_executor(Path::new("tools")),
+        executor,
         context_manager: Arc::new(DefaultContextManager::default()),
         circuit_breakers: Arc::new(CircuitBreakerRegistry::default()),
-        journal: Arc::new(BufferedJournal::new(1000)),
+        journal,
         knowledge_bridge: None,
         delegation: None,
     };
@@ -134,27 +225,125 @@ pub async fn run(matches: &ArgMatches) {
     // Build conversation from DSL system prompt + user input
     let system_prompt = format!(
         "You are agent '{}'. Follow the governance rules defined in your DSL.\n\n--- Agent DSL ---\n{}\n--- End DSL ---",
-        agent_name, dsl_source
+        execution_settings.agent_name, execution_settings.agent_source
     );
 
     let mut conv = Conversation::with_system(&system_prompt);
     conv.push(ConversationMessage::user(&input));
 
-    let config = LoopConfig {
-        max_iterations,
-        max_total_tokens: 100_000,
-        ..Default::default()
-    };
-
     // Run the ORGA loop
-    let result = runner.run(AgentId::new(), conv, config).await;
+    let result = runner.run(agent_id, conv, config).await;
 
-    // Print results
-    println!("{}", result.output);
-    eprintln!(
-        "\n--- {} iterations, {} tokens, terminated: {:?} ---",
-        result.iterations, result.total_usage.total_tokens, result.termination_reason
-    );
+    let errors: Vec<_> = result
+        .conversation
+        .messages()
+        .iter()
+        .filter(|message| {
+            message.role == symbi_runtime::reasoning::MessageRole::Tool
+                && message.content.starts_with("[Error]")
+        })
+        .take(8)
+        .map(|message| format!("{:?}", truncate(&message.content, 2048)))
+        .collect();
+    let receipt = CliResult {
+        output: result.output,
+        iterations: result.iterations,
+        total_tokens: result.total_usage.total_tokens,
+        termination_reason: result.termination_reason,
+    };
+    let stored = invocation.finish(serde_json::to_value(receipt).expect("serializable CLI result")).await
+        .unwrap_or_else(|error| {
+            eprintln!("✗ Invocation receipt unavailable: {error}; reuse the same ID and inspect the original audit.");
+            std::process::exit(2);
+        });
+    if matches!(
+        &stored,
+        symbi_runtime::reasoning::invocation::ExistingInvocation::Unresolved { .. }
+    ) {
+        for error in errors {
+            eprintln!("Tool error (inspect audit for effect status): {error}");
+        }
+    }
+    show_outcome(stored, false)
+}
+
+#[cfg(not(unix))]
+pub async fn run(_: &ArgMatches) {
+    eprintln!("✗ Protected CLI invocations require a Unix host.");
+    std::process::exit(1);
+}
+
+#[cfg(unix)]
+#[derive(serde::Serialize, serde::Deserialize)]
+struct CliResult {
+    output: String,
+    iterations: u32,
+    total_tokens: u32,
+    termination_reason: symbi_runtime::reasoning::loop_types::TerminationReason,
+}
+
+#[cfg(unix)]
+fn print_audit(audit: &symbi_runtime::reasoning::run_audit::RunAuditReference) {
+    eprintln!("Audit run: {}", audit.run_id);
+    eprintln!("Audit journal: {}", audit.path.display());
+    eprintln!("Audit public key: {}", audit.public_key);
+}
+
+#[cfg(unix)]
+fn show_outcome(
+    outcome: symbi_runtime::reasoning::invocation::ExistingInvocation,
+    display_audit: bool,
+) -> ! {
+    use symbi_runtime::reasoning::{invocation::ExistingInvocation, loop_types::TerminationReason};
+    match outcome {
+        ExistingInvocation::InProgress => {
+            eprintln!(
+                "Invocation is already in progress; retry with the same ID to inspect its result."
+            );
+            std::process::exit(2);
+        }
+        ExistingInvocation::Unresolved { audit } => {
+            if display_audit {
+                if let Some(audit) = audit {
+                    print_audit(&audit);
+                }
+            }
+            eprintln!("Invocation requires reconciliation; no work repeated. Inspect its protected run journal.");
+            std::process::exit(2);
+        }
+        ExistingInvocation::Reconciled { audit, resolution } => {
+            if display_audit {
+                print_audit(&audit);
+            }
+            println!(
+                "{}",
+                serde_json::json!({"status":"reconciled", "resolution":resolution, "work_repeated":false})
+            );
+            // A reviewed outcome is not the missing original CLI result.
+            std::process::exit(3);
+        }
+        ExistingInvocation::Recorded { audit, result } => {
+            if display_audit {
+                print_audit(&audit);
+            }
+            let result: CliResult = serde_json::from_value(result).unwrap_or_else(|error| {
+                eprintln!("Invalid saved CLI receipt: {error}; no work repeated.");
+                std::process::exit(1);
+            });
+            println!("{}", result.output);
+            eprintln!(
+                "\n--- {} iterations, {} tokens, terminated: {:?} ---",
+                result.iterations, result.total_tokens, result.termination_reason
+            );
+            std::process::exit(
+                if matches!(result.termination_reason, TerminationReason::Completed) {
+                    0
+                } else {
+                    1
+                },
+            );
+        }
+    }
 }
 
 /// Resolve agent path: check direct path, then agents/ directory.

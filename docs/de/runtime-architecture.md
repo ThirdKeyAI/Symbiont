@@ -491,7 +491,7 @@ pub struct AuditEvent {
 - **Leck-Prävention**: Automatische Bereinigung und Überwachung
 
 **CPU-Auslastung:**
-- **Scheduler-Overhead**: <2% CPU für 10.000 Agenten
+- **Scheduler-Overhead**: Die Latenz der Registrierung und der begrenzten Warteschlange wird getestet. Der CPU-Aufwand für 10.000 ausführende Agenten ist nicht nachgewiesen.
 - **Kontextwechsel**: Hardware-unterstützte virtuelle Threads
 - **Lastverteilung**: Dynamische Lastverteilung
 - **Prioritäts-Scheduling**: Echtzeit- und Batch-Verarbeitungsebenen

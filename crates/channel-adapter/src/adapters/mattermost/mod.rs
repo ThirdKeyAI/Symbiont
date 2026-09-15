@@ -175,6 +175,13 @@ impl ChannelAdapter for MattermostAdapter {
         }
     }
 
+    fn prepare_response(
+        &self,
+        response: &OutboundMessage,
+    ) -> Result<serde_json::Value, ChannelAdapterError> {
+        Ok(serde_json::json!(self.api_client.prepare_post(response)?))
+    }
+
     async fn send_response(
         &self,
         response: OutboundMessage,

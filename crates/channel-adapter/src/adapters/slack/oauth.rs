@@ -34,7 +34,7 @@ pub async fn exchange_code(
     code: &str,
     redirect_uri: Option<&str>,
 ) -> Result<OAuthAccessResponse, ChannelAdapterError> {
-    let client = reqwest::Client::new();
+    let client = crate::transport::client()?;
 
     let mut params = vec![
         ("client_id", client_id),
@@ -53,10 +53,8 @@ pub async fn exchange_code(
         .await
         .map_err(|e| ChannelAdapterError::Auth(format!("OAuth exchange failed: {}", e)))?;
 
-    let oauth: OAuthAccessResponse = resp
-        .json()
-        .await
-        .map_err(|e| ChannelAdapterError::ParseError(format!("OAuth parse: {}", e)))?;
+    let oauth: OAuthAccessResponse =
+        crate::transport::read_json(resp, crate::transport::RECEIPT_LIMIT).await?;
 
     if !oauth.ok {
         return Err(ChannelAdapterError::Auth(format!(

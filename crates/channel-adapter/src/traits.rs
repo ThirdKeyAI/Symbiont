@@ -14,6 +14,17 @@ use crate::types::{FilteredContent, InteractionLog, PolicyDecision};
 /// adds Teams and Mattermost.
 #[async_trait]
 pub trait ChannelAdapter: Send + Sync {
+    /// Describe the exact credential-free transport request before authorization.
+    /// Custom adapters must implement this to support governed response delivery.
+    fn prepare_response(
+        &self,
+        _response: &OutboundMessage,
+    ) -> Result<serde_json::Value, ChannelAdapterError> {
+        Err(ChannelAdapterError::Config(
+            "adapter does not support prepared response delivery".into(),
+        ))
+    }
+
     /// Start receiving messages from the platform.
     async fn start(&self) -> Result<(), ChannelAdapterError>;
 

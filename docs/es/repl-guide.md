@@ -1,5 +1,7 @@
 # Guia del REPL de Symbiont
 
+> Esta rama rechaza durante el registro los campos heredados explícitos de `security.tier`, `security.sandbox`, recursos y políticas de ejecución, porque no puede aplicarlos por agente. Los builtins admitidos usan el aislamiento configurado por el operador para el proyecto. Los bloques vacíos y las declaraciones solo de capacidades conservan sus comprobaciones. Un módulo rechazado no reemplaza agentes ni funciones existentes.
+
 ## Otros idiomas
 
 
@@ -226,7 +228,6 @@ agent SecureAgent {
   name: "Secure Agent"
   security {
     capabilities: ["filesystem", "network"]
-    sandbox: true
   }
 }
 
@@ -419,13 +420,8 @@ agent DataProcessor {
 
   security {
     capabilities: ["data_read", "data_write"]
-    sandbox: true
   }
 
-  resources {
-    memory: 256MB
-    cpu: 1
-  }
 }
 
 behavior ProcessCsv {

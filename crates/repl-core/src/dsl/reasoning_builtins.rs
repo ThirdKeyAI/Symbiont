@@ -4,27 +4,30 @@
 //! reasoning loop infrastructure: `reason`, `llm_call`, `parse_json`,
 //! `delegate`, and `tool_call`.
 
-use crate::dsl::agent_composition::{check_comm_policy, log_comm_message};
 use crate::dsl::evaluator::DslValue;
 use crate::error::{ReplError, Result};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
 use symbi_runtime::communication::policy_gate::CommunicationPolicyGate;
 use symbi_runtime::communication::CommunicationBus;
 use symbi_runtime::reasoning::agent_registry::AgentRegistry;
 use symbi_runtime::reasoning::inference::InferenceProvider;
 use symbi_runtime::reasoning::policy_bridge::ReasoningPolicyGate;
-use symbi_runtime::types::{AgentId, MessageType, RequestId};
+use symbi_runtime::types::AgentId;
 
-/// Shared state for async reasoning builtins.
-#[derive(Clone, Default)]
+/// Operator configuration for async reasoning builtins. The evaluator clones it
+/// for each invocation and binds that call's execution principal; sender identity
+/// must not be stored in shared mutable state.
+#[derive(Clone)]
 pub struct ReasoningBuiltinContext {
+    /// Canonical project captured from trusted startup or explicit SDK configuration.
+    /// A failed capture remains an error; later working-directory changes cannot replace it.
+    pub project_root: std::result::Result<std::path::PathBuf, String>,
     /// Inference provider for LLM calls.
     pub provider: Option<Arc<dyn InferenceProvider>>,
     /// Agent registry for multi-agent composition.
     pub agent_registry: Option<Arc<AgentRegistry>>,
-    /// The AgentId of the calling agent (for communication tracking).
+    /// The calling agent, used for reasoning authorization and communication.
     pub sender_agent_id: Option<AgentId>,
     /// Communication bus for message tracking and audit.
     pub comm_bus: Option<Arc<dyn CommunicationBus + Send + Sync>>,
@@ -36,12 +39,148 @@ pub struct ReasoningBuiltinContext {
     /// should install [`OpaPolicyGateBridge`] or another concrete gate
     /// instead of relying on the default.
     pub reasoning_policy_gate: Option<Arc<dyn ReasoningPolicyGate>>,
+    /// Operator-installed tool backend, shared by reason() and tool_call().
+    pub tool_executor: Option<Arc<dyn symbi_runtime::reasoning::executor::ActionExecutor>>,
+    /// Required pre-effect and outcome journal for reasoning and explicit calls.
+    pub reasoning_journal: Option<Arc<dyn symbi_runtime::reasoning::loop_types::JournalWriter>>,
+    /// Trusted execution configuration, including advertised tools and budgets.
+    pub reasoning_config: Option<symbi_runtime::reasoning::LoopConfig>,
+    /// Public references to required direct-inference journals. This bounded
+    /// display history is not the durable store and never grants authority.
+    pub audit_references: Arc<crate::dsl::inference_audit::AuditReferenceLog>,
     /// Active session id (shared cell; settable after the context is frozen).
     #[cfg(feature = "session")]
     pub active_session: std::sync::Arc<std::sync::Mutex<Option<symbi_session::monitor::SessionId>>>,
     /// Session monitor for label derivation. Always present once a bridge exists.
     #[cfg(feature = "session")]
     pub session_monitor: Option<std::sync::Arc<symbi_session::monitor::SessionMonitor>>,
+}
+
+pub(crate) fn capture_project_root() -> std::result::Result<std::path::PathBuf, String> {
+    std::env::current_dir()
+        .and_then(|path| path.canonicalize())
+        .map_err(|error| error.to_string())
+}
+
+impl Default for ReasoningBuiltinContext {
+    fn default() -> Self {
+        Self {
+            project_root: capture_project_root(),
+            provider: None,
+            agent_registry: None,
+            sender_agent_id: None,
+            comm_bus: None,
+            comm_policy: None,
+            reasoning_policy_gate: None,
+            tool_executor: None,
+            reasoning_journal: None,
+            reasoning_config: None,
+            audit_references: Arc::new(Default::default()),
+            #[cfg(feature = "session")]
+            active_session: Default::default(),
+            #[cfg(feature = "session")]
+            session_monitor: None,
+        }
+    }
+}
+
+impl ReasoningBuiltinContext {
+    /// Bind an explicit operator-selected project before constructing the evaluator.
+    pub fn with_project_root(mut self, project: impl AsRef<std::path::Path>) -> Result<Self> {
+        let root = project.as_ref().canonicalize().map_err(|error| {
+            ReplError::Execution(format!("Cannot resolve DSL project: {error}"))
+        })?;
+        if !root.is_dir() {
+            return Err(ReplError::Execution(
+                "DSL project must be a directory".into(),
+            ));
+        }
+        self.project_root = Ok(root);
+        Ok(self)
+    }
+
+    fn project(&self) -> Result<&std::path::Path> {
+        let root = self.project_root.as_ref().map_err(|error| {
+            ReplError::Execution(format!("DSL project configuration unavailable: {error}"))
+        })?;
+        if !root.is_absolute() || !root.is_dir() {
+            return Err(ReplError::Execution(
+                "Configured DSL project is unavailable or not absolute".into(),
+            ));
+        }
+        Ok(root)
+    }
+
+    fn executor(&self) -> Result<Arc<dyn symbi_runtime::reasoning::executor::ActionExecutor>> {
+        match &self.tool_executor {
+            Some(executor) => Ok(executor.clone()),
+            None => Ok(symbi_runtime::reasoning::build_tool_executor(
+                &self.project()?.join("tools"),
+            )),
+        }
+    }
+
+    pub(crate) async fn journal(
+        &self,
+        agent: AgentId,
+    ) -> Result<(
+        Arc<dyn symbi_runtime::reasoning::loop_types::JournalWriter>,
+        Option<symbi_runtime::reasoning::run_audit::RunAuditReference>,
+    )> {
+        if let Some(journal) = &self.reasoning_journal {
+            return Ok((journal.clone(), None));
+        }
+        let (journal, reference) =
+            symbi_runtime::reasoning::run_audit::open_run_journal(self.project()?, agent)
+                .await
+                .map_err(|error| {
+                    ReplError::Execution(format!(
+                        "Required DSL audit initialization failed: {error}"
+                    ))
+                })?;
+        Ok((journal, Some(reference)))
+    }
+}
+
+fn include_audit(
+    result: &mut HashMap<String, DslValue>,
+    audit: &Option<symbi_runtime::reasoning::run_audit::RunAuditReference>,
+) {
+    if let Some(audit) = audit {
+        result.insert(
+            "audit".into(),
+            DslValue::Map(HashMap::from([
+                ("run_id".into(), DslValue::String(audit.run_id.to_string())),
+                (
+                    "path".into(),
+                    DslValue::String(audit.path.display().to_string()),
+                ),
+                (
+                    "public_key".into(),
+                    DslValue::String(audit.public_key.clone()),
+                ),
+            ])),
+        );
+    }
+}
+
+pub(crate) async fn append_event(
+    journal: &dyn symbi_runtime::reasoning::loop_types::JournalWriter,
+    agent_id: AgentId,
+    event: symbi_runtime::reasoning::loop_types::LoopEvent,
+) -> Result<()> {
+    journal
+        .append(symbi_runtime::reasoning::loop_types::JournalEntry {
+            sequence: journal.next_sequence().await,
+            timestamp: chrono::Utc::now(),
+            agent_id,
+            iteration: 0,
+            event,
+        })
+        .await
+        .map_err(|error| {
+            ReplError::Execution(format!("Required DSL journal write failed: {error}"))
+        })
 }
 
 /// Execute the `reason` builtin: runs a full reasoning loop.
@@ -64,7 +203,6 @@ pub async fn builtin_reason(args: &[DslValue], ctx: &ReasoningBuiltinContext) ->
     use symbi_runtime::reasoning::circuit_breaker::CircuitBreakerRegistry;
     use symbi_runtime::reasoning::context_manager::DefaultContextManager;
     use symbi_runtime::reasoning::conversation::{Conversation, ConversationMessage};
-    use symbi_runtime::reasoning::loop_types::{BufferedJournal, LoopConfig};
     use symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate;
     use symbi_runtime::reasoning::reasoning_loop::ReasoningLoopRunner;
 
@@ -78,16 +216,15 @@ pub async fn builtin_reason(args: &[DslValue], ctx: &ReasoningBuiltinContext) ->
         None => Arc::new(DefaultPolicyGate::new()),
     };
 
+    let agent_id = ctx.sender_agent_id.unwrap_or_default();
+    let (journal, audit) = ctx.journal(agent_id).await?;
     let runner = ReasoningLoopRunner {
         provider: Arc::clone(provider),
         policy_gate,
-        // Real tool execution when `tools/` has ToolClad manifests; falls
-        // back to the honest no-backend executor otherwise (never
-        // fabricates a tool-call success).
-        executor: symbi_runtime::reasoning::build_tool_executor(std::path::Path::new("tools")),
+        executor: ctx.executor()?,
         context_manager: Arc::new(DefaultContextManager::default()),
         circuit_breakers: Arc::new(CircuitBreakerRegistry::default()),
-        journal: Arc::new(BufferedJournal::new(1000)),
+        journal,
         knowledge_bridge: None,
         delegation: None,
     };
@@ -95,15 +232,14 @@ pub async fn builtin_reason(args: &[DslValue], ctx: &ReasoningBuiltinContext) ->
     let mut conv = Conversation::with_system(&system);
     conv.push(ConversationMessage::user(&user));
 
-    let config = LoopConfig {
-        max_iterations,
-        max_total_tokens: max_tokens,
-        ..Default::default()
-    };
+    let mut config = ctx.reasoning_config.clone().unwrap_or_default();
+    config.max_iterations = config.max_iterations.min(max_iterations);
+    config.max_total_tokens = config.max_total_tokens.min(max_tokens);
 
-    let result = runner.run(AgentId::new(), conv, config).await;
+    let result = runner.run(agent_id, conv, config).await;
 
     let mut map = HashMap::new();
+    include_audit(&mut map, &audit);
     map.insert("response".to_string(), DslValue::String(result.output));
     map.insert(
         "iterations".to_string(),
@@ -134,11 +270,6 @@ pub async fn builtin_llm_call(
     args: &[DslValue],
     ctx: &ReasoningBuiltinContext,
 ) -> Result<DslValue> {
-    let provider = ctx
-        .provider
-        .as_ref()
-        .ok_or_else(|| ReplError::Execution("No inference provider configured".into()))?;
-
     let prompt = match args.first() {
         Some(DslValue::String(s)) => s.clone(),
         Some(DslValue::Map(map)) => map
@@ -162,8 +293,8 @@ pub async fn builtin_llm_call(
     conv.push(ConversationMessage::user(&prompt));
 
     let options = InferenceOptions::default();
-    let response = provider
-        .complete(&conv, &options)
+    let response = ctx
+        .infer("llm_call", &conv, &options, None)
         .await
         .map_err(|e| ReplError::Execution(format!("LLM call failed: {}", e)))?;
 
@@ -198,13 +329,11 @@ pub fn builtin_parse_json(args: &[DslValue]) -> Result<DslValue> {
 /// - name: string — tool name
 /// - args: map — tool arguments
 ///
-/// Every call is evaluated by `ctx.reasoning_policy_gate` before dispatch —
-/// same resolution `builtin_reason` uses (a caller-installed gate, or the
-/// non-permissive `DefaultPolicyGate::new()` default). `tool_call` used to
-/// take `_ctx` and never read it, so any caller that hadn't wired a gate got
-/// unrestricted tool execution regardless of runtime configuration.
+/// Each call is normalized, approved when required, checked by policy, and
+/// journaled before dispatch through the shared runtime dispatcher. Policy
+/// modifications are new proposals and must pass every check again.
 ///
-/// Returns the tool result as a string.
+/// Returns a status map and the public audit reference for default journals.
 pub async fn builtin_tool_call(
     args: &[DslValue],
     ctx: &ReasoningBuiltinContext,
@@ -231,120 +360,145 @@ pub async fn builtin_tool_call(
 
     use symbi_runtime::reasoning::circuit_breaker::CircuitBreakerRegistry;
     use symbi_runtime::reasoning::conversation::Conversation;
+    use symbi_runtime::reasoning::dispatch::GovernedToolDispatcher;
     use symbi_runtime::reasoning::loop_types::{
-        LoopConfig, LoopDecision, LoopState, ProposedAction,
+        LoopEvent, LoopState, ProposedAction, TerminationReason,
     };
     use symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate;
 
-    let policy_gate: Arc<dyn ReasoningPolicyGate> = match ctx.reasoning_policy_gate.clone() {
-        Some(gate) => gate,
-        None => Arc::new(DefaultPolicyGate::new()),
-    };
-
+    let gate = ctx
+        .reasoning_policy_gate
+        .clone()
+        .unwrap_or_else(|| Arc::new(DefaultPolicyGate::new()));
     let agent_id = ctx.sender_agent_id.unwrap_or_default();
-    let proposed = ProposedAction::ToolCall {
-        call_id: "dsl_tool_call".to_string(),
+    let (journal, audit) = ctx.journal(agent_id).await?;
+    let executor = ctx.executor()?;
+    let mut config = ctx.reasoning_config.clone().unwrap_or_default();
+    if config.tool_definitions.is_empty() {
+        config.tool_definitions = executor.tool_definitions();
+    }
+    let mut state = LoopState::new(agent_id, Conversation::new());
+    state.trusted_context = executor.execution_context();
+    let action = ProposedAction::ToolCall {
+        call_id: "dsl_tool_call".into(),
         name: name.clone(),
         arguments: arguments.clone(),
     };
-    let state = LoopState::new(agent_id, Conversation::new());
-    let decision = policy_gate
-        .evaluate_action(&agent_id, &proposed, &state)
-        .await;
-
-    let (name, arguments) = match decision {
-        LoopDecision::Allow => (name, arguments),
-        LoopDecision::Modify {
-            modified_action,
-            reason,
-        } => match *modified_action {
-            ProposedAction::ToolCall {
-                name: new_name,
-                arguments: new_arguments,
-                ..
-            } => {
-                tracing::info!("tool_call: policy gate modified action: {}", reason);
-                (new_name, new_arguments)
-            }
-            other => {
-                // The gate replaced the tool call with a non-tool-call
-                // action (e.g. a canned redirect). There is nothing left
-                // here to dispatch — report that honestly rather than
-                // silently running the original call.
-                let mut result = HashMap::new();
-                result.insert("tool".to_string(), DslValue::String(name));
-                result.insert("arguments".to_string(), DslValue::String(arguments));
-                result.insert("status".to_string(), DslValue::String("denied".to_string()));
-                result.insert(
-                    "reason".to_string(),
-                    DslValue::String(format!(
-                        "policy gate replaced this tool call with {other:?}: {reason}"
-                    )),
-                );
-                return Ok(DslValue::Map(result));
-            }
+    let circuit_breakers = CircuitBreakerRegistry::default();
+    // Each explicit builtin call owns a run. Multi-step interactive workflows
+    // use reason() or a governed SDK run with a shared LoopState and guard.
+    let started = std::time::Instant::now();
+    append_event(
+        journal.as_ref(),
+        agent_id,
+        LoopEvent::Started {
+            agent_id,
+            config: Box::new(config.clone()),
+            execution_context: state.trusted_context.clone(),
         },
-        LoopDecision::Deny { reason } => {
-            let mut result = HashMap::new();
-            result.insert("tool".to_string(), DslValue::String(name));
-            result.insert("arguments".to_string(), DslValue::String(arguments));
-            result.insert("status".to_string(), DslValue::String("denied".to_string()));
-            result.insert("reason".to_string(), DslValue::String(reason));
-            return Ok(DslValue::Map(result));
+    )
+    .await?;
+    let outcome = async {
+        let cleanup = symbi_runtime::reasoning::executor::ExecutionRunGuard::new(
+            executor.clone(),
+            &state,
+            &config,
+        )
+        .map_err(ReplError::Execution)?;
+        let observations = GovernedToolDispatcher {
+            executor: executor.as_ref(),
+            gate: gate.as_ref(),
+            journal: journal.as_ref(),
+            circuit_breakers: &circuit_breakers,
         }
-    };
-
-    // Route through the built tool executor: real execution (shell, HTTP,
-    // MCP-proxy, session, browser) when `tools/` has ToolClad manifests that
-    // handle this tool name, otherwise fall through to the honest
-    // `not_executed` result below — never fabricate a success.
-    let executor = symbi_runtime::reasoning::build_tool_executor(std::path::Path::new("tools"));
-    let handled = executor.tool_definitions().iter().any(|d| d.name == name);
-
-    if handled {
-        let action = ProposedAction::ToolCall {
-            call_id: "dsl_tool_call".to_string(),
-            name: name.clone(),
-            arguments: arguments.clone(),
-        };
-        let config = LoopConfig::default();
-        let circuit_breakers = CircuitBreakerRegistry::default();
-        let observations = executor
-            .execute_actions(&[action], &config, &circuit_breakers)
-            .await;
-
-        if let Some(obs) = observations.into_iter().next() {
-            let mut result = HashMap::new();
-            result.insert("tool".to_string(), DslValue::String(name));
-            result.insert("arguments".to_string(), DslValue::String(arguments));
-            result.insert(
-                "status".to_string(),
-                DslValue::String(if obs.is_error { "error" } else { "success" }.to_string()),
-            );
-            result.insert("result".to_string(), DslValue::String(obs.content));
-            return Ok(DslValue::Map(result));
-        }
+        .dispatch(&[action], &state, &config)
+        .await;
+        // Cleanup is required even when dispatch or its journal checkpoint failed.
+        cleanup.close().await.map_err(|error| {
+            ReplError::Execution(format!("Required worker cleanup failed: {error}"))
+        })?;
+        observations
+            .map_err(|error| ReplError::Execution(error.to_string()))?
+            .into_iter()
+            .next()
+            .ok_or_else(|| ReplError::Execution("tool dispatcher returned no result".into()))
     }
-
-    // No `tools/` manifests handle this tool name (or the builder fell back
-    // to `UnavailableToolExecutor`). Return an honest `not_executed` result
-    // rather than fabricating a success — callers must not assume the tool
-    // actually ran.
+    .await;
+    let termination = match &outcome {
+        Err(error) => TerminationReason::Error {
+            message: error.to_string(),
+        },
+        Ok(obs)
+            if obs
+                .metadata
+                .get("error_type")
+                .is_some_and(|kind| kind == "policy_denied") =>
+        {
+            TerminationReason::PolicyDenial {
+                reason: obs.content.clone(),
+            }
+        }
+        Ok(obs) if obs.is_error => TerminationReason::Error {
+            message: obs.content.clone(),
+        },
+        Ok(_) => TerminationReason::Completed,
+    };
+    append_event(
+        journal.as_ref(),
+        agent_id,
+        LoopEvent::Terminated {
+            reason: termination,
+            iterations: 1,
+            total_usage: Default::default(),
+            duration: started.elapsed(),
+        },
+    )
+    .await?;
+    let obs = outcome.map_err(|error| match &audit {
+        Some(audit) => ReplError::Execution(format!(
+            "{error}; audit run {} at {} (public key {})",
+            audit.run_id,
+            audit.path.display(),
+            audit.public_key
+        )),
+        None => error,
+    })?;
+    let denied = obs
+        .metadata
+        .get("error_type")
+        .is_some_and(|kind| kind == "policy_denied");
     let mut result = HashMap::new();
-    result.insert("tool".to_string(), DslValue::String(name));
-    result.insert("arguments".to_string(), DslValue::String(arguments));
+    include_audit(&mut result, &audit);
     result.insert(
-        "status".to_string(),
-        DslValue::String("not_executed".to_string()),
+        "tool".into(),
+        DslValue::String(obs.metadata.get("authorized_tool").cloned().unwrap_or(name)),
     );
     result.insert(
-        "reason".to_string(),
+        "arguments".into(),
         DslValue::String(
-            "no tool backend configured for this tool (add a matching tools/*.clad.toml manifest)"
-                .to_string(),
+            obs.metadata
+                .get("authorized_arguments")
+                .cloned()
+                .unwrap_or(arguments),
         ),
     );
-
+    result.insert(
+        "status".into(),
+        DslValue::String(
+            if denied {
+                "denied"
+            } else if obs.is_error {
+                "error"
+            } else {
+                "success"
+            }
+            .into(),
+        ),
+    );
+    result.insert(
+        if denied { "reason" } else { "result" }.into(),
+        DslValue::String(obs.content),
+    );
     Ok(DslValue::Map(result))
 }
 
@@ -388,70 +542,10 @@ pub async fn builtin_delegate(
         }
     };
 
-    // Communication bus wiring: resolve recipient (fallback for unregistered agents)
-    let recipient_id = if let Some(registry) = &ctx.agent_registry {
-        registry
-            .get_agent(&agent_name)
-            .await
-            .map(|a| a.agent_id)
-            .unwrap_or_default()
-    } else {
-        AgentId::new()
-    };
-    let sender_id = ctx.sender_agent_id.unwrap_or_default();
-    let request_id = RequestId::new();
-    let plabel = optional_protocol_label(args);
-
-    check_comm_policy(
-        ctx,
-        sender_id,
-        recipient_id,
-        MessageType::Request(request_id),
-        plabel.as_deref(),
-    )?;
-    log_comm_message(
-        ctx,
-        sender_id,
-        recipient_id,
-        &message,
-        MessageType::Request(request_id),
-        Duration::from_secs(30),
-    )
-    .await;
-
-    // Use inference provider to simulate delegation (each agent is a separate conversation)
-    let provider = ctx
-        .provider
-        .as_ref()
-        .ok_or_else(|| ReplError::Execution("No inference provider configured".into()))?;
-
-    use symbi_runtime::reasoning::conversation::{Conversation, ConversationMessage};
-    use symbi_runtime::reasoning::inference::InferenceOptions;
-
-    let mut conv = Conversation::with_system(format!(
-        "You are agent '{}'. Respond to the delegated task.",
-        agent_name
-    ));
-    conv.push(ConversationMessage::user(&message));
-
-    let response = provider
-        .complete(&conv, &InferenceOptions::default())
+    let label = optional_protocol_label(args);
+    crate::dsl::agent_composition::governed_ask(ctx, &agent_name, &message, label.as_deref())
         .await
-        .map_err(|e| {
-            ReplError::Execution(format!("Delegation to '{}' failed: {}", agent_name, e))
-        })?;
-
-    log_comm_message(
-        ctx,
-        recipient_id,
-        sender_id,
-        &response.content,
-        MessageType::Response(request_id),
-        Duration::from_secs(30),
-    )
-    .await;
-
-    Ok(DslValue::String(response.content))
+        .map(DslValue::String)
 }
 
 // --- Helper functions ---
@@ -704,40 +798,11 @@ mod tests {
         assert_eq!(optional_protocol_label(&wrong_type), None);
     }
 
-    // --- `tool_call` policy-gate tests ---
-    //
-    // `builtin_tool_call` resolves `tools/` relative to the process CWD (via
-    // `build_tool_executor`), so these tests chdir into a tempdir containing
-    // a real, side-effecting manifest (`touch <path>`) and check for the
-    // marker file — not just the returned status string — to prove a
-    // fail-closed gate actually prevents execution rather than merely
-    // reporting an error. `CWD_LOCK` serializes them against each other
-    // since `std::env::set_current_dir` is process-global.
+    // Real marker effects distinguish authorization from a cosmetic status.
+    // Explicit fixture roots avoid changing the process-wide working directory.
     use symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate;
 
-    static CWD_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    /// Restores the original CWD (before the temp tools/ dir is deleted)
-    /// and releases `CWD_LOCK` when dropped.
-    struct CwdGuard {
-        original: std::path::PathBuf,
-        _lock: std::sync::MutexGuard<'static, ()>,
-        _tempdir: tempfile::TempDir,
-    }
-
-    impl Drop for CwdGuard {
-        fn drop(&mut self) {
-            let _ = std::env::set_current_dir(&self.original);
-        }
-    }
-
-    /// Chdir into a fresh tempdir with `tools/touch_marker.clad.toml` — a
-    /// manifest that shells out to `touch {path}` — and return the path a
-    /// successful call would create, plus a guard that restores CWD and
-    /// cleans up on drop.
-    fn setup_side_effecting_tool() -> (std::path::PathBuf, CwdGuard) {
-        let lock = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let original = std::env::current_dir().expect("current dir");
+    pub(super) fn setup_side_effecting_tool() -> (std::path::PathBuf, tempfile::TempDir) {
         let tempdir = tempfile::tempdir().expect("tempdir");
         let tools_dir = tempdir.path().join("tools");
         std::fs::create_dir_all(&tools_dir).expect("mkdir tools/");
@@ -767,16 +832,8 @@ type = "object"
 "#,
         )
         .expect("write manifest");
-        std::env::set_current_dir(tempdir.path()).expect("chdir into tempdir");
         let marker = tempdir.path().join("marker.txt");
-        (
-            marker,
-            CwdGuard {
-                original,
-                _lock: lock,
-                _tempdir: tempdir,
-            },
-        )
+        (marker, tempdir)
     }
 
     fn touch_marker_call(marker: &std::path::Path) -> Vec<DslValue> {
@@ -793,8 +850,9 @@ type = "object"
 
     #[tokio::test]
     async fn tool_call_denied_by_fail_closed_gate_never_executes() {
-        let (marker, _guard) = setup_side_effecting_tool();
+        let (marker, project) = setup_side_effecting_tool();
         let ctx = ReasoningBuiltinContext {
+            project_root: Ok(project.path().to_owned()),
             reasoning_policy_gate: Some(Arc::new(DefaultPolicyGate::new())),
             ..Default::default()
         };
@@ -823,8 +881,10 @@ type = "object"
     async fn tool_call_with_no_gate_in_context_defaults_fail_closed() {
         // Mirrors `builtin_reason`'s default: a context that never had a
         // gate installed must NOT fall back to permissive.
-        let (marker, _guard) = setup_side_effecting_tool();
-        let ctx = ReasoningBuiltinContext::default();
+        let (marker, project) = setup_side_effecting_tool();
+        let ctx = ReasoningBuiltinContext::default()
+            .with_project_root(project.path())
+            .unwrap();
 
         builtin_tool_call(&touch_marker_call(&marker), &ctx)
             .await
@@ -838,8 +898,17 @@ type = "object"
 
     #[tokio::test]
     async fn tool_call_allowed_by_permissive_gate_executes() {
-        let (marker, _guard) = setup_side_effecting_tool();
+        let (marker, project) = setup_side_effecting_tool();
         let ctx = ReasoningBuiltinContext {
+            project_root: Ok(project.path().to_owned()),
+            tool_executor: Some(Arc::new(
+                symbi_runtime::toolclad::ToolCladExecutor::new(
+                    symbi_runtime::toolclad::manifest::load_manifests_from_dir(
+                        &project.path().join("tools"),
+                    ),
+                )
+                .with_development_host_execution(),
+            )),
             reasoning_policy_gate: Some(Arc::new(DefaultPolicyGate::permissive_for_dev_only())),
             ..Default::default()
         };
@@ -861,5 +930,965 @@ type = "object"
             marker.exists(),
             "permissive gate should allow the tool to actually run"
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn tool_call_binds_normalized_cedar_input_and_audit_to_real_execution() {
+        use symbi_runtime::reasoning::loop_types::{BufferedJournal, LoopEvent};
+        use symbi_runtime::reasoning::{CedarPolicy, CedarPolicyGate};
+        for (tool, arguments, approval, expected_effect) in [
+            ("count_fixture", r#"{"count":"999"}"#, false, true),
+            ("count_fixture", r#"{"count":"1"}"#, false, false),
+            (
+                "count_fixture",
+                r#"{"count":"999","extra":"ignored"}"#,
+                false,
+                false,
+            ),
+            ("unknown_fixture", "{}", false, false),
+            ("count_fixture", r#"{"count":"999"}"#, true, false),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let tools = dir.path().join("tools");
+            std::fs::create_dir(&tools).unwrap();
+            let manifest_path = tools.join("count_fixture.clad.toml");
+            std::fs::write(
+                &manifest_path,
+                format!(
+                    r#"
+[tool]
+name = "count_fixture"
+version = "1"
+binary = "/usr/bin/touch"
+description = "DSL prepared call fixture"
+human_approval = {approval}
+[tool.cedar]
+resource = "Tool::Fixture"
+action = "execute"
+[args.count]
+position = 1
+required = true
+type = "integer"
+min = 1
+max = 5
+clamp = true
+[command]
+template = "/usr/bin/touch '{}/{{count}}'"
+[output]
+format = "text"
+"#,
+                    dir.path().display()
+                ),
+            )
+            .unwrap();
+            let manifest =
+                symbi_runtime::toolclad::manifest::load_manifest(&manifest_path).unwrap();
+            let gate = CedarPolicyGate::deny_by_default();
+            gate.add_policy(CedarPolicy {
+                name: "fixture".into(), active: true,
+                source: format!("{}\nforbid(principal, action, resource) when {{ context.invocation.arguments.count != \"5\" }};", symbi_runtime::toolclad::cedar_gen::generate_policy(&manifest).unwrap()),
+            }).await;
+            let journal = Arc::new(BufferedJournal::new(100));
+            let ctx = ReasoningBuiltinContext {
+                reasoning_policy_gate: Some(Arc::new(gate)),
+                tool_executor: Some(Arc::new(
+                    symbi_runtime::toolclad::ToolCladExecutor::new(
+                        symbi_runtime::toolclad::manifest::load_manifests_from_dir(&tools),
+                    )
+                    .with_development_host_execution(),
+                )),
+                reasoning_journal: Some(journal.clone()),
+                ..Default::default()
+            };
+            let result = builtin_tool_call(
+                &[
+                    DslValue::String(tool.into()),
+                    DslValue::String(arguments.into()),
+                ],
+                &ctx,
+            )
+            .await
+            .unwrap();
+            let DslValue::Map(result) = result else {
+                panic!("expected result map")
+            };
+            assert_eq!(
+                result["status"],
+                DslValue::String(if expected_effect { "success" } else { "denied" }.into()),
+                "{result:?}"
+            );
+            assert_eq!(dir.path().join("5").exists(), expected_effect, "{result:?}");
+            assert!(!dir.path().join("999").exists());
+            assert!(!dir.path().join("1").exists());
+            let entries = journal.entries().await;
+            // Dispatch start/finish are journalled only for an approved call; a
+            // denied one is never dispatched, so that pair is absent.
+            assert_eq!(entries.len(), if expected_effect { 6 } else { 4 });
+            assert!(matches!(entries[0].event, LoopEvent::Started { .. }));
+            assert!(matches!(
+                entries[entries.len() - 1].event,
+                LoopEvent::Terminated { .. }
+            ));
+            if expected_effect {
+                assert!(matches!(
+                    entries[2].event,
+                    LoopEvent::ToolDispatchStarted { .. }
+                ));
+                assert!(matches!(
+                    entries[3].event,
+                    LoopEvent::ToolDispatchFinished { .. }
+                ));
+            }
+            let LoopEvent::PolicyEvaluated { approved_calls, .. } = &entries[1].event else {
+                panic!("missing pre-effect checkpoint")
+            };
+            if expected_effect {
+                assert_eq!(approved_calls[0]["arguments"]["count"], "5");
+                assert_eq!(
+                    result["arguments"],
+                    DslValue::String(r#"{"count":"5"}"#.into())
+                );
+            } else {
+                assert!(approved_calls.is_empty());
+            }
+            assert!(matches!(
+                entries[entries.len() - 2].event,
+                LoopEvent::ToolBatchCompleted { .. }
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn tool_call_returns_required_journal_failure() {
+        use symbi_runtime::reasoning::loop_types::{JournalEntry, JournalError, JournalWriter};
+        struct FailingJournal;
+        #[async_trait::async_trait]
+        impl JournalWriter for FailingJournal {
+            async fn append(&self, _: JournalEntry) -> std::result::Result<(), JournalError> {
+                Err(JournalError::WriteFailed("DSL journal fixture".into()))
+            }
+            async fn next_sequence(&self) -> u64 {
+                0
+            }
+        }
+        let ctx = ReasoningBuiltinContext {
+            reasoning_journal: Some(Arc::new(FailingJournal)),
+            ..Default::default()
+        };
+        let error = builtin_tool_call(&[DslValue::String("missing".into())], &ctx)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("DSL journal fixture"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    #[ignore = "requires Docker, cached Python fixture image, and runtime toolclad-session feature"]
+    async fn explicit_dsl_terminal_call_awaits_contained_worker_removal() {
+        use std::os::unix::fs::PermissionsExt;
+        use symbi_runtime::{
+            reasoning::{CedarPolicy, CedarPolicyGate},
+            sandbox::command::CommandBoundary,
+            toolclad::ToolCladExecutor,
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("output");
+        std::fs::create_dir(&output).unwrap();
+        std::fs::set_permissions(&output, std::fs::Permissions::from_mode(0o777)).unwrap();
+        let script = dir.path().join("terminal.py");
+        std::fs::write(
+            &script,
+            r#"
+import os, pathlib, sys, time
+assert sys.stdin.isatty() and sys.stdout.isatty()
+assert os.getuid() == 65534
+print('READY>', flush=True)
+for line in sys.stdin:
+    assert line.strip() == 'run'
+    pathlib.Path('/workspace/allowed').write_text('real terminal effect')
+    if os.fork() == 0:
+        os.setsid()
+        time.sleep(30)
+        pathlib.Path('/workspace/late-effect').touch()
+        os._exit(0)
+    print('executed\nREADY>', flush=True)
+"#,
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o444)).unwrap();
+        let manifest_path = dir.path().join("terminal.clad.toml");
+        std::fs::write(
+            &manifest_path,
+            r#"
+[tool]
+name = "terminal"
+version = "1"
+description = "DSL terminal fixture"
+mode = "session"
+timeout_seconds = 10
+[session]
+startup_command = "/usr/local/bin/python3 -u /opt/terminal.py"
+ready_pattern = "READY>"
+startup_timeout_seconds = 5
+idle_timeout_seconds = 20
+session_timeout_seconds = 20
+max_interactions = 5
+[session.commands.send]
+pattern = "run"
+description = "Execute fixture"
+[output]
+format = "text"
+"#,
+        )
+        .unwrap();
+        let manifest = symbi_runtime::toolclad::manifest::load_manifest(&manifest_path).unwrap();
+        let mut profile = CommandBoundary::default();
+        profile.docker.image =
+            "sha256:7bf61a5ec2a4631b240bc8cf83404e2dd37fb06a4b4bbd34b2c36906a5fb4aee".into();
+        profile.docker.volumes = vec![
+            format!("{}:/workspace:rw", output.display()),
+            format!("{}:/opt/terminal.py:ro", script.display()),
+        ];
+        let label = format!("symbi.dsl-pty-e2e={}", uuid::Uuid::new_v4());
+        profile.docker.extra_flags.push(format!("--label={label}"));
+        let executor = Arc::new(
+            ToolCladExecutor::new(vec![("terminal".into(), manifest)])
+                .with_command_boundary(profile),
+        );
+        let gate = CedarPolicyGate::deny_by_default();
+        gate.add_policy(CedarPolicy { name: "fixture".into(), active: true,
+            source: "permit(principal, action == Action::\"tool_call::terminal.send\", resource) when { context.invocation.arguments.command == \"run\" };".into()
+        }).await;
+        let ctx = ReasoningBuiltinContext {
+            project_root: Ok(dir.path().to_owned()),
+            tool_executor: Some(executor.clone()),
+            reasoning_policy_gate: Some(Arc::new(gate)),
+            ..Default::default()
+        };
+        let result = builtin_tool_call(
+            &[
+                DslValue::String("terminal.send".into()),
+                DslValue::String(r#"{"command":"run"}"#.into()),
+            ],
+            &ctx,
+        )
+        .await
+        .unwrap();
+        let DslValue::Map(result) = result else {
+            panic!("expected tool result")
+        };
+        assert_eq!(
+            result["status"],
+            DslValue::String("success".into()),
+            "{result:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(output.join("allowed")).unwrap(),
+            "real terminal effect"
+        );
+        let workers = tokio::process::Command::new("docker")
+            .args(["ps", "-aq", "--filter", &format!("label={label}")])
+            .output()
+            .await
+            .unwrap();
+        assert!(workers.status.success());
+        assert!(
+            workers.stdout.is_empty(),
+            "builtin must await cleanup even while executor is retained"
+        );
+        assert!(!output.join("late-effect").exists());
+        let entries =
+            super::audit_tests::verified_result(&DslValue::Map(result), ctx.sender_agent_id);
+        assert!(matches!(
+            entries.last().unwrap().event,
+            symbi_runtime::reasoning::loop_types::LoopEvent::Terminated {
+                reason: symbi_runtime::reasoning::loop_types::TerminationReason::Completed,
+                ..
+            }
+        ));
+        drop(executor);
+    }
+}
+
+#[cfg(all(test, unix))]
+mod audit_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use symbi_runtime::reasoning::{
+        inference::{FinishReason, InferenceOptions, InferenceResponse, Usage},
+        loop_types::{JournalEntry, LoopEvent, TerminationReason},
+        protected_journal::ProtectedJournal,
+    };
+
+    struct Provider {
+        calls: AtomicUsize,
+        pending: bool,
+    }
+    #[async_trait::async_trait]
+    impl InferenceProvider for Provider {
+        async fn complete(
+            &self,
+            _: &symbi_runtime::reasoning::conversation::Conversation,
+            _: &InferenceOptions,
+        ) -> std::result::Result<
+            InferenceResponse,
+            symbi_runtime::reasoning::inference::InferenceError,
+        > {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            if self.pending {
+                std::future::pending::<()>().await;
+            }
+            Ok(InferenceResponse {
+                content: "audit fixture response".into(),
+                tool_calls: vec![],
+                finish_reason: FinishReason::Stop,
+                usage: Usage::default(),
+                model: "fixture".into(),
+            })
+        }
+        fn provider_name(&self) -> &str {
+            "audit-fixture"
+        }
+        fn default_model(&self) -> &str {
+            "fixture"
+        }
+        fn supports_native_tools(&self) -> bool {
+            false
+        }
+        fn supports_structured_output(&self) -> bool {
+            false
+        }
+    }
+    fn provider(pending: bool) -> Arc<Provider> {
+        Arc::new(Provider {
+            calls: AtomicUsize::new(0),
+            pending,
+        })
+    }
+    fn arguments() -> Vec<DslValue> {
+        vec![
+            DslValue::String("Synthetic system".into()),
+            DslValue::String("Synthetic request".into()),
+        ]
+    }
+    pub(super) fn verified_result(
+        value: &DslValue,
+        principal: Option<AgentId>,
+    ) -> Vec<JournalEntry> {
+        use std::os::unix::fs::PermissionsExt;
+        let json = value.to_json();
+        let audit = &json["audit"];
+        let path = std::path::Path::new(audit["path"].as_str().unwrap());
+        let key = audit["public_key"].as_str().unwrap();
+        let key: [u8; 32] = (0..32)
+            .map(|i| u8::from_str_radix(&key[i * 2..i * 2 + 2], 16).unwrap())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        let run = audit["run_id"].as_str().unwrap().parse().unwrap();
+        let entries = ProtectedJournal::verify_run(path, &key, run).unwrap();
+        assert!(ProtectedJournal::verify_run(path, &key, uuid::Uuid::new_v4()).is_err());
+        assert_eq!(
+            std::fs::metadata(path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let id = principal.unwrap_or(entries[0].agent_id);
+        assert!(entries.iter().all(|entry| entry.agent_id == id));
+        assert!(matches!(entries[0].event, LoopEvent::Started { agent_id, .. } if agent_id == id));
+        entries
+    }
+
+    #[tokio::test]
+    async fn default_reason_audit_has_distinct_runs_and_one_bound_principal() {
+        let project = tempfile::tempdir().unwrap();
+        let id = AgentId::new();
+        let inference = provider(false);
+        let ctx = ReasoningBuiltinContext {
+            provider: Some(inference.clone()),
+            sender_agent_id: Some(id),
+            ..Default::default()
+        }
+        .with_project_root(project.path())
+        .unwrap();
+        let first = builtin_reason(&arguments(), &ctx).await.unwrap();
+        let second = builtin_reason(&arguments(), &ctx).await.unwrap();
+        for value in [&first, &second] {
+            let entries = verified_result(value, Some(id));
+            assert!(matches!(
+                entries.last().unwrap().event,
+                LoopEvent::Terminated {
+                    reason: TerminationReason::Completed,
+                    ..
+                }
+            ));
+        }
+        assert_ne!(
+            first.to_json()["audit"]["run_id"],
+            second.to_json()["audit"]["run_id"]
+        );
+        assert_eq!(
+            first.to_json()["audit"]["public_key"],
+            second.to_json()["audit"]["public_key"]
+        );
+        assert_eq!(inference.calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn unsafe_default_audit_blocks_inference_and_dispatch() {
+        use std::os::unix::fs::PermissionsExt;
+        let (marker, project) = super::tests::setup_side_effecting_tool();
+        let audit = project.path().join(".symbiont/governed");
+        std::fs::create_dir_all(&audit).unwrap();
+        std::fs::set_permissions(&audit, std::fs::Permissions::from_mode(0o777)).unwrap();
+        let inference = provider(false);
+        let ctx = ReasoningBuiltinContext {
+            provider: Some(inference.clone()),
+            reasoning_policy_gate: Some(Arc::new(
+                symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate::permissive_for_dev_only(
+                ),
+            )),
+            tool_executor: Some(Arc::new(
+                symbi_runtime::toolclad::ToolCladExecutor::new(
+                    symbi_runtime::toolclad::manifest::load_manifests_from_dir(
+                        &project.path().join("tools"),
+                    ),
+                )
+                .with_development_host_execution(),
+            )),
+            ..Default::default()
+        }
+        .with_project_root(project.path())
+        .unwrap();
+        let error = builtin_reason(&arguments(), &ctx).await.unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("Required DSL audit initialization failed"));
+        let error = builtin_tool_call(
+            &[
+                DslValue::String("touch_marker".into()),
+                DslValue::String(serde_json::json!({"path": marker}).to_string()),
+            ],
+            &ctx,
+        )
+        .await
+        .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("Required DSL audit initialization failed"));
+        assert_eq!(inference.calls.load(Ordering::SeqCst), 0);
+        assert!(!marker.exists());
+        assert_eq!(std::fs::read_dir(audit).unwrap().count(), 0);
+    }
+
+    #[tokio::test]
+    async fn missing_project_capture_is_never_replaced_by_later_cwd() {
+        let inference = provider(false);
+        let ctx = ReasoningBuiltinContext {
+            provider: Some(inference.clone()),
+            project_root: Err("startup fixture failure".into()),
+            ..Default::default()
+        };
+        assert!(builtin_reason(&arguments(), &ctx)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("startup fixture failure"));
+        assert!(
+            builtin_tool_call(&[DslValue::String("missing".into())], &ctx)
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("startup fixture failure")
+        );
+        assert_eq!(inference.calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn cancelled_reason_leaves_a_signed_incomplete_prefix() {
+        let project = tempfile::tempdir().unwrap();
+        let (anchor, reference) =
+            symbi_runtime::reasoning::run_audit::open_run_journal(project.path(), AgentId::new())
+                .await
+                .unwrap();
+        let key: [u8; 32] = (0..32)
+            .map(|i| u8::from_str_radix(&reference.public_key[i * 2..i * 2 + 2], 16).unwrap())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        drop(anchor);
+        let inference = provider(true);
+        let ctx = ReasoningBuiltinContext {
+            provider: Some(inference.clone()),
+            ..Default::default()
+        }
+        .with_project_root(project.path())
+        .unwrap();
+        let args = arguments();
+        let future = builtin_reason(&args, &ctx);
+        tokio::pin!(future);
+        // Drive the call until the provider has actually been entered, rather
+        // than assuming a fixed delay is long enough to get there. A 300ms
+        // budget was not always enough under parallel load, and the call-count
+        // assertion then failed for a reason unrelated to what this covers.
+        // The provider stalls forever once entered, so the future must not
+        // finish first.
+        tokio::select! {
+            _ = &mut future => panic!("reason() must not complete while the provider stalls"),
+            entered = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                while inference.calls.load(Ordering::SeqCst) == 0 {
+                    tokio::task::yield_now().await;
+                }
+            }) => entered.expect("the provider must be entered"),
+        }
+        // Having been entered, it must stay pending.
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(100), &mut future)
+                .await
+                .is_err()
+        );
+        assert_eq!(inference.calls.load(Ordering::SeqCst), 1);
+        let audit = project.path().join(".symbiont/governed");
+        let file = std::fs::read_dir(&audit)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|path| {
+                path != &reference.path && path.extension().is_some_and(|ext| ext == "jsonl")
+            })
+            .unwrap();
+        let run_id = file
+            .file_stem()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .rsplit('.')
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap();
+        let entries = ProtectedJournal::verify_run(&file, &key, run_id).unwrap();
+        assert!(matches!(entries[0].event, LoopEvent::Started { .. }));
+        assert!(entries
+            .iter()
+            .all(|entry| !matches!(entry.event, LoopEvent::Terminated { .. })));
+    }
+
+    #[test]
+    fn bridge_project_survives_process_working_directory_change() {
+        // Only the isolated subprocess changes CWD; the parallel test runner never does.
+        const CHILD: &str = "SYMBI_DSL_CWD_FIXTURE_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "dsl::reasoning_builtins::audit_tests::bridge_project_survives_process_working_directory_change", "--test-threads=1"])
+                .env(CHILD, "1").output().unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stdout)
+            );
+            return;
+        }
+        let (_, project) = super::tests::setup_side_effecting_tool();
+        let decoy = tempfile::tempdir().unwrap();
+        std::env::set_current_dir(project.path()).unwrap();
+        let bridge = crate::runtime_bridge::RuntimeBridge::new();
+        let initial = ReasoningBuiltinContext::default();
+        std::env::set_current_dir(decoy.path()).unwrap();
+        let ctx = bridge.reasoning_context();
+        assert_eq!(ctx.project().unwrap(), project.path());
+        assert_eq!(initial.project().unwrap(), project.path());
+        for context in [&initial, &ctx] {
+            assert!(context
+                .executor()
+                .unwrap()
+                .tool_definitions()
+                .iter()
+                .any(|tool| tool.name == "touch_marker"));
+        }
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let value = builtin_tool_call(&[DslValue::String("missing".into())], &ctx)
+                .await
+                .unwrap();
+            let entries = verified_result(&value, None);
+            assert!(matches!(
+                entries.last().unwrap().event,
+                LoopEvent::Terminated {
+                    reason: TerminationReason::PolicyDenial { .. },
+                    ..
+                }
+            ));
+            assert!(
+                std::path::Path::new(value.to_json()["audit"]["path"].as_str().unwrap())
+                    .starts_with(project.path())
+            );
+        });
+        assert!(!decoy.path().join(".symbiont").exists());
+    }
+    #[tokio::test]
+    async fn failed_terminal_write_cannot_report_an_effect_as_success() {
+        use symbi_runtime::reasoning::loop_types::{JournalError, JournalWriter};
+        struct TerminalFailure;
+        #[async_trait::async_trait]
+        impl JournalWriter for TerminalFailure {
+            async fn append(&self, entry: JournalEntry) -> std::result::Result<(), JournalError> {
+                if matches!(entry.event, LoopEvent::Terminated { .. }) {
+                    Err(JournalError::WriteFailed("terminal write fixture".into()))
+                } else {
+                    Ok(())
+                }
+            }
+            async fn next_sequence(&self) -> u64 {
+                0
+            }
+        }
+        let (marker, project) = super::tests::setup_side_effecting_tool();
+        let executor = symbi_runtime::toolclad::ToolCladExecutor::new(
+            symbi_runtime::toolclad::manifest::load_manifests_from_dir(
+                &project.path().join("tools"),
+            ),
+        )
+        .with_development_host_execution();
+        let ctx = ReasoningBuiltinContext {
+            tool_executor: Some(Arc::new(executor)),
+            reasoning_policy_gate: Some(Arc::new(
+                symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate::permissive_for_dev_only(
+                ),
+            )),
+            reasoning_journal: Some(Arc::new(TerminalFailure)),
+            ..Default::default()
+        };
+        let error = builtin_tool_call(
+            &[
+                DslValue::String("touch_marker".into()),
+                DslValue::String(serde_json::json!({"path": marker}).to_string()),
+            ],
+            &ctx,
+        )
+        .await
+        .unwrap_err();
+        assert!(error.to_string().contains("terminal write fixture"));
+        assert!(
+            marker.exists(),
+            "the effect happened but must not be reported as durably completed"
+        );
+    }
+
+    #[tokio::test]
+    async fn cleanup_failure_is_recorded_as_error_before_return() {
+        use symbi_runtime::reasoning::{
+            circuit_breaker::CircuitBreakerRegistry,
+            executor::ActionExecutor,
+            loop_types::{BufferedJournal, Observation, ProposedAction},
+            LoopConfig,
+        };
+        struct CleanupFailure;
+        #[async_trait::async_trait]
+        impl ActionExecutor for CleanupFailure {
+            async fn execute_actions(
+                &self,
+                _: &[ProposedAction],
+                _: &LoopConfig,
+                _: &CircuitBreakerRegistry,
+            ) -> Vec<Observation> {
+                panic!("unregistered tool must not execute")
+            }
+            async fn close_run(
+                &self,
+                _: &str,
+                _: std::time::Instant,
+            ) -> std::result::Result<(), String> {
+                Err("cleanup fixture".into())
+            }
+        }
+        let journal = Arc::new(BufferedJournal::new(100));
+        let ctx = ReasoningBuiltinContext {
+            tool_executor: Some(Arc::new(CleanupFailure)),
+            reasoning_journal: Some(journal.clone()),
+            ..Default::default()
+        };
+        let error = builtin_tool_call(&[DslValue::String("missing".into())], &ctx)
+            .await
+            .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("Required worker cleanup failed: cleanup fixture"));
+        let entries = journal.entries().await;
+        assert!(matches!(&entries.last().unwrap().event,
+            LoopEvent::Terminated { reason: TerminationReason::Error { message }, .. } if message.contains("cleanup fixture")));
+    }
+    #[tokio::test]
+    async fn parsed_evaluator_builtins_preserve_project_audit_and_caller() {
+        use crate::dsl::{
+            ast::*,
+            evaluator::{DslEvaluator, ExecutionContext},
+            lexer::Lexer,
+            parser::Parser,
+        };
+        let project = tempfile::tempdir().unwrap();
+        let inference = provider(false);
+        let bridge = Arc::new(
+            crate::runtime_bridge::RuntimeBridge::new()
+                .with_project_root(project.path())
+                .unwrap(),
+        );
+        bridge.set_inference_provider(inference.clone());
+        let evaluator = DslEvaluator::new(bridge);
+        let id = uuid::Uuid::new_v4();
+        for (source, completed) in [
+            (
+                r#"function run_fixture() { return reason("synthetic system", "synthetic request") }"#,
+                true,
+            ),
+            (
+                r#"function run_fixture() { return tool_call("missing") }"#,
+                false,
+            ),
+        ] {
+            let program = Parser::new(Lexer::new(source).tokenize().unwrap())
+                .parse()
+                .unwrap();
+            let mut context = ExecutionContext {
+                agent_id: Some(id),
+                ..Default::default()
+            };
+            for declaration in program.declarations {
+                if let Declaration::Function(function) = declaration {
+                    context.functions.insert(function.name.clone(), function);
+                }
+            }
+            let expression = Expression::FunctionCall(FunctionCall {
+                function: "run_fixture".into(),
+                arguments: vec![],
+                span: program.span,
+            });
+            let value = evaluator
+                .evaluate_expression(&expression, &mut context)
+                .await
+                .unwrap();
+            let entries = verified_result(&value, Some(AgentId(id)));
+            assert!(
+                std::path::Path::new(value.to_json()["audit"]["path"].as_str().unwrap())
+                    .starts_with(project.path())
+            );
+            match &entries.last().unwrap().event {
+                LoopEvent::Terminated {
+                    reason: TerminationReason::Completed,
+                    ..
+                } => assert!(completed),
+                LoopEvent::Terminated {
+                    reason: TerminationReason::PolicyDenial { .. },
+                    ..
+                } => assert!(!completed),
+                other => panic!("unexpected terminal record: {other:?}"),
+            }
+        }
+        assert_eq!(inference.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn registered_behaviors_keep_distinct_principals_in_protected_audit() {
+        let project = tempfile::tempdir().unwrap();
+        let inference = provider(false);
+        let bridge = Arc::new(
+            crate::RuntimeBridge::new()
+                .with_project_root(project.path())
+                .unwrap(),
+        );
+        bridge.set_inference_provider(inference.clone());
+        let engine = crate::ReplEngine::new(bridge);
+        engine
+            .evaluate("agent First {} agent Second {}")
+            .await
+            .unwrap();
+        engine
+            .evaluate(
+                r#"function helper() { return reason("synthetic system", "synthetic request") }"#,
+            )
+            .await
+            .unwrap();
+        engine
+            .evaluate("behavior Work { steps { return helper() } }")
+            .await
+            .unwrap();
+        let agents = engine.evaluator().list_agents().await;
+        for agent in &agents {
+            engine
+                .evaluate(&format!(":agent start {}", agent.id))
+                .await
+                .unwrap();
+        }
+        let (first, second) = tokio::join!(
+            engine
+                .evaluator()
+                .execute_agent_behavior(agents[0].id, "Work", ""),
+            engine
+                .evaluator()
+                .execute_agent_behavior(agents[1].id, "Work", ""),
+        );
+        for (value, agent) in [first.unwrap(), second.unwrap()].iter().zip(&agents) {
+            let entries = verified_result(value, Some(AgentId(agent.id)));
+            assert!(matches!(
+                entries.last().unwrap().event,
+                LoopEvent::Terminated {
+                    reason: TerminationReason::Completed,
+                    ..
+                }
+            ));
+        }
+        assert_eq!(inference.calls.load(Ordering::SeqCst), 2);
+        assert!(engine
+            .evaluator()
+            .monitor()
+            .get_active_executions()
+            .is_empty());
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Docker and cached Python fixture image"]
+    async fn registered_repl_behavior_enforces_real_policy_boundary_and_audit() {
+        use std::os::unix::fs::PermissionsExt;
+        use symbi_runtime::reasoning::{CedarPolicy, CedarPolicyGate};
+        let project = tempfile::tempdir().unwrap();
+        let output = project.path().join("output");
+        std::fs::create_dir(&output).unwrap();
+        std::fs::set_permissions(&output, std::fs::Permissions::from_mode(0o777)).unwrap();
+        let canary = project.path().join("host-canary");
+        std::fs::write(&canary, "synthetic private canary").unwrap();
+        let label = format!("symbi.repl-e2e={}", uuid::Uuid::new_v4());
+        let config = format!(
+            r#"
+[sandbox]
+tier = "docker"
+[sandbox.docker]
+image = "sha256:7bf61a5ec2a4631b240bc8cf83404e2dd37fb06a4b4bbd34b2c36906a5fb4aee"
+volumes = [{}]
+extra_flags = ["--label={label}"]
+"#,
+            serde_json::to_string(&format!("{}:/workspace:rw", output.display())).unwrap()
+        );
+        std::fs::write(project.path().join("symbiont.toml"), config).unwrap();
+        std::fs::create_dir(project.path().join("tools")).unwrap();
+        std::fs::write(project.path().join("tools/write.clad.toml"), format!(r#"
+[tool]
+name = "write"
+version = "1"
+description = "Write an isolated test result"
+binary = "/bin/sh"
+timeout_seconds = 15
+[command]
+template = "/bin/sh -c 'test ! -e {} && test `id -u` = 65534 && printf registered > /workspace/allowed'"
+[output]
+format = "text"
+"#, canary.display())).unwrap();
+        let gate = Arc::new(CedarPolicyGate::deny_by_default());
+        let bridge = Arc::new(
+            crate::RuntimeBridge::new()
+                .with_project_root(project.path())
+                .unwrap(),
+        );
+        bridge.set_reasoning_policy_gate(gate.clone());
+        let engine = crate::ReplEngine::new(bridge);
+        for requirement in [
+            "security { tier: Tier3 }",
+            "security { sandbox: strict }",
+            "resources { memory: 1MB network: false }",
+            "policies { timeout: 1ms }",
+        ] {
+            let error = engine
+                .evaluate(&format!("agent Unsupported {{ {requirement} }}"))
+                .await
+                .unwrap_err();
+            assert!(error.to_string().contains("Unsupported legacy agent"));
+            assert!(engine.evaluator().list_agents().await.is_empty());
+            assert!(!project.path().join(".symbiont/governed").exists());
+            assert!(!output.join("allowed").exists());
+        }
+        engine
+            .evaluate("agent Permitted {} agent Sibling {}")
+            .await
+            .unwrap();
+        engine
+            .evaluate(r#"function write_fixture() { return tool_call("write") }"#)
+            .await
+            .unwrap();
+        engine
+            .evaluate("behavior Work { steps { return write_fixture() } }")
+            .await
+            .unwrap();
+        let agents = engine.evaluator().list_agents().await;
+        let permitted = agents
+            .iter()
+            .find(|a| a.definition.name == "Permitted")
+            .unwrap()
+            .id;
+        let sibling = agents
+            .iter()
+            .find(|a| a.definition.name == "Sibling")
+            .unwrap()
+            .id;
+        gate.add_policy(CedarPolicy {
+            name: "fixture".into(), active: true,
+            source: format!("permit(principal == Agent::\"{permitted}\", action == Action::\"tool_call::write\", resource);"),
+        }).await;
+        for id in [permitted, sibling] {
+            engine
+                .evaluate(&format!(":agent start {id}"))
+                .await
+                .unwrap();
+        }
+        let denied = engine
+            .evaluator()
+            .execute_agent_behavior(sibling, "Work", "")
+            .await
+            .unwrap();
+        assert_eq!(denied.to_json()["status"], "denied");
+        assert!(!output.join("allowed").exists());
+        let denied_entries = verified_result(&denied, Some(AgentId(sibling)));
+        assert!(matches!(
+            denied_entries.last().unwrap().event,
+            LoopEvent::Terminated {
+                reason: TerminationReason::PolicyDenial { .. },
+                ..
+            }
+        ));
+        let allowed = engine
+            .evaluator()
+            .execute_agent_behavior(permitted, "Work", "")
+            .await
+            .unwrap();
+        assert_eq!(allowed.to_json()["status"], "success", "{allowed:?}");
+        assert_eq!(
+            std::fs::read_to_string(output.join("allowed")).unwrap(),
+            "registered"
+        );
+        let entries = verified_result(&allowed, Some(AgentId(permitted)));
+        assert!(matches!(
+            entries.last().unwrap().event,
+            LoopEvent::Terminated {
+                reason: TerminationReason::Completed,
+                ..
+            }
+        ));
+        std::fs::remove_file(output.join("allowed")).unwrap();
+        std::fs::write(
+            project.path().join("symbiont.toml"),
+            "[sandbox]\ntier = \"firecracker\"\n",
+        )
+        .unwrap();
+        let unavailable = engine
+            .evaluator()
+            .execute_agent_behavior(permitted, "Work", "")
+            .await
+            .unwrap();
+        assert_ne!(unavailable.to_json()["status"], "success");
+        assert!(!output.join("allowed").exists());
+        verified_result(&unavailable, Some(AgentId(permitted)));
+        let workers = tokio::process::Command::new("docker")
+            .args(["ps", "-aq", "--filter", &format!("label={label}")])
+            .output()
+            .await
+            .unwrap();
+        assert!(workers.status.success());
+        assert!(workers.stdout.is_empty(), "owned workers remain");
     }
 }

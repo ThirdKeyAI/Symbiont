@@ -2,6 +2,16 @@
 
 ## Overview
 
+The [governed execution guide](scheduled-execution.md) describes this branch's
+runtime behavior: registration stores configuration without executing an agent;
+API, manual and timer invocations get distinct run IDs and real terminal results.
+History reaches `succeeded` after execution and cleanup, and includes output,
+errors and protected audit references. Managed CLI scheduling, routed models,
+and external-agent transport remain unavailable on the default service. The
+selected command boundary can use [Firecracker](firecracker-setup.md) for oneshot
+tools, parsers, MCP stdio and PTY sessions when matching guest artifacts are provisioned. See the [branch guide](containment-branch-guide.md) for
+operator-visible differences and remaining coverage.
+
 Symbiont's scheduling system provides production-grade cron-based task execution for AI agents. The system supports:
 
 - **Cron schedules**: Traditional cron syntax for recurring tasks

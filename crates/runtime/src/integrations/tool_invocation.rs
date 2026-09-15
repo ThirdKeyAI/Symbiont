@@ -298,6 +298,13 @@ impl DefaultToolInvocationEnforcer {
             return EnforcementDecision::Block { reason };
         }
 
+        if matches!(&tool.verification_status, VerificationStatus::Verified { result, .. } if !result.success)
+        {
+            return EnforcementDecision::Block {
+                reason: "Tool verification status contains an unsuccessful signature result".into(),
+            };
+        }
+
         match &self.config.policy {
             EnforcementPolicy::Disabled => EnforcementDecision::Allow,
             EnforcementPolicy::Development => {
@@ -758,6 +765,16 @@ mod tests {
             .unwrap();
 
         assert!(matches!(decision, EnforcementDecision::Allow));
+
+        let mut rejected = tool;
+        if let VerificationStatus::Verified { result, .. } = &mut rejected.verification_status {
+            result.success = false;
+        }
+        let decision = enforcer
+            .check_invocation_allowed(&rejected, &context)
+            .await
+            .unwrap();
+        assert!(matches!(decision, EnforcementDecision::Block { .. }));
     }
 
     #[tokio::test]

@@ -17,6 +17,9 @@ use crate::metrics::{
 use crate::routing::{RouteDecision, RoutingContext, RoutingEngine, SecurityLevel, TaskType};
 use crate::types::*;
 
+pub mod execution;
+#[cfg(unix)]
+pub mod invocations;
 pub mod load_balancer;
 pub mod priority_queue;
 pub mod task_manager;
@@ -31,6 +34,8 @@ pub mod delivery;
 pub mod heartbeat;
 #[cfg(feature = "cron")]
 pub mod job_store;
+#[cfg(all(unix, feature = "cron"))]
+pub mod occurrences;
 #[cfg(feature = "cron")]
 pub mod policy_gate;
 
@@ -54,8 +59,71 @@ pub struct AgentStatus {
 /// Agent scheduler trait
 #[async_trait]
 pub trait AgentScheduler {
+    /// Trusted project owning execution configuration and protected retry claims.
+    #[cfg(unix)]
+    fn invocation_project(&self) -> Result<&std::path::Path, String> {
+        Err("execution project is unavailable".into())
+    }
+
     /// Schedule a new agent for execution
     async fn schedule_agent(&self, config: AgentConfig) -> Result<AgentId, SchedulerError>;
+
+    /// Register configuration without starting inference or tool execution.
+    async fn register_agent(&self, config: AgentConfig) -> Result<AgentId, SchedulerError>;
+
+    /// Admit one invocation and return its exact cancellation/result handle.
+    async fn schedule_invocation(
+        &self,
+        config: AgentConfig,
+        input: serde_json::Value,
+    ) -> Result<task_manager::TaskHandle, SchedulerError>;
+
+    /// Claim a stable caller identity before enqueueing. Implementations must
+    /// refuse unsupported persistence rather than generate a replacement ID.
+    #[cfg(unix)]
+    async fn schedule_identified_invocation(
+        &self,
+        config: AgentConfig,
+        input: serde_json::Value,
+        identity: invocations::InvocationIdentity,
+    ) -> Result<invocations::Admission, String> {
+        let _ = (config, input, identity);
+        Err("persistent scheduler admission is unavailable".into())
+    }
+
+    /// Additional trusted checks while the fresh claim is held, before enqueue.
+    #[cfg(unix)]
+    async fn schedule_identified_with_gate(
+        &self,
+        config: AgentConfig,
+        input: serde_json::Value,
+        identity: invocations::InvocationIdentity,
+        gate: Arc<dyn invocations::InvocationAdmissionGate>,
+    ) -> Result<invocations::Admission, String> {
+        let _ = (config, input, identity, gate);
+        Err("protected scheduler admission gates are unavailable".into())
+    }
+
+    /// Read a durable identity without granting a new execution.
+    #[cfg(unix)]
+    async fn lookup_identified_invocation(
+        &self,
+        config: &AgentConfig,
+        input: &serde_json::Value,
+        identity: &invocations::InvocationIdentity,
+    ) -> Result<Option<crate::reasoning::invocation::ExistingInvocation>, String> {
+        let _ = (config, input, identity);
+        Err("persistent scheduler lookup is unavailable".into())
+    }
+
+    /// Await actual execution and cleanup. Queue admission alone is not success.
+    async fn execute_agent(
+        &self,
+        config: AgentConfig,
+        input: serde_json::Value,
+    ) -> Result<task_manager::TaskCompletion, SchedulerError> {
+        Ok(self.schedule_invocation(config, input).await?.wait().await)
+    }
 
     /// Reschedule an existing agent with new priority
     async fn reschedule_agent(
@@ -152,6 +220,10 @@ impl Default for SchedulerConfig {
 /// Scheduled task information
 #[derive(Debug, Clone)]
 pub struct ScheduledTask {
+    #[cfg(unix)]
+    pub(crate) claimed_journal: Option<invocations::ClaimedJournal>,
+    pub input: serde_json::Value,
+    pub handle: task_manager::TaskHandle,
     pub agent_id: AgentId,
     pub config: AgentConfig,
     pub priority: Priority,
@@ -166,6 +238,10 @@ impl ScheduledTask {
     pub fn new(config: AgentConfig) -> Self {
         let now = SystemTime::now();
         Self {
+            #[cfg(unix)]
+            claimed_journal: None,
+            input: serde_json::Value::Null,
+            handle: task_manager::TaskHandle::new(config.id),
             agent_id: config.id,
             priority: config.priority,
             resource_requirements: config
@@ -241,7 +317,7 @@ impl ScheduledTask {
 
 impl PartialEq for ScheduledTask {
     fn eq(&self, other: &Self) -> bool {
-        self.agent_id == other.agent_id
+        self.cmp(other) == std::cmp::Ordering::Equal
     }
 }
 
@@ -259,6 +335,7 @@ impl Ord for ScheduledTask {
         self.priority
             .cmp(&other.priority)
             .then_with(|| other.scheduled_at.cmp(&self.scheduled_at))
+            .then_with(|| self.handle.run_id().cmp(&other.handle.run_id()))
     }
 }
 
@@ -278,8 +355,11 @@ pub struct DefaultAgentScheduler {
     priority_queue: Arc<RwLock<PriorityQueue<ScheduledTask>>>,
     load_balancer: Arc<LoadBalancer>,
     task_manager: Arc<TaskManager>,
-    running_agents: Arc<DashMap<AgentId, ScheduledTask>>,
+    running_agents: Arc<DashMap<uuid::Uuid, ScheduledTask>>,
     suspended_agents: Arc<DashMap<AgentId, AgentSuspensionInfo>>,
+    latest_runs: Arc<DashMap<AgentId, task_manager::TaskHandle>>,
+    allocations: Arc<DashMap<uuid::Uuid, ResourceAllocation>>,
+    dispatch_lock: Arc<tokio::sync::Mutex<()>>,
     /// Persistent registry of all agents that have been scheduled. Agents
     /// remain here after being dequeued so that status/execute/list continue
     /// to work even after completion.
@@ -295,6 +375,42 @@ pub struct DefaultAgentScheduler {
 }
 
 impl DefaultAgentScheduler {
+    async fn enqueue_invocation(
+        &self,
+        config: AgentConfig,
+        input: serde_json::Value,
+        #[cfg(unix)] claimed_journal: Option<invocations::ClaimedJournal>,
+    ) -> Result<task_manager::TaskHandle, SchedulerError> {
+        let _dispatch = self.dispatch_lock.lock().await;
+        if !*self.is_running.read() {
+            return Err(SchedulerError::ShuttingDown);
+        }
+        if matches!(config.execution_mode, ExecutionMode::External { .. }) {
+            return Err(SchedulerError::SchedulingFailed {
+                agent_id: config.id,
+                reason: "external agents require their own execution transport".into(),
+            });
+        }
+        if input.to_string().len() > 1024 * 1024 || self.priority_queue.read().len() >= 2048 {
+            return Err(SchedulerError::SchedulingFailed {
+                agent_id: config.id,
+                reason: "scheduled input or queue capacity exceeded".into(),
+            });
+        }
+        let mut task = ScheduledTask::new(config.clone());
+        task.input = input;
+        #[cfg(unix)]
+        if let Some(journal) = claimed_journal {
+            task.handle = task_manager::TaskHandle::with_run_id(config.id, journal.audit.run_id);
+            task.claimed_journal = Some(journal);
+        }
+        let handle = task.handle.clone();
+        self.registered_agents.insert(config.id, config);
+        self.latest_runs.insert(task.agent_id, handle.clone());
+        self.priority_queue.write().push(task);
+        Ok(handle)
+    }
+
     /// Create a new scheduler instance
     pub async fn new(config: SchedulerConfig) -> Result<Self, SchedulerError> {
         Self::new_with_routing(config, None).await
@@ -305,9 +421,23 @@ impl DefaultAgentScheduler {
         config: SchedulerConfig,
         routing_engine: Option<Arc<dyn RoutingEngine>>,
     ) -> Result<Self, SchedulerError> {
+        Self::new_with_executor(
+            config,
+            routing_engine,
+            Arc::new(execution::GovernedAgentExecutor::default()),
+        )
+        .await
+    }
+
+    /// Embed a trusted execution service while retaining queue and lifecycle controls.
+    pub async fn new_with_executor(
+        config: SchedulerConfig,
+        routing_engine: Option<Arc<dyn RoutingEngine>>,
+        executor: Arc<dyn execution::ScheduledAgentExecutor>,
+    ) -> Result<Self, SchedulerError> {
         let priority_queue = Arc::new(RwLock::new(PriorityQueue::new()));
         let load_balancer = Arc::new(LoadBalancer::new(config.load_balancing_strategy.clone()));
-        let task_manager = Arc::new(TaskManager::new(config.task_timeout));
+        let task_manager = Arc::new(TaskManager::with_executor(config.task_timeout, executor));
         let running_agents = Arc::new(DashMap::new());
         let suspended_agents = Arc::new(DashMap::new());
         let registered_agents = Arc::new(DashMap::new());
@@ -344,6 +474,9 @@ impl DefaultAgentScheduler {
             task_manager,
             running_agents,
             suspended_agents,
+            latest_runs: Arc::new(DashMap::new()),
+            allocations: Arc::new(DashMap::new()),
+            dispatch_lock: Arc::new(tokio::sync::Mutex::new(())),
             registered_agents,
             #[cfg(feature = "http-api")]
             external_agents,
@@ -356,173 +489,256 @@ impl DefaultAgentScheduler {
 
         // Start background tasks
         scheduler.start_scheduler_loop().await;
-        scheduler.start_health_check_loop().await;
         scheduler.start_metrics_export_loop().await;
 
         Ok(scheduler)
     }
 
-    /// Start the main scheduler loop
+    /// Start bounded dispatch. Cancellation and deletion serialize with admission.
     async fn start_scheduler_loop(&self) {
         let priority_queue = self.priority_queue.clone();
         let load_balancer = self.load_balancer.clone();
         let task_manager = self.task_manager.clone();
         let running_agents = self.running_agents.clone();
+        let allocations = self.allocations.clone();
         let system_metrics = self.system_metrics.clone();
         let shutdown_notify = self.shutdown_notify.clone();
         let is_running = self.is_running.clone();
         let routing_engine = self.routing_engine.clone();
+        let dispatch_lock = self.dispatch_lock.clone();
         let max_concurrent = self.config.max_concurrent_agents;
-
+        let task_timeout = self.config.task_timeout;
         tokio::spawn(async move {
-            let mut interval = interval(Duration::from_millis(100));
-
+            let mut tick = interval(Duration::from_millis(50));
             loop {
                 tokio::select! {
-                    _ = interval.tick() => {
-                        if !*is_running.read() {
-                            break;
+                    _ = shutdown_notify.notified() => break,
+                    _ = tick.tick() => {}
+                }
+                let _dispatch = dispatch_lock.lock().await;
+                if !*is_running.read() {
+                    break;
+                }
+                // Expire queued runs even when all execution slots are occupied.
+                {
+                    let mut queue = priority_queue.write();
+                    let pending = queue.to_vec();
+                    queue.clear();
+                    for task in pending {
+                        let status = if task.handle.is_cancelled() {
+                            Some(task_manager::TaskStatus::Terminated)
+                        } else if task.handle.elapsed()
+                            >= task_timeout.min(task.config.resource_limits.execution_timeout)
+                        {
+                            Some(task_manager::TaskStatus::TimedOut)
+                        } else {
+                            None
+                        };
+                        if let Some(status) = status {
+                            task.handle.finish(task_manager::TaskCompletion::new(
+                                &task,
+                                status,
+                                Some("invocation cancelled or expired before dispatch".into()),
+                            ));
+                        } else if task.handle.completion().is_none() {
+                            queue.push(task);
                         }
-
-                        // Check if we can schedule more agents
-                        if running_agents.len() < max_concurrent {
-                            let task_opt = {
-                                let mut queue = priority_queue.write();
-                                queue.pop()
-                            };
-
-                            if let Some(mut task) = task_opt {
-                                // Evaluate routing policy if a routing engine is configured
-                                if let Some(ref engine) = routing_engine {
-                                    let ctx = task.to_routing_context();
-                                    match engine.route_request(&ctx).await {
-                                        Ok(RouteDecision::Deny { ref reason, ref policy_violated }) => {
-                                            tracing::warn!(
-                                                "Routing policy denied task for agent {}: policy={}, reason={}",
-                                                task.agent_id, policy_violated, reason
-                                            );
-                                            continue;
-                                        }
-                                        Ok(decision) => {
-                                            task.route_decision = Some(decision);
-                                        }
-                                        Err(e) => {
-                                            tracing::warn!(
-                                                "Routing engine error for agent {}, proceeding without decision: {}",
-                                                task.agent_id, e
-                                            );
-                                        }
-                                    }
+                    }
+                }
+                if running_agents.len() < max_concurrent {
+                    let task = priority_queue.write().pop();
+                    if let Some(mut task) = task {
+                        if let Some(engine) = &routing_engine {
+                            let budget = task_timeout
+                                .min(task.config.resource_limits.execution_timeout)
+                                .saturating_sub(task.handle.elapsed())
+                                .min(Duration::from_secs(10));
+                            match tokio::time::timeout(
+                                budget,
+                                engine.route_request(&task.to_routing_context()),
+                            )
+                            .await
+                            {
+                                Ok(Ok(RouteDecision::Deny { reason, .. })) => {
+                                    task.handle.finish(task_manager::TaskCompletion::new(
+                                        &task,
+                                        task_manager::TaskStatus::Failed,
+                                        Some(format!("routing denied: {reason}")),
+                                    ));
+                                    continue;
                                 }
-
-                                // Try to schedule the task
-                                if let Ok(resource_allocation) = load_balancer.allocate_resources(&task.resource_requirements).await {
-                                    running_agents.insert(task.agent_id, task.clone());
-
-                                    if let Err(e) = task_manager.start_task(task.clone()).await {
-                                        tracing::error!("Failed to start task for agent {}: {}", task.agent_id, e);
-                                        running_agents.remove(&task.agent_id);
-                                        load_balancer.deallocate_resources(resource_allocation).await;
-                                    }
-                                } else {
-                                    // Put the task back in the queue if resources aren't available
-                                    let mut queue = priority_queue.write();
-                                    queue.push(task);
+                                Ok(Ok(decision)) => task.route_decision = Some(decision),
+                                result => {
+                                    task.handle.finish(task_manager::TaskCompletion::new(
+                                        &task,
+                                        task_manager::TaskStatus::Failed,
+                                        Some(format!(
+                                            "routing did not authorize execution: {result:?}"
+                                        )),
+                                    ));
+                                    continue;
                                 }
                             }
                         }
-
-                        // Update system metrics
-                        let (running_count, queue_len) = {
-                            let queue = priority_queue.read();
-                            (running_agents.len(), queue.len())
-                        };
-                        system_metrics.write().update(running_count, queue_len);
-                    }
-                    _ = shutdown_notify.notified() => {
-                        break;
+                        match load_balancer
+                            .allocate_resources(&task.resource_requirements)
+                            .await
+                        {
+                            Ok(allocation) => {
+                                let run_id = task.handle.run_id();
+                                allocations.insert(run_id, allocation);
+                                running_agents.insert(run_id, task.clone());
+                                if let Err(error) = task_manager.start_task(task.clone()).await {
+                                    task.handle.finish(task_manager::TaskCompletion::new(
+                                        &task,
+                                        task_manager::TaskStatus::Failed,
+                                        Some(error.to_string()),
+                                    ));
+                                }
+                                let allocations = allocations.clone();
+                                let running = running_agents.clone();
+                                let balancer = load_balancer.clone();
+                                tokio::spawn(async move {
+                                    task.handle.wait().await;
+                                    if let Some((_, allocation)) = allocations.remove(&run_id) {
+                                        balancer.deallocate_resources(allocation).await;
+                                    }
+                                    running.remove(&run_id);
+                                });
+                            }
+                            Err(_) => priority_queue.write().push(task),
+                        }
                     }
                 }
+                system_metrics
+                    .write()
+                    .update(running_agents.len(), priority_queue.read().len());
             }
         });
     }
 
-    /// Start the health check loop
-    async fn start_health_check_loop(&self) {
-        let task_manager = self.task_manager.clone();
-        let running_agents = self.running_agents.clone();
-        let shutdown_notify = self.shutdown_notify.clone();
-        let is_running = self.is_running.clone();
-        let health_check_interval = self.config.health_check_interval;
+    /// Cancel all queued and active invocations for one principal.
+    async fn cancel_agent_runs(&self, agent_id: AgentId) -> Result<(), SchedulerError> {
+        let _dispatch = self.dispatch_lock.lock().await;
+        self.cancel_agent_runs_locked(agent_id).await
+    }
 
-        tokio::spawn(async move {
-            let mut interval = interval(health_check_interval);
-
-            loop {
-                tokio::select! {
-                    _ = interval.tick() => {
-                        if !*is_running.read() {
-                            break;
-                        }
-
-                        // Check health of running agents
-                        let mut failed_agents = Vec::new();
-                        for entry in running_agents.iter() {
-                            let agent_id = *entry.key();
-                            if (task_manager.check_task_health(agent_id).await).is_err() {
-                                failed_agents.push(agent_id);
-                            }
-                        }
-
-                        // Remove failed agents
-                        for agent_id in failed_agents {
-                            running_agents.remove(&agent_id);
-                            if let Err(e) = task_manager.terminate_task(agent_id).await {
-                                tracing::error!("Failed to terminate failed agent {}: {}", agent_id, e);
-                            }
-                        }
-                    }
-                    _ = shutdown_notify.notified() => {
-                        break;
-                    }
-                }
+    async fn cancel_agent_runs_locked(&self, agent_id: AgentId) -> Result<(), SchedulerError> {
+        if !self.registered_agents.contains_key(&agent_id) {
+            return Err(SchedulerError::AgentNotFound { agent_id });
+        }
+        {
+            let mut queue = self.priority_queue.write();
+            while let Some(task) = queue.remove(&agent_id) {
+                task.handle.cancel();
+                task.handle.finish(task_manager::TaskCompletion::new(
+                    &task,
+                    task_manager::TaskStatus::Terminated,
+                    Some("queued invocation cancelled".into()),
+                ));
             }
-        });
+        }
+        self.task_manager.terminate_task(agent_id).await?;
+        let runs: Vec<_> = self
+            .running_agents
+            .iter()
+            .filter(|t| t.agent_id == agent_id)
+            .map(|t| *t.key())
+            .collect();
+        for id in runs {
+            if let Some((_, allocation)) = self.allocations.remove(&id) {
+                self.load_balancer.deallocate_resources(allocation).await;
+            }
+            self.running_agents.remove(&id);
+        }
+        Ok(())
     }
 }
 
 #[async_trait]
 impl AgentScheduler for DefaultAgentScheduler {
-    async fn schedule_agent(&self, config: AgentConfig) -> Result<AgentId, SchedulerError> {
+    #[cfg(unix)]
+    fn invocation_project(&self) -> Result<&std::path::Path, String> {
+        self.task_manager.invocation_project()
+    }
+
+    async fn register_agent(&self, config: AgentConfig) -> Result<AgentId, SchedulerError> {
+        let _dispatch = self.dispatch_lock.lock().await;
         if !*self.is_running.read() {
             return Err(SchedulerError::ShuttingDown);
         }
-
-        // External agents are registered but never enqueued
+        let agent_id = config.id;
         #[cfg(feature = "http-api")]
-        if matches!(
-            config.execution_mode,
-            crate::types::agent::ExecutionMode::External { .. }
-        ) {
-            let agent_id = config.id;
-            self.registered_agents.insert(agent_id, config);
+        if matches!(config.execution_mode, ExecutionMode::External { .. }) {
             self.external_agents
-                .insert(agent_id, crate::api::types::ExternalAgentState::new());
-            tracing::info!("Registered external agent {} (not queued)", agent_id);
-            return Ok(agent_id);
+                .entry(agent_id)
+                .or_insert_with(crate::api::types::ExternalAgentState::new);
         }
-
-        let task = ScheduledTask::new(config.clone());
-        let agent_id = task.agent_id;
-
-        // Persist in the registry so the agent survives dequeue
         self.registered_agents.insert(agent_id, config);
-
-        // Add to priority queue
-        self.priority_queue.write().push(task);
-
-        tracing::info!("Scheduled agent {} for execution", agent_id);
         Ok(agent_id)
+    }
+
+    async fn schedule_agent(&self, config: AgentConfig) -> Result<AgentId, SchedulerError> {
+        if matches!(config.execution_mode, ExecutionMode::External { .. }) {
+            return self.register_agent(config).await;
+        }
+        let agent_id = config.id;
+        self.schedule_invocation(config, serde_json::Value::Null)
+            .await?;
+        Ok(agent_id)
+    }
+
+    async fn schedule_invocation(
+        &self,
+        config: AgentConfig,
+        input: serde_json::Value,
+    ) -> Result<task_manager::TaskHandle, SchedulerError> {
+        self.enqueue_invocation(
+            config,
+            input,
+            #[cfg(unix)]
+            None,
+        )
+        .await
+    }
+
+    #[cfg(unix)]
+    async fn schedule_identified_invocation(
+        &self,
+        config: AgentConfig,
+        input: serde_json::Value,
+        identity: invocations::InvocationIdentity,
+    ) -> Result<invocations::Admission, String> {
+        self.admit_identified(config, input, identity, None).await
+    }
+
+    #[cfg(unix)]
+    async fn schedule_identified_with_gate(
+        &self,
+        config: AgentConfig,
+        input: serde_json::Value,
+        identity: invocations::InvocationIdentity,
+        gate: Arc<dyn invocations::InvocationAdmissionGate>,
+    ) -> Result<invocations::Admission, String> {
+        self.admit_identified(config, input, identity, Some(gate))
+            .await
+    }
+
+    #[cfg(unix)]
+    async fn lookup_identified_invocation(
+        &self,
+        config: &AgentConfig,
+        input: &serde_json::Value,
+        identity: &invocations::InvocationIdentity,
+    ) -> Result<Option<crate::reasoning::invocation::ExistingInvocation>, String> {
+        let request = serde_json::json!({"version":1,"context":identity.context,"target":config,"input":input});
+        crate::reasoning::invocation::lookup_invocation(
+            self.task_manager.invocation_project()?,
+            "scheduler:v1",
+            identity.id,
+            &request,
+        )
+        .await
     }
 
     async fn reschedule_agent(
@@ -534,76 +750,30 @@ impl AgentScheduler for DefaultAgentScheduler {
             return Err(SchedulerError::ShuttingDown);
         }
 
-        // Check if agent is currently running
-        if let Some(mut entry) = self.running_agents.get_mut(&agent_id) {
-            entry.priority = priority;
-            return Ok(());
-        }
-
-        // Check if agent is in the queue
+        let _dispatch = self.dispatch_lock.lock().await;
         let mut queue = self.priority_queue.write();
-        if let Some(mut task) = queue.remove(&agent_id) {
+        let mut tasks = Vec::new();
+        while let Some(mut task) = queue.remove(&agent_id) {
             task.priority = priority;
-            queue.push(task);
-            return Ok(());
+            tasks.push(task);
         }
-
-        Err(SchedulerError::AgentNotFound { agent_id })
+        for task in tasks {
+            queue.push(task);
+        }
+        if let Some(mut config) = self.registered_agents.get_mut(&agent_id) {
+            config.priority = priority;
+            Ok(())
+        } else {
+            Err(SchedulerError::AgentNotFound { agent_id })
+        }
     }
 
     async fn terminate_agent(&self, agent_id: AgentId) -> Result<(), SchedulerError> {
-        // Remove from running agents
-        if let Some((_, _task)) = self.running_agents.remove(&agent_id) {
-            self.task_manager
-                .terminate_task(agent_id)
-                .await
-                .map_err(|e| SchedulerError::SchedulingFailed {
-                    agent_id,
-                    reason: format!("Failed to terminate task: {}", e).into(),
-                })?;
-
-            self.registered_agents.remove(&agent_id);
-            tracing::info!("Terminated agent {}", agent_id);
-            return Ok(());
-        }
-
-        // Remove from queue
-        let mut queue = self.priority_queue.write();
-        if queue.remove(&agent_id).is_some() {
-            drop(queue);
-            self.registered_agents.remove(&agent_id);
-            tracing::info!("Removed agent {} from queue", agent_id);
-            return Ok(());
-        }
-
-        Err(SchedulerError::AgentNotFound { agent_id })
+        self.cancel_agent_runs(agent_id).await
     }
 
     async fn shutdown_agent(&self, agent_id: AgentId) -> Result<(), SchedulerError> {
-        // Check if agent is currently running
-        if let Some((_, _task)) = self.running_agents.remove(&agent_id) {
-            // For graceful shutdown, we use the same task manager termination
-            // but could potentially add graceful shutdown signals in the future
-            self.task_manager
-                .terminate_task(agent_id)
-                .await
-                .map_err(|e| SchedulerError::SchedulingFailed {
-                    agent_id,
-                    reason: format!("Failed to shutdown task: {}", e).into(),
-                })?;
-
-            tracing::info!("Gracefully shutdown agent {}", agent_id);
-            return Ok(());
-        }
-
-        // Remove from queue if not running
-        let mut queue = self.priority_queue.write();
-        if queue.remove(&agent_id).is_some() {
-            tracing::info!("Removed agent {} from queue during shutdown", agent_id);
-            return Ok(());
-        }
-
-        Err(SchedulerError::AgentNotFound { agent_id })
+        self.cancel_agent_runs(agent_id).await
     }
 
     async fn get_system_status(&self) -> SystemStatus {
@@ -646,180 +816,76 @@ impl AgentScheduler for DefaultAgentScheduler {
             });
         }
 
-        // Check if agent is currently running
-        if let Some(entry) = self.running_agents.get(&agent_id) {
-            let scheduled_task = entry.value();
-
-            // Get detailed health information from task manager
-            match self.task_manager.check_task_health(agent_id).await {
-                Ok(task_health) => {
-                    // Map TaskStatus to AgentState
-                    let state = match task_health.status {
-                        task_manager::TaskStatus::Pending => AgentState::Ready,
-                        task_manager::TaskStatus::Running => AgentState::Running,
-                        task_manager::TaskStatus::Completed => AgentState::Completed,
-                        task_manager::TaskStatus::Failed => AgentState::Failed,
-                        task_manager::TaskStatus::TimedOut => AgentState::Failed,
-                        task_manager::TaskStatus::Terminated => AgentState::Terminated,
-                    };
-
-                    let active_tasks = if matches!(state, AgentState::Running) {
-                        1
-                    } else {
-                        0
-                    };
-
-                    Ok(AgentStatus {
-                        agent_id,
-                        state,
-                        last_activity: task_health.last_activity,
-                        memory_usage: task_health.memory_usage as u64,
-                        cpu_usage: task_health.cpu_usage as f64,
-                        active_tasks,
-                        scheduled_at: scheduled_task.scheduled_at,
-                    })
-                }
-                Err(_) => {
-                    // Agent exists but health check failed - might be in error state
-                    Ok(AgentStatus {
-                        agent_id,
-                        state: AgentState::Failed,
-                        last_activity: scheduled_task.scheduled_at,
-                        memory_usage: 0,
-                        cpu_usage: 0.0,
-                        active_tasks: 0,
-                        scheduled_at: scheduled_task.scheduled_at,
-                    })
-                }
+        if !self.registered_agents.contains_key(&agent_id) {
+            return Err(SchedulerError::AgentNotFound { agent_id });
+        }
+        let active_tasks = self
+            .running_agents
+            .iter()
+            .filter(|t| t.agent_id == agent_id && t.handle.completion().is_none())
+            .count() as u32;
+        let handle = self.latest_runs.get(&agent_id).map(|h| h.clone());
+        let health = handle.as_ref().map(task_manager::TaskHandle::get_health);
+        let state = if active_tasks > 0 {
+            AgentState::Running
+        } else if self.priority_queue.read().contains(&agent_id) {
+            AgentState::Waiting
+        } else if let Some(health) = &health {
+            match health.status {
+                task_manager::TaskStatus::Pending => AgentState::Waiting,
+                task_manager::TaskStatus::Running => AgentState::Running,
+                task_manager::TaskStatus::Completed => AgentState::Completed,
+                task_manager::TaskStatus::Terminated => AgentState::Terminated,
+                task_manager::TaskStatus::Failed
+                | task_manager::TaskStatus::TimedOut
+                | task_manager::TaskStatus::Unresolved => AgentState::Failed,
             }
         } else {
-            // Check if agent is in the queue
-            let queue = self.priority_queue.read();
-            if let Some(task) = queue.find(&agent_id) {
-                // Agent is queued but not yet running
-                Ok(AgentStatus {
-                    agent_id,
-                    state: AgentState::Waiting,
-                    last_activity: task.scheduled_at,
-                    memory_usage: 0,
-                    cpu_usage: 0.0,
-                    active_tasks: 0,
-                    scheduled_at: task.scheduled_at,
-                })
-            } else if self.registered_agents.contains_key(&agent_id) {
-                // Agent was registered but already ran and was dequeued
-                Ok(AgentStatus {
-                    agent_id,
-                    state: AgentState::Completed,
-                    last_activity: SystemTime::now(),
-                    memory_usage: 0,
-                    cpu_usage: 0.0,
-                    active_tasks: 0,
-                    scheduled_at: SystemTime::now(),
-                })
-            } else {
-                // Agent not found anywhere
-                Err(SchedulerError::AgentNotFound { agent_id })
-            }
-        }
+            AgentState::Ready
+        };
+        Ok(AgentStatus {
+            agent_id,
+            state,
+            active_tasks,
+            last_activity: health
+                .as_ref()
+                .map_or_else(SystemTime::now, |h| h.last_activity),
+            scheduled_at: SystemTime::now(),
+            memory_usage: 0,
+            cpu_usage: 0.0,
+        })
     }
 
     async fn shutdown(&self) -> Result<(), SchedulerError> {
-        // Check if already shutting down (idempotent)
         {
-            let is_running = self.is_running.read();
-            if !*is_running {
-                tracing::debug!("Scheduler already shutdown");
-                return Ok(());
-            }
-        }
-
-        tracing::info!("Initiating graceful scheduler shutdown");
-
-        // Set shutdown flag and notify background tasks
-        *self.is_running.write() = false;
-        self.shutdown_notify.notify_waiters();
-
-        // Step 1: Stop accepting new agents (already done by setting is_running=false)
-
-        // Step 2: Gracefully shutdown all running agents with timeout
-        let running_agent_ids: Vec<AgentId> = self
-            .running_agents
-            .iter()
-            .map(|entry| *entry.key())
-            .collect();
-
-        tracing::info!(
-            "Shutting down {} running agents gracefully",
-            running_agent_ids.len()
-        );
-
-        // First pass: attempt graceful shutdown
-        let graceful_timeout = Duration::from_secs(30);
-        let graceful_start = std::time::Instant::now();
-
-        for agent_id in &running_agent_ids {
-            if graceful_start.elapsed() >= graceful_timeout {
-                tracing::warn!(
-                    "Graceful shutdown timeout reached, switching to forced termination"
-                );
-                break;
-            }
-
-            // Use graceful shutdown method first
-            if let Err(e) = self.shutdown_agent(*agent_id).await {
-                tracing::warn!(
-                    "Failed to gracefully shutdown agent {}: {}, will force terminate",
-                    agent_id,
-                    e
-                );
-            }
-        }
-
-        // Wait a bit for agents to terminate gracefully
-        tokio::time::sleep(Duration::from_secs(5)).await;
-
-        // Step 3: Force terminate any remaining agents
-        let remaining_agent_ids: Vec<AgentId> = self
-            .running_agents
-            .iter()
-            .map(|entry| *entry.key())
-            .collect();
-
-        if !remaining_agent_ids.is_empty() {
-            tracing::warn!(
-                "Force terminating {} remaining agents",
-                remaining_agent_ids.len()
-            );
-
-            for agent_id in remaining_agent_ids {
-                if let Err(e) = self.terminate_agent(agent_id).await {
-                    tracing::error!(
-                        "Failed to force terminate agent {} during shutdown: {}",
-                        agent_id,
-                        e
-                    );
-                }
-            }
-        }
-
-        // Step 4: Flush metrics to persistent storage
-        self.flush_metrics().await?;
-
-        // Step 5: Release all allocated resources
-        self.cleanup_resources().await?;
-
-        // Step 6: Final cleanup of queued agents
-        {
+            let _dispatch = self.dispatch_lock.lock().await;
+            *self.is_running.write() = false;
+            self.shutdown_notify.notify_waiters();
             let mut queue = self.priority_queue.write();
-            let queued_count = queue.len();
-            if queued_count > 0 {
-                tracing::info!("Clearing {} queued agents", queued_count);
-                queue.clear();
+            while let Some(task) = queue.pop() {
+                task.handle.cancel();
+                task.handle.finish(task_manager::TaskCompletion::new(
+                    &task,
+                    task_manager::TaskStatus::Terminated,
+                    Some("scheduler shut down before execution".into()),
+                ));
+            }
+            for task in self.running_agents.iter() {
+                task.handle.cancel();
             }
         }
-
-        tracing::info!("Scheduler shutdown completed successfully");
+        let agents: std::collections::HashSet<_> =
+            self.running_agents.iter().map(|t| t.agent_id).collect();
+        let mut failure = None;
+        for agent_id in agents {
+            if let Err(error) = self.cancel_agent_runs(agent_id).await {
+                failure = Some(error);
+            }
+        }
+        self.flush_metrics().await?;
+        if let Some(error) = failure {
+            return Err(error);
+        }
         Ok(())
     }
 
@@ -839,7 +905,7 @@ impl AgentScheduler for DefaultAgentScheduler {
 
         let running_count = self.running_agents.len();
         let queue_len = self.priority_queue.read().len();
-        let load_factor = running_count as f64 / self.config.max_concurrent_agents as f64;
+        let load_factor = running_count as f64 / self.config.max_concurrent_agents.max(1) as f64;
 
         let status = if load_factor > 0.9 {
             ComponentHealth::degraded(format!(
@@ -887,42 +953,19 @@ impl AgentScheduler for DefaultAgentScheduler {
             return Err(SchedulerError::ShuttingDown);
         }
 
-        // Check if agent is currently running
-        if let Some(mut entry) = self.running_agents.get_mut(&agent_id) {
-            let task = entry.value_mut();
-
-            // Update the agent configuration
-            if let Some(name) = request.name {
-                task.config.name = name;
-            }
-
-            if let Some(dsl) = request.dsl {
-                task.config.dsl_source = dsl;
-            }
-
-            tracing::info!("Updated running agent {}", agent_id);
-            return Ok(());
+        // Existing invocations retain their admitted source/configuration snapshot.
+        let _dispatch = self.dispatch_lock.lock().await;
+        let mut config = self
+            .registered_agents
+            .get_mut(&agent_id)
+            .ok_or(SchedulerError::AgentNotFound { agent_id })?;
+        if let Some(name) = request.name {
+            config.name = name;
         }
-
-        // Check if agent is in the queue
-        let mut queue = self.priority_queue.write();
-        if let Some(mut task) = queue.remove(&agent_id) {
-            // Update the agent configuration
-            if let Some(name) = request.name {
-                task.config.name = name;
-            }
-
-            if let Some(dsl) = request.dsl {
-                task.config.dsl_source = dsl;
-            }
-
-            // Put it back in the queue
-            queue.push(task);
-            tracing::info!("Updated queued agent {}", agent_id);
-            return Ok(());
+        if let Some(dsl) = request.dsl {
+            config.dsl_source = dsl;
         }
-
-        Err(SchedulerError::AgentNotFound { agent_id })
+        Ok(())
     }
 
     fn has_agent(&self, agent_id: AgentId) -> bool {
@@ -934,28 +977,14 @@ impl AgentScheduler for DefaultAgentScheduler {
     }
 
     async fn delete_agent(&self, agent_id: AgentId) -> Result<(), SchedulerError> {
-        // Remove from running agents if present
-        if let Some((_, _)) = self.running_agents.remove(&agent_id) {
-            let _ = self.task_manager.terminate_task(agent_id).await;
-        }
-
-        // Remove from queue if present
-        {
-            let mut queue = self.priority_queue.write();
-            queue.remove(&agent_id);
-        }
-
-        // Remove external agent state if present
+        let _dispatch = self.dispatch_lock.lock().await;
+        self.cancel_agent_runs_locked(agent_id).await?;
         #[cfg(feature = "http-api")]
         self.external_agents.remove(&agent_id);
-
-        // Remove from registry
-        if self.registered_agents.remove(&agent_id).is_some() {
-            tracing::info!("Deleted agent {} from registry", agent_id);
-            Ok(())
-        } else {
-            Err(SchedulerError::AgentNotFound { agent_id })
-        }
+        self.registered_agents.remove(&agent_id);
+        self.latest_runs.remove(&agent_id);
+        self.suspended_agents.remove(&agent_id);
+        Ok(())
     }
 
     #[cfg(feature = "http-api")]
@@ -1074,7 +1103,7 @@ impl DefaultAgentScheduler {
     /// Build a point-in-time metrics snapshot from all scheduler components.
     async fn build_metrics_snapshot(
         priority_queue: &Arc<RwLock<PriorityQueue<ScheduledTask>>>,
-        running_agents: &Arc<DashMap<AgentId, ScheduledTask>>,
+        running_agents: &Arc<DashMap<uuid::Uuid, ScheduledTask>>,
         suspended_agents: &Arc<DashMap<AgentId, AgentSuspensionInfo>>,
         system_metrics: &Arc<RwLock<SystemMetrics>>,
         task_manager: &Arc<TaskManager>,
@@ -1175,98 +1204,54 @@ impl DefaultAgentScheduler {
         Ok(())
     }
 
-    /// Clean up all allocated resources
-    async fn cleanup_resources(&self) -> Result<(), SchedulerError> {
-        tracing::debug!("Cleaning up allocated resources");
-
-        // Get all allocated agents and their resource allocations
-        let allocated_agents: Vec<AgentId> = self
-            .running_agents
-            .iter()
-            .map(|entry| *entry.key())
-            .collect();
-
-        // For each agent, ensure resources are properly deallocated
-        for agent_id in allocated_agents {
-            // Create a dummy allocation for cleanup
-            // In a real implementation, we'd track actual allocations
-            let allocation = ResourceAllocation {
-                agent_id,
-                allocated_memory: 0, // Would be tracked from actual allocation
-                allocated_cpu_cores: 0.0,
-                allocated_disk_io: 0,
-                allocated_network_io: 0,
-                allocation_time: SystemTime::now(),
-            };
-
-            self.load_balancer.deallocate_resources(allocation).await;
-        }
-
-        // Additional cleanup for task manager resources
-        // The task manager will handle process cleanup in its own termination methods
-
-        tracing::debug!("Resource cleanup completed");
-        Ok(())
-    }
-
-    /// Suspend an agent (moves from running to suspended state)
+    /// Suspension cancels the current invocation; resume starts a distinct run.
     pub async fn suspend_agent(
         &self,
         agent_id: AgentId,
         reason: String,
     ) -> Result<(), SchedulerError> {
-        if let Some((_, task)) = self.running_agents.remove(&agent_id) {
-            // Stop the task
-            if let Err(e) = self.task_manager.terminate_task(agent_id).await {
-                tracing::error!("Failed to terminate task during suspension: {}", e);
-                // Put the agent back in running state if we can't stop it
-                self.running_agents.insert(agent_id, task);
-                return Err(SchedulerError::SchedulingFailed {
-                    agent_id,
-                    reason: format!("Failed to suspend agent: {}", e).into(),
-                });
-            }
-
-            // Create suspension info
-            let suspension_info = AgentSuspensionInfo {
+        let tasks: Vec<_> = self
+            .running_agents
+            .iter()
+            .filter(|t| t.agent_id == agent_id)
+            .map(|t| t.value().clone())
+            .collect();
+        if tasks.len() != 1 {
+            return Err(SchedulerError::SchedulingFailed {
+                agent_id,
+                reason: "suspension requires exactly one active invocation".into(),
+            });
+        }
+        self.cancel_agent_runs(agent_id).await?;
+        self.suspended_agents.insert(
+            agent_id,
+            AgentSuspensionInfo {
                 agent_id,
                 suspended_at: SystemTime::now(),
-                suspension_reason: reason.clone(),
-                original_task: task,
+                suspension_reason: reason,
+                original_task: tasks.into_iter().next().unwrap(),
                 can_resume: true,
-            };
-
-            // Store in suspended agents
-            self.suspended_agents.insert(agent_id, suspension_info);
-
-            tracing::info!("Suspended agent {} with reason: {}", agent_id, reason);
-            Ok(())
-        } else {
-            Err(SchedulerError::AgentNotFound { agent_id })
-        }
+            },
+        );
+        Ok(())
     }
 
-    /// Resume a suspended agent
     pub async fn resume_agent(&self, agent_id: AgentId) -> Result<(), SchedulerError> {
-        if let Some((_, suspension_info)) = self.suspended_agents.remove(&agent_id) {
-            if !suspension_info.can_resume {
-                return Err(SchedulerError::SchedulingFailed {
-                    agent_id,
-                    reason: "Agent cannot be resumed".into(),
-                });
-            }
-
-            // Add back to priority queue for scheduling
-            let mut task = suspension_info.original_task;
-            task.scheduled_at = SystemTime::now(); // Update schedule time
-
-            self.priority_queue.write().push(task);
-
-            tracing::info!("Resumed agent {} from suspension", agent_id);
-            Ok(())
-        } else {
-            Err(SchedulerError::AgentNotFound { agent_id })
+        let info = self
+            .suspended_agents
+            .get(&agent_id)
+            .map(|r| r.clone())
+            .ok_or(SchedulerError::AgentNotFound { agent_id })?;
+        if !info.can_resume {
+            return Err(SchedulerError::SchedulingFailed {
+                agent_id,
+                reason: "agent cannot be resumed".into(),
+            });
         }
+        self.schedule_invocation(info.original_task.config, info.original_task.input)
+            .await?;
+        self.suspended_agents.remove(&agent_id);
+        Ok(())
     }
 
     /// Get list of suspended agents
@@ -1275,6 +1260,25 @@ impl DefaultAgentScheduler {
             .iter()
             .map(|entry| entry.value().clone())
             .collect()
+    }
+}
+
+impl Drop for DefaultAgentScheduler {
+    fn drop(&mut self) {
+        *self.is_running.write() = false;
+        self.shutdown_notify.notify_waiters();
+        let mut queue = self.priority_queue.write();
+        while let Some(task) = queue.pop() {
+            task.handle.cancel();
+            task.handle.finish(task_manager::TaskCompletion::new(
+                &task,
+                task_manager::TaskStatus::Terminated,
+                Some("scheduler owner dropped before execution".into()),
+            ));
+        }
+        for task in self.running_agents.iter() {
+            task.handle.cancel();
+        }
     }
 }
 
@@ -1432,5 +1436,230 @@ mod tests {
 
         let entry = scheduler.external_agents.get(&agent_id).unwrap();
         assert_eq!(entry.reported_state, crate::types::AgentState::Unreachable);
+    }
+    struct BlockingFixture {
+        started: std::sync::atomic::AtomicUsize,
+    }
+    #[async_trait]
+    impl execution::ScheduledAgentExecutor for BlockingFixture {
+        async fn execute(
+            &self,
+            task: &ScheduledTask,
+            _: Duration,
+            cancellation: tokio_util::sync::CancellationToken,
+        ) -> task_manager::TaskCompletion {
+            self.started
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if task.input == serde_json::json!("wait") {
+                cancellation.cancelled().await;
+                task_manager::TaskCompletion::new(task, task_manager::TaskStatus::Terminated, None)
+            } else {
+                let mut result = task_manager::TaskCompletion::new(
+                    task,
+                    task_manager::TaskStatus::Completed,
+                    None,
+                );
+                result.output = Some(task.input.to_string());
+                result
+            }
+        }
+    }
+    async fn wait_started(executor: &BlockingFixture, expected: usize) {
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while executor.started.load(std::sync::atomic::Ordering::SeqCst) < expected {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+    #[tokio::test]
+    async fn registration_has_no_effect_and_repeated_runs_release_exact_resources() {
+        let executor = Arc::new(BlockingFixture {
+            started: Default::default(),
+        });
+        let scheduler = DefaultAgentScheduler::new_with_executor(
+            SchedulerConfig::default(),
+            None,
+            executor.clone(),
+        )
+        .await
+        .unwrap();
+        let config = make_test_config();
+        scheduler.register_agent(config.clone()).await.unwrap();
+        assert_eq!(
+            scheduler.get_agent_status(config.id).await.unwrap().state,
+            AgentState::Ready
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(
+            executor.started.load(std::sync::atomic::Ordering::SeqCst),
+            0
+        );
+        let first = scheduler
+            .schedule_invocation(config.clone(), serde_json::json!("wait"))
+            .await
+            .unwrap();
+        let second = scheduler
+            .schedule_invocation(config.clone(), serde_json::json!("wait"))
+            .await
+            .unwrap();
+        wait_started(&executor, 2).await;
+        assert_ne!(first.run_id(), second.run_id());
+        assert_eq!(
+            scheduler
+                .get_agent_status(config.id)
+                .await
+                .unwrap()
+                .active_tasks,
+            2
+        );
+        assert_eq!(
+            scheduler
+                .load_balancer
+                .get_statistics()
+                .await
+                .active_allocations,
+            2
+        );
+        scheduler.terminate_agent(config.id).await.unwrap();
+        assert_eq!(
+            first.wait().await.status,
+            task_manager::TaskStatus::Terminated
+        );
+        assert_eq!(
+            second.wait().await.status,
+            task_manager::TaskStatus::Terminated
+        );
+        assert_eq!(
+            scheduler
+                .load_balancer
+                .get_statistics()
+                .await
+                .active_allocations,
+            0
+        );
+        let final_run = scheduler
+            .execute_agent(config.clone(), serde_json::json!("payload"))
+            .await
+            .unwrap();
+        assert_eq!(final_run.output.as_deref(), Some("\"payload\""));
+        scheduler.shutdown().await.unwrap();
+        assert_eq!(
+            scheduler
+                .load_balancer
+                .get_statistics()
+                .await
+                .active_allocations,
+            0
+        );
+    }
+    #[tokio::test]
+    async fn queued_runs_expire_or_cancel_without_execution() {
+        let executor = Arc::new(BlockingFixture {
+            started: Default::default(),
+        });
+        let scheduler = DefaultAgentScheduler::new_with_executor(
+            SchedulerConfig {
+                max_concurrent_agents: 0,
+                task_timeout: Duration::from_millis(100),
+                ..Default::default()
+            },
+            None,
+            executor.clone(),
+        )
+        .await
+        .unwrap();
+        let config = make_test_config();
+        let first = scheduler
+            .schedule_invocation(config.clone(), serde_json::Value::Null)
+            .await
+            .unwrap();
+        let second = scheduler
+            .schedule_invocation(config, serde_json::Value::Null)
+            .await
+            .unwrap();
+        second.cancel();
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(2), first.wait())
+                .await
+                .unwrap()
+                .status,
+            task_manager::TaskStatus::TimedOut
+        );
+        assert_eq!(
+            second.wait().await.status,
+            task_manager::TaskStatus::Terminated
+        );
+        assert_eq!(
+            executor.started.load(std::sync::atomic::Ordering::SeqCst),
+            0
+        );
+        scheduler.shutdown().await.unwrap();
+    }
+    #[tokio::test]
+    async fn deletion_resolves_every_queued_handle_and_prevents_dispatch() {
+        let executor = Arc::new(BlockingFixture {
+            started: Default::default(),
+        });
+        let scheduler = DefaultAgentScheduler::new_with_executor(
+            SchedulerConfig {
+                max_concurrent_agents: 0,
+                ..Default::default()
+            },
+            None,
+            executor.clone(),
+        )
+        .await
+        .unwrap();
+        let config = make_test_config();
+        let first = scheduler
+            .schedule_invocation(config.clone(), serde_json::Value::Null)
+            .await
+            .unwrap();
+        let second = scheduler
+            .schedule_invocation(config.clone(), serde_json::Value::Null)
+            .await
+            .unwrap();
+        scheduler.delete_agent(config.id).await.unwrap();
+        assert!(!scheduler.has_agent(config.id));
+        for handle in [first, second] {
+            assert_eq!(
+                handle.wait().await.status,
+                task_manager::TaskStatus::Terminated
+            );
+        }
+        assert_eq!(
+            executor.started.load(std::sync::atomic::Ordering::SeqCst),
+            0
+        );
+        scheduler.shutdown().await.unwrap();
+    }
+    #[tokio::test]
+    async fn failed_execution_remains_failed_after_dequeue() {
+        let scheduler = DefaultAgentScheduler::new(SchedulerConfig::default())
+            .await
+            .unwrap();
+        let config = make_test_config();
+        let result = scheduler
+            .execute_agent(config.clone(), serde_json::Value::Null)
+            .await
+            .unwrap();
+        assert_eq!(result.status, task_manager::TaskStatus::Failed);
+        assert!(result.output.is_none());
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(
+            scheduler.get_agent_status(config.id).await.unwrap().state,
+            AgentState::Failed
+        );
+        assert_eq!(
+            scheduler
+                .load_balancer
+                .get_statistics()
+                .await
+                .active_allocations,
+            0
+        );
+        scheduler.shutdown().await.unwrap();
     }
 }

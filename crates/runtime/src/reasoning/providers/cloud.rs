@@ -27,6 +27,68 @@ fn map_anthropic_stop_reason(stop_reason: &str, has_tool_calls: bool) -> FinishR
     }
 }
 
+fn parse_token_usage(
+    value: Option<&serde_json::Value>,
+    anthropic: bool,
+) -> Result<Usage, InferenceError> {
+    let Some(value) = value.filter(|value| !value.is_null()) else {
+        return Ok(Usage::default());
+    };
+    if !value.is_object() {
+        return Err(InferenceError::ParseError("usage must be an object".into()));
+    }
+    let count = |key: &str| -> Result<Option<u32>, InferenceError> {
+        value
+            .get(key)
+            .map(|value| {
+                value
+                    .as_u64()
+                    .and_then(|n| u32::try_from(n).ok())
+                    .ok_or_else(|| {
+                        InferenceError::ParseError(format!("invalid token count: {key}"))
+                    })
+            })
+            .transpose()
+    };
+    let (input, output, total) = if anthropic {
+        let input = count("input_tokens")?;
+        let output = count("output_tokens")?;
+        let creation = count("cache_creation_input_tokens")?.unwrap_or(0);
+        let read = count("cache_read_input_tokens")?.unwrap_or(0);
+        let (Some(input), Some(output)) = (input, output) else {
+            return Ok(Usage::default());
+        };
+        let input = input
+            .checked_add(creation)
+            .and_then(|n| n.checked_add(read))
+            .ok_or_else(|| InferenceError::ParseError("input token count overflow".into()))?;
+        let total = input
+            .checked_add(output)
+            .ok_or_else(|| InferenceError::ParseError("total token count overflow".into()))?;
+        (input, output, total)
+    } else {
+        let (input, output, total) = (
+            count("prompt_tokens")?,
+            count("completion_tokens")?,
+            count("total_tokens")?,
+        );
+        let (Some(input), Some(output), Some(total)) = (input, output, total) else {
+            return Ok(Usage::default());
+        };
+        if input.checked_add(output).is_none_or(|sum| sum > total) {
+            return Err(InferenceError::ParseError(
+                "inconsistent total token count".into(),
+            ));
+        }
+        (input, output, total)
+    };
+    Ok(Usage {
+        prompt_tokens: input,
+        completion_tokens: output,
+        total_tokens: total,
+    })
+}
+
 /// Cloud inference provider wrapping `LlmClient`.
 pub struct CloudInferenceProvider {
     client: LlmClient,
@@ -298,17 +360,7 @@ impl CloudInferenceProvider {
             }
         };
 
-        let usage = resp
-            .get("usage")
-            .map(|u| Usage {
-                prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-                completion_tokens: u
-                    .get("completion_tokens")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as u32,
-                total_tokens: u.get("total_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-            })
-            .unwrap_or_default();
+        let usage = parse_token_usage(resp.get("usage"), false)?;
 
         let actual_model = resp
             .get("model")
@@ -389,18 +441,7 @@ impl CloudInferenceProvider {
             );
         }
 
-        let usage = resp
-            .get("usage")
-            .map(|u| {
-                let input = u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-                let output = u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-                Usage {
-                    prompt_tokens: input,
-                    completion_tokens: output,
-                    total_tokens: input + output,
-                }
-            })
-            .unwrap_or_default();
+        let usage = parse_token_usage(resp.get("usage"), true)?;
 
         let actual_model = resp
             .get("model")
@@ -420,6 +461,22 @@ impl CloudInferenceProvider {
 
 #[async_trait]
 impl InferenceProvider for CloudInferenceProvider {
+    fn input_token_reservation(
+        &self,
+        conversation: &Conversation,
+        options: &InferenceOptions,
+    ) -> Result<u32, InferenceError> {
+        // Include the actual provider tool/schema wrappers as well as messages.
+        let body = if matches!(self.client.provider(), LlmProvider::Anthropic) {
+            self.build_anthropic_body(conversation, options)
+        } else {
+            self.build_openai_body(conversation, options)
+        };
+        let bytes = serde_json::to_vec(&body)
+            .map_err(|error| InferenceError::InvalidRequest(error.to_string()))?;
+        input_reservation_from_bytes(bytes.len())
+    }
+
     async fn complete(
         &self,
         conversation: &Conversation,
@@ -639,6 +696,31 @@ impl InferenceProvider for CloudInferenceProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn token_accounting_includes_cached_input_and_rejects_counter_truncation() {
+        let cached = serde_json::json!({"input_tokens":10,"output_tokens":5,"cache_creation_input_tokens":100,"cache_read_input_tokens":1000});
+        let usage = parse_token_usage(Some(&cached), true).unwrap();
+        assert_eq!(usage.prompt_tokens, 1110);
+        assert_eq!(usage.total_tokens, 1115);
+        for value in [
+            serde_json::json!({"prompt_tokens":4294967296u64,"completion_tokens":1,"total_tokens":4294967297u64}),
+            serde_json::json!({"prompt_tokens":10,"completion_tokens":5,"total_tokens":3}),
+            serde_json::json!({"prompt_tokens":-1,"completion_tokens":5,"total_tokens":3}),
+        ] {
+            assert!(parse_token_usage(Some(&value), false).is_err());
+        }
+        let overflow = serde_json::json!({"input_tokens":4294967295u64,"output_tokens":1});
+        assert!(parse_token_usage(Some(&overflow), true).is_err());
+        let missing = serde_json::json!({"prompt_tokens":10});
+        assert_eq!(
+            parse_token_usage(Some(&missing), false)
+                .unwrap()
+                .total_tokens,
+            0
+        );
+    }
+
     use crate::reasoning::conversation::{ConversationMessage, ToolCall};
     use serial_test::serial;
 

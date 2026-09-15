@@ -24,6 +24,11 @@
 
 Symbiont is a Rust-native runtime for executing AI agents and tools under explicit policy, identity, and audit controls.
 
+> **Containment branch:** See the [operator guide](docs/containment-branch-guide.md)
+> for the CLI, TUI, chat, audit and scheduling changes on `fix/containment-boundary`.
+> It includes migration steps and the remaining gaps; full containment across all
+> entry points is not established. These changes are not a published-release claim.
+
 Most agent frameworks focus on orchestration. Symbiont focuses on what happens when agents need to run in real environments with real risk: untrusted tools, sensitive data, approval boundaries, audit requirements, and repeatable enforcement.
 
 ---
@@ -54,7 +59,7 @@ Symbiont is the **reference implementation of the [Open Agent Trust Stack (OATS)
 | **Layer 2 — Tool Contracts** | [ToolClad](https://github.com/ThirdKeyAI/ToolClad) declarative `.clad.toml` manifests + the `agent_summary` typestate fence in `crates/runtime/src/toolclad/`. See [Wanger 2026 / DOI 10.5281/zenodo.19957596](https://doi.org/10.5281/zenodo.19957596). |
 | **Layer 3 — Identity** | [SchemaPin](https://github.com/ThirdKeyAI/SchemaPin) for MCP tools + [AgentPin](https://github.com/ThirdKeyAI/AgentPin) ES256 domain-anchored agent identity. |
 | **Layer 4 — Policy Engine** | Cedar policy gate (`crates/runtime/src/reasoning/cedar_gate.rs`) + `CommunicationPolicyGate` for inter-agent calls; both fail-closed by default since v1.14.0. |
-| **Layer 5 — Audit Journal** | Hash-chained, Ed25519-signed `BufferedJournal` in the reasoning loop; encrypted model-I/O logs in `crates/runtime/src/logging.rs`. |
+| **Layer 5 — Audit Journal** | Required protected, hash-chained, Ed25519-signed journals for ordinary/managed CLI, HTTP, scheduled ORGA and default DSL `reason()`/`tool_call()` runs; other default paths still need migration. See [run audit](docs/run-audit.md). |
 
 Symbiont conforms to **OATS Extended** (C1–C7 + E1–E8). The empirical comparison of structural-enforcement runtimes that informs the spec is [Wanger 2026 / DOI 10.5281/zenodo.20043247](https://doi.org/10.5281/zenodo.20043247).
 
@@ -211,9 +216,9 @@ symbi new <template> <project-name>
 orchestrator in natural language; it delegates sub-tasks to the right agent
 through the governed communication path (every delegation is policy-checked and
 audited). Manage the fleet with `/agents list`, `/agents load <dir>`, and
-`/agents reload`. `.symbi` agent definitions carry policy and sandbox constraints;
-loading and running them with those constraints enforced is on the roadmap, so for
-now they are detected and reported as deferred rather than loaded.
+`/agents reload`. `.symbi` and legacy `.dsl` declarations can register conversational fleet agents.
+Explicit sandbox declarations remain refused pending canonical per-agent boundary
+binding; this fleet surface does not execute their behavior steps.
 
 You can also address one agent directly: `@<name> <message>` holds a governed,
 multi-turn conversation with that agent (its own thread, separate from the
@@ -223,11 +228,15 @@ Direct messages are policy-checked and audited exactly like orchestrator-routed
 delegation.
 
 The orchestrator also has governed tools: read-only `read_file` / `search`
-(repo-rooted, path-sanitized), and mutating `edit_file` plus an optional `shell`.
+(relative to explicit `/workspace` data mounts), and mutating `edit_file`,
+`save_artifact` plus an optional `shell`. File and command effects use the selected
+Docker/gVisor worker; each turn requires protected signed audit.
 Mutating tools require **human approval** — each call is held in the Gate panel
-(`Ctrl+G` to review, `a` approve / `d` deny; fail-closed on timeout). `shell`
+(`Ctrl+G` opens the queue, Enter reviews the complete request, then `a` approves
+or `d` denies; the held action fails closed on expiry). `shell`
 (arbitrary command execution) is **off by default** and only available when the
-shell is started with `--allow-shell`.
+shell is started with `--allow-shell`. `--yes` does not bypass runtime approval.
+See [workspace setup and audit UX](docs/shell-containment.md).
 
 ---
 

@@ -3,6 +3,7 @@
 //! Provides secure MCP client implementation with schema verification
 
 pub mod client;
+pub mod project;
 #[cfg(feature = "mcp-client")]
 pub mod registry;
 #[cfg(feature = "mcp-client")]

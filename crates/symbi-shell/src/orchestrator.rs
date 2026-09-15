@@ -4,6 +4,7 @@
 //! raw LLM calls. This ensures every action (including artifact generation)
 //! passes through Cedar policy gates and is recorded in the audit journal.
 
+use crate::turn_audit::{TurnAudit, TurnRuntime};
 use anyhow::{anyhow, Result};
 use std::sync::Arc;
 use symbi_runtime::reasoning::conversation::{
@@ -11,11 +12,9 @@ use symbi_runtime::reasoning::conversation::{
 };
 use symbi_runtime::reasoning::executor::ActionExecutor;
 use symbi_runtime::reasoning::inference::InferenceProvider;
-use symbi_runtime::reasoning::loop_types::{
-    BufferedJournal, JournalWriter, LoopConfig, TerminationReason,
-};
+use symbi_runtime::reasoning::loop_types::{BufferedJournal, LoopConfig, TerminationReason};
 use symbi_runtime::reasoning::policy_bridge::ReasoningPolicyGate;
-use symbi_runtime::reasoning::reasoning_loop::ReasoningLoopRunner;
+use symbi_runtime::reasoning::run_audit::RunAuditReference;
 use symbi_runtime::types::AgentId;
 
 /// Token budget for the orchestrator's conversation history.
@@ -51,6 +50,8 @@ You have tools available:
 - save_artifact: Save a validated artifact to disk
 - list_agents: List all running agents
 
+File paths refer to explicitly mounted data under /workspace in the selected sandbox. Generated artifacts are saved there. Writes and shell commands require the runtime's exact-call approval, including in --yes mode.
+
 When the user asks you to create an artifact (agent, policy, tool manifest):
 1. Generate the appropriate DSL/Cedar/TOML.
 2. Call the matching validate_* tool; if it reports errors, fix the artifact and re-validate until it passes.
@@ -64,12 +65,12 @@ Keep responses concise and actionable. You are running inside symbi shell — a 
 
 /// The orchestrator manages the ORGA-governed conversation loop.
 pub struct Orchestrator {
-    runner: ReasoningLoopRunner,
+    runtime: TurnRuntime,
     conversation: Conversation,
     model_name: String,
     agent_id: AgentId,
-    #[allow(dead_code)] // used by /audit command (Task 25)
-    journal: Arc<BufferedJournal>,
+    audit: Arc<TurnAudit>,
+    timeout: Option<std::time::Duration>,
     /// The system prompt in effect for this orchestrator — the base
     /// constant plus any runtime addenda (e.g. `--yes` auto-approve).
     /// Stored so `/clear` can rebuild a fresh conversation with the
@@ -85,13 +86,13 @@ pub struct Orchestrator {
 /// "looks good" reply.
 const AUTO_APPROVE_ADDENDUM: &str = r#"
 
-The user launched symbi-shell with --yes (auto-approve mode): every save/create/scaffold request is pre-approved. Do not present artifacts for review — call save_artifact immediately for every artifact that passes validation. Skip the "present for review" branch entirely."#;
+The user launched symbi-shell with --yes: call save_artifact for each artifact that passes validation without a separate conversational review. The runtime still obtains any required exact-call approval before execution."#;
 
 impl Orchestrator {
     /// Create a new orchestrator with ORGA loop governance.
     ///
-    /// `auto_approve` comes from the shell's `--yes` CLI flag; when set,
-    /// the system prompt is extended so the model saves without asking.
+    /// `auto_approve` comes from the shell's `--yes` conversational flag; when set,
+    /// the prompt skips conversational confirmation while runtime approval remains mandatory.
     ///
     /// `policy_gate` governs every proposed action in the reasoning loop.
     /// The caller is responsible for supplying a real gate (e.g. a
@@ -111,21 +112,22 @@ impl Orchestrator {
             SYSTEM_PROMPT.to_string()
         };
         let conversation = Conversation::with_system(&prompt);
-        let journal = Arc::new(BufferedJournal::new(1000));
-
-        let runner = ReasoningLoopRunner::builder()
-            .provider(provider)
-            .executor(executor)
-            .policy_gate(policy_gate)
-            .journal(Arc::clone(&journal) as Arc<dyn JournalWriter>)
-            .build();
+        let runtime = TurnRuntime {
+            provider,
+            executor,
+            gate: policy_gate,
+            project: std::env::current_dir()
+                .and_then(|path| path.canonicalize())
+                .map_err(|error| error.to_string()),
+        };
 
         Self {
-            runner,
+            runtime,
             conversation,
             model_name,
             agent_id: AgentId::new(),
-            journal,
+            audit: Arc::new(TurnAudit::default()),
+            timeout: None,
             system_prompt: prompt,
         }
     }
@@ -142,19 +144,22 @@ impl Orchestrator {
     ) -> Self {
         let model_name = provider.default_model().to_string();
         let conversation = Conversation::with_system(system_prompt);
-        let journal = Arc::new(BufferedJournal::new(1000));
-        let runner = ReasoningLoopRunner::builder()
-            .provider(provider)
-            .executor(executor)
-            .policy_gate(policy_gate)
-            .journal(Arc::clone(&journal) as Arc<dyn JournalWriter>)
-            .build();
+        let runtime = TurnRuntime {
+            provider,
+            executor,
+            gate: policy_gate,
+            project: std::env::current_dir()
+                .and_then(|path| path.canonicalize())
+                .map_err(|error| error.to_string()),
+        };
+
         Self {
-            runner,
+            runtime,
             conversation,
             model_name,
             agent_id: AgentId::new(),
-            journal,
+            audit: Arc::new(TurnAudit::default()),
+            timeout: None,
             system_prompt: system_prompt.to_string(),
         }
     }
@@ -186,39 +191,46 @@ impl Orchestrator {
         // conversation.
         let turn_start = self.conversation.messages().len();
 
-        let config = LoopConfig {
+        let mut config = LoopConfig {
             max_iterations: LOOP_MAX_ITERATIONS,
             max_total_tokens: LOOP_TOKEN_BUDGET,
             context_token_budget: CONTEXT_TOKEN_BUDGET,
             temperature: 0.3,
             ..LoopConfig::default()
         };
-
-        // Transient-error retry: on a 429 / rate-limit / 5xx / timeout,
-        // wait briefly and retry once with the same model. Keeps common
-        // provider hiccups from failing the whole turn. Multi-model
-        // fallback would need a runner-API change; keeping that out of
-        // scope until there's a concrete user need.
-        const RETRY_BACKOFF: std::time::Duration = std::time::Duration::from_millis(1500);
-        let mut result = self
-            .runner
-            .run(self.agent_id, self.conversation.clone(), config.clone())
-            .await;
-        if is_transient_error(&result.termination_reason) {
-            tracing::warn!(
-                "orchestrator: transient error ({}), retrying after {:?}",
-                describe_termination(&result.termination_reason),
-                RETRY_BACKOFF,
-            );
-            tokio::time::sleep(RETRY_BACKOFF).await;
-            result = self
-                .runner
-                .run(self.agent_id, self.conversation.clone(), config)
-                .await;
+        if let Some(timeout) = self.timeout {
+            config.timeout = config.timeout.min(timeout);
         }
 
+        // A new protected run owns every turn. Retrying the whole loop after a
+        // provider failure could replay earlier effects, so retries are explicit.
+        let (result, audit) = self
+            .runtime
+            .run(
+                self.agent_id,
+                self.conversation.clone(),
+                config,
+                self.audit.clone(),
+            )
+            .await
+            .map_err(|error| anyhow!(error))?;
         // Update our conversation with the full history from the loop.
-        self.conversation = result.conversation;
+        if !result.conversation.messages().is_empty() {
+            self.conversation = result.conversation;
+        }
+
+        if !matches!(result.termination_reason, TerminationReason::Completed) {
+            let message = match &result.termination_reason {
+                TerminationReason::Error { message } => message.clone(),
+                reason => format!("Shell turn did not complete: {reason:?}"),
+            };
+            return Err(anyhow!(
+                "{message}; audit run {} at {} (public key {})",
+                audit.run_id,
+                audit.path.display(),
+                audit.public_key
+            ));
+        }
 
         // Fallback path: if the loop terminated without writing a final
         // `Respond` output (most commonly MaxTokens / MaxIterations /
@@ -228,7 +240,16 @@ impl Orchestrator {
         // a visible note about why it stopped, rather than having to
         // retry from a blank slate.
         if result.output.is_empty() {
-            if let Some(msg) = self.conversation.last_assistant_message() {
+            if let Some(msg) = self
+                .conversation
+                .messages()
+                .iter()
+                .skip(turn_start)
+                .rev()
+                .find(|msg| {
+                    msg.role == symbi_runtime::reasoning::conversation::MessageRole::Assistant
+                })
+            {
                 let mut content = msg.content.clone();
                 if content.trim().is_empty() {
                     content = format!(
@@ -247,11 +268,12 @@ impl Orchestrator {
                     iterations: result.iterations,
                     duration_ms: result.duration.as_millis() as u64,
                     tool_calls: extract_tool_calls(&self.conversation, turn_start),
+                    audit: Some(audit.clone()),
                 });
             }
             return Err(anyhow!(
-                "Orchestrator produced no output ({}). Try /compact, /clear, or rephrasing.",
-                describe_termination(&result.termination_reason),
+                "Orchestrator produced no output ({}); audit run {} at {} (public key {}). Try /compact, /clear, or rephrasing.",
+                describe_termination(&result.termination_reason), audit.run_id, audit.path.display(), audit.public_key,
             ));
         }
 
@@ -261,7 +283,36 @@ impl Orchestrator {
             iterations: result.iterations,
             duration_ms: result.duration.as_millis() as u64,
             tool_calls: extract_tool_calls(&self.conversation, turn_start),
+            audit: Some(audit),
         })
+    }
+
+    pub fn with_audit(mut self, audit: Arc<TurnAudit>) -> Self {
+        self.audit = audit;
+        self
+    }
+
+    pub fn with_timeout(mut self, timeout: Option<std::time::Duration>) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    pub fn audit_display(&self) -> Arc<TurnAudit> {
+        self.audit.clone()
+    }
+
+    pub fn with_project_root(mut self, project: Result<std::path::PathBuf, String>) -> Self {
+        self.runtime.project = project;
+        self
+    }
+
+    pub fn with_principal(mut self, agent_id: AgentId) -> Self {
+        self.agent_id = agent_id;
+        self
+    }
+
+    pub fn audit_references(&self) -> Result<crate::turn_audit::AuditReferences, String> {
+        self.audit.references()
     }
 
     /// Get the model name for display.
@@ -271,7 +322,7 @@ impl Orchestrator {
 
     /// Get the journal for audit display / live event streaming.
     pub fn journal(&self) -> &Arc<BufferedJournal> {
-        &self.journal
+        &self.audit.display
     }
 
     /// Get current conversation token estimate.
@@ -317,6 +368,8 @@ impl Orchestrator {
 
 /// Response from the orchestrator — one turn of the ORGA loop.
 pub struct OrchestratorResponse {
+    /// Public reference for independently verifying this turn.
+    pub audit: Option<RunAuditReference>,
     /// The text content of the response.
     pub content: String,
     /// Total tokens used for this turn (input + output + tool observations).
@@ -487,6 +540,10 @@ fn describe_termination(reason: &TerminationReason) -> String {
             "hit the per-turn token budget — context is too large".to_string()
         }
         TerminationReason::Timeout => "timed out".to_string(),
+        TerminationReason::UnconfirmedEffects => {
+            "stopped with unconfirmed effects; reconciliation is required before retrying"
+                .to_string()
+        }
         TerminationReason::PolicyDenial { reason } => format!("policy denied: {}", reason),
         TerminationReason::Error { message } => format!("error: {}", message),
     }
@@ -499,24 +556,6 @@ fn describe_termination(reason: &TerminationReason) -> String {
 /// This is intentionally lenient — a false positive costs one extra
 /// round-trip; a false negative leaves the user staring at a failed
 /// turn they'd have to re-send anyway.
-fn is_transient_error(reason: &TerminationReason) -> bool {
-    let TerminationReason::Error { message } = reason else {
-        return false;
-    };
-    let lower = message.to_ascii_lowercase();
-    lower.contains("429")
-        || lower.contains("rate limit")
-        || lower.contains("rate_limit")
-        || lower.contains("503")
-        || lower.contains("502")
-        || lower.contains("504")
-        || lower.contains("timeout")
-        || lower.contains("timed out")
-        || lower.contains("connection reset")
-        || lower.contains("connection refused")
-        || lower.contains("overloaded")
-}
-
 #[cfg(test)]
 mod for_agent_tests {
     use super::*;
@@ -559,52 +598,16 @@ mod for_agent_tests {
 
     #[tokio::test]
     async fn for_agent_seeds_prompt_and_responds() {
+        let project = tempfile::tempdir().unwrap();
         let mut a = Orchestrator::for_agent(
             Arc::new(Mock),
             Arc::new(DefaultActionExecutor::default()),
             Arc::new(DefaultPolicyGate::permissive_for_dev_only()),
             "You are a focused test agent.",
-        );
+        )
+        .with_project_root(Ok(project.path().to_path_buf()));
         assert_eq!(a.system_prompt, "You are a focused test agent.");
         let resp = a.send("hi").await.unwrap();
         assert_eq!(resp.content, "hello from agent");
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn is_transient_detects_429() {
-        let r = TerminationReason::Error {
-            message: "HTTP 429 Too Many Requests".to_string(),
-        };
-        assert!(is_transient_error(&r));
-    }
-
-    #[test]
-    fn is_transient_detects_503_overloaded() {
-        let r = TerminationReason::Error {
-            message: "Upstream provider 503 overloaded".to_string(),
-        };
-        assert!(is_transient_error(&r));
-    }
-
-    #[test]
-    fn is_transient_false_for_completed_and_policy() {
-        assert!(!is_transient_error(&TerminationReason::Completed));
-        assert!(!is_transient_error(&TerminationReason::MaxTokens));
-        assert!(!is_transient_error(&TerminationReason::PolicyDenial {
-            reason: "denied".to_string()
-        }));
-    }
-
-    #[test]
-    fn is_transient_false_for_non_transient_error() {
-        let r = TerminationReason::Error {
-            message: "JSON parse failed: unexpected token".to_string(),
-        };
-        assert!(!is_transient_error(&r));
     }
 }

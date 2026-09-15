@@ -71,7 +71,7 @@ pub enum ResponseFormat {
 }
 
 /// Token usage information.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Usage {
     /// Tokens in the prompt/input.
     pub prompt_tokens: u32,
@@ -215,6 +215,22 @@ pub enum InferenceError {
 /// - Token usage tracking
 #[async_trait]
 pub trait InferenceProvider: Send + Sync {
+    /// Input allowance reserved before dispatch, including tools and framing.
+    /// The default conservatively budgets serialized UTF-8 bytes plus framing
+    /// overhead for text providers. It is not an exact tokenizer or billing
+    /// guarantee: providers with additional hidden input must override it.
+    /// Reported usage above the reservation closes the shared budget before
+    /// response-driven actions. Implementations may supply an exact count.
+    fn input_token_reservation(
+        &self,
+        conversation: &Conversation,
+        options: &InferenceOptions,
+    ) -> Result<u32, InferenceError> {
+        let bytes = serde_json::to_vec(&(conversation, options))
+            .map_err(|error| InferenceError::InvalidRequest(error.to_string()))?;
+        input_reservation_from_bytes(bytes.len())
+    }
+
     /// Run inference on a conversation with the given options.
     async fn complete(
         &self,
@@ -233,6 +249,15 @@ pub trait InferenceProvider: Send + Sync {
 
     /// Check if this provider supports structured output natively.
     fn supports_structured_output(&self) -> bool;
+}
+
+pub(crate) fn input_reservation_from_bytes(bytes: usize) -> Result<u32, InferenceError> {
+    bytes
+        .checked_add(1024)
+        .and_then(|value| u32::try_from(value).ok())
+        .ok_or_else(|| {
+            InferenceError::InvalidRequest("input reservation exceeds token range".into())
+        })
 }
 
 #[cfg(test)]

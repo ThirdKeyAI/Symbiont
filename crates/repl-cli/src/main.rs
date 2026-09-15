@@ -98,7 +98,7 @@ fn main() -> Result<()> {
                                 _ => Ok("Commands: :webhook list|add|remove|test|logs".to_string()),
                             }
                         }
-                        _ => Ok(format!("Unrecognized command: {}", line)),
+                        _ => client.evaluate(&line),
                     };
 
                     match result {

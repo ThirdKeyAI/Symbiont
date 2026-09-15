@@ -3,6 +3,7 @@ import { customElement, state } from 'lit/decorators.js';
 import { WsClient, type ConnectionState } from '../../../api/ws-client.js';
 import type {
   ServerMessage,
+  AuditOpened,
   ChatChunk,
   ToolCallStarted,
   ToolCallResult as ToolCallResultMsg,
@@ -12,6 +13,16 @@ import type { ChatMessageData, ToolTrace, PolicyTrace } from './chat-message.js'
 import type { ReasoningPhase } from './reasoning-trace.js';
 
 let _msgCounter = 0;
+const PENDING_KEY = 'symbi.chat.pending.v1';
+interface PendingRequest { id: string; content: string }
+function restoreRequest(): PendingRequest | null {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(PENDING_KEY) ?? 'null');
+    if (saved && typeof saved.id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(saved.id)
+        && typeof saved.content === 'string' && new TextEncoder().encode(saved.content).length <= 65536) return saved;
+  } catch { /* No transport is initiated by restoring browser state. */ }
+  return null;
+}
 
 @customElement('coordinator-chat-panel')
 export class CoordinatorChatPanel extends LitElement {
@@ -138,6 +149,13 @@ export class CoordinatorChatPanel extends LitElement {
   @state() private _connectionState: ConnectionState = 'disconnected';
   @state() private _activePhase: ReasoningPhase = 'idle';
 
+  @state() private _pendingAudit: AuditOpened | null = null;
+  @state() private _pendingRequest: PendingRequest | null = restoreRequest();
+  @state() private _notAdmitted = false;
+  @state() private _checkingOutcome = false;
+  @state() private _storageError = '';
+
+
   private _ws = WsClient.instance();
   // Tool traces indexed by call_id
   private _pendingToolTraces = new Map<string, ToolTrace>();
@@ -150,6 +168,9 @@ export class CoordinatorChatPanel extends LitElement {
 
   private _onStateChange = (e: Event) => {
     this._connectionState = (e as CustomEvent<ConnectionState>).detail;
+    if (this._isProcessing && ['error', 'disconnected'].includes(this._connectionState)) {
+      this._onError({message:'Connection lost; the run outcome is unknown. Inspect its audit before retrying.', request_id:this._pendingRequest?.id ?? null});
+    }
   };
 
   connectedCallback() {
@@ -167,7 +188,11 @@ export class CoordinatorChatPanel extends LitElement {
   }
 
   private _handleServerMessage(msg: ServerMessage) {
+    if ('request_id' in msg && msg.request_id && msg.request_id !== this._pendingRequest?.id) return;
     switch (msg.type) {
+      case 'AuditOpened':
+        this._pendingAudit = msg;
+        break;
       case 'ChatChunk':
         this._onChatChunk(msg);
         break;
@@ -199,11 +224,14 @@ export class CoordinatorChatPanel extends LitElement {
         {
           id: `msg-${++_msgCounter}`,
           role: 'assistant',
-          content: msg.content,
+          content: msg.replayed ? `Saved response (no work repeated; earlier conversation context is not restored):\n\n${msg.content}` : msg.content,
+          audit: this._pendingAudit?.request_id === msg.request_id ? this._pendingAudit.audit : undefined,
           toolTraces: toolTraces.length > 0 ? toolTraces : undefined,
           policyTraces: policyTraces.length > 0 ? policyTraces : undefined,
         },
       ];
+      this._clearPending();
+      this._pendingAudit = null;
       this._isProcessing = false;
       this._activePhase = 'idle';
       this._scrollToBottom();
@@ -237,37 +265,80 @@ export class CoordinatorChatPanel extends LitElement {
     });
   }
 
-  private _onError(msg: { message: string }) {
+  private _onError(msg: { message: string; request_id: string | null; code?: string }) {
+    this._checkingOutcome = false;
+    this._notAdmitted = msg.code === 'INVOCATION_NOT_FOUND' || msg.code === 'SESSION_BUSY';
+    if (msg.code === 'INVOCATION_RECONCILED') this._clearPending();
     this._messages = [
       ...this._messages,
       {
         id: `msg-${++_msgCounter}`,
         role: 'assistant',
         content: `Error: ${msg.message}`,
+        audit: this._pendingAudit?.request_id === msg.request_id ? this._pendingAudit?.audit : undefined,
       },
     ];
+    this._pendingAudit = null;
+    this._pendingToolTraces.clear();
+    this._pendingPolicyTraces = [];
     this._isProcessing = false;
     this._activePhase = 'idle';
   }
 
+  private _clearPending() {
+    try { sessionStorage.removeItem(PENDING_KEY); } catch { /* Retrying a retained ID remains safe. */ }
+    this._pendingRequest = null;
+    this._notAdmitted = false;
+    this._checkingOutcome = false;
+  }
+
+  private _checkOutcome() {
+    if (!this._pendingRequest) return;
+    this._isProcessing = true;
+    this._checkingOutcome = true;
+    if (!this._ws.send({ type: 'ChatInspect', ...this._pendingRequest })) {
+      this._isProcessing = false;
+    }
+  }
+
+  private _retryUnadmitted() {
+    if (!this._pendingRequest || !this._notAdmitted) return;
+    this._isProcessing = true;
+    this._notAdmitted = false;
+    this._activePhase = 'reason';
+    if (!this._ws.send({ type: 'ChatSend', ...this._pendingRequest })) this._isProcessing = false;
+  }
+
+  private _leaveUnresolved() {
+    this._messages = [...this._messages, { id: `msg-${++_msgCounter}`, role: 'assistant',
+      content: `Request ${this._pendingRequest?.id} remains in runtime history. Dismissing this notice does not resolve or retry it.`,
+      audit: this._pendingAudit?.audit }];
+    this._clearPending();
+  }
+
   private _onChatSubmit(e: CustomEvent<string>) {
+    if (this._isProcessing || this._pendingRequest || this._connectionState !== 'connected') return;
     const content = e.detail;
-    const id = `user-${++_msgCounter}`;
-
-    // Add user message
-    this._messages = [
-      ...this._messages,
-      { id, role: 'user', content },
-    ];
-
-    // Send via WebSocket
-    this._ws.send({ type: 'ChatSend', id, content });
+    const id = crypto.randomUUID();
+    const request = { id, content };
+    try { sessionStorage.setItem(PENDING_KEY, JSON.stringify(request)); }
+    catch {
+      this._storageError = 'Browser session storage is unavailable. The request was not sent because its retry identity could not be retained.';
+      return;
+    }
+    this._storageError = '';
+    this._pendingRequest = request;
+    this._pendingAudit = null;
+    this._notAdmitted = false;
+    this._messages = [...this._messages, { id, role: 'user', content }];
     this._isProcessing = true;
     this._activePhase = 'reason';
+    if (!this._ws.send({ type: 'ChatSend', ...request })) this._isProcessing = false;
     this._scrollToBottom();
   }
 
   private _thinkingLabel(): string {
+    if (this._checkingOutcome) return 'Checking saved outcome…';
     switch (this._activePhase) {
       case 'reason':
         return 'Thinking…';
@@ -317,17 +388,27 @@ export class CoordinatorChatPanel extends LitElement {
                   <span></span><span></span><span></span>
                 </div>
                 ${this._thinkingLabel()}
+                ${this._pendingAudit ? html`<audit-reference .reference=${this._pendingAudit.audit}></audit-reference>` : ''}
               </div>
             `
           : ''}
       </div>
 
-      ${this._isProcessing
+      ${this._isProcessing && !this._checkingOutcome
         ? html`<reasoning-trace .activePhase=${this._activePhase}></reasoning-trace>`
         : ''}
 
+      ${this._storageError ? html`<p role="alert">${this._storageError}</p>` : ''}
+      ${this._pendingRequest && !this._isProcessing ? html`<section aria-label="Pending chat request">
+        <p>Retained request <code>${this._pendingRequest.id}</code>. Check its saved outcome before sending new work.</p>
+        <p>Reconnecting starts fresh conversation context; outcome checks do not restore the earlier conversation.</p>
+        <button @click=${this._checkOutcome} ?disabled=${this._connectionState !== 'connected'}>Check outcome</button>
+        ${this._notAdmitted ? html`<p>No admission was found. Retrying the same request may start work.</p>
+          <button @click=${this._retryUnadmitted} ?disabled=${this._connectionState !== 'connected'}>Retry same request</button>` : ''}
+        <button @click=${this._leaveUnresolved}>Dismiss retained request</button>
+      </section>` : ''}
       <chat-input
-        .disabled=${this._isProcessing || this._connectionState !== 'connected'}
+        .disabled=${this._isProcessing || !!this._pendingRequest || this._connectionState !== 'connected'}
         @chat-submit=${this._onChatSubmit}
       ></chat-input>
     `;

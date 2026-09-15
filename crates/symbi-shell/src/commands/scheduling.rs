@@ -24,7 +24,7 @@ pub fn cron(app: &mut App, args: &str) -> CommandResult {
 
     let args = args.trim();
 
-    if args.is_empty() {
+    if args.is_empty() || args == "list" {
         match tokio::task::block_in_place(|| rt.block_on(remote.list_schedules())) {
             Ok(value) => format_schedule_list(&value),
             Err(e) => CommandResult::Error(format!("Failed to list schedules: {}", e)),
@@ -74,13 +74,35 @@ pub fn cron(app: &mut App, args: &str) -> CommandResult {
                 }
             }
             "run" => {
-                let id = parts.get(1).unwrap_or(&"");
-                if id.is_empty() {
-                    return CommandResult::Error("Usage: /cron run <id>".to_string());
+                let values: Vec<_> = parts.get(1).unwrap_or(&"").split_whitespace().collect();
+                if values.is_empty() || values.len() > 2 {
+                    return CommandResult::Error(
+                        "Usage: /cron run <job-id> [invocation-id]".into(),
+                    );
                 }
-                match tokio::task::block_in_place(|| rt.block_on(remote.trigger_schedule(id))) {
-                    Ok(_) => CommandResult::Output(format!("Triggered schedule {}", id)),
-                    Err(e) => CommandResult::Error(format!("Failed to trigger: {}", e)),
+                let id = values[0];
+                if uuid::Uuid::parse_str(id).is_err() {
+                    return CommandResult::Error(
+                        "Schedule ID must be a UUID; use /cron list.".into(),
+                    );
+                }
+                let invocation = match values.get(1) {
+                    Some(value) => match uuid::Uuid::parse_str(value) {
+                        Ok(id) => id,
+                        Err(_) => {
+                            return CommandResult::Error("Invocation ID must be a UUID.".into())
+                        }
+                    },
+                    None => uuid::Uuid::new_v4(),
+                };
+                let retry = format!("Retry/status: /cron run {id} {invocation}");
+                match tokio::task::block_in_place(|| {
+                    rt.block_on(remote.trigger_schedule(id, invocation))
+                }) {
+                    Ok(value) => format_trigger_result(id, invocation, &value),
+                    Err(e) => CommandResult::Error(format!(
+                        "Trigger response unavailable: {e}\nInvocation: {invocation}\n{retry}"
+                    )),
                 }
             }
             "history" => {
@@ -123,20 +145,77 @@ fn format_schedule_list(value: &serde_json::Value) -> CommandResult {
 
     let mut out = format!("Schedules ({}):\n\n", arr.len());
     for sched in arr {
-        let id = sched.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+        let id = sched.get("job_id").and_then(|v| v.as_str()).unwrap_or("?");
         let name = sched
             .get("name")
             .and_then(|v| v.as_str())
             .unwrap_or("(unnamed)");
         let status = sched.get("status").and_then(|v| v.as_str()).unwrap_or("?");
-        let cron = sched.get("cron").and_then(|v| v.as_str()).unwrap_or("?");
-        out.push_str(&format!(
-            "  {} — {} ({}) [{}]\n",
-            &id[..8.min(id.len())],
-            name,
-            cron,
-            status
-        ));
+        let cron = sched
+            .get("cron_expression")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
+        out.push_str(&format!("  {} — {} ({}) [{}]\n", id, name, cron, status));
     }
     CommandResult::Output(out)
+}
+
+fn format_trigger_result(
+    job: &str,
+    invocation: uuid::Uuid,
+    value: &serde_json::Value,
+) -> CommandResult {
+    let title = match value.get("status").and_then(|s| s.as_str()) {
+        Some("queued") => "Schedule queued",
+        Some("completed") => "Saved completed result",
+        Some("failed") => "Saved execution failure",
+        Some("in_progress") => "Invocation is still in progress",
+        Some("unresolved") => {
+            "Unresolved execution; inspect its audit and effects before reconciliation"
+        }
+        Some("reconciled") => "Operator-reconciled outcome; original work was not repeated",
+        Some("conflict") => "Invocation ID conflicts with a different request",
+        _ => "Unrecognized schedule outcome; inspect history before retrying",
+    };
+    let mut output =
+        format!("{title}\nInvocation: {invocation}\nRetry/status: /cron run {job} {invocation}");
+    if let Some(review) = value.pointer("/resolution/review") {
+        output.push_str(&format!(
+            "\nOperator assessment: {}\nRationale: {}",
+            review["outcome"], review["rationale"]
+        ));
+    }
+    if let Some(audit) = value.get("audit").filter(|a| a.is_object()) {
+        if let Some(run) = audit.get("run_id").and_then(|v| v.as_str()) {
+            output.push_str(&format!("\nExecution: {run}"));
+        }
+        if let Some(path) = audit.get("path").and_then(|v| v.as_str()) {
+            output.push_str(&format!("\nJournal: {}", serde_json::json!(path)));
+        }
+    }
+    if let Some(result) = value.get("result") {
+        for (field, label) in [("output", "Output"), ("error", "Error")] {
+            if let Some(text) = result.get(field).and_then(|v| v.as_str()) {
+                let preview = symbi_runtime::text_util::truncate_utf8(text, 1024);
+                output.push_str(&format!("\n{label}: {}", serde_json::json!(preview)));
+                if preview.len() < text.len() {
+                    output.push_str(" (preview)");
+                }
+            }
+        }
+        if let Some(tokens) = result
+            .pointer("/total_usage/total_tokens")
+            .and_then(|v| v.as_u64())
+        {
+            output.push_str(&format!("\nReported tokens: {tokens}"));
+        }
+        if let Some(budget) = result.get("budget").filter(|b| b.is_object()) {
+            output.push_str(&format!(
+                "\nToken budget: available={}, reserved={}, uncertain={}",
+                budget["available_tokens"], budget["reserved_tokens"], budget["uncertain_tokens"]
+            ));
+        }
+    }
+    output.push_str(&format!("\nFull history: /cron history {job}"));
+    CommandResult::Output(output)
 }

@@ -1,5 +1,7 @@
 # Symbiont REPLガイド
 
+> このブランチでは、エージェント単位で適用できない従来形式の `security.tier`、`security.sandbox`、リソース制限、実行ポリシーを明示した登録を拒否します。対応する組み込み関数は、運用者が設定したプロジェクトのサンドボックスを使用します。空のブロックと機能要件のみの宣言は従来の検査を維持します。拒否されたモジュールは既存のエージェントや補助関数を置き換えません。
+
 ## 他の言語
 
 
@@ -226,7 +228,6 @@ agent SecureAgent {
   name: "Secure Agent"
   security {
     capabilities: ["filesystem", "network"]
-    sandbox: true
   }
 }
 
@@ -419,13 +420,8 @@ agent DataProcessor {
 
   security {
     capabilities: ["data_read", "data_write"]
-    sandbox: true
   }
 
-  resources {
-    memory: 256MB
-    cpu: 1
-  }
 }
 
 behavior ProcessCsv {

@@ -35,6 +35,8 @@ fn build_echo_manifest() -> Manifest {
     );
 
     Manifest {
+        filesystem: None,
+        source: None,
         tool: ToolMeta {
             name: "echo".to_string(),
             version: "1.0.0".to_string(),
@@ -86,6 +88,7 @@ command = "{}"
 async fn mcp_backend_invokes_real_server_and_returns_executed_envelope() {
     let manifest = build_echo_manifest();
     let executor = ToolCladExecutor::new(vec![("echo".to_string(), manifest.clone())])
+        .with_development_host_execution()
         .with_mcp_verification(false);
     let registry = build_registry();
 
@@ -115,6 +118,7 @@ async fn mcp_backend_invokes_real_server_and_returns_executed_envelope() {
 async fn mcp_backend_reports_missing_server() {
     let manifest = build_echo_manifest();
     let executor = ToolCladExecutor::new(vec![("echo".to_string(), manifest.clone())])
+        .with_development_host_execution()
         .with_mcp_verification(false);
     // Empty registry: "echo" is not registered.
     let registry = McpServerRegistry::from_toml_str("").unwrap();

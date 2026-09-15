@@ -26,6 +26,8 @@ symbi shell --resume <id>      # reopen a session by UUID
 
 ## Layout
 
+The [containment branch guide](containment-branch-guide.md#tui-a-separate-complete-review) describes the new approval workflow. Local orchestrator and fleet turns now require protected audit, and file/command tools use the selected container boundary. Configure explicit workspace mounts as described in [governed shell workspace](shell-containment.md). Other runtime and canonical DSL paths remain in progress.
+
 The shell uses an inline viewport that shares the terminal with your existing scrollback. You'll see, top to bottom:
 
 - **Project-structure sidebar** (toggleable) — file tree of the current project, highlighting agents, policies, and tools.
@@ -35,6 +37,10 @@ The shell uses an inline viewport that shares the terminal with your existing sc
 
 Syntax highlighting covers the Symbiont DSL, Cedar, and ToolClad manifests via tree-sitter grammars.
 
+Under Zellij, the shell warns that scrollback above the inline viewport may not
+render. Use a native terminal or tmux for full fidelity; there is currently no
+`--full-screen` flag.
+
 ### Key bindings
 
 | Binding | Action |
@@ -43,12 +49,24 @@ Syntax highlighting covers the Symbiont DSL, Cedar, and ToolClad manifests via t
 | `/` or `@` | Auto-open the completion popup |
 | `↑` / `↓` | Navigate input history or popup entries |
 | `Ctrl+R` | Reverse history search |
+| `Ctrl+G` | Open the Gate panel, including during a busy turn |
 | `Tab` | Accept the highlighted completion |
 | `Esc` | Close the popup / cancel an in-flight LLM call |
 | `Ctrl+L` | Clear the visible output buffer |
 | `Ctrl+D` | Exit the shell |
 
-Under Zellij, the shell detects the multiplexer and prints an inline-viewport compatibility warning; use `--full-screen` if you want to run in an alternate-screen buffer instead.
+### Reviewing held actions
+
+Open `/gate` or press Ctrl+G. Select with ↑/↓, then press Enter to open the
+complete escaped JSON request. Use ↑/↓ or Page Up/Down to inspect long arguments.
+Press `a` to approve or `d` to deny that reviewed request. Esc returns to the list,
+then closes the panel. Pressing `a` on a list row asks for a review first.
+
+Selection follows the request ID across refreshes. Changes, expiry, removal or a
+failed queue read invalidate the review. The panel keeps resolution pending until
+it receives the result; a timeout reports an unknown outcome. Connection changes
+discard old reviews and wait for any pending resolution. A configured local queue
+takes precedence over an attached runtime API. See [approval lifecycle](approval-lifecycle.md).
 
 ## Command catalog
 
@@ -103,10 +121,18 @@ Authoring commands write to disk only after validation passes. Constraint violat
 | Command | What it does |
 |---------|-------------|
 | `/cron list` | List scheduled agent jobs. |
-| `/cron add` / `/cron remove` | Create or delete scheduled jobs. |
+| `/cron add <description>` | Draft a schedule for review. |
+| `/cron pause <job-id>` / `/cron resume <job-id>` | Pause or resume a remote schedule. |
+| `/cron run <job-id> [invocation-id]` | Start work, or reuse an explicit ID to check/retry that invocation. |
 | `/cron history` | Show recent runs. |
 
-`/cron` works both locally and over a remote attach (see below). See the [Scheduling guide](/scheduling) for the full cron engine.
+`/cron` requires a remote attach (see below). Trigger results show the invocation
+UUID, exact retry command and queued/saved/in-progress/unresolved state. Saved
+results include a bounded output preview, reported tokens, available/reserved/
+uncertain budget and the protected journal reference. History retains full details. Retain the
+UUID: omitting it requests new work. A lost response does not establish failure;
+use the displayed retry command or inspect `/cron history <job-id>` after a shell
+restart. Unknown effects require reconciliation. See [cron recovery](cron-recovery.md).
 
 ### Channels
 

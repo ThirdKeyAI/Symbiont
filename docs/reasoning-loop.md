@@ -21,8 +21,8 @@ The loop continues until the LLM produces a final text response, hits iteration/
 ### Design Principles
 
 - **Compile-time safety**: Invalid phase transitions are caught at compile time via Rust's type system
-- **Opt-in complexity**: The loop works with just a provider and policy gate; knowledge bridge, Cedar policies, and human-in-the-loop are all optional
-- **Backward compatible**: Adding new features (like the knowledge bridge) never breaks existing code
+- **Explicit execution configuration**: Supply a provider, executor and journal; the default policy gate denies tools until a policy permits them
+- **Required audit**: Journal initialization and required writes must succeed before further effects
 - **Observable**: Every phase emits journal events and tracing spans
 
 ---
@@ -32,38 +32,43 @@ The loop continues until the LLM produces a final text response, hits iteration/
 ### Minimal Example
 
 ```rust
-use std::sync::Arc;
-use symbi_runtime::reasoning::circuit_breaker::CircuitBreakerRegistry;
-use symbi_runtime::reasoning::context_manager::DefaultContextManager;
+use std::{path::Path, sync::Arc};
 use symbi_runtime::reasoning::conversation::{Conversation, ConversationMessage};
-use symbi_runtime::reasoning::executor::DefaultActionExecutor;
-use symbi_runtime::reasoning::loop_types::{BufferedJournal, LoopConfig};
-use symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate;
+use symbi_runtime::reasoning::executor::UnavailableToolExecutor;
+use symbi_runtime::reasoning::loop_types::LoopConfig;
 use symbi_runtime::reasoning::reasoning_loop::ReasoningLoopRunner;
+use symbi_runtime::reasoning::run_audit::open_run_journal;
 use symbi_runtime::types::AgentId;
 
-// Set up the runner with default components
-let runner = ReasoningLoopRunner {
-    provider: Arc::new(my_inference_provider),
-    policy_gate: Arc::new(DefaultPolicyGate::permissive()),
-    executor: Arc::new(DefaultActionExecutor::default()),
-    context_manager: Arc::new(DefaultContextManager::default()),
-    circuit_breakers: Arc::new(CircuitBreakerRegistry::default()),
-    journal: Arc::new(BufferedJournal::new(1000)),
-    knowledge_bridge: None,
-};
+// Select this directory from trusted operator configuration.
+let project = Path::new("/path/to/trusted/project");
+let agent_id = AgentId::new();
+let (journal, audit) = open_run_journal(project, agent_id).await?;
+println!("Audit: {}", serde_json::to_string(&audit)?);
+let runner = ReasoningLoopRunner::builder()
+    .provider(Arc::new(my_inference_provider))
+    .executor(Arc::new(UnavailableToolExecutor))
+    .journal(journal)
+    .build();
 
 // Build a conversation
 let mut conv = Conversation::with_system("You are a helpful assistant.");
 conv.push(ConversationMessage::user("What is 6 * 7?"));
 
 // Run the loop
-let result = runner.run(AgentId::new(), conv, LoopConfig::default()).await;
+let result = runner.run(agent_id, conv, LoopConfig::default()).await;
 
 println!("Output: {}", result.output);
 println!("Iterations: {}", result.iterations);
 println!("Tokens used: {}", result.total_usage.total_tokens);
 ```
+
+This example permits text responses and advertises no tools. Tool execution needs
+an executor with a selected boundary and an appropriate policy gate. Open fresh
+protected storage for each invocation, and retain its run ID, path and public key.
+An omitted builder journal fails before inference. Explicit `BufferedJournal`
+injection remains available for controlled tests and display, but is not durable
+audit evidence. See [protected run audit](run-audit.md).
 
 ### With Tool Definitions
 

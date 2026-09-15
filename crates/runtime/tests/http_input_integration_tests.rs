@@ -109,6 +109,7 @@ async fn test_valid_request_is_accepted_and_processed() {
         Duration::from_secs(5),
         client
             .post(format!("{}/webhook", base_url))
+            .header("Idempotency-Key", uuid::Uuid::new_v4().to_string())
             .header("Authorization", "Bearer test-token-123")
             .header("Content-Type", "application/json")
             .json(&payload)
@@ -159,6 +160,7 @@ async fn test_invalid_token_returns_401_unauthorized() {
         Duration::from_secs(5),
         client
             .post(format!("{}/webhook", base_url))
+            .header("Idempotency-Key", uuid::Uuid::new_v4().to_string())
             .header("Authorization", "Bearer wrong-token")
             .header("Content-Type", "application/json")
             .json(&payload)
@@ -186,6 +188,7 @@ async fn test_missing_token_returns_401_unauthorized() {
         Duration::from_secs(5),
         client
             .post(format!("{}/webhook", base_url))
+            .header("Idempotency-Key", uuid::Uuid::new_v4().to_string())
             .header("Content-Type", "application/json")
             .json(&payload)
             .send(),
@@ -215,6 +218,7 @@ async fn test_payload_too_large_returns_413() {
         Duration::from_secs(5),
         client
             .post(format!("{}/webhook", base_url))
+            .header("Idempotency-Key", uuid::Uuid::new_v4().to_string())
             .header("Authorization", "Bearer test-token-123")
             .header("Content-Type", "application/json")
             .json(&payload)
@@ -241,6 +245,7 @@ async fn test_malformed_json_returns_400_bad_request() {
         Duration::from_secs(5),
         client
             .post(format!("{}/webhook", base_url))
+            .header("Idempotency-Key", uuid::Uuid::new_v4().to_string())
             .header("Authorization", "Bearer test-token-123")
             .header("Content-Type", "application/json")
             .body(malformed_json)
@@ -271,6 +276,7 @@ async fn test_agent_interaction_and_invocation() {
         Duration::from_secs(5),
         client
             .post(format!("{}/webhook", base_url))
+            .header("Idempotency-Key", uuid::Uuid::new_v4().to_string())
             .header("Authorization", "Bearer test-token-123")
             .header("Content-Type", "application/json")
             .json(&payload)
@@ -354,6 +360,7 @@ async fn test_content_type_enforcement() {
         Duration::from_secs(5),
         client
             .post(format!("{}/webhook", base_url))
+            .header("Idempotency-Key", uuid::Uuid::new_v4().to_string())
             .header("Authorization", "Bearer test-token-123")
             .body(r#"{"message": "test"}"#)
             // Deliberately omit Content-Type header
@@ -399,6 +406,7 @@ async fn test_concurrent_requests_within_limits() {
                 Duration::from_secs(5),
                 client
                     .post(&url)
+                    .header("Idempotency-Key", uuid::Uuid::new_v4().to_string())
                     .header("Authorization", "Bearer test-token-123")
                     .header("Content-Type", "application/json")
                     .json(&payload)

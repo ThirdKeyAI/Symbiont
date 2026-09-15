@@ -64,7 +64,10 @@ pub enum EnvError {
 pub fn current() -> Result<Environment, EnvError> {
     match std::env::var("SYMBIONT_ENV") {
         Ok(raw) => parse(&raw),
-        Err(_) => Ok(Environment::Development),
+        Err(std::env::VarError::NotPresent) => Ok(Environment::Development),
+        Err(std::env::VarError::NotUnicode(value)) => Err(EnvError::Unknown {
+            value: value.to_string_lossy().into_owned(),
+        }),
     }
 }
 

@@ -134,25 +134,9 @@ impl AiCliAdapter for CodexAdapter {
     }
 
     async fn health_check(&self) -> Result<(), anyhow::Error> {
-        let output = tokio::process::Command::new(&self.executable_path)
-            .arg("--version")
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .output()
+        crate::cli_executor::CliExecutor::new(Default::default())
+            .health_check(self)
             .await
-            .map_err(|e| anyhow::anyhow!("Codex not found at '{}': {}", self.executable_path, e))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!(
-                "Codex health check failed (exit {}): {}",
-                output.status.code().unwrap_or(-1),
-                stderr
-            );
-        }
-
-        Ok(())
     }
 }
 

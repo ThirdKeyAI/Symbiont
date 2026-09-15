@@ -19,7 +19,8 @@ use super::executor::StdinStrategy;
 pub struct CodeGenRequest {
     /// The prompt or task description to send to the AI CLI tool.
     pub prompt: String,
-    /// Working directory for the tool to operate in.
+    /// Absolute working directory inside the selected worker. Host paths are
+    /// available only through explicit operator-configured bind mounts.
     pub working_dir: PathBuf,
     /// Specific files the tool should focus on.
     pub target_files: Vec<PathBuf>,

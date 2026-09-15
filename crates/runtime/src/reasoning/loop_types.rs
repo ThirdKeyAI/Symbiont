@@ -34,6 +34,18 @@ pub struct Observation {
 }
 
 impl Observation {
+    /// Set by the runtime after dispatch, never inferred from tool text.
+    pub fn has_unconfirmed_effect(&self) -> bool {
+        self.metadata
+            .get("effect_outcome")
+            .is_some_and(|value| value == "unknown")
+    }
+
+    pub(crate) fn mark_unconfirmed_effect(&mut self) {
+        self.is_error = true;
+        self.metadata
+            .insert("effect_outcome".into(), "unknown".into());
+    }
     /// Create a tool result observation.
     pub fn tool_result(tool_name: impl Into<String>, content: impl Into<String>) -> Self {
         Self {
@@ -173,9 +185,18 @@ impl LoopState {
 
     /// Accumulate token usage from an inference response.
     pub fn add_usage(&mut self, usage: &Usage) {
-        self.total_usage.prompt_tokens += usage.prompt_tokens;
-        self.total_usage.completion_tokens += usage.completion_tokens;
-        self.total_usage.total_tokens += usage.total_tokens;
+        self.total_usage.prompt_tokens = self
+            .total_usage
+            .prompt_tokens
+            .saturating_add(usage.prompt_tokens);
+        self.total_usage.completion_tokens = self
+            .total_usage
+            .completion_tokens
+            .saturating_add(usage.completion_tokens);
+        self.total_usage.total_tokens = self
+            .total_usage
+            .total_tokens
+            .saturating_add(usage.total_tokens);
     }
 
     /// Get elapsed time since loop start.
@@ -191,6 +212,9 @@ pub struct LoopConfig {
     pub max_iterations: u32,
     /// Maximum total tokens before forced termination.
     pub max_total_tokens: u32,
+    /// Runtime-owned root/child accounting. Never accepted from serialized input.
+    #[serde(skip)]
+    pub shared_budget: Option<super::budget::SharedBudget>,
     /// Maximum wall-clock time for the entire loop.
     pub timeout: Duration,
     /// Default recovery strategy for tool failures.
@@ -262,6 +286,7 @@ impl Default for LoopConfig {
         Self {
             max_iterations: 25,
             max_total_tokens: 100_000,
+            shared_budget: None,
             timeout: Duration::from_secs(300),
             default_recovery: RecoveryStrategy::Retry {
                 max_attempts: 2,
@@ -322,6 +347,9 @@ pub struct LoopResult {
     pub iterations: u32,
     /// Total token usage.
     pub total_usage: Usage,
+    /// Aggregate scope usage, including descendants and uncertain reservations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget: Option<super::budget::BudgetSnapshot>,
     /// How the loop terminated.
     pub termination_reason: TerminationReason,
     /// Wall-clock duration.
@@ -341,6 +369,9 @@ pub enum TerminationReason {
     MaxTokens,
     /// Hit the timeout.
     Timeout,
+    /// An executed action or child has an unconfirmed outcome. No further
+    /// reasoning or actions may retry it without reconciliation.
+    UnconfirmedEffects,
     /// Policy denied a critical action with no recovery path.
     PolicyDenial { reason: String },
     /// An unrecoverable error occurred.
@@ -350,10 +381,110 @@ pub enum TerminationReason {
 /// Events emitted during loop execution for observability.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum LoopEvent {
+    /// Durable checkpoint before handing one authorized call to an executor.
+    /// A missing finish record leaves execution and its effects unconfirmed.
+    ToolDispatchStarted {
+        dispatch_id: uuid::Uuid,
+        run_key: String,
+        call_id: String,
+        call_fingerprint: String,
+        tool_name: String,
+    },
+    /// A correlated executor result, persisted before it reaches the caller.
+    /// An error result does not establish that no external effect occurred.
+    ToolDispatchFinished {
+        dispatch_id: uuid::Uuid,
+        observation_hash: String,
+        is_error: bool,
+    },
+    /// The exact formatted response is authorized and its send is about to start.
+    ResponseDeliveryStarted {
+        fingerprint: String,
+        request_hash: String,
+        request_bytes: u64,
+    },
+    /// A delivery result, recorded before run completion. A start without this
+    /// receipt (for example cancellation) leaves delivery unconfirmed.
+    ResponseDeliveryFinished {
+        fingerprint: String,
+        receipt: Option<serde_json::Value>,
+        confirmed: bool,
+        error: Option<String>,
+    },
+    /// Durable parent-child link, acknowledged before child inference.
+    DelegationStarted {
+        run_key: String,
+        call_id: String,
+        call_fingerprint: String,
+        target: String,
+        child_agent_id: AgentId,
+        audit: super::run_audit::RunAuditReference,
+        system_prompt_hash: String,
+        message_hash: String,
+    },
+    /// A returned child result; cancellation can leave only the start link.
+    DelegationFinished {
+        run_key: String,
+        call_id: String,
+        audit: super::run_audit::RunAuditReference,
+        reason: TerminationReason,
+        output_hash: String,
+    },
+    /// An effect discovered within an exact authorized tool invocation.
+    ToolEffect {
+        run_key: String,
+        call_fingerprint: String,
+        effect: super::effect_journal::ToolEffect,
+    },
     /// Loop started.
     Started {
         agent_id: AgentId,
         config: Box<LoopConfig>,
+        #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+        execution_context: HashMap<String, serde_json::Value>,
+    },
+    /// A fixed-endpoint inference request was durably authorized before send.
+    InferenceRequested {
+        request_id: String,
+        endpoint: String,
+        model: String,
+        request_hash: String,
+        reserved_output_tokens: u64,
+    },
+    /// The protected inference broker received a complete bounded response.
+    InferenceCompleted {
+        request_id: String,
+        status: u16,
+        response_hash: String,
+        response_bytes: u64,
+    },
+    /// A direct DSL provider call. Hashes describe the typed provider contract,
+    /// not an HTTP wire payload or authorization of provider-internal effects.
+    DirectInferenceRequested {
+        call_id: String,
+        operation: String,
+        provider: String,
+        model: String,
+        request_hash: String,
+        request_bytes: u64,
+        recipient: Option<AgentId>,
+        recipient_definition_hash: Option<String>,
+        communication: Option<serde_json::Value>,
+    },
+    /// A direct provider call settled, including cancellation and failures.
+    DirectInferenceFinished {
+        call_id: String,
+        reason: TerminationReason,
+        response_hash: Option<String>,
+        response_bytes: u64,
+        finish_reason: Option<crate::reasoning::inference::FinishReason>,
+        usage: Usage,
+    },
+    /// A complete typed response was recorded before any communication reply.
+    DirectInferenceResponseReceived {
+        call_id: String,
+        response_hash: String,
+        response_bytes: u64,
     },
     /// Reasoning step completed.
     ReasoningComplete {
@@ -366,6 +497,11 @@ pub enum LoopEvent {
         iteration: u32,
         action_count: usize,
         denied_count: usize,
+        /// Exact normalized invocations and contract identities approved at this boundary.
+        #[serde(default)]
+        approved_calls: Vec<serde_json::Value>,
+        #[serde(default)]
+        denied_calls: Vec<serde_json::Value>,
     },
     /// Tool dispatch completed.
     ToolsDispatched {
@@ -373,10 +509,36 @@ pub enum LoopEvent {
         tool_count: usize,
         duration: Duration,
     },
+    /// Results of a governed tool batch, correlated with pre-effect call records.
+    ToolBatchCompleted {
+        iteration: u32,
+        observations: Vec<Observation>,
+        duration: Duration,
+    },
     /// Observations collected.
     ObservationsCollected {
         iteration: u32,
         observation_count: usize,
+    },
+    /// Shared scope accounting after inference, child cleanup or cancellation.
+    BudgetUpdated {
+        budget: super::budget::BudgetSnapshot,
+    },
+    /// Root-owned durable accounting shared by all descendants.
+    BudgetOpened { root_id: uuid::Uuid, limit: u32 },
+    BudgetScopeLinked {
+        root_id: uuid::Uuid,
+        scope: usize,
+        root_audit: Option<super::run_audit::RunAuditReference>,
+    },
+    BudgetReservationStarted {
+        reservation: super::budget::journal::InferenceReservation,
+    },
+    BudgetReservationFinished {
+        root_id: uuid::Uuid,
+        reservation_id: uuid::Uuid,
+        usage: Usage,
+        outcome: super::budget::journal::AccountingOutcome,
     },
     /// Loop terminated.
     Terminated {
@@ -431,9 +593,14 @@ pub struct JournalEntry {
 
 /// Trait for writing journal entries.
 ///
-/// Default implementation is `BufferedJournal`. Phase 5 provides `DurableJournal`.
+/// Configure a writer explicitly. Production entry points use protected run
+/// journals; `BufferedJournal` is an opt-in, non-durable testing/display writer.
 #[async_trait::async_trait]
 pub trait JournalWriter: Send + Sync {
+    /// Public identity of the protected run, when supplied by its trusted writer.
+    fn audit_reference(&self) -> Option<super::run_audit::RunAuditReference> {
+        None
+    }
     /// Append an entry to the journal.
     async fn append(&self, entry: JournalEntry) -> Result<(), JournalError>;
     /// Get the next sequence number.
@@ -605,6 +772,7 @@ mod tests {
             event: LoopEvent::Started {
                 agent_id: AgentId::new(),
                 config: Box::new(LoopConfig::default()),
+                execution_context: HashMap::new(),
             },
         }
     }

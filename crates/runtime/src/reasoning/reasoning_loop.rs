@@ -9,7 +9,7 @@ use std::sync::Arc;
 use crate::reasoning::circuit_breaker::CircuitBreakerRegistry;
 use crate::reasoning::context_manager::{ContextManager, DefaultContextManager};
 use crate::reasoning::conversation::Conversation;
-use crate::reasoning::executor::ActionExecutor;
+use crate::reasoning::executor::{ActionExecutor, ExecutionRunGuard};
 use crate::reasoning::inference::InferenceProvider;
 use crate::reasoning::knowledge_bridge::KnowledgeBridge;
 use crate::reasoning::knowledge_executor::KnowledgeAwareExecutor;
@@ -41,13 +41,14 @@ pub struct ReasoningLoopRunner {
 
 /// Builder for `ReasoningLoopRunner` with typestate enforcement.
 ///
-/// Only `provider` and `executor` are required. All other fields have
-/// sensible defaults. Call order doesn't matter.
+/// `provider` and `executor` are required to build. Execution also requires
+/// an explicit journal; omission refuses before inference. Call order doesn't matter.
 ///
 /// ```ignore
 /// let runner = ReasoningLoopRunner::builder()
 ///     .provider(my_provider)
 ///     .executor(my_executor)
+///     .journal(protected_run_journal)
 ///     .build();
 /// ```
 pub struct ReasoningLoopRunnerBuilder<P, E> {
@@ -62,7 +63,7 @@ pub struct ReasoningLoopRunnerBuilder<P, E> {
 }
 
 impl ReasoningLoopRunner {
-    /// Create a new builder with sensible defaults.
+    /// Create a builder with a denying policy gate and required journal configuration.
     pub fn builder() -> ReasoningLoopRunnerBuilder<(), ()> {
         ReasoningLoopRunnerBuilder {
             provider: (),
@@ -97,7 +98,9 @@ impl<P, E> ReasoningLoopRunnerBuilder<P, E> {
         self
     }
 
-    /// Set a custom journal writer. Default: `BufferedJournal::new(1000)`.
+    /// Set the required journal writer. Without one, execution fails before inference.
+    /// Use `run_audit::open_run_journal` for protected per-invocation storage.
+    /// Explicit custom writers remain the embedding application's responsibility.
     pub fn journal(mut self, journal: Arc<dyn JournalWriter>) -> Self {
         self.journal = Some(journal);
         self
@@ -175,12 +178,26 @@ impl ReasoningLoopRunnerBuilder<Arc<dyn InferenceProvider>, Arc<dyn ActionExecut
             circuit_breakers: self
                 .circuit_breakers
                 .unwrap_or_else(|| Arc::new(CircuitBreakerRegistry::default())),
-            journal: self
-                .journal
-                .unwrap_or_else(|| Arc::new(BufferedJournal::new(1000))),
+            journal: self.journal.unwrap_or_else(|| Arc::new(MissingJournal)),
             knowledge_bridge: self.knowledge_bridge,
             delegation: self.delegation,
         }
+    }
+}
+
+/// Missing configuration must not silently select a non-durable writer.
+struct MissingJournal;
+
+#[async_trait::async_trait]
+impl JournalWriter for MissingJournal {
+    async fn append(&self, _: JournalEntry) -> Result<(), JournalError> {
+        Err(JournalError::WriteFailed(
+            "ReasoningLoopRunner requires an explicit journal; open protected run storage and pass it with .journal(...)".into(),
+        ))
+    }
+
+    async fn next_sequence(&self) -> u64 {
+        0
     }
 }
 
@@ -196,10 +213,42 @@ impl ReasoningLoopRunner {
         conversation: Conversation,
         config: LoopConfig,
     ) -> LoopResult {
-        let state = LoopState::new(agent_id, conversation);
+        self.run_cancellable(
+            agent_id,
+            conversation,
+            config,
+            tokio_util::sync::CancellationToken::new(),
+        )
+        .await
+    }
+
+    /// Run with explicit cancellation, preserving worker cleanup and terminal audit.
+    pub async fn run_cancellable(
+        &self,
+        agent_id: AgentId,
+        conversation: Conversation,
+        config: LoopConfig,
+        cancellation: tokio_util::sync::CancellationToken,
+    ) -> LoopResult {
+        let started = std::time::Instant::now();
+        let mut state = LoopState::new(agent_id, conversation);
+        state.trusted_context = self.executor.execution_context();
+        let delegated_cleanup =
+            super::delegation::DelegationRunGuard::new(self.delegation.clone(), &state);
 
         // Add knowledge tool definitions if bridge is present
         let mut config = config;
+        let budget = config
+            .shared_budget
+            .get_or_insert_with(|| super::budget::SharedBudget::new(config.max_total_tokens))
+            .clone();
+        let identity = budget.snapshot();
+        state.trusted_context.insert(
+            "budget".into(),
+            serde_json::json!({
+                "root_id": identity.root_id, "scope": identity.scope, "limit": identity.limit,
+            }),
+        );
         if let Some(ref bridge) = self.knowledge_bridge {
             config.tool_definitions.extend(bridge.tool_definitions());
         }
@@ -218,12 +267,24 @@ impl ReasoningLoopRunner {
             config.tool_definitions = profile.filter_tools(&config.tool_definitions);
         }
 
+        let cleanup = match ExecutionRunGuard::new(self.executor.clone(), &state, &config) {
+            Ok(guard) => guard,
+            Err(message) => {
+                return crate::reasoning::phases::LoopTermination {
+                    reason: crate::reasoning::phases::LoopTerminationReason::Error { message },
+                    state,
+                }
+                .into_result()
+            }
+        };
+
         // Emit loop started event
         let start_event = LoopEvent::Started {
             agent_id: state.agent_id,
             config: Box::new(config.clone()),
+            execution_context: state.trusted_context.clone(),
         };
-        let _ = self
+        if let Err(error) = self
             .journal
             .append(JournalEntry {
                 sequence: self.journal.next_sequence().await,
@@ -232,27 +293,91 @@ impl ReasoningLoopRunner {
                 iteration: 0,
                 event: start_event,
             })
-            .await;
+            .await
+        {
+            return journal_failure(state, error);
+        }
 
         // Wrap the entire loop in a timeout
+        if let Err(error) = budget.attach(&self.journal, agent_id).await {
+            return journal_failure(state, JournalError::WriteFailed(error));
+        }
         let timeout = config.timeout;
-        match tokio::time::timeout(timeout, self.run_inner(state, config)).await {
-            Ok(result) => result,
-            Err(_) => {
+        let execution = tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => None,
+            result = tokio::time::timeout(timeout, self.run_inner(state, config)) => Some(result),
+        };
+        // A timeout drops the future still holding its inference reservation,
+        // and a dropped future cannot await settlement, so settle from out
+        // here. The loop itself abandoned this run and recorded a terminal
+        // reason for it, so the reservation is resolved.
+        //
+        // Cancellation is deliberately excluded. There the caller disconnected
+        // while work may still be in flight, which is genuinely unresolved;
+        // settling it would claim knowledge we do not have.
+        if matches!(execution, Some(Err(_))) {
+            budget.settle_outstanding().await;
+        }
+        let mut result = match execution {
+            Some(Ok(result)) => result,
+            None => LoopResult {
+                output: String::new(),
+                iterations: 0,
+                total_usage: crate::reasoning::inference::Usage::default(),
+                budget: None,
+                termination_reason: TerminationReason::Error {
+                    message: "agent execution cancelled".into(),
+                },
+                duration: started.elapsed(),
+                conversation: Conversation::new(),
+            },
+            Some(Err(_)) => {
                 tracing::warn!("Reasoning loop timed out after {:?}", timeout);
                 LoopResult {
                     output: String::new(),
                     iterations: 0,
                     total_usage: crate::reasoning::inference::Usage::default(),
+                    budget: None,
                     termination_reason: TerminationReason::Timeout,
                     duration: timeout,
                     conversation: Conversation::new(),
                 }
             }
+        };
+        if let Err(error) = delegated_cleanup.close().await {
+            result.output.clear();
+            result.termination_reason = TerminationReason::Error {
+                message: format!("Required delegated cleanup failed: {error}"),
+            };
         }
+        if let Err(error) = cleanup.close().await {
+            result.output.clear();
+            result.termination_reason = TerminationReason::Error {
+                message: format!("Required execution finalization failed: {error}"),
+            };
+        }
+        result.duration = started.elapsed();
+        let snapshot = budget.snapshot();
+        result.total_usage = snapshot.usage.clone();
+        result.budget = Some(snapshot);
+        if let Err(error) = self.emit_termination_event(agent_id, &result).await {
+            result.output.clear();
+            result.termination_reason = TerminationReason::Error {
+                message: format!("Required journal write failed: {error}"),
+            };
+        }
+        result
     }
 
     async fn run_inner(&self, state: LoopState, config: LoopConfig) -> LoopResult {
+        if let Err(message) = self.executor.validate_configuration() {
+            return crate::reasoning::phases::LoopTermination {
+                reason: crate::reasoning::phases::LoopTerminationReason::Error { message },
+                state,
+            }
+            .into_result();
+        }
         let agent_id = state.agent_id;
         let mut current_loop = AgentLoop::<Reasoning>::new(state, config);
 
@@ -290,14 +415,24 @@ impl ReasoningLoopRunner {
             if !task_input.is_empty() {
                 let refs = engine.extract_references(&task_input);
                 if !refs.is_empty() {
-                    let hydrated = engine
+                    let dispatcher = super::dispatch::GovernedToolDispatcher {
+                        executor: effective_executor.as_ref(),
+                        gate: self.policy_gate.as_ref(),
+                        journal: self.journal.as_ref(),
+                        circuit_breakers: self.circuit_breakers.as_ref(),
+                    };
+                    let hydrated = match engine
                         .hydrate(
                             &refs,
-                            &self.executor,
-                            &self.circuit_breakers,
+                            &dispatcher,
+                            &current_loop.state,
                             &current_loop.config,
                         )
-                        .await;
+                        .await
+                    {
+                        Ok(hydrated) => hydrated,
+                        Err(error) => return journal_failure(current_loop.state, error),
+                    };
 
                     let references_found = refs.len();
                     let references_resolved = hydrated.resolved.len();
@@ -309,11 +444,11 @@ impl ReasoningLoopRunner {
                         current_loop
                             .state
                             .conversation
-                            .push(ConversationMessage::system(context_text));
+                            .push(ConversationMessage::user(context_text));
                     }
 
                     // Emit pre-hydration event
-                    let _ = self
+                    if let Err(error) = self
                         .journal
                         .append(JournalEntry {
                             sequence: self.journal.next_sequence().await,
@@ -327,7 +462,10 @@ impl ReasoningLoopRunner {
                                 total_tokens,
                             },
                         })
-                        .await;
+                        .await
+                    {
+                        return journal_failure(current_loop.state, error);
+                    }
                 }
             }
         }
@@ -352,6 +490,7 @@ impl ReasoningLoopRunner {
                     self.provider.as_ref(),
                     self.context_manager.as_ref(),
                     self.delegation.is_some(),
+                    self.journal.as_ref(),
                 )
                 .await
             {
@@ -359,8 +498,8 @@ impl ReasoningLoopRunner {
                 Err(termination) => return termination.into_result(),
             };
 
-            // Emit ReasoningComplete: captures the raw LLM output BEFORE policy check
-            // so crash recovery can replay from journal without re-calling the LLM
+            // Retain the proposal before policy checks. Recovery must reconcile
+            // action receipts before deciding whether any effect can be repeated.
             let step_usage = crate::reasoning::inference::Usage {
                 prompt_tokens: policy_phase
                     .state
@@ -379,7 +518,7 @@ impl ReasoningLoopRunner {
                     .saturating_sub(usage_before.total_tokens),
             };
             let proposed_actions = policy_phase.proposed_actions();
-            let _ = self
+            if let Err(error) = self
                 .journal
                 .append(JournalEntry {
                     sequence: self.journal.next_sequence().await,
@@ -392,17 +531,23 @@ impl ReasoningLoopRunner {
                         usage: step_usage,
                     },
                 })
-                .await;
+                .await
+            {
+                return journal_failure(policy_phase.state, error);
+            }
 
             // Phase 2: Policy Check
-            let dispatch_phase = match policy_phase.check_policy(self.policy_gate.as_ref()).await {
+            let dispatch_phase = match policy_phase
+                .check_policy(self.policy_gate.as_ref(), effective_executor.as_ref())
+                .await
+            {
                 Ok(phase) => phase,
                 Err(termination) => return termination.into_result(),
             };
 
             // Emit PolicyEvaluated journal event
             let (action_count, denied_count) = dispatch_phase.policy_summary();
-            let _ = self
+            if let Err(error) = self
                 .journal
                 .append(JournalEntry {
                     sequence: self.journal.next_sequence().await,
@@ -413,17 +558,23 @@ impl ReasoningLoopRunner {
                         iteration: dispatch_phase.state.iteration,
                         action_count,
                         denied_count,
+                        approved_calls: dispatch_phase.approved_calls(),
+                        denied_calls: dispatch_phase.denied_calls(),
                     },
                 })
-                .await;
+                .await
+            {
+                return journal_failure(dispatch_phase.state, error);
+            }
 
             // Phase 3: Tool Dispatching (uses effective_executor which handles knowledge tools)
             let dispatch_start = std::time::Instant::now();
             let observe_phase = match dispatch_phase
-                .dispatch_tools(
+                .dispatch_tools_audited(
                     effective_executor.as_ref(),
                     self.circuit_breakers.as_ref(),
                     self.delegation.as_deref(),
+                    Some(self.journal.as_ref()),
                 )
                 .await
             {
@@ -434,7 +585,7 @@ impl ReasoningLoopRunner {
 
             // Emit ToolsDispatched journal event
             let observation_count = observe_phase.observation_count();
-            let _ = self
+            if let Err(error) = self
                 .journal
                 .append(JournalEntry {
                     sequence: self.journal.next_sequence().await,
@@ -447,13 +598,34 @@ impl ReasoningLoopRunner {
                         duration: dispatch_duration,
                     },
                 })
-                .await;
+                .await
+            {
+                return journal_failure(observe_phase.state, error);
+            }
+
+            if let Err(error) = self
+                .journal
+                .append(JournalEntry {
+                    sequence: self.journal.next_sequence().await,
+                    timestamp: chrono::Utc::now(),
+                    agent_id,
+                    iteration: observe_phase.state.iteration,
+                    event: LoopEvent::ToolBatchCompleted {
+                        iteration: observe_phase.state.iteration,
+                        observations: observe_phase.observations(),
+                        duration: dispatch_duration,
+                    },
+                })
+                .await
+            {
+                return journal_failure(observe_phase.state, error);
+            }
 
             // Phase 4: Observation
             // Emit ObservationsCollected before consuming observe_phase
             let obs_iteration = observe_phase.state.iteration;
             let obs_count = observe_phase.observation_count();
-            let _ = self
+            if let Err(error) = self
                 .journal
                 .append(JournalEntry {
                     sequence: self.journal.next_sequence().await,
@@ -465,7 +637,10 @@ impl ReasoningLoopRunner {
                         observation_count: obs_count,
                     },
                 })
-                .await;
+                .await
+            {
+                return journal_failure(observe_phase.state, error);
+            }
 
             match observe_phase.observe_results() {
                 LoopContinuation::Continue(reasoning_loop) => {
@@ -482,8 +657,6 @@ impl ReasoningLoopRunner {
                         }
                     }
 
-                    // Emit termination event
-                    let _ = self.emit_termination_event(agent_id, &result).await;
                     return result;
                 }
             }
@@ -495,6 +668,19 @@ impl ReasoningLoopRunner {
         agent_id: AgentId,
         result: &LoopResult,
     ) -> Result<(), JournalError> {
+        if let Some(budget) = &result.budget {
+            self.journal
+                .append(JournalEntry {
+                    sequence: self.journal.next_sequence().await,
+                    timestamp: chrono::Utc::now(),
+                    agent_id,
+                    iteration: result.iterations,
+                    event: LoopEvent::BudgetUpdated {
+                        budget: budget.clone(),
+                    },
+                })
+                .await?;
+        }
         let event = LoopEvent::Terminated {
             reason: result.termination_reason.clone(),
             iterations: result.iterations,
@@ -511,6 +697,16 @@ impl ReasoningLoopRunner {
             })
             .await
     }
+}
+
+fn journal_failure(state: LoopState, error: JournalError) -> LoopResult {
+    crate::reasoning::phases::LoopTermination {
+        reason: crate::reasoning::phases::LoopTerminationReason::Error {
+            message: format!("Required journal write failed: {error}"),
+        },
+        state,
+    }
+    .into_result()
 }
 
 #[cfg(test)]
@@ -585,6 +781,640 @@ mod tests {
             journal: Arc::new(BufferedJournal::new(1000)),
             knowledge_bridge: None,
             delegation: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn orga_dispatch_lends_the_current_call_journal() {
+        struct EffectProbe;
+        #[async_trait::async_trait]
+        impl ActionExecutor for EffectProbe {
+            fn tool_definitions(&self) -> Vec<ToolDefinition> {
+                vec![ToolDefinition {
+                    name: "effect_probe".into(),
+                    description: "Journal channel fixture".into(),
+                    parameters: serde_json::json!({"type":"object","properties":{}}),
+                }]
+            }
+            async fn execute_actions(
+                &self,
+                _: &[ProposedAction],
+                _: &LoopConfig,
+                _: &CircuitBreakerRegistry,
+            ) -> Vec<Observation> {
+                panic!("fixture requires authorization")
+            }
+            async fn execute_authorized(
+                &self,
+                grants: Vec<super::super::prepared::AuthorizedAction>,
+                _: &LoopConfig,
+                _: &CircuitBreakerRegistry,
+            ) -> Vec<Observation> {
+                let mut results = Vec::new();
+                for grant in grants {
+                    let audit = grant
+                        .effect_journal()
+                        .expect("ORGA supplies the invocation journal");
+                    audit
+                        .append(
+                            super::super::effect_journal::ToolEffect::NetworkRequestStarted {
+                                request_id: "channel-fixture".into(),
+                                method: "GET".into(),
+                                url: "https://fixture.invalid/".into(),
+                                request_hash: "synthetic-request-hash".into(),
+                                request_bytes: 0,
+                            },
+                        )
+                        .await
+                        .unwrap();
+                    let ProposedAction::ToolCall { call_id, name, .. } = grant.action() else {
+                        panic!("tool")
+                    };
+                    results.push(
+                        Observation::tool_result(name, "channel acknowledged")
+                            .with_call_id(call_id),
+                    );
+                }
+                results
+            }
+        }
+        let provider = Arc::new(MockProvider::new(vec![InferenceResponse {
+            content: String::new(),
+            tool_calls: vec![ToolCallRequest {
+                id: "channel-call".into(),
+                name: "effect_probe".into(),
+                arguments: "{}".into(),
+            }],
+            finish_reason: FinishReason::ToolCalls,
+            usage: Usage::default(),
+            model: "fixture".into(),
+        }]));
+        let journal = Arc::new(BufferedJournal::new(100));
+        let mut runner = make_runner(provider);
+        runner.executor = Arc::new(EffectProbe);
+        runner.journal = journal.clone();
+        let principal = AgentId::new();
+        let result = runner
+            .run(principal, Conversation::new(), LoopConfig::default())
+            .await;
+        assert!(
+            matches!(
+                result.termination_reason,
+                TerminationReason::UnconfirmedEffects
+            ),
+            "{result:?}"
+        );
+        let entries = journal.entries().await;
+        assert_eq!(
+            entries
+                .iter()
+                .filter(|e| matches!(e.event, LoopEvent::ReasoningComplete { .. }))
+                .count(),
+            1
+        );
+        let authorization = entries
+            .iter()
+            .find_map(|entry| match &entry.event {
+                LoopEvent::PolicyEvaluated { approved_calls, .. } if !approved_calls.is_empty() => {
+                    Some(approved_calls[0]["fingerprint"].as_str().unwrap())
+                }
+                _ => None,
+            })
+            .unwrap();
+        let effects: Vec<_> = entries
+            .iter()
+            .filter_map(|entry| match &entry.event {
+                LoopEvent::ToolEffect {
+                    call_fingerprint, ..
+                } => Some((entry, call_fingerprint)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(effects.len(), 1);
+        assert_eq!(effects[0].0.agent_id, principal);
+        assert_eq!(effects[0].1, authorization);
+    }
+
+    #[tokio::test]
+    async fn required_cleanup_failure_prevents_successful_termination() {
+        struct CleanupFailure;
+        #[async_trait::async_trait]
+        impl ActionExecutor for CleanupFailure {
+            async fn execute_actions(
+                &self,
+                _: &[ProposedAction],
+                _: &LoopConfig,
+                _: &CircuitBreakerRegistry,
+            ) -> Vec<crate::reasoning::loop_types::Observation> {
+                Vec::new()
+            }
+            async fn close_run(&self, _: &str, _: std::time::Instant) -> Result<(), String> {
+                Err("synthetic cleanup failure".into())
+            }
+        }
+        let journal = Arc::new(BufferedJournal::new(100));
+        let mut runner = make_runner(Arc::new(MockProvider::new(vec![])));
+        runner.executor = Arc::new(CleanupFailure);
+        runner.journal = journal.clone();
+        let result = runner
+            .run(AgentId::new(), Conversation::new(), LoopConfig::default())
+            .await;
+        assert!(result.output.is_empty());
+        assert!(
+            matches!(&result.termination_reason, TerminationReason::Error { message }
+            if message.contains("synthetic cleanup failure"))
+        );
+        let entries = journal.entries().await;
+        let endings: Vec<_> = entries
+            .iter()
+            .filter(|entry| matches!(entry.event, LoopEvent::Terminated { .. }))
+            .collect();
+        assert_eq!(endings.len(), 1);
+        assert!(matches!(&endings[0].event, LoopEvent::Terminated {
+            reason: TerminationReason::Error { message }, .. }
+            if message.contains("synthetic cleanup failure")));
+    }
+
+    #[cfg(all(unix, feature = "cedar"))]
+    fn prepared_fixture(
+        dir: &std::path::Path,
+        approval: bool,
+    ) -> crate::toolclad::manifest::Manifest {
+        let mut manifest: crate::toolclad::manifest::Manifest = toml::from_str(
+            r#"
+[tool]
+name = "count_fixture"
+version = "1"
+binary = "/usr/bin/touch"
+description = "Prepared call effect fixture"
+[tool.cedar]
+resource = "Tool::Fixture"
+action = "execute"
+[args.count]
+position = 1
+required = true
+type = "integer"
+min = 1
+max = 5
+clamp = true
+[command]
+template = "/usr/bin/touch {count}"
+[output]
+format = "text"
+"#,
+        )
+        .unwrap();
+        manifest.tool.human_approval = approval;
+        manifest.command.template = Some(format!("/usr/bin/touch '{}/{{count}}'", dir.display()));
+        manifest
+    }
+
+    #[cfg(all(unix, feature = "cedar"))]
+    async fn prepared_cedar(
+        manifest: &crate::toolclad::manifest::Manifest,
+    ) -> Arc<dyn ReasoningPolicyGate> {
+        let gate = super::super::cedar_gate::CedarPolicyGate::deny_by_default();
+        gate.add_policy(super::super::cedar_gate::CedarPolicy {
+            name: "fixture".into(), active: true,
+            source: format!("{}\npermit(principal, action == Action::\"respond\", resource);\nforbid(principal, action == Tool::Fixture::Action::\"execute\", resource) when {{ context.invocation.arguments.count != \"5\" }};", crate::toolclad::cedar_gen::generate_policy(manifest).unwrap()),
+        }).await;
+        Arc::new(gate)
+    }
+
+    #[cfg(all(unix, feature = "cedar"))]
+    fn prepared_provider(count: &str) -> Arc<dyn InferenceProvider> {
+        Arc::new(MockProvider::new(vec![InferenceResponse {
+            content: String::new(),
+            tool_calls: vec![ToolCallRequest {
+                id: "prepared-fixture-call".into(),
+                name: "count_fixture".into(),
+                arguments: serde_json::json!({"count":count}).to_string(),
+            }],
+            finish_reason: FinishReason::ToolCalls,
+            usage: Usage::default(),
+            model: "fixture".into(),
+        }]))
+    }
+
+    #[cfg(all(unix, feature = "cedar"))]
+    #[tokio::test]
+    async fn normalized_call_matches_generated_cedar_audit_and_real_effect() {
+        let dir = tempfile::tempdir().unwrap();
+        let manifest = prepared_fixture(dir.path(), false);
+        let journal = Arc::new(BufferedJournal::new(100));
+        let mut runner = make_runner(prepared_provider("999"));
+        runner.policy_gate = prepared_cedar(&manifest).await;
+        runner.executor = Arc::new(
+            crate::toolclad::executor::ToolCladExecutor::new(vec![(
+                "count_fixture".into(),
+                manifest,
+            )])
+            .with_development_host_execution(),
+        );
+        runner.journal = journal.clone();
+        let result = runner
+            .run(
+                AgentId::new(),
+                Conversation::with_system("Prepared fixture"),
+                LoopConfig::default(),
+            )
+            .await;
+        assert!(
+            matches!(result.termination_reason, TerminationReason::Completed),
+            "{result:?}"
+        );
+        assert!(
+            dir.path().join("5").exists(),
+            "normalized action did not execute: {result:?}"
+        );
+        assert!(!dir.path().join("999").exists());
+        let entries = journal.entries().await;
+        let call = entries
+            .iter()
+            .find_map(|entry| match &entry.event {
+                LoopEvent::PolicyEvaluated { approved_calls, .. } => approved_calls
+                    .iter()
+                    .find(|call| call["arguments"]["count"] == "5"),
+                _ => None,
+            })
+            .expect("pre-effect audit must record normalized input");
+        assert_eq!(call["contract"]["resource_type"], "Tool::Fixture");
+        assert_eq!(call["contract"]["action_id"], "execute");
+        assert!(call["contract"]["digest"]
+            .as_str()
+            .unwrap()
+            .starts_with("sha256:"));
+        assert!(result
+            .conversation
+            .messages()
+            .iter()
+            .any(|message| message.content.contains("toolclad:count_fixture")
+                || message.content.contains("output_hash")));
+    }
+
+    #[cfg(all(unix, feature = "cedar", feature = "orga-adaptive"))]
+    #[tokio::test]
+    async fn pre_hydration_uses_prepared_policy_and_audit_before_real_effects() {
+        use crate::reasoning::pre_hydrate::{PreHydrationConfig, ReferencePattern};
+        for (allow, approval, expected_effect) in [
+            (false, false, false),
+            (true, false, true),
+            (true, true, false),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let mut manifest = prepared_fixture(dir.path(), approval);
+            let count = manifest.args.remove("count").unwrap();
+            manifest.args.insert("input".into(), count);
+            manifest.command.template = manifest
+                .command
+                .template
+                .map(|template| template.replace("{count}", "{input}"));
+            let mut runner = make_runner(Arc::new(MockProvider::new(Vec::new())));
+            runner.executor = Arc::new(
+                crate::toolclad::executor::ToolCladExecutor::new(vec![(
+                    "count_fixture".into(),
+                    manifest,
+                )])
+                .with_development_host_execution(),
+            );
+            runner.policy_gate = if allow {
+                Arc::new(DefaultPolicyGate::permissive_for_dev_only())
+            } else {
+                Arc::new(DefaultPolicyGate::new())
+            };
+            let journal = Arc::new(BufferedJournal::new(100));
+            runner.journal = journal.clone();
+            let config = LoopConfig {
+                pre_hydration: Some(PreHydrationConfig {
+                    custom_patterns: vec![ReferencePattern {
+                        ref_type: "fixture".into(),
+                        pattern: "999".into(),
+                    }],
+                    resolution_tools: [("fixture".into(), "count_fixture".into())].into(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            };
+            let mut conversation = Conversation::new();
+            conversation.push(ConversationMessage::user("Resolve fixture 999"));
+            let result = runner.run(AgentId::new(), conversation, config).await;
+            assert_eq!(dir.path().join("5").exists(), expected_effect, "{result:?}");
+            assert!(!dir.path().join("999").exists());
+            let entries = journal.entries().await;
+            let policy_index = entries
+                .iter()
+                .position(|entry| {
+                    matches!(entry.event, LoopEvent::PolicyEvaluated { iteration: 0, .. })
+                })
+                .unwrap();
+            let outcome_index = entries
+                .iter()
+                .position(|entry| {
+                    matches!(
+                        entry.event,
+                        LoopEvent::ToolBatchCompleted { iteration: 0, .. }
+                    )
+                })
+                .unwrap();
+            assert!(policy_index < outcome_index);
+            if expected_effect {
+                let LoopEvent::PolicyEvaluated { approved_calls, .. } =
+                    &entries[policy_index].event
+                else {
+                    unreachable!()
+                };
+                assert_eq!(approved_calls[0]["arguments"]["input"], "5");
+                assert!(result
+                    .conversation
+                    .messages()
+                    .iter()
+                    .filter(|message| message.content.contains("[PRE_HYDRATED_CONTEXT]"))
+                    .all(|message| message.role
+                        != crate::reasoning::conversation::MessageRole::System));
+            }
+        }
+    }
+
+    #[cfg(all(unix, feature = "cedar"))]
+    #[tokio::test]
+    async fn manifest_approval_is_independent_of_policy_and_precedes_effects() {
+        use crate::escalation::{
+            Approver, Decision, EscalationGate, EscalationGateConfig, EscalationQueue, Surface,
+        };
+        use std::time::Duration;
+        for (count, decision, expected_effect) in [
+            ("999", Some(true), true),
+            ("999", Some(false), false),
+            ("999", None, false),
+            ("1", Some(true), false),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let manifest = prepared_fixture(dir.path(), true);
+            let executor = Arc::new(
+                crate::toolclad::executor::ToolCladExecutor::new(vec![(
+                    "count_fixture".into(),
+                    manifest.clone(),
+                )])
+                .with_development_host_execution(),
+            );
+            assert!(executor
+                .execute_tool("count_fixture", r#"{"count":"999"}"#)
+                .unwrap_err()
+                .contains("approval"));
+            let mut runner = make_runner(prepared_provider(count));
+            runner.executor = executor;
+            let agent = AgentId::new();
+            let conversation = Conversation::with_system("Approval fixture");
+            let result = if let Some(allow) = decision {
+                let queue = Arc::new(EscalationQueue::new());
+                runner.policy_gate = Arc::new(EscalationGate::new(
+                    prepared_cedar(&manifest).await,
+                    queue.clone(),
+                    EscalationGateConfig {
+                        require_approval_tools: Vec::new(),
+                        timeout: Duration::from_secs(5),
+                    },
+                ));
+                tokio::time::timeout(Duration::from_secs(10), async {
+                    let (result, ()) = tokio::join!(
+                        runner.run(agent, conversation, LoopConfig::default()),
+                        async {
+                            let held = loop {
+                                if let Some(held) =
+                                    queue.list_pending_async().await.into_iter().next()
+                                {
+                                    break held;
+                                }
+                                tokio::time::sleep(Duration::from_millis(5)).await;
+                            };
+                            assert!(
+                                !dir.path().join("5").exists(),
+                                "effect occurred before approval"
+                            );
+                            queue
+                                .resolve_async(
+                                    &held.id,
+                                    if allow {
+                                        Decision::Approve { reason: None }
+                                    } else {
+                                        Decision::Deny {
+                                            reason: Some("fixture denied".into()),
+                                        }
+                                    },
+                                    Approver {
+                                        surface: Surface::Tui,
+                                        id: "fixture-operator".into(),
+                                        display: "fixture operator".into(),
+                                    },
+                                )
+                                .await
+                                .unwrap();
+                            assert!(
+                                queue
+                                    .resolve_async(
+                                        &held.id,
+                                        Decision::Approve { reason: None },
+                                        Approver {
+                                            surface: Surface::Tui,
+                                            id: "fixture-operator".into(),
+                                            display: "fixture operator".into()
+                                        }
+                                    )
+                                    .await
+                                    .is_err(),
+                                "approval response was replayed"
+                            );
+                        }
+                    );
+                    result
+                })
+                .await
+                .expect("approval fixture did not complete")
+            } else {
+                // A permissive policy still cannot waive a manifest requirement.
+                runner.run(agent, conversation, LoopConfig::default()).await
+            };
+            assert_eq!(dir.path().join("5").exists(), expected_effect, "{result:?}");
+            assert!(
+                !dir.path().join("1").exists(),
+                "operator approval overrode Cedar denial"
+            );
+        }
+    }
+
+    #[cfg(all(unix, feature = "cedar"))]
+    #[tokio::test]
+    async fn policy_modification_is_prepared_and_authorized_again() {
+        struct RewriteGate;
+        #[async_trait::async_trait]
+        impl ReasoningPolicyGate for RewriteGate {
+            async fn evaluate_action(
+                &self,
+                _: &AgentId,
+                action: &ProposedAction,
+                _: &LoopState,
+            ) -> LoopDecision {
+                match action {
+                    ProposedAction::ToolCall {
+                        call_id,
+                        name,
+                        arguments,
+                    } if serde_json::from_str::<serde_json::Value>(arguments).unwrap()["count"]
+                        == "5" =>
+                    {
+                        LoopDecision::Modify {
+                            modified_action: Box::new(ProposedAction::ToolCall {
+                                call_id: call_id.clone(),
+                                name: name.clone(),
+                                arguments: r#"{"count":"1"}"#.into(),
+                            }),
+                            reason: "fixture rewrite".into(),
+                        }
+                    }
+                    ProposedAction::ToolCall { .. } => LoopDecision::Deny {
+                        reason: "modified call is not authorized".into(),
+                    },
+                    _ => LoopDecision::Allow,
+                }
+            }
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let mut runner = make_runner(prepared_provider("999"));
+        runner.executor = Arc::new(
+            crate::toolclad::executor::ToolCladExecutor::new(vec![(
+                "count_fixture".into(),
+                prepared_fixture(dir.path(), false),
+            )])
+            .with_development_host_execution(),
+        );
+        runner.policy_gate = Arc::new(RewriteGate);
+        let result = runner
+            .run(
+                AgentId::new(),
+                Conversation::with_system("Rewrite fixture"),
+                LoopConfig::default(),
+            )
+            .await;
+        assert!(!dir.path().join("1").exists());
+        assert!(!dir.path().join("5").exists());
+        assert!(result
+            .conversation
+            .messages()
+            .iter()
+            .any(|message| message.content.contains("modified call is not authorized")));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn journal_failure_stops_dispatch_and_never_reports_success() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        struct FailingJournal {
+            sequence: AtomicU64,
+            fail_at: u64,
+            dispatch_checkpoint: AtomicU64,
+        }
+        #[async_trait::async_trait]
+        impl JournalWriter for FailingJournal {
+            async fn append(&self, entry: JournalEntry) -> Result<(), JournalError> {
+                let checkpoint = self.sequence.fetch_add(1, Ordering::SeqCst);
+                if matches!(entry.event, LoopEvent::ToolDispatchStarted { .. }) {
+                    self.dispatch_checkpoint.store(checkpoint, Ordering::SeqCst);
+                }
+                if checkpoint == self.fail_at {
+                    Err(JournalError::WriteFailed(
+                        "storage fixture refused write".into(),
+                    ))
+                } else {
+                    Ok(())
+                }
+            }
+            async fn next_sequence(&self) -> u64 {
+                self.sequence.load(Ordering::SeqCst)
+            }
+        }
+        let manifest: crate::toolclad::manifest::Manifest = toml::from_str(
+            r#"
+[tool]
+name = "touch_fixture"
+version = "1"
+binary = "/usr/bin/touch"
+description = "Journal effect fixture"
+[args.path]
+position = 1
+required = true
+type = "string"
+[command]
+template = "/usr/bin/touch '{path}'"
+[output]
+format = "text"
+"#,
+        )
+        .unwrap();
+        // Discover the successful lifecycle, then interrupt every checkpoint.
+        // Dispatch must wait for its durable start; later failures cannot undo
+        // the marker and must never turn that effect into a successful result.
+        let mut checkpoints = std::collections::VecDeque::from([u64::MAX]);
+        let mut dispatch_checkpoint = u64::MAX;
+        while let Some(fail_at) = checkpoints.pop_front() {
+            let dir = tempfile::tempdir().unwrap();
+            let marker = dir.path().join("effect");
+            let provider = Arc::new(MockProvider::new(vec![InferenceResponse {
+                content: String::new(),
+                tool_calls: vec![ToolCallRequest {
+                    id: "fixture-call".into(),
+                    name: "touch_fixture".into(),
+                    arguments: serde_json::json!({"path":marker}).to_string(),
+                }],
+                finish_reason: FinishReason::ToolCalls,
+                usage: Usage::default(),
+                model: "fixture".into(),
+            }]));
+            let mut runner = make_runner(provider);
+            runner.executor = Arc::new(
+                crate::toolclad::executor::ToolCladExecutor::new(vec![(
+                    "touch_fixture".into(),
+                    manifest.clone(),
+                )])
+                .with_development_host_execution(),
+            );
+            let journal = Arc::new(FailingJournal {
+                sequence: AtomicU64::new(0),
+                fail_at,
+                dispatch_checkpoint: AtomicU64::new(u64::MAX),
+            });
+            runner.journal = journal.clone();
+            let result = runner
+                .run(
+                    AgentId::new(),
+                    Conversation::with_system("Journal fixture"),
+                    LoopConfig::default(),
+                )
+                .await;
+            if fail_at == u64::MAX {
+                let count = journal.sequence.load(Ordering::SeqCst);
+                assert!(count < 32);
+                checkpoints.extend(0..count);
+                dispatch_checkpoint = journal.dispatch_checkpoint.load(Ordering::SeqCst);
+                assert!(dispatch_checkpoint < count);
+            }
+            assert_eq!(
+                marker.exists(),
+                fail_at > dispatch_checkpoint,
+                "checkpoint {fail_at}"
+            );
+            if fail_at == u64::MAX {
+                assert!(matches!(
+                    result.termination_reason,
+                    TerminationReason::Completed
+                ));
+            } else {
+                assert!(
+                    matches!(result.termination_reason, TerminationReason::Error { ref message } if message.contains("storage fixture refused write")),
+                    "checkpoint {fail_at}: {:?}",
+                    result.termination_reason
+                );
+                assert!(result.output.is_empty());
+            }
         }
     }
 
@@ -958,23 +1788,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_builder_minimal() {
-        let provider: Arc<dyn InferenceProvider> =
-            Arc::new(MockProvider::new(vec![InferenceResponse {
-                content: "Built with builder.".into(),
-                tool_calls: vec![],
-                finish_reason: FinishReason::Stop,
-                usage: Usage {
-                    prompt_tokens: 10,
-                    completion_tokens: 5,
-                    total_tokens: 15,
-                },
-                model: "mock".into(),
-            }]));
+    async fn test_builder_requires_explicit_journal_before_inference() {
+        let provider = Arc::new(MockProvider::new(vec![InferenceResponse {
+            content: "Built with builder.".into(),
+            tool_calls: vec![],
+            finish_reason: FinishReason::Stop,
+            usage: Usage {
+                prompt_tokens: 10,
+                completion_tokens: 5,
+                total_tokens: 15,
+            },
+            model: "mock".into(),
+        }]));
         let executor: Arc<dyn ActionExecutor> = Arc::new(DefaultActionExecutor::default());
 
         let runner = ReasoningLoopRunner::builder()
-            .provider(provider)
+            .provider(provider.clone())
             .executor(executor)
             .build();
 
@@ -983,11 +1812,68 @@ mod tests {
             .run(AgentId::new(), conv, LoopConfig::default())
             .await;
 
+        assert!(
+            matches!(
+                result.termination_reason,
+                TerminationReason::Error { ref message } if message.contains("requires an explicit journal")
+            ),
+            "{result:?}"
+        );
+        assert!(result.output.is_empty());
+        assert_eq!(result.iterations, 0);
+        assert_eq!(
+            provider.responses.lock().unwrap().len(),
+            1,
+            "provider must not be called"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_builder_with_protected_journal_records_a_complete_run() {
+        let project = tempfile::tempdir().unwrap();
+        let agent = AgentId::new();
+        let (journal, reference) = super::super::run_audit::open_run_journal(project.path(), agent)
+            .await
+            .unwrap();
+        let runner = ReasoningLoopRunner::builder()
+            .provider(Arc::new(MockProvider::new(vec![InferenceResponse {
+                content: "Recorded response.".into(),
+                tool_calls: vec![],
+                finish_reason: FinishReason::Stop,
+                usage: Usage::default(),
+                model: "fixture".into(),
+            }])))
+            .executor(Arc::new(DefaultActionExecutor::default()))
+            .journal(journal)
+            .build();
+        let result = runner
+            .run(agent, Conversation::new(), LoopConfig::default())
+            .await;
         assert!(matches!(
             result.termination_reason,
             TerminationReason::Completed
         ));
-        assert_eq!(result.output, "Built with builder.");
+        assert_eq!(result.output, "Recorded response.");
+        let key: [u8; 32] = hex::decode(reference.public_key)
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let entries = super::super::protected_journal::ProtectedJournal::verify_run(
+            &reference.path,
+            &key,
+            reference.run_id,
+        )
+        .unwrap();
+        assert!(matches!(entries[0].event, LoopEvent::Started { .. }));
+        assert!(matches!(
+            entries.last().unwrap().event,
+            LoopEvent::Terminated {
+                reason: TerminationReason::Completed,
+                ..
+            }
+        ));
+        assert!(entries.iter().all(|entry| entry.agent_id == agent));
     }
 
     #[tokio::test]
@@ -1020,6 +1906,7 @@ mod tests {
             .provider(provider)
             .executor(executor)
             .policy_gate(Arc::new(ToolFilterPolicyGate::allow(&["allowed_only"])))
+            .journal(Arc::new(BufferedJournal::new(100)))
             .build();
 
         let conv = Conversation::with_system("policy test");

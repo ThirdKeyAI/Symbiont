@@ -1,8 +1,12 @@
 import { defineConfig } from 'vite';
 import tailwindcss from '@tailwindcss/vite';
 
+const runtimeUrl = process.env.SYMBI_RUNTIME_URL ?? 'http://localhost:8080';
+
 export default defineConfig({
   plugins: [tailwindcss()],
+  // Dependencies and the production bundle support the same browser baseline.
+  optimizeDeps: { esbuildOptions: { target: 'es2022' } },
   build: {
     outDir: 'dist',
     target: 'es2022',
@@ -14,11 +18,11 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://localhost:8080',
+        target: runtimeUrl,
         changeOrigin: true,
       },
       '/ws': {
-        target: 'ws://localhost:8080',
+        target: runtimeUrl,
         ws: true,
       },
     },

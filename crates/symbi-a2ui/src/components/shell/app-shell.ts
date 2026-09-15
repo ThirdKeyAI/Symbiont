@@ -1,8 +1,10 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
+import type { RunAuditReference } from '../../api/run-audit.js';
+import { WsClient } from '../../api/ws-client.js';
 import { hasToken, setToken, clearToken } from '../../api/client.js';
 
-export type PanelId = 'fleet' | 'audit' | 'compliance' | 'coordinator' | 'tools';
+export type PanelId = 'fleet' | 'audit' | 'compliance' | 'coordinator' | 'tools' | 'runs' | 'capacity';
 
 @customElement('app-shell')
 export class AppShell extends LitElement {
@@ -116,8 +118,16 @@ export class AppShell extends LitElement {
   @state() private _tokenInput = '';
   @state() private _sidebarCollapsed = false;
 
+  @state() private _inspectOpen = false;
+  @state() private _auditReference: RunAuditReference | null = null;
+
+  private _onInspect(e: CustomEvent<RunAuditReference>) {
+    this._auditReference = e.detail; this._inspectOpen = true;
+  }
+
   private _onNavigate(e: CustomEvent<PanelId>) {
-    this._panel = e.detail;
+    if (e.detail === 'runs') { this._auditReference = null; this._inspectOpen = true; }
+    else this._panel = e.detail;
   }
 
   private _onToggleSidebar() {
@@ -125,6 +135,8 @@ export class AppShell extends LitElement {
   }
 
   private _onLogout() {
+    WsClient.instance().disconnect();
+    this._inspectOpen = false; this._auditReference = null;
     clearToken();
     this._authenticated = false;
     this._tokenInput = '';
@@ -151,7 +163,7 @@ export class AppShell extends LitElement {
               <span class="logo-text">Symbiont</span>
             </div>
             <h2>Connect to Runtime</h2>
-            <p>Enter your SYMBI_AUTH_TOKEN to access the operations console.</p>
+            <p>Enter your SYMBIONT_API_TOKEN to access the operations console.</p>
             <input
               type="password"
               placeholder="Bearer token"
@@ -172,7 +184,7 @@ export class AppShell extends LitElement {
         @toggle-sidebar=${this._onToggleSidebar}
         @logout=${this._onLogout}
       ></header-bar>
-      <div class="main">
+      <div class="main" @inspect-run=${this._onInspect}>
         <nav-sidebar
           .activePanel=${this._panel}
           .collapsed=${this._sidebarCollapsed}
@@ -181,6 +193,9 @@ export class AppShell extends LitElement {
         <main class="content">
           ${this._renderPanel()}
         </main>
+        ${this._inspectOpen ? html`<run-inspector .reference=${this._auditReference}
+          @inspect-run=${this._onInspect}
+          @close-inspector=${() => { this._inspectOpen = false; }}></run-inspector>` : ''}
       </div>
     `;
   }
@@ -189,6 +204,8 @@ export class AppShell extends LitElement {
     switch (this._panel) {
       case 'fleet':
         return html`<fleet-overview-panel></fleet-overview-panel>`;
+      case 'capacity':
+        return html`<capacity-panel></capacity-panel>`;
       case 'audit':
         return html`<audit-trail-panel></audit-trail-panel>`;
       case 'compliance':

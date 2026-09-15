@@ -10,9 +10,15 @@
 
 export interface ChatSend {
   type: 'ChatSend';
-  /** Client-generated message id. */
+  /** Client-generated UUID retained unchanged for retries. */
   id: string;
   /** Natural-language content. */
+  content: string;
+}
+
+export interface ChatInspect {
+  type: 'ChatInspect';
+  id: string;
   content: string;
 }
 
@@ -20,17 +26,24 @@ export interface Ping {
   type: 'Ping';
 }
 
-export type ClientMessage = ChatSend | Ping;
+export type ClientMessage = ChatSend | ChatInspect | Ping;
 
 // ---------------------------------------------------------------------------
 // Server → Client
 // ---------------------------------------------------------------------------
+
+export interface AuditOpened {
+  type: 'AuditOpened';
+  request_id: string;
+  audit: { run_id: string; path: string; public_key: string };
+}
 
 export interface ChatChunk {
   type: 'ChatChunk';
   request_id: string;
   content: string;
   done: boolean;
+  replayed: boolean;
 }
 
 export interface ToolCallStarted {
@@ -69,6 +82,7 @@ export interface Pong {
 }
 
 export type ServerMessage =
+  | AuditOpened
   | ChatChunk
   | ToolCallStarted
   | ToolCallResult

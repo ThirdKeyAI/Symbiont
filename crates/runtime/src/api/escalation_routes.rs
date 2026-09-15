@@ -132,6 +132,14 @@ async fn do_resolve(
                 details: None,
             }),
         )),
+        Err(ResolveError::Expired) => Err((
+            StatusCode::GONE,
+            Json(ErrorResponse {
+                error: "Held action expired".into(),
+                code: "expired".into(),
+                details: None,
+            }),
+        )),
     }
 }
 

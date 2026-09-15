@@ -7,7 +7,8 @@
 //! Claims:
 //!   1. Policy engine evaluates decisions in under 1 ms (10,000+ evals/sec).
 //!   2. SchemaPin signature verification completes in under 5 ms per tool.
-//!   3. Runtime scheduling overhead is under 2% CPU for 10,000 concurrent agents.
+//!   3. Registration and bounded-queue operations remain responsive.
+//!      These checks do not measure CPU overhead of executing agents.
 //!
 //! Run with:
 //!   cargo test -p symbi-runtime --test performance_claims -- --nocapture
@@ -392,18 +393,13 @@ fn claim2_ecdsa_p256_verify_under_5ms() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Claim 3 — Scheduling overhead: < 2% CPU for 10,000 concurrent agents
+// Registry and queue latency; executing-agent CPU overhead is not established
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[test]
 fn claim3_priority_queue_10k_enqueue() {
-    // The priority queue is the core scheduling data structure. The scheduler
-    // enqueues agents and pops one per tick (100ms interval). This test
-    // verifies that enqueuing 10,000 tasks is fast.
-    //
-    // Note: PriorityQueue::pop() rebuilds the index (O(n) per pop), so
-    // draining is O(n²). The scheduler only pops one item per tick, so the
-    // relevant metric is single-pop latency at max queue depth, not bulk drain.
+    // Measure the heap independently of the production admission bound.
+    // This establishes data-structure latency, not live worker scalability.
 
     // Pre-build tasks outside the timed region
     let tasks: Vec<ScheduledTask> = (0..10_000u32)
@@ -442,7 +438,7 @@ fn claim3_priority_queue_10k_enqueue() {
         "CLAIM VIOLATED: enqueuing 10k tasks took {push_elapsed:.2?}"
     );
 
-    // A single pop (including O(n) index rebuild) should take < 50 ms
+    // A single heap pop should take < 50 ms
     // even in debug mode with 10k items.
     assert!(
         pop_elapsed < Duration::from_millis(50),
@@ -451,90 +447,70 @@ fn claim3_priority_queue_10k_enqueue() {
 }
 
 #[tokio::test]
-async fn claim3_schedule_10k_agents_overhead() {
-    // Schedule 10,000 agents through the full DefaultAgentScheduler and
-    // measure the enqueue overhead. The claim is that scheduling overhead
-    // is < 2% CPU for 10k concurrent agents, meaning the time spent in
-    // scheduling operations should be small relative to wall time.
-    let scheduler = DefaultAgentScheduler::new(SchedulerConfig {
-        max_concurrent_agents: 20_000,
-        ..Default::default()
-    })
-    .await
-    .unwrap();
-
-    let agent_count = 10_000u32;
-
-    // Pre-build configs to isolate scheduling from allocation overhead
-    let configs: Vec<AgentConfig> = (0..agent_count)
-        .map(|i| make_agent_config(&format!("agent-{}", i)))
+async fn registry_10k_agents_registration_overhead() {
+    let scheduler = DefaultAgentScheduler::new(SchedulerConfig::default())
+        .await
+        .unwrap();
+    let configs: Vec<AgentConfig> = (0..10_000)
+        .map(|i| make_agent_config(&format!("agent-{i}")))
         .collect();
-
     let start = Instant::now();
     for config in configs {
-        scheduler.schedule_agent(config).await.unwrap();
+        scheduler.register_agent(config).await.unwrap();
     }
     let elapsed = start.elapsed();
-
-    let per_agent_us = elapsed.as_micros() as f64 / agent_count as f64;
-    let overhead_pct = elapsed.as_secs_f64() * 100.0; // % of a 1-second window
-
-    println!("Scheduler 10k agent enqueue:");
-    println!("  Total: {elapsed:.2?}");
-    println!("  Per agent: {per_agent_us:.1} µs");
-    println!("  Overhead vs 1s window: {overhead_pct:.2}%");
-
-    // In release mode, 10k enqueues complete in ~10 ms (1% overhead).
-    // In debug mode, the DashMap operations and lock contention are slower.
-    // Use 500 ms (50% of 1s) as a generous bound that catches regressions.
+    println!("Registering 10k agent configurations: {elapsed:.2?}");
     assert!(
         elapsed < Duration::from_millis(500),
-        "CLAIM VIOLATED: scheduling 10k agents took {elapsed:.2?} — overhead too high"
+        "registration latency regressed: {elapsed:.2?}"
     );
-
-    // Shutdown cleanly
+    assert_eq!(scheduler.list_agents().await.len(), 10_000);
+    assert_eq!(scheduler.get_system_status().await.running_agents, 0);
     scheduler.shutdown().await.unwrap();
 }
 
 #[tokio::test]
-async fn claim3_scheduler_10k_agents_background_loop_cost() {
-    // Verify the scheduler's background tick loop is efficient with many
-    // agents registered. We measure the time for the scheduler to exist
-    // with 10k agents over a brief window, checking that the per-tick
-    // scheduling overhead is bounded.
+async fn bounded_scheduler_queue_remains_responsive_and_refuses_overflow() {
+    // Reserve no worker slots to hold the queue at its admission limit.
+    // Real execution and cleanup are covered by scheduler_execution.rs.
     let scheduler = DefaultAgentScheduler::new(SchedulerConfig {
-        max_concurrent_agents: 20_000,
-        health_check_interval: Duration::from_secs(60), // minimize health check noise
+        max_concurrent_agents: 0,
         ..Default::default()
     })
     .await
     .unwrap();
-
-    // Enqueue 10k agents (they get dispatched by the background loop)
-    for i in 0..10_000u32 {
-        let config = make_agent_config(&format!("bg-agent-{}", i));
-        scheduler.schedule_agent(config).await.unwrap();
+    let mut handles = Vec::new();
+    for i in 0..2048 {
+        handles.push(
+            scheduler
+                .schedule_invocation(
+                    make_agent_config(&format!("pending-{i}")),
+                    serde_json::Value::Null,
+                )
+                .await
+                .unwrap(),
+        );
     }
-
-    // Let the scheduler's background loop run for a few ticks (100ms interval)
-    // and verify it stays responsive.
+    assert!(scheduler
+        .schedule_agent(make_agent_config("overflow"))
+        .await
+        .is_err());
     let start = Instant::now();
     for _ in 0..5 {
         tokio::time::sleep(Duration::from_millis(50)).await;
-        // Scheduler should remain responsive for status queries
-        let _status = scheduler.get_system_status().await;
+        assert_eq!(scheduler.get_system_status().await.running_agents, 0);
     }
     let elapsed = start.elapsed();
-
-    println!("Scheduler background loop (5 ticks with 10k agents):");
-    println!("  Total wall time: {elapsed:.2?}");
-
-    // 5 × 50ms sleeps = 250ms minimum. With scheduling overhead < 2%,
-    // the total should be well under 500ms even in debug mode.
+    println!("Five status checks with a full pending queue: {elapsed:.2?}");
     assert!(
-        elapsed < Duration::from_millis(1000),
-        "Scheduler loop with 10k agents took {elapsed:.2?} — too much overhead"
+        elapsed < Duration::from_secs(1),
+        "scheduler became unresponsive: {elapsed:.2?}"
     );
-
     scheduler.shutdown().await.unwrap();
+    for handle in handles {
+        assert_eq!(
+            handle.wait().await.status,
+            symbi_runtime::scheduler::task_manager::TaskStatus::Terminated
+        );
+    }
 }

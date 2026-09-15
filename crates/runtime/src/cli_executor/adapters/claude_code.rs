@@ -29,6 +29,9 @@ pub struct ClaudeCodeAdapter {
     pub allowed_tools: Vec<String>,
     /// Tools explicitly disallowed for this invocation.
     pub disallowed_tools: Vec<String>,
+    /// Available built-in tools; an explicit empty list disables them.
+    #[serde(default)]
+    pub builtin_tools: Option<Vec<String>>,
 
     // ── Mode B (governed subprocess) wiring ───────────────────────────────
     /// Local plugin directories to load (`--plugin-dir`, repeatable). For Mode B
@@ -109,6 +112,7 @@ impl Default for ClaudeCodeAdapter {
             model: None,
             allowed_tools: Vec::new(),
             disallowed_tools: Vec::new(),
+            builtin_tools: None,
             plugin_dirs: Vec::new(),
             mcp_config: None,
             strict_mcp_config: false,
@@ -184,6 +188,11 @@ impl AiCliAdapter for ClaudeCodeAdapter {
             args.push(self.allowed_tools.join(","));
         }
 
+        if let Some(tools) = &self.builtin_tools {
+            args.push("--tools".into());
+            args.push(tools.join(","));
+        }
+
         if !self.disallowed_tools.is_empty() {
             args.push("--disallowedTools".to_string());
             args.push(self.disallowed_tools.join(","));
@@ -200,6 +209,9 @@ impl AiCliAdapter for ClaudeCodeAdapter {
         }
 
         // The prompt is the final positional argument
+        // Variadic tool options otherwise consume it as another option value.
+        // The separator also keeps a prompt beginning with '-' positional.
+        args.push("--".into());
         args.push(request.prompt.clone());
 
         args
@@ -267,27 +279,9 @@ impl AiCliAdapter for ClaudeCodeAdapter {
     }
 
     async fn health_check(&self) -> Result<(), anyhow::Error> {
-        let output = tokio::process::Command::new(&self.executable_path)
-            .arg("--version")
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .output()
+        crate::cli_executor::CliExecutor::new(Default::default())
+            .health_check(self)
             .await
-            .map_err(|e| {
-                anyhow::anyhow!("Claude Code not found at '{}': {}", self.executable_path, e)
-            })?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!(
-                "Claude Code health check failed (exit {}): {}",
-                output.status.code().unwrap_or(-1),
-                stderr
-            );
-        }
-
-        Ok(())
     }
 }
 
@@ -380,6 +374,20 @@ mod tests {
 
         let idx = args.iter().position(|a| a == "--allowedTools").unwrap();
         assert_eq!(args[idx + 1], "Read,Write");
+    }
+
+    #[test]
+    fn tool_options_cannot_consume_or_reinterpret_the_prompt() {
+        let adapter = ClaudeCodeAdapter {
+            allowed_tools: vec!["mcp__symbi__read_file".into()],
+            builtin_tools: Some(vec![]),
+            ..Default::default()
+        };
+        let mut request = sample_request();
+        request.prompt = "--help".into();
+        let args = adapter.build_args(&request);
+        let tools = args.iter().position(|arg| arg == "--tools").unwrap();
+        assert_eq!(&args[tools..], &["--tools", "", "--", "--help"]);
     }
 
     #[test]

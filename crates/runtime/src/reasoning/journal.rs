@@ -208,6 +208,7 @@ mod tests {
             event: LoopEvent::Started {
                 agent_id,
                 config: Box::new(LoopConfig::default()),
+                execution_context: Default::default(),
             },
         }
     }

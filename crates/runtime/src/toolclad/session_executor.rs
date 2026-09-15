@@ -1,421 +1,337 @@
-//! SessionExecutor — PTY-based interactive CLI tool session manager.
-//!
-//! Spawns interactive CLI tools in pseudo-terminals, manages per-interaction
-//! command validation and policy checking, and captures evidence transcripts.
+//! Interactive tools with a PTY allocated inside the selected sandbox.
+
+use super::{manifest::Manifest, session_state::SessionTranscript};
+use crate::sandbox::command::CommandBoundary;
+use crate::sandbox::files::FileAccessPlan;
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant},
+};
 
 #[cfg(feature = "toolclad-session")]
-use pty_process::blocking::{Command as PtyCommand, Pty};
+#[path = "session_worker.rs"]
+mod worker;
 
-use std::collections::HashMap;
-#[cfg(feature = "toolclad-session")]
-use std::io::Read;
-#[cfg(feature = "toolclad-session")]
-use std::io::Write;
-use std::sync::{Arc, Mutex};
-#[cfg(feature = "toolclad-session")]
-use std::time::{Duration, Instant};
-
-use super::manifest::Manifest;
-#[cfg(feature = "toolclad-session")]
-use super::manifest::SessionDef;
-use super::session_state::*;
-
-/// Manages interactive CLI tool sessions via PTY.
-pub struct SessionExecutor {
-    sessions: Arc<Mutex<HashMap<SessionId, SessionHandle>>>,
-    manifests: HashMap<String, Manifest>,
+/// An executor-owned call. Model arguments cannot choose its session owner,
+/// contract, sandbox, or deadlines.
+pub(super) struct SessionCall<'a> {
+    pub tool: &'a str,
+    pub manifest: &'a Manifest,
+    pub command: &'a str,
+    pub boundary: &'a CommandBoundary,
+    pub files: &'a FileAccessPlan,
+    pub contract: &'a str,
+    pub run: &'a str,
+    pub binding: &'a str,
+    pub run_deadline: Instant,
+    pub deadline: Instant,
 }
 
-/// A live session handle.
-struct SessionHandle {
+pub struct SessionExecutor {
+    manifests: HashMap<String, Manifest>,
+    boundary: Result<CommandBoundary, String>,
+    owner: String,
+    owner_deadline: std::sync::OnceLock<Instant>,
     #[cfg(feature = "toolclad-session")]
-    pty: Pty,
-    #[cfg(feature = "toolclad-session")]
-    child: std::process::Child,
-    state: SessionState,
-    transcript: SessionTranscript,
-    #[allow(dead_code)]
-    manifest_name: String,
+    worker: worker::SessionManager,
 }
 
 impl SessionExecutor {
     pub fn new(manifests: Vec<(String, Manifest)>) -> Self {
-        let session_manifests: HashMap<String, Manifest> = manifests
-            .into_iter()
-            .filter(|(_, m)| m.tool.mode == "session")
-            .collect();
         Self {
-            sessions: Arc::new(Mutex::new(HashMap::new())),
-            manifests: session_manifests,
+            manifests: manifests
+                .into_iter()
+                .filter(|(_, m)| m.tool.mode == "session")
+                .collect(),
+            boundary: Ok(CommandBoundary::default()),
+            owner: format!("sdk-session-{}", uuid::Uuid::new_v4()),
+            owner_deadline: std::sync::OnceLock::new(),
+            #[cfg(feature = "toolclad-session")]
+            worker: worker::SessionManager::default(),
         }
+    }
+
+    pub fn with_command_boundary(mut self, boundary: CommandBoundary) -> Self {
+        self.cleanup();
+        #[cfg(feature = "toolclad-session")]
+        {
+            self.worker = worker::SessionManager::default();
+        }
+        self.owner = format!("sdk-session-{}", uuid::Uuid::new_v4());
+        self.owner_deadline = std::sync::OnceLock::new();
+        self.boundary = boundary.validate().map(|()| boundary);
+        self
     }
 
     pub fn handles(&self, tool_name: &str) -> bool {
-        // Check for "toolname.command" pattern
-        if let Some(base) = tool_name.split('.').next() {
-            if let Some(m) = self.manifests.get(base) {
-                if let Some(session) = &m.session {
-                    let cmd = tool_name
-                        .strip_prefix(base)
-                        .unwrap_or("")
-                        .trim_start_matches('.');
-                    return !cmd.is_empty() && session.commands.contains_key(cmd);
-                }
-            }
-        }
-        false
+        parse_session_tool_name(tool_name)
+            .ok()
+            .is_some_and(|(base, command)| {
+                self.manifests
+                    .get(&base)
+                    .and_then(|m| m.session.as_ref())
+                    .is_some_and(|s| s.commands.contains_key(&command))
+            })
     }
 
-    /// Execute a session command. Creates the session if it doesn't exist.
+    /// Persistent sessions require the async API and a live Tokio runtime.
     pub fn execute_session_command(
         &self,
-        tool_name: &str,
-        args_json: &str,
+        tool: &str,
+        args: &str,
     ) -> Result<serde_json::Value, String> {
-        let (manifest_name, command_name) = parse_session_tool_name(tool_name)?;
+        self.validate_direct(tool, args)?;
+        Err("interactive sessions require execute_session_command_async".into())
+    }
 
+    pub async fn execute_session_command_async(
+        &self,
+        tool: &str,
+        args: &str,
+    ) -> Result<serde_json::Value, String> {
+        let (manifest, values) = self.validate_direct(tool, args)?;
+        let ceiling = self.boundary.as_ref().map_err(Clone::clone)?;
+        let files = super::executor::ToolCladExecutor::prepare_files(manifest, ceiling, &values)?;
+        let boundary = ceiling.without_host_mounts();
+        let contract = crate::reasoning::prepared::digest_json(&serde_json::json!({
+            "manifest": manifest, "boundary": boundary.descriptor()?, "filesystem": files.descriptor(),
+            "mount_ceiling": ceiling.descriptor()?
+        }))?;
+        let now = Instant::now();
+        let deadline = now
+            .checked_add(Duration::from_secs(manifest.tool.timeout_seconds))
+            .ok_or("session command deadline exceeds supported range")?;
+        let run_deadline = self.sdk_run_deadline(Duration::from_secs(
+            manifest.session.as_ref().unwrap().session_timeout_seconds,
+        ))?;
+        self.execute_prepared(SessionCall {
+            tool,
+            manifest,
+            command: &values["command"],
+            boundary: &boundary,
+            files: &files,
+            contract: &contract,
+            run: &self.owner,
+            binding: &self.owner,
+            run_deadline,
+            deadline,
+        })
+        .await
+    }
+
+    pub(super) fn sdk_run_deadline(&self, lifetime: Duration) -> Result<Instant, String> {
+        let candidate = Instant::now()
+            .checked_add(lifetime)
+            .ok_or("SDK session lifetime exceeds supported range")?;
+        let deadline = *self.owner_deadline.get_or_init(|| candidate);
+        if Instant::now() >= deadline {
+            return Err("SDK execution run is closed; create a new session executor".into());
+        }
+        Ok(deadline)
+    }
+
+    fn validate_direct(
+        &self,
+        tool: &str,
+        args: &str,
+    ) -> Result<(&Manifest, HashMap<String, String>), String> {
+        let (base, command) = parse_session_tool_name(tool)?;
         let manifest = self
             .manifests
-            .get(&manifest_name)
-            .ok_or_else(|| format!("No session manifest for '{}'", manifest_name))?;
-        let session_def = manifest
+            .get(&base)
+            .ok_or("unknown session manifest")?;
+        let definition = manifest
             .session
             .as_ref()
-            .ok_or("Manifest has no [session] section")?;
-        let cmd_def = session_def
-            .commands
-            .get(&command_name)
-            .ok_or_else(|| format!("Unknown session command: {}", command_name))?;
-
-        // Parse and validate arguments
-        let args: HashMap<String, serde_json::Value> =
-            serde_json::from_str(args_json).map_err(|e| format!("Invalid arguments: {}", e))?;
-
-        let command_str = args
+            .and_then(|s| s.commands.get(&command))
+            .ok_or("unknown session command")?;
+        if manifest.tool.human_approval || definition.human_approval {
+            return Err("command requires an authorized exact-call approval".into());
+        }
+        if definition.extract_target {
+            return Err("scoped session commands require governed ToolClad dispatch".into());
+        }
+        if args.len() > 128 * 1024 {
+            return Err("session arguments exceed input limit".into());
+        }
+        let values: HashMap<String, serde_json::Value> =
+            serde_json::from_str(args).map_err(|e| e.to_string())?;
+        if values
+            .keys()
+            .any(|k| k != "command" && !definition.args.contains_key(k))
+        {
+            return Err("unknown session argument".into());
+        }
+        let mut normalized = HashMap::new();
+        for (name, def) in &definition.args {
+            if name == "command" {
+                continue;
+            }
+            if def.required && !values.contains_key(name) {
+                return Err(format!("missing required argument: {name}"));
+            }
+            if let Some(text) = values
+                .get(name)
+                .map(|value| {
+                    value
+                        .as_str()
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| value.to_string())
+                })
+                .or_else(|| {
+                    def.default.as_ref().map(|value| {
+                        value
+                            .as_str()
+                            .map(str::to_owned)
+                            .unwrap_or_else(|| value.to_string())
+                    })
+                })
+            {
+                if super::validator::requires_scope(def, None)? {
+                    return Err("scoped arguments require governed ToolClad dispatch".into());
+                }
+                let value =
+                    super::validator::validate_arg(def, &text).map_err(|e| e.to_string())?;
+                normalized.insert(name.clone(), value);
+            } else if def.required {
+                return Err(format!("missing required argument: {name}"));
+            }
+        }
+        let input = values
             .get("command")
             .and_then(|v| v.as_str())
-            .ok_or("Session command requires 'command' argument")?;
-
-        // Validate command against pattern
-        let re = regex::Regex::new(&cmd_def.pattern)
-            .map_err(|e| format!("Invalid command pattern: {}", e))?;
-        if !re.is_match(command_str) {
-            return Err(format!(
-                "Command '{}' does not match pattern '{}' for {}",
-                command_str, cmd_def.pattern, command_name
-            ));
-        }
-
-        // Check max interactions
-        {
-            let sessions = self.sessions.lock().map_err(|e| e.to_string())?;
-            if let Some(handle) = sessions.get(&manifest_name) {
-                if handle.state.interaction_count >= session_def.max_interactions {
-                    return Err(format!(
-                        "Session '{}' exceeded max interactions ({})",
-                        manifest_name, session_def.max_interactions
-                    ));
-                }
-            }
-        }
-
-        // Ensure session exists (spawn if needed)
-        #[cfg(feature = "toolclad-session")]
-        {
-            self.ensure_session(&manifest_name, manifest, session_def)?;
-        }
-
-        // Send command and get response
-        #[cfg(feature = "toolclad-session")]
-        {
-            let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
-            let handle = sessions
-                .get_mut(&manifest_name)
-                .ok_or("Session not found after ensure")?;
-
-            let start = Instant::now();
-
-            // Write command to PTY
-            handle
-                .pty
-                .write_all(format!("{}\n", command_str).as_bytes())
-                .map_err(|e| format!("Failed to write to PTY: {}", e))?;
-            handle
-                .pty
-                .flush()
-                .map_err(|e| format!("Flush failed: {}", e))?;
-
-            // Log command
-            handle.transcript.append(
-                TranscriptDirection::Command,
-                command_str,
-                Some(&command_name),
-            );
-
-            // Read until prompt
-            let output_wait = session_def
-                .interaction
-                .as_ref()
-                .map(|i| i.output_wait_ms)
-                .unwrap_or(2000);
-            let max_bytes = session_def
-                .interaction
-                .as_ref()
-                .map(|i| i.output_max_bytes)
-                .unwrap_or(1_048_576) as usize;
-
-            let output = read_until_prompt_blocking(
-                &mut handle.pty,
-                &session_def.ready_pattern,
-                Duration::from_millis(output_wait * 5), // give 5x the wait time
-                max_bytes,
-            )?;
-
-            let duration_ms = start.elapsed().as_millis() as u64;
-
-            // Strip ANSI and extract meaningful output
-            let clean_output = strip_ansi(&output.0);
-            let prompt = output.1.clone();
-
-            // Update state
-            handle.state.interaction_count += 1;
-            handle.state.last_interaction_at = Instant::now();
-            handle.state.prompt = prompt.clone();
-            handle.state.inferred_state = infer_state(&prompt);
-
-            // Log response
-            handle.transcript.append(
-                TranscriptDirection::Response,
-                &clean_output,
-                Some(&command_name),
-            );
-
-            // Build envelope
-            let scan_id = format!(
-                "{}-{}",
-                chrono::Utc::now().timestamp(),
-                uuid::Uuid::new_v4().as_fields().0
-            );
-            Ok(serde_json::json!({
-                "status": "success",
-                "scan_id": scan_id,
-                "tool": tool_name,
-                "session_id": handle.state.session_id,
-                "duration_ms": duration_ms,
-                "timestamp": chrono::Utc::now().to_rfc3339(),
-                "exit_code": 0,
-                "stderr": "",
-                "results": {
-                    "output": clean_output,
-                    "prompt": prompt,
-                    "session_state": handle.state.inferred_state,
-                    "interaction_count": handle.state.interaction_count,
-                }
-            }))
-        }
-
-        #[cfg(not(feature = "toolclad-session"))]
-        Err("Session mode requires the 'toolclad-session' feature".to_string())
+            .ok_or("session command requires a string 'command' argument")?;
+        validate_terminal_input(input, &definition.pattern)?;
+        normalized.insert("command".into(), input.to_owned());
+        Ok((manifest, normalized))
     }
 
-    #[cfg(feature = "toolclad-session")]
-    fn ensure_session(
+    pub(super) async fn execute_prepared(
         &self,
-        name: &str,
-        _manifest: &Manifest,
-        session_def: &SessionDef,
-    ) -> Result<(), String> {
-        let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
-        if sessions.contains_key(name) {
-            return Ok(());
+        call: SessionCall<'_>,
+    ) -> Result<serde_json::Value, String> {
+        #[cfg(feature = "toolclad-session")]
+        {
+            self.worker.execute(call).await
         }
-
-        // Spawn PTY
-        let pty = Pty::new().map_err(|e| format!("Failed to create PTY: {}", e))?;
-        let pts = pty.pts().map_err(|e| format!("Failed to get PTS: {}", e))?;
-
-        // Parse startup_command as argv (no shell) to remove the sh -c sink.
-        // Reject any token containing shell metacharacters as defense-in-depth:
-        // shlex already yields literal tokens, so presence of `;|&` or
-        // `$( )`/backticks signals an injection attempt rather than legitimate use.
-        let argv = shlex::split(&session_def.startup_command).ok_or_else(|| {
-            format!(
-                "invalid startup_command (shell parse failed): {}",
-                session_def.startup_command
-            )
-        })?;
-        if argv.is_empty() {
-            return Err("startup_command is empty".to_string());
+        #[cfg(not(feature = "toolclad-session"))]
+        {
+            let SessionCall {
+                tool,
+                manifest,
+                command,
+                boundary,
+                files,
+                contract,
+                run,
+                binding,
+                run_deadline,
+                deadline,
+            } = call;
+            let _ = (
+                tool,
+                manifest,
+                command,
+                boundary,
+                files,
+                contract,
+                run,
+                binding,
+                run_deadline,
+                deadline,
+            );
+            Err("Session mode requires the 'toolclad-session' feature".into())
         }
-        for token in &argv {
-            if token
-                .chars()
-                .any(|c| matches!(c, ';' | '|' | '&' | '`' | '$' | '\n' | '\r'))
-            {
-                return Err(format!(
-                    "startup_command contains forbidden shell metacharacter in token '{}'",
-                    token
-                ));
-            }
-        }
-        let (program, args) = argv.split_first().expect("argv non-empty checked above");
-        let child = PtyCommand::new(program)
-            .args(args)
-            .spawn(&pts)
-            .map_err(|e| format!("Failed to spawn '{}': {}", program, e))?;
-
-        let session_id = format!("session-{}-{}", name, uuid::Uuid::new_v4().as_fields().0);
-
-        let handle = SessionHandle {
-            pty,
-            child,
-            state: SessionState {
-                status: SessionStatus::Spawning,
-                prompt: String::new(),
-                inferred_state: "spawning".to_string(),
-                interaction_count: 0,
-                started_at: Instant::now(),
-                last_interaction_at: Instant::now(),
-                session_id,
-            },
-            transcript: SessionTranscript::default(),
-            manifest_name: name.to_string(),
-        };
-
-        sessions.insert(name.to_string(), handle);
-
-        // Wait for ready pattern
-        let handle = sessions.get_mut(name).unwrap();
-        let timeout = Duration::from_secs(session_def.startup_timeout_seconds);
-        let output = read_until_prompt_blocking(
-            &mut handle.pty,
-            &session_def.ready_pattern,
-            timeout,
-            1_048_576,
-        )
-        .map_err(|e| format!("Session startup failed: {}", e))?;
-
-        handle.state.status = SessionStatus::Ready;
-        handle.state.prompt = output.1;
-        handle.state.inferred_state = "ready".to_string();
-        handle
-            .transcript
-            .append(TranscriptDirection::System, "Session started", None);
-
-        Ok(())
     }
 
-    /// Get session transcript for evidence.
-    pub fn get_transcript(&self, manifest_name: &str) -> Option<SessionTranscript> {
-        let sessions = self.sessions.lock().ok()?;
-        sessions.get(manifest_name).map(|h| h.transcript.clone())
+    pub(super) fn cancel_run(&self, run: &str, deadline: Instant) {
+        #[cfg(feature = "toolclad-session")]
+        self.worker.cancel_run(run, deadline);
+        #[cfg(not(feature = "toolclad-session"))]
+        let _ = (run, deadline);
     }
 
-    /// Cleanup all sessions.
+    pub(super) async fn close_run(&self, run: &str, deadline: Instant) -> Result<(), String> {
+        #[cfg(feature = "toolclad-session")]
+        {
+            self.worker.close_run(run, deadline).await
+        }
+        #[cfg(not(feature = "toolclad-session"))]
+        {
+            let _ = (run, deadline);
+            Ok(())
+        }
+    }
+
+    pub fn get_transcript(&self, manifest: &str) -> Option<SessionTranscript> {
+        #[cfg(feature = "toolclad-session")]
+        {
+            self.worker.transcript(&self.owner, manifest)
+        }
+        #[cfg(not(feature = "toolclad-session"))]
+        {
+            let _ = manifest;
+            None
+        }
+    }
+
+    /// Signal every worker immediately. Drop has the same bounded cleanup path.
     pub fn cleanup(&self) {
-        if let Ok(mut sessions) = self.sessions.lock() {
-            for (_name, handle) in sessions.drain() {
-                #[cfg(feature = "toolclad-session")]
-                {
-                    let mut child = handle.child;
-                    let _ = child.kill();
-                }
-                #[cfg(not(feature = "toolclad-session"))]
-                {
-                    let _ = handle;
-                }
-            }
+        #[cfg(feature = "toolclad-session")]
+        self.worker.cancel_all();
+    }
+
+    pub async fn cleanup_async(&self) -> Result<(), String> {
+        #[cfg(feature = "toolclad-session")]
+        {
+            self.worker.close_all().await
+        }
+        #[cfg(not(feature = "toolclad-session"))]
+        {
+            Ok(())
         }
     }
+}
+
+pub(super) fn validate_terminal_input(command: &str, pattern: &str) -> Result<(), String> {
+    if command.is_empty() || command.len() > 64 * 1024 || command.chars().any(char::is_control) {
+        return Err(
+            "terminal command is empty, contains control characters, or exceeds 64 KiB".into(),
+        );
+    }
+    let pattern = regex::Regex::new(&format!(r"\A(?:{pattern})\z"))
+        .map_err(|e| format!("invalid session command pattern: {e}"))?;
+    if !pattern.is_match(command) {
+        return Err("terminal command does not fully match its declared pattern".into());
+    }
+    Ok(())
 }
 
 fn parse_session_tool_name(name: &str) -> Result<(String, String), String> {
-    let parts: Vec<&str> = name.splitn(2, '.').collect();
-    if parts.len() != 2 {
-        return Err(format!(
-            "Invalid session tool name: '{}' (expected 'session.command')",
-            name
-        ));
-    }
-    Ok((parts[0].to_string(), parts[1].to_string()))
+    name.split_once('.')
+        .filter(|(base, cmd)| !base.is_empty() && !cmd.is_empty())
+        .map(|(base, cmd)| (base.to_owned(), cmd.to_owned()))
+        .ok_or_else(|| format!("Invalid session tool name: '{name}' (expected 'session.command')"))
 }
 
-#[cfg(feature = "toolclad-session")]
-fn read_until_prompt_blocking(
-    pty: &mut Pty,
-    pattern: &str,
-    timeout: Duration,
-    max_bytes: usize,
-) -> Result<(String, String), String> {
-    let re = regex::Regex::new(pattern)
-        .map_err(|e| format!("Invalid ready pattern '{}': {}", pattern, e))?;
-
-    let start = Instant::now();
-    let mut buffer = Vec::new();
-    let mut byte = [0u8; 1024];
-
-    loop {
-        if start.elapsed() > timeout {
-            let partial = String::from_utf8_lossy(&buffer).to_string();
-            return Err(format!(
-                "Timeout waiting for prompt pattern '{}'. Got: {}",
-                pattern,
-                &partial[..partial.len().min(200)]
-            ));
-        }
-        if buffer.len() > max_bytes {
-            return Err("Output exceeded max bytes".to_string());
-        }
-
-        match pty.read(&mut byte) {
-            Ok(0) => break,
-            Ok(n) => {
-                buffer.extend_from_slice(&byte[..n]);
-                let text = String::from_utf8_lossy(&buffer);
-                // Check if prompt pattern appears at the end
-                for line in text.lines().rev().take(3) {
-                    if re.is_match(line.trim()) {
-                        let output = text.to_string();
-                        let prompt = line.trim().to_string();
-                        return Ok((output, prompt));
-                    }
-                }
-            }
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            Err(e) => return Err(format!("PTY read error: {}", e)),
-        }
-    }
-
-    let text = String::from_utf8_lossy(&buffer).to_string();
-    Err(format!(
-        "PTY closed before prompt. Got: {}",
-        &text[..text.len().min(200)]
-    ))
-}
-
-/// Strip ANSI escape sequences.
 #[cfg(any(feature = "toolclad-session", test))]
 fn strip_ansi(input: &str) -> String {
     let re = regex::Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").unwrap();
     re.replace_all(input, "").to_string()
 }
 
-/// Infer session state from prompt text.
 #[cfg(any(feature = "toolclad-session", test))]
 fn infer_state(prompt: &str) -> String {
-    let lower = prompt.to_lowercase();
-    if lower.contains("error") {
-        "error".to_string()
+    if prompt.to_lowercase().contains("error") {
+        "error".into()
     } else {
-        "ready".to_string()
+        "ready".into()
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::toolclad::session_state::TranscriptDirection;
 
     #[test]
     fn test_parse_session_tool_name() {

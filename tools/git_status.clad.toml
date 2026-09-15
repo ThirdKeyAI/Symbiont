@@ -1,0 +1,9 @@
+[tool]
+name = "git_status"
+version = "1.1.0"
+description = "Read repository status under the authorized working directory without optional index writes or hooks."
+timeout_seconds = 15
+[source]
+operation = "git_status"
+[output]
+format = "json"

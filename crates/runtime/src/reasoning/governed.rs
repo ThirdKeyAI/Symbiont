@@ -63,7 +63,7 @@ pub async fn governed_gate(opts: GateOptions) -> Arc<dyn ReasoningPolicyGate> {
         // surface name is not something a caller can guess.
         match opts.surface.as_deref() {
             Some(surface) => tracing::info!(
-                "policy gate: fail-closed default (no *.cedar in {} or {}/{}); \
+                "policy gate: fail-closed default (no usable policy set in {} or {}/{}); \
                  put policies for this surface in {}/{}/",
                 opts.policies_dir.display(),
                 opts.policies_dir.display(),
@@ -72,7 +72,7 @@ pub async fn governed_gate(opts: GateOptions) -> Arc<dyn ReasoningPolicyGate> {
                 surface
             ),
             None => tracing::info!(
-                "policy gate: fail-closed default (no {}/*.cedar found); configure CedarPolicyGate, OpaPolicyGateBridge, or another ReasoningPolicyGate",
+                "policy gate: fail-closed default (no usable {}/*.cedar policies); configure CedarPolicyGate, OpaPolicyGateBridge, or another ReasoningPolicyGate",
                 opts.policies_dir.display()
             ),
         }
@@ -132,23 +132,30 @@ fn parse_policy_file(
 /// does not exist yields none — an absent policy directory is not an error,
 /// the caller simply falls through to fail-closed.
 #[cfg(feature = "cedar")]
-fn cedar_files_in(dir: &Path) -> Vec<PathBuf> {
-    if !dir.is_dir() {
-        return Vec::new();
-    }
-    let mut files: Vec<PathBuf> = match std::fs::read_dir(dir) {
-        Ok(rd) => rd
-            .filter_map(|entry| entry.ok())
-            .map(|entry| entry.path())
-            .filter(|p| p.is_file() && p.extension().and_then(|s| s.to_str()) == Some("cedar"))
-            .collect(),
-        Err(e) => {
-            tracing::warn!("unable to read policy directory {}: {}", dir.display(), e);
-            return Vec::new();
+fn cedar_files_in(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            // Only an actually absent path is optional. A dangling symlink is
+            // a broken configured policy location, not an absent directory.
+            match std::fs::symlink_metadata(dir) {
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+                _ => return Err(error),
+            }
         }
+        Err(error) => return Err(error),
     };
+    let mut files = Vec::new();
+    for entry in entries {
+        let path = entry?.path();
+        if path.extension().and_then(|s| s.to_str()) == Some("cedar") {
+            // Do not hide unreadable files, dangling links, or directories
+            // named *.cedar: loading must fail instead of dropping a deny.
+            files.push(path);
+        }
+    }
     files.sort();
-    files
+    Ok(files)
 }
 
 /// Resolve `<policies_dir>/<surface>`. A surface names a subdirectory, never a
@@ -163,7 +170,7 @@ fn surface_dir(policies_dir: &Path, surface: &str) -> Option<PathBuf> {
         && !surface.contains('\\');
     if !sane {
         tracing::warn!(
-            "ignoring policy surface {:?}: not a plain directory name",
+            "refusing policy surface {:?}: not a plain directory name",
             surface
         );
         return None;
@@ -185,9 +192,9 @@ fn surface_dir(policies_dir: &Path, surface: &str) -> Option<PathBuf> {
 /// coordinator, and vice versa.
 ///
 /// Returns `None` if the `cedar` feature is disabled, neither directory
-/// exists, no `*.cedar` files are present, or a policy failed to parse.
-/// Callers should fall back to `DefaultPolicyGate::new()` (fail-closed) in
-/// that case.
+/// exists, or no `*.cedar` files are present. Configured policy failures
+/// return a Cedar gate that denies every action, including responses; they
+/// must not fall back to the response-permitting default gate.
 ///
 /// [`CedarPolicyGate`]: crate::reasoning::CedarPolicyGate
 #[cfg(feature = "cedar")]
@@ -197,9 +204,28 @@ async fn try_wire_cedar_policy_gate(
 ) -> Option<Arc<dyn ReasoningPolicyGate>> {
     use crate::reasoning::CedarPolicyGate;
 
-    let mut cedar_files = cedar_files_in(policies_dir);
-    if let Some(dir) = surface.and_then(|s| surface_dir(policies_dir, s)) {
-        cedar_files.extend(cedar_files_in(&dir));
+    let refuse_all =
+        || Some(Arc::new(CedarPolicyGate::deny_by_default()) as Arc<dyn ReasoningPolicyGate>);
+    let mut directories = vec![policies_dir.to_path_buf()];
+    if let Some(surface) = surface {
+        let Some(directory) = surface_dir(policies_dir, surface) else {
+            return refuse_all();
+        };
+        directories.push(directory);
+    }
+    let mut cedar_files = Vec::new();
+    for dir in directories {
+        match cedar_files_in(&dir) {
+            Ok(files) => cedar_files.extend(files),
+            Err(e) => {
+                tracing::error!(
+                    "failed to enumerate policies in {}: {}; refusing partial policy set",
+                    dir.display(),
+                    e
+                );
+                return refuse_all();
+            }
+        }
     }
     if cedar_files.is_empty() {
         return None;
@@ -211,8 +237,12 @@ async fn try_wire_cedar_policy_gate(
         let source = match std::fs::read_to_string(&path) {
             Ok(s) => s,
             Err(e) => {
-                tracing::error!("failed to read {}: {}", path.display(), e);
-                continue;
+                tracing::error!(
+                    "failed to read {}: {}; refusing partial policy set",
+                    path.display(),
+                    e
+                );
+                return refuse_all();
             }
         };
         let name = path
@@ -225,12 +255,11 @@ async fn try_wire_cedar_policy_gate(
             Ok(entries) => entries,
             Err(e) => {
                 tracing::error!(
-                    "{} in {}. Refusing to wire the Cedar gate; falling through to the \
-                     fail-closed default. Fix or deactivate this policy.",
+                    "{} in {}. Denying all actions until the configured policy is fixed or deactivated.",
                     e,
                     path.display()
                 );
-                return None;
+                return refuse_all();
             }
         };
 
@@ -241,10 +270,10 @@ async fn try_wire_cedar_policy_gate(
     }
     if loaded == 0 {
         tracing::warn!(
-            "found .cedar files under {} but none parsed successfully — falling through to fail-closed default",
+            "configured .cedar files under {} contain no entries; denying all actions",
             policies_dir.display()
         );
-        return None;
+        return refuse_all();
     }
     tracing::info!(
         "policy gate: CedarPolicyGate auto-wired from {} policy file(s) under {} (surface: {})",
@@ -252,7 +281,7 @@ async fn try_wire_cedar_policy_gate(
         policies_dir.display(),
         surface.unwrap_or("<shared only>")
     );
-    println!(
+    eprintln!(
         "✓ Cedar policy gate wired ({} policy file(s) loaded)",
         loaded
     );
@@ -282,6 +311,117 @@ mod tests {
             name: "search".into(),
             arguments: "{}".into(),
         }
+    }
+
+    #[cfg(feature = "cedar")]
+    #[tokio::test]
+    async fn unreadable_policy_prevents_loading_a_partial_permit_set() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("allow.cedar"),
+            "permit(principal, action, resource);",
+        )
+        .unwrap();
+        // Invalid UTF-8 reliably fails read_to_string, including under root.
+        std::fs::write(dir.path().join("deny.cedar"), [0xff]).unwrap();
+        let gate = governed_gate(GateOptions {
+            policies_dir: dir.path().into(),
+            surface: None,
+            insecure_allow_all: false,
+            escalation: None,
+        })
+        .await;
+        let id = AgentId::new();
+        let state = LoopState::new(id, Conversation::new());
+        assert!(matches!(
+            gate.evaluate_action(&id, &tool_call(), &state).await,
+            LoopDecision::Deny { .. }
+        ));
+        assert!(matches!(
+            gate.evaluate_action(
+                &id,
+                &ProposedAction::Respond {
+                    content: "must be withheld".into()
+                },
+                &state
+            )
+            .await,
+            LoopDecision::Deny { .. }
+        ));
+    }
+
+    #[cfg(feature = "cedar")]
+    #[tokio::test]
+    async fn invalid_surface_directory_prevents_loading_shared_permits() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("allow.cedar"),
+            "permit(principal, action, resource);",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("run"), "not a directory").unwrap();
+        let gate = governed_gate(GateOptions {
+            policies_dir: dir.path().into(),
+            surface: Some("run".into()),
+            insecure_allow_all: false,
+            escalation: None,
+        })
+        .await;
+        let id = AgentId::new();
+        let state = LoopState::new(id, Conversation::new());
+        assert!(matches!(
+            gate.evaluate_action(&id, &tool_call(), &state).await,
+            LoopDecision::Deny { .. }
+        ));
+        assert!(matches!(
+            gate.evaluate_action(
+                &id,
+                &ProposedAction::Respond {
+                    content: "must be withheld".into()
+                },
+                &state
+            )
+            .await,
+            LoopDecision::Deny { .. }
+        ));
+    }
+
+    #[cfg(feature = "cedar")]
+    #[tokio::test]
+    async fn broken_or_empty_configured_policy_never_permits_a_response() {
+        for source in ["invalid cedar", "[]"] {
+            let dir = tempfile::tempdir().unwrap();
+            std::fs::write(dir.path().join("configured.cedar"), source).unwrap();
+            let gate = governed_gate(GateOptions {
+                policies_dir: dir.path().into(),
+                surface: None,
+                insecure_allow_all: false,
+                escalation: None,
+            })
+            .await;
+            let id = AgentId::new();
+            let state = LoopState::new(id, Conversation::new());
+            assert!(matches!(
+                gate.evaluate_action(
+                    &id,
+                    &ProposedAction::Respond {
+                        content: "must be withheld".into()
+                    },
+                    &state
+                )
+                .await,
+                LoopDecision::Deny { .. }
+            ));
+        }
+    }
+
+    #[cfg(all(feature = "cedar", unix))]
+    #[test]
+    fn dangling_policy_directory_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let policy_dir = dir.path().join("policies");
+        std::os::unix::fs::symlink(dir.path().join("missing"), &policy_dir).unwrap();
+        assert!(cedar_files_in(&policy_dir).is_err());
     }
 
     #[tokio::test]

@@ -7,7 +7,7 @@ function statusToVariant(status: string): BadgeVariant {
   const s = status.toLowerCase();
   if (s === 'success' || s === 'completed' || s === 'succeeded') return 'healthy';
   if (s === 'failed' || s === 'error') return 'error';
-  if (s === 'running' || s === 'in_progress' || s === 'pending') return 'warning';
+  if (s === 'running' || s === 'in_progress' || s === 'pending' || s === 'unresolved' || s === 'reconciled' || s === 'incomplete') return 'warning';
   return 'neutral';
 }
 
@@ -130,6 +130,8 @@ export class AuditEntryRow extends LitElement {
       font-size: 0.6875rem;
     }
 
+    pre { white-space:pre-wrap; overflow-wrap:anywhere; font-size:.75rem; }
+
     .right {
       display: flex;
       flex-direction: column;
@@ -194,6 +196,11 @@ export class AuditEntryRow extends LitElement {
                 </div>
               ` : ''}
             `}
+          ${e.audit ? html`<audit-reference label="Inspect admission" .reference=${e.audit}></audit-reference>` : ''}
+          ${e.executionAudit ? html`<audit-reference label="Inspect execution" .reference=${e.executionAudit}></audit-reference>` : ''}
+          ${e.resolution ? html`<details><summary>Operator assessment recorded</summary>
+            <p class="details">Separate from the original outcome. Does not authorize replay.</p>
+            <pre>${JSON.stringify(e.resolution, null, 2)}</pre></details>` : ''}
         </div>
         <div class="right">
           <status-badge .variant=${variant} .label=${e.status}></status-badge>

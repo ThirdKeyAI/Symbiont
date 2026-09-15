@@ -37,3 +37,7 @@ import './components/panels/coordinator-chat/chat-input.js';
 import './components/panels/coordinator-chat/reasoning-trace.js';
 
 import './components/panels/tools/tools-panel.js';
+
+import './components/shared/audit-reference.js';
+import './components/panels/run-inspector/run-inspector.js';
+import './components/panels/capacity/capacity-panel.js';

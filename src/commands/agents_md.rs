@@ -319,9 +319,12 @@ fn build_generated_section(agents: &[AgentInfo]) -> String {
     out.push_str("```bash\n");
     out.push_str("# MCP (Claude Code, Cursor, etc.)\n");
     out.push_str("symbi mcp\n\n");
-    out.push_str("# HTTP API\n");
+    out.push_str("# HTTP API (generate once; retain the UUID for retries)\n");
+    out.push_str("INVOCATION_ID=$(cat /proc/sys/kernel/random/uuid)\n");
     out.push_str("curl -X POST http://localhost:8080/api/v1/agents/<id>/execute \\\n");
-    out.push_str("  -H 'Authorization: Bearer $TOKEN' \\\n");
+    out.push_str("  -H \"Authorization: Bearer $TOKEN\" \\\n");
+    out.push_str("  -H \"Idempotency-Key: $INVOCATION_ID\" \\\n");
+    out.push_str("  -H 'Content-Type: application/json' \\\n");
     out.push_str("  -d '{\"input\": \"your prompt\"}'\n\n");
     out.push_str("# DSL parse\n");
     out.push_str("symbi dsl -f agents/<name>.symbi\n");

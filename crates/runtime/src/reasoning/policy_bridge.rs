@@ -16,6 +16,36 @@ use crate::types::AgentId;
 /// `phases.rs` makes it structurally impossible to skip this step.
 #[async_trait]
 pub trait ReasoningPolicyGate: Send + Sync {
+    /// Obtain an exact-call approval independently of the policy decision.
+    /// An Allow decision cannot waive a manifest approval requirement.
+    async fn approve_prepared(
+        &self,
+        prepared: &super::prepared::PreparedAction,
+        _state: &LoopState,
+        _config: &super::loop_types::LoopConfig,
+    ) -> Result<Option<super::prepared::ApprovalReceipt>, String> {
+        if prepared
+            .contract()
+            .is_some_and(|contract| contract.requires_approval)
+        {
+            Err("required approval relay is unavailable".into())
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Evaluate the immutable, normalized invocation. Adapters which need
+    /// contract attributes override this method rather than reparsing input.
+    async fn evaluate_prepared(
+        &self,
+        agent_id: &AgentId,
+        prepared: &super::prepared::PreparedAction,
+        state: &LoopState,
+    ) -> LoopDecision {
+        self.evaluate_action(agent_id, prepared.action(), state)
+            .await
+    }
+
     /// Evaluate whether a proposed action should be allowed.
     ///
     /// Returns `LoopDecision::Allow` to proceed, `LoopDecision::Deny` to

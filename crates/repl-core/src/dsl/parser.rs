@@ -120,10 +120,19 @@ impl Parser {
                 self.consume_token(TokenType::Colon, "Expected ':' after 'description'")?;
                 metadata.description = Some(self.parse_string_literal()?);
             } else if self.match_keyword(Keyword::Resources) {
+                if resources.is_some() {
+                    return Err(ReplError::Parsing("Duplicate agent resources block".into()));
+                }
                 resources = Some(self.parse_resource_config()?);
             } else if self.match_keyword(Keyword::Security) {
+                if security.is_some() {
+                    return Err(ReplError::Parsing("Duplicate agent security block".into()));
+                }
                 security = Some(self.parse_security_config()?);
             } else if self.match_keyword(Keyword::Policies) {
+                if policies.is_some() {
+                    return Err(ReplError::Parsing("Duplicate agent policies block".into()));
+                }
                 policies = Some(self.parse_policy_config()?);
             } else {
                 return Err(ReplError::Parsing(format!(
@@ -911,7 +920,7 @@ impl Parser {
         self.consume_token(TokenType::LeftBrace, "Expected '{' after 'security'")?;
 
         let mut tier = None;
-        let mut capabilities = Vec::new();
+        let mut capabilities = None;
         let mut sandbox = None;
 
         while !self.check_token(&TokenType::RightBrace) && !self.is_at_end() {
@@ -921,8 +930,13 @@ impl Parser {
                 self.consume_token(TokenType::Colon, "Expected ':' after 'tier'")?;
                 tier = Some(self.parse_security_tier()?);
             } else if self.match_keyword(Keyword::Capabilities) {
+                if capabilities.is_some() {
+                    return Err(ReplError::Parsing(
+                        "Duplicate agent capabilities field".into(),
+                    ));
+                }
                 self.consume_token(TokenType::Colon, "Expected ':' after 'capabilities'")?;
-                capabilities = self.parse_string_list()?;
+                capabilities = Some(self.parse_string_list()?);
             } else if self.match_keyword(Keyword::Sandbox) {
                 self.consume_token(TokenType::Colon, "Expected ':' after 'sandbox'")?;
                 sandbox = Some(self.parse_sandbox_mode()?);
@@ -939,7 +953,7 @@ impl Parser {
 
         Ok(SecurityConfig {
             tier,
-            capabilities,
+            capabilities: capabilities.unwrap_or_default(),
             sandbox,
         })
     }

@@ -1,5 +1,17 @@
 # Symbiont REPL Guide
 
+> **Branch execution status:** Async builtins retain the invoking caller's identity.
+> The bridge freezes its project root, and default `reason()`/`tool_call()` calls
+> require protected run journals and return public audit references. Direct
+> inference calls also require journals; `:audit` lists their public references.
+> Function and
+> behavior declarations persist across inputs, and running behaviors keep a snapshot
+> of their helpers. The legacy REPL syntax does not implement canonical per-agent
+> sandbox selection. Explicit unsupported tier, sandbox, resource and execution-policy
+> requirements now fail registration. See
+> [DSL invocation context](dsl-invocation-context.md) and the
+> [branch guide](containment-branch-guide.md) for current coverage.
+
 
 The Symbiont REPL (Read-Eval-Print Loop) provides an interactive environment for developing, testing, and debugging Symbiont agents and DSL code.
 
@@ -31,24 +43,44 @@ symbi repl --stdio
 
 ### Basic Usage
 
-```rust
-# Define an agent
-metadata {
-  version = "1.0.0"
-  description = "A simple greeting agent"
-}
+Enter each declaration on one line:
 
-agent greeter(name: String) -> String {
-  capabilities = ["greet"]
+```text
+agent Greeter {}
+function greet(value: string) { return upper(value) }
+behavior Welcome { steps { return greet(args) } }
+:agents
+:agent start <id>
+:agent execute <id> Welcome hello
+```
 
-  policy safe {
-    allow: read(name) if true
-  }
+Replace `<id>` with the UUID printed for `Greeter`. The final command returns
+`HELLO`. Declaration and startup do not execute the behavior. Optional command
+arguments arrive as one string named `args`. Definitions persist; local variables
+and arguments do not carry into the next invocation. A failed module registration
+does not replace earlier definitions. Runtime errors remain visible and the client
+can accept the next command. `print()` diagnostics go to stderr independently of
+the structured response.
 
-  with memory = "ephemeral" {
-    return greet(name);
-  }
-}
+The canonical `agent name(...) { with ... }` language used by `symbi run` is a
+separate parsing path. Legacy REPL security tiers and sandbox modes are not its
+execution settings. Registration refuses explicit legacy tier/sandbox modes,
+populated resources and execution policies, before publishing any definitions.
+Duplicate constraint blocks and capability lists also fail parsing.
+Capability-only declarations keep their existing checks. Tool effects use the
+project boundary and governed dispatcher;
+without a configured permitting gate, tool requests are denied. Direct LLM calls,
+composition and pattern calls require a signed journal for each provider call.
+Their existing result types remain unchanged; use `:audit` for public references.
+Communication requires a configured gate and a registered recipient. `send_to`
+acknowledges durable startup, while its terminal journal records later completion.
+`race` returns the first success and cancels outstanding calls. These controls do
+not establish canonical source selection or aggregate inference budgets.
+
+To reproduce the RPC and terminal smoke tests after a workspace build:
+
+```bash
+python3 scripts/test-repl-session.py --binary target/debug/repl-cli --report /tmp/repl-session.json
 ```
 
 ## REPL Commands
@@ -58,6 +90,7 @@ agent greeter(name: String) -> String {
 | Command | Description |
 |---------|-------------|
 | `:agents` | List all agents |
+| `:audit` | List recent direct inference audit references and omitted-reference count |
 | `:agent list` | List all agents |
 | `:agent start <id>` | Start an agent |
 | `:agent stop <id>` | Stop an agent |
@@ -226,7 +259,6 @@ agent SecureAgent {
   name: "Secure Agent"
   security {
     capabilities: ["filesystem", "network"]
-    sandbox: true
   }
 }
 
@@ -419,13 +451,8 @@ agent DataProcessor {
   
   security {
     capabilities: ["data_read", "data_write"]
-    sandbox: true
   }
   
-  resources {
-    memory: 256MB
-    cpu: 1
-  }
 }
 
 behavior ProcessCsv {

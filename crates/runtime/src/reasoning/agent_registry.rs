@@ -25,6 +25,9 @@ pub struct RegisteredAgent {
     pub response_format: Option<String>,
     /// When this agent was registered.
     pub created_at: chrono::DateTime<chrono::Utc>,
+    /// Retained canonical requirements. Prompt-only routes cannot execute these.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub definition: Option<dsl::ConversationalAgent>,
 }
 
 /// Thread-safe registry of named agents.
@@ -65,10 +68,67 @@ impl AgentRegistry {
             tools,
             response_format,
             created_at: chrono::Utc::now(),
+            definition: None,
         };
 
         self.agents.write().await.insert(name, agent);
         agent_id
+    }
+
+    /// Register an operator-loaded source snapshot, without reparsing a mutable path.
+    pub async fn register_canonical(
+        &self,
+        definition: dsl::ConversationalAgent,
+        system_prompt: String,
+        tools: Vec<String>,
+    ) -> AgentId {
+        let agent_id = AgentId::new();
+        let name = definition.settings().agent_name.clone();
+        let agent = RegisteredAgent {
+            agent_id,
+            name: name.clone(),
+            system_prompt,
+            tools,
+            response_format: None,
+            created_at: chrono::Utc::now(),
+            definition: Some(definition),
+        };
+        self.agents.write().await.insert(name, agent);
+        agent_id
+    }
+
+    /// Dynamic DSL registration may not replace an operator's canonical contract.
+    pub async fn spawn_prompt_agent(
+        &self,
+        name: String,
+        system_prompt: String,
+        tools: Vec<String>,
+        response_format: Option<String>,
+    ) -> Result<AgentId, AgentRegistryError> {
+        let mut agents = self.agents.write().await;
+        if agents
+            .get(&name)
+            .is_some_and(|agent| agent.definition.is_some())
+        {
+            return Err(AgentRegistryError::UnsupportedExecution {
+                name,
+                reason: "dynamic registration cannot replace a canonical source contract".into(),
+            });
+        }
+        let agent_id = AgentId::new();
+        agents.insert(
+            name.clone(),
+            RegisteredAgent {
+                agent_id,
+                name,
+                system_prompt,
+                tools,
+                response_format,
+                created_at: chrono::Utc::now(),
+                definition: None,
+            },
+        );
+        Ok(agent_id)
     }
 
     /// Get a registered agent by name.
@@ -107,6 +167,11 @@ impl AgentRegistry {
             .ok_or_else(|| AgentRegistryError::NotFound {
                 name: name.to_string(),
             })?;
+        if agent.definition.is_some() {
+            return Err(AgentRegistryError::UnsupportedExecution {
+                name: name.into(), reason: "canonical agents require a governed executor with their retained source contract".into(),
+            });
+        }
 
         use crate::reasoning::conversation::{Conversation, ConversationMessage};
         use crate::reasoning::inference::InferenceOptions;
@@ -129,6 +194,8 @@ impl AgentRegistry {
 /// Errors from the agent registry.
 #[derive(Debug, thiserror::Error)]
 pub enum AgentRegistryError {
+    #[error("Agent '{name}' cannot use this execution route: {reason}")]
+    UnsupportedExecution { name: String, reason: String },
     #[error("Agent '{name}' not found")]
     NotFound { name: String },
 

@@ -4,6 +4,16 @@ The HTTP Input module provides a webhook server that allows external systems to 
 
 ## Overview
 
+On this branch, each HTTP reasoning request executes independently even if its
+registered agent is already active. Registered source and security tier select a
+frozen tool executor before inference. CPU, memory and execution-time limits
+constrain that invocation. Governed workers also share the supervisor's configured
+CPU, memory and worker pool with scheduler and CLI launches using the same private
+state directory; see [shared budgets](shared-budgets.md). Successful
+responses include `audit` with `run_id`, `path` and `public_key`. Required storage
+failures stop further effects, and dropped requests retain cleanup ownership.
+See [run audit](run-audit.md) and the [branch guide](containment-branch-guide.md).
+
 The HTTP Input module consists of:
 
 - **HTTP Server**: An Axum-based web server that listens for incoming HTTP requests
@@ -12,7 +22,7 @@ The HTTP Input module consists of:
 - **Response Control**: Configurable response formatting and status codes
 - **Security Features**: CORS support, request size limits, and audit logging
 - **Concurrency Management**: Built-in request rate limiting and concurrency control
-- **LLM Invocation with ToolClad**: When the target agent is not actively running on the runtime communication bus, the webhook can invoke the agent on-demand via a configured LLM provider, using an ORGA-style tool-calling loop backed by ToolClad manifests
+- **LLM Invocation with ToolClad**: Each request invokes the registered agent independently through the configured LLM provider and governed ORGA tool-calling loop, including when another invocation is active
 
 The module is conditionally compiled with the `http-input` feature flag and integrates seamlessly with the Symbiont agent runtime.
 
@@ -131,11 +141,17 @@ let config = HttpInputConfig {
 };
 ```
 
-The JWT verifier loads an Ed25519 public key from the specified PEM file and validates incoming `Authorization: Bearer <jwt>` tokens.
+The key loader accepts Ed25519 PEM or raw public-key bytes for EdDSA verification.
+JWTs must have a valid `exp` and a nonempty `sub` (at most 512 bytes). Expiry
+validation permits five seconds of clock skew. If supplied, `iss` must be
+nonempty and at most 2,048 bytes. Renewing a token with the same signed subject,
+issuer and configured key preserves its caller identity.
 
-**Algorithm allowlist (post-v1.13.0 audit):** the asymmetric Bearer-token path accepts only **ES256** and **EdDSA**. The HMAC webhook-signature path (used by Slack, Mattermost, GitHub etc.) accepts only **HS256**. RSA-family algorithms (`RS256`, `RS384`, `RS512`, `PS256`, `PS384`, `PS512`) and the symbolic `none` algorithm are refused at both the header-inspection guard and the `Validation::algorithms` allowlist. This neutralizes the `rsa` crate timing-attack advisory (RUSTSEC-2023-0071) on every path the operator controls. See `SECURITY_AUDIT.md` C4. (The Microsoft Teams adapter still uses RS256 because the Bot Framework requires it; that surface is bounded to MS-signed tokens.)
-
-**Audience is required:** the `SYMBIONT_ALLOW_NO_JWT_AUDIENCE` env-var escape hatch was removed in the post-v1.13.0 audit. Every JWT verifier requires an explicit `aud` configuration; tokens without a matching audience are rejected.
+This HTTP Input verifier does **not** enforce an audience or issuer allowlist.
+The configured key is its trust authority; use a key dedicated to that authority.
+A signed issuer contributes to retry identity, but does not establish an issuer
+allowlist. Bearer authentication is required even when webhook signature
+verification is configured; the webhook signature is an additional check.
 
 #### Health Endpoint
 
@@ -227,6 +243,7 @@ Send a webhook request to trigger the agent:
 curl -X POST http://localhost:8081/webhook \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer secret-token" \
+  -H "Idempotency-Key: 72d6a833-b825-4b22-b50c-206337d77f7c" \
   -d '{
     "type": "security_alert",
     "message": "Suspicious login detected",
@@ -236,59 +253,116 @@ curl -X POST http://localhost:8081/webhook \
   }'
 ```
 
+Choose and retain a fresh UUID for each intended task. Every HTTP submission
+requires exactly one `Idempotency-Key` header; retry with the same ID, URI and
+JSON payload. Reusing this example ID for different work will be refused.
+Webhook senders must retain a stable UUID per delivery, or use an adapter that
+maps their delivery identity to a stable UUID before submission. The server does
+not infer identity from model output or generate a replacement when the header
+is absent.
+
+### Retry states
+
+IDs occupy one HTTP domain per canonical project. The durable claim binds the
+verified caller, request URI, JSON input and trusted target source/settings.
+Registered agent IDs can change on restart without creating a different request.
+A standalone SDK server must retain its configured `AgentId` across restarts.
+Changing the source, target, caller or payload under an existing ID refuses work;
+no cache contents or audit reference are returned to a different caller.
+
+| HTTP status | Body `status` | Meaning |
+|---|---|---|
+| 200 by default | `completed` | Original result persisted; `replayed` identifies a saved response. |
+| 422 | `failed` | A terminal failure with complete tracked evidence was persisted; retries return it. |
+| 409 | `in_progress` | Another owner holds the ID; this request starts no work. |
+| 409 | `unresolved` | The original run needs reconciliation; includes its audit reference when available. |
+| 409 | `reconciled` | Returns a separate signed operator assessment; the original ID cannot execute again. |
+| 409 | `conflict` | The ID is bound to a different caller or request. |
+| 400 | `invalid_invocation_id` | Missing, repeated or invalid UUID header. |
+| 503 | `unavailable` | Required invocation storage could not authorize execution. |
+
+Invocation-state replies include `Idempotency-Key`, `Idempotency-Replayed` and `Cache-Control:
+no-store` headers. Configured success formatting still applies to completed
+results; it cannot turn unresolved/conflicting outcomes into successful responses.
+Configured CORS origins permit and expose the invocation headers.
+
+A retained owner holds the claim through setup, execution, cleanup and saving the
+result. Client disconnection cancels that owner’s work but does not release the ID
+for execution again. Process loss before result persistence leaves an unresolved
+claim. Saved results are verified against their original signed audit before
+return; retrieval does not run the provider or executor again.
+
+Static shared credentials represent one caller. A JWT caller binds the configured
+key, signed issuer and subject; expiry/renewal fields do not change it. Rotating
+credentials or key material makes an existing ID conflict rather than silently
+creating a second task. Claims remain project-wide across HTTP listeners, so use
+fresh random UUIDs and keep the store with its audit evidence. See
+[persistent invocation identities](invocation-idempotency.md) for storage limits.
+
 ### Expected Response
 
-The response shape depends on how the agent was invoked.
-
-**Runtime dispatch** — the target agent is `Running` on the communication bus and the message was handed off for asynchronous processing:
-
-```json
-{
-  "status": "execution_started",
-  "agent_id": "webhook_handler",
-  "message_id": "01H...",
-  "latency_ms": 3,
-  "timestamp": "2024-01-15T10:30:00Z"
-}
-```
-
-**LLM invocation** — the agent is not running and was executed on-demand via the configured LLM provider (see [LLM Invocation with ToolClad Tools](#llm-invocation-with-toolclad-tools) below). The response includes the final text and a summary of any tool calls that were executed:
+Each reasoning request returns its own result, including when another invocation
+of the same agent is active. The old `execution_started`/`message_id` handoff
+response is no longer used on this route. Successful responses include the run's
+public audit reference, `invocation_id`, `replayed`, `total_usage` and the shared
+`budget` snapshot. Illustrative values:
 
 ```json
 {
   "status": "completed",
-  "agent_id": "webhook_handler",
-  "response": "Scanned target and found 3 open ports …",
-  "tool_runs": [
-    {
-      "tool": "nmap_scan",
-      "input": {"target": "example.com"},
-      "output_preview": "{\"scan_id\": \"…\", \"ports\": [ … ]}"
-    }
-  ],
-  "model": "claude-sonnet-4-20250514",
-  "provider": "Anthropic",
+  "agent_id": "11111111-1111-4111-8111-111111111111",
+  "response": "Task complete.",
+  "tool_runs": [],
+  "termination_reason": "Completed",
+  "iterations": 1,
+  "audit": {
+    "run_id": "22222222-2222-4222-8222-222222222222",
+    "path": "/srv/control/.symbiont/governed/11111111-1111-4111-8111-111111111111.22222222-2222-4222-8222-222222222222.jsonl",
+    "public_key": "<hex-encoded-public-key>"
+  },
+  "model": "<configured-model>",
+  "provider": "<configured-provider>",
   "latency_ms": 4821,
   "timestamp": "2024-01-15T10:30:00Z"
 }
 ```
 
+`tool_runs` summarizes correlated tool observations, including denials and
+validation failures. Its presence does not prove that an effect executed, and
+`status: completed` can accompany a policy-refusal response. Use the protected
+journal's exact normalized arguments, decision and effect records for verification.
+Required audit or cleanup failures return an error, even if an earlier effect
+already occurred. The `audit.path` is a path on the runtime host, not a download URL.
+
 ## LLM Invocation with ToolClad Tools
 
-When the runtime is attached but the routed agent is **not in the `Running` state**, the webhook handler falls through to an on-demand LLM invocation path. This is useful for agents that execute per-request rather than as long-running listeners.
+Each HTTP reasoning request starts an independent governed invocation, including
+when the registered agent already has another active invocation.
 
 ### How it works
 
-1. The webhook handler calls `scheduler.get_agent_status()` to verify the agent is actively running. Messages to non-running agents are not dispatched via the communication bus, since `send_message` would silently drop them.
-2. If the agent is not running, the handler builds a system prompt from any `.symbi` (or legacy `.dsl`) agent files found in the `agents/` directory, appends an optional caller-supplied `system_prompt` (length-capped and logged), and constructs a user message from the request payload.
-3. ToolClad manifests in the `tools/` directory are loaded and exposed to the LLM as function-calling tools. Custom types from `toolclad.toml` are applied.
-4. The handler runs an **ORGA** (Observe-Reason-Gate-Act) tool-calling loop, up to 15 iterations:
-   - The LLM proposes zero or more `tool_use` calls.
-   - Each tool call is validated by ToolClad and executed on a blocking thread pool with a **120-second per-tool timeout**.
-   - Duplicate `(tool_name, input)` pairs within a single iteration are deduplicated to avoid redundant execution of non-idempotent tools.
-   - Tool results are fed back to the LLM as `tool_result` messages.
-   - The loop terminates when the LLM produces a final text response or the iteration cap is reached.
-5. The final response, the list of executed tool runs, and provider/model metadata are returned to the caller.
+1. With an attached runtime, resolve the agent from the trusted registry. Freeze
+   its selected source, sandbox and resource settings; reject missing agents,
+   ambiguous selections and mismatched security tiers before inference. A
+   standalone SDK server uses its explicitly configured generic agent/executor.
+2. Build the system prompt from only the selected agent source. An optional
+   caller-supplied `system_prompt` remains length-capped and logged; it does not
+   supply policy, principal or sandbox authority. Build the user message from the
+   request payload.
+3. Discover ToolClad tools in the frozen project and open a required private signed
+   journal. The ORGA loop allows up to 15 iterations. Registered and agent-selected
+   deadlines tighten the loop and tool limits; the default per-tool limit is
+   120 seconds.
+4. Prepare and normalize proposed calls before Cedar. Mandatory exact approvals,
+   required audit and single-use authorization precede effects. Duplicate or empty
+   call IDs are rejected; results must correlate to the actual prepared calls.
+5. Await worker cleanup and terminal journaling. Successful responses include the
+   final response, tool outcomes, provider/model metadata and `audit` reference.
+   Cancellation retains cleanup ownership; required storage or cleanup errors
+   cannot silently produce a successful result.
+
+See [prepared calls](prepared-calls.md) and [run audit](run-audit.md). Per-invocation
+resource limits do not establish aggregate request admission.
 
 ### Provider auto-detection
 
@@ -300,7 +374,8 @@ The LLM client is initialized from environment variables at server start. The fi
 | `OPENAI_API_KEY` | OpenAI | `CHAT_MODEL` (default: `gpt-4o`) | `OPENAI_BASE_URL` |
 | `ANTHROPIC_API_KEY` | Anthropic | `ANTHROPIC_MODEL` (default: `claude-sonnet-4-20250514`) | `ANTHROPIC_BASE_URL` |
 
-If no API key is set, the LLM invocation path is disabled and requests for non-running agents return an error.
+Without a configured inference provider, reasoning requests return an error.
+Operator-configured local endpoints remain supported.
 
 ### Input fields
 
@@ -361,8 +436,8 @@ The HTTP Input module provides comprehensive error handling:
 - **Authentication Errors**: Returns `401 Unauthorized` for invalid tokens
 - **Rate Limiting**: Returns `429 Too Many Requests` when concurrency limits are exceeded
 - **Payload Errors**: Returns `400 Bad Request` for malformed JSON
-- **Agent Errors**: Returns configurable error status with error details
-- **Server Errors**: Returns `500 Internal Server Error` for runtime failures
+- **Invocation Outcomes**: Returns the explicit retry states above; unresolved work is never reported as completed.
+- **Server Errors**: Unclassified runtime failures return a configurable status with a generic public message.
 
 ## Monitoring and Observability
 
@@ -414,3 +489,8 @@ The module integrates with the Symbiont runtime's metrics system to provide:
 - [Reasoning Loop (ORGA)](reasoning-loop.md)
 - [ToolClad Tool Contracts](toolclad.md)
 - [Agent Runtime Documentation](../crates/runtime/README.md)
+
+A retained invocation with an operator resolution returns HTTP 409 and
+`status: "reconciled"`, its original audit reference and a separate signed
+`resolution` receipt. It does not return a fabricated successful result or execute
+again. See [operator reconciliation](invocation-reconciliation.md).

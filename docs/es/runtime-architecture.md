@@ -506,7 +506,7 @@ pub struct AuditEvent {
 - **Prevención de Fugas**: Limpieza automática y monitoreo
 
 **Utilización de CPU:**
-- **Sobrecarga del Programador**: <2% CPU para 10,000 agentes
+- **Sobrecarga del Programador**: Se prueba la latencia del registro y de la cola limitada. No se ha demostrado el consumo de CPU de 10,000 agentes en ejecución.
 - **Cambio de Contexto**: Hilos virtuales asistidos por hardware
 - **Balanceador de Carga**: Distribución dinámica de carga
 - **Programación por Prioridades**: Niveles de procesamiento en tiempo real y por lotes

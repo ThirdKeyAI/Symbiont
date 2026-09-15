@@ -54,6 +54,66 @@ impl EscalationGate {
 
 #[async_trait::async_trait]
 impl ReasoningPolicyGate for EscalationGate {
+    async fn approve_prepared(
+        &self,
+        prepared: &crate::reasoning::prepared::PreparedAction,
+        state: &LoopState,
+        config: &crate::reasoning::loop_types::LoopConfig,
+    ) -> Result<Option<crate::reasoning::prepared::ApprovalReceipt>, String> {
+        let needs_approval = prepared
+            .contract()
+            .is_some_and(|contract| contract.requires_approval)
+            || Self::tool_name(prepared.action())
+                .is_some_and(|name| self.config.require_approval_tools.contains(&name));
+        if !needs_approval {
+            return self.inner.approve_prepared(prepared, state, config).await;
+        }
+        let approval_id = uuid::Uuid::new_v4();
+        let req = EscalationRequest {
+            agent_id: state.agent_id.to_string(),
+            kind: HeldActionKind::ToolCall,
+            summary: format!(
+                "tool_call {}",
+                Self::tool_name(prepared.action()).unwrap_or_default()
+            ),
+            reason: "exact-call human approval required".into(),
+            context_snapshot: Some(
+                serde_json::json!({"approval_id": approval_id, "invocation": prepared.policy_context(), "session_started_at": state.started_at, "iteration": state.iteration}),
+            ),
+        };
+        let resolved = self.queue.enqueue_resolved(req, self.config.timeout).await;
+        match resolved.decision {
+            Decision::Approve { .. } => crate::reasoning::prepared::ApprovalReceipt::issue(
+                prepared,
+                state,
+                config,
+                self.config.timeout,
+                approval_id,
+            )
+            .and_then(|receipt| {
+                receipt.with_resolution(
+                    resolved
+                        .resolution
+                        .ok_or("approval resolution evidence is missing")?,
+                    state.agent_id,
+                )
+            })
+            .map(Some),
+            Decision::Deny { reason } => Err(reason.unwrap_or_else(|| "denied by operator".into())),
+        }
+    }
+
+    async fn evaluate_prepared(
+        &self,
+        agent_id: &AgentId,
+        prepared: &crate::reasoning::prepared::PreparedAction,
+        state: &LoopState,
+    ) -> LoopDecision {
+        self.inner
+            .evaluate_prepared(agent_id, prepared, state)
+            .await
+    }
+
     async fn evaluate_action(
         &self,
         agent_id: &AgentId,

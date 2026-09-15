@@ -1,16 +1,16 @@
 #![allow(dead_code)]
 
 use anyhow::Result;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct ProjectConstraints {
     #[serde(default)]
     pub constraints: ConstraintRules,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct ConstraintRules {
     pub max_memory: Option<String>,
     pub max_cpu: Option<f64>,
@@ -27,7 +27,7 @@ pub struct ConstraintRules {
     pub toolclad: ToolcladConstraints,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct CedarConstraints {
     #[serde(default)]
     pub require_schema_verified: bool,
@@ -39,7 +39,7 @@ pub struct CedarConstraints {
     pub forbid_wildcard_resource_on: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct ToolcladConstraints {
     pub max_risk_tier: Option<String>,
     pub require_evidence_above_tier: Option<String>,

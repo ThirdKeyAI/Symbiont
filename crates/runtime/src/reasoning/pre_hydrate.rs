@@ -6,15 +6,13 @@
 //! Part of the orga-adaptive feature gate.
 
 use std::collections::HashSet;
-use std::sync::Arc;
 use std::time::Duration;
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
-use crate::reasoning::circuit_breaker::CircuitBreakerRegistry;
-use crate::reasoning::executor::ActionExecutor;
-use crate::reasoning::loop_types::{LoopConfig, ProposedAction};
+use crate::reasoning::dispatch::GovernedToolDispatcher;
+use crate::reasoning::loop_types::{JournalError, LoopConfig, LoopState, ProposedAction};
 
 /// A compiled pattern for extracting references from input text.
 #[derive(Debug, Clone)]
@@ -183,115 +181,83 @@ impl PreHydrationEngine {
         refs
     }
 
-    /// Resolve extracted references in parallel via the executor.
+    /// Resolve task references through the same preparation, approval, policy,
+    /// and required journal checkpoint as explicit tool calls.
     pub async fn hydrate(
         &self,
         refs: &[ExtractedReference],
-        executor: &Arc<dyn ActionExecutor>,
-        circuit_breakers: &Arc<CircuitBreakerRegistry>,
+        dispatcher: &GovernedToolDispatcher<'_>,
+        state: &LoopState,
         loop_config: &LoopConfig,
-    ) -> HydratedContext {
-        if refs.is_empty() {
-            return HydratedContext {
-                resolved: Vec::new(),
-                failed: Vec::new(),
-                total_tokens: 0,
-            };
-        }
-
-        // Build tool call actions for each reference
-        let mut actions = Vec::new();
-        let mut ref_map: Vec<&ExtractedReference> = Vec::new();
-
-        for (i, r) in refs.iter().enumerate() {
-            if let Some(tool_name) = self.config.resolution_tools.get(&r.ref_type) {
-                let arguments = serde_json::json!({"input": r.value}).to_string();
-                actions.push(ProposedAction::ToolCall {
-                    call_id: format!("prehydrate_{}", i),
-                    name: tool_name.clone(),
-                    arguments,
-                });
-                ref_map.push(r);
-            }
-        }
-
-        if actions.is_empty() {
-            // No resolution tools configured for any reference types
-            return HydratedContext {
-                resolved: Vec::new(),
-                failed: refs
-                    .iter()
-                    .map(|r| (r.clone(), "No resolution tool configured".to_string()))
-                    .collect(),
-                total_tokens: 0,
-            };
-        }
-
-        // Execute with timeout
-        let observations = match tokio::time::timeout(
-            self.config.timeout,
-            executor.execute_actions(&actions, loop_config, circuit_breakers),
-        )
-        .await
-        {
-            Ok(obs) => obs,
-            Err(_) => {
-                return HydratedContext {
-                    resolved: Vec::new(),
-                    failed: refs
-                        .iter()
-                        .map(|r| (r.clone(), "Resolution timed out".to_string()))
-                        .collect(),
-                    total_tokens: 0,
-                };
-            }
+    ) -> Result<HydratedContext, JournalError> {
+        let mut hydrated = HydratedContext {
+            resolved: Vec::new(),
+            failed: Vec::new(),
+            total_tokens: 0,
         };
-
-        // Process results and prune to token budget
-        let mut resolved = Vec::new();
-        let mut failed = Vec::new();
-        let mut total_tokens = 0;
-        let max_chars = self.config.max_context_tokens * 4; // 1 token ~ 4 chars
-
-        for (i, obs) in observations.iter().enumerate() {
-            if i >= ref_map.len() {
-                break;
-            }
-            let reference = ref_map[i].clone();
-
-            if obs.is_error {
-                failed.push((reference, obs.content.clone()));
-            } else {
-                let mut content = obs.content.clone();
-                let remaining_chars = max_chars.saturating_sub(total_tokens * 4);
-                if content.len() > remaining_chars {
-                    content.truncate(remaining_chars);
-                    content.push_str("...[truncated]");
-                }
-                let token_estimate = content.len() / 4;
-                total_tokens += token_estimate;
-
-                resolved.push(ResolvedReference {
-                    reference,
-                    content,
-                    token_estimate,
+        let mut actions = Vec::new();
+        let mut ref_map = Vec::new();
+        for (i, reference) in refs.iter().enumerate() {
+            if let Some(tool_name) = self.config.resolution_tools.get(&reference.ref_type) {
+                let call_id = format!("prehydrate_{}", i);
+                actions.push(ProposedAction::ToolCall {
+                    call_id: call_id.clone(),
+                    name: tool_name.clone(),
+                    arguments: serde_json::json!({"input": reference.value}).to_string(),
                 });
+                ref_map.push((call_id, reference));
+            } else {
+                hydrated
+                    .failed
+                    .push((reference.clone(), "No resolution tool configured".into()));
+            }
+        }
+        if actions.is_empty() {
+            return Ok(hydrated);
+        }
 
-                if total_tokens >= self.config.max_context_tokens {
-                    // Budget exhausted; remaining refs are "failed" due to budget
-                    for r in ref_map.iter().skip(i + 1) {
-                        failed.push(((*r).clone(), "Token budget exhausted".to_string()));
+        let mut config = loop_config.clone();
+        let elapsed = state.elapsed().to_std().unwrap_or(Duration::ZERO);
+        config.timeout = config
+            .timeout
+            .min(elapsed.saturating_add(self.config.timeout));
+        config.tool_timeout = config.tool_timeout.min(self.config.timeout);
+        let observations = dispatcher.dispatch(&actions, state, &config).await?;
+        let mut by_id: std::collections::HashMap<_, _> = observations
+            .into_iter()
+            .filter_map(|obs| obs.call_id.clone().map(|id| (id, obs)))
+            .collect();
+        let mut remaining_bytes = self.config.max_context_tokens.saturating_mul(4);
+        for (id, reference) in ref_map {
+            match by_id.remove(&id) {
+                None => hydrated.failed.push((
+                    reference.clone(),
+                    "Resolution returned no correlated result".into(),
+                )),
+                Some(obs) if obs.is_error => hydrated.failed.push((reference.clone(), obs.content)),
+                Some(_) if remaining_bytes == 0 => hydrated
+                    .failed
+                    .push((reference.clone(), "Token budget exhausted".into())),
+                Some(obs) => {
+                    let mut content = obs.content;
+                    let mut end = remaining_bytes.min(content.len());
+                    while !content.is_char_boundary(end) {
+                        end -= 1;
                     }
-                    break;
+                    content.truncate(end);
+                    let token_estimate = content.len().div_ceil(4);
+                    remaining_bytes =
+                        remaining_bytes.saturating_sub(token_estimate.saturating_mul(4));
+                    hydrated.total_tokens += token_estimate;
+                    hydrated.resolved.push(ResolvedReference {
+                        reference: reference.clone(),
+                        content,
+                        token_estimate,
+                    });
                 }
             }
         }
-
-        HydratedContext {
-            resolved,
-            failed,
-            total_tokens,
-        }
+        Ok(hydrated)
     }
 
     /// Format hydrated context as a system message string.
@@ -443,17 +409,124 @@ mod tests {
     #[tokio::test]
     async fn test_hydrate_empty_refs() {
         let engine = PreHydrationEngine::new(PreHydrationConfig::default());
-        let executor: Arc<dyn ActionExecutor> =
-            Arc::new(crate::reasoning::executor::DefaultActionExecutor::default());
-        let circuit_breakers = Arc::new(CircuitBreakerRegistry::default());
-        let loop_config = LoopConfig::default();
-
+        let executor = crate::reasoning::executor::UnavailableToolExecutor;
+        let gate = crate::reasoning::policy_bridge::DefaultPolicyGate::new();
+        let journal = crate::reasoning::loop_types::BufferedJournal::new(100);
+        let circuit_breakers = crate::reasoning::circuit_breaker::CircuitBreakerRegistry::default();
+        let dispatcher = GovernedToolDispatcher {
+            executor: &executor,
+            gate: &gate,
+            journal: &journal,
+            circuit_breakers: &circuit_breakers,
+        };
+        let state = LoopState::new(
+            crate::types::AgentId::new(),
+            crate::reasoning::conversation::Conversation::new(),
+        );
         let result = engine
-            .hydrate(&[], &executor, &circuit_breakers, &loop_config)
-            .await;
+            .hydrate(&[], &dispatcher, &state, &LoopConfig::default())
+            .await
+            .unwrap();
         assert!(result.resolved.is_empty());
         assert!(result.failed.is_empty());
         assert_eq!(result.total_tokens, 0);
+    }
+
+    #[tokio::test]
+    async fn hydration_correlates_results_and_preserves_utf8_within_budget() {
+        use crate::reasoning::circuit_breaker::CircuitBreakerRegistry;
+        use crate::reasoning::executor::ActionExecutor;
+        use crate::reasoning::inference::ToolDefinition;
+        use crate::reasoning::loop_types::{BufferedJournal, Observation};
+        use crate::reasoning::policy_bridge::DefaultPolicyGate;
+        use crate::reasoning::prepared::AuthorizedAction;
+        struct Resolver;
+        #[async_trait::async_trait]
+        impl ActionExecutor for Resolver {
+            fn tool_definitions(&self) -> Vec<ToolDefinition> {
+                vec![ToolDefinition {
+                    name: "resolve".into(),
+                    description: "UTF-8 fixture".into(),
+                    parameters: serde_json::json!({"type":"object", "properties":{"input":{"type":"string"}}}),
+                }]
+            }
+            async fn execute_actions(
+                &self,
+                _: &[ProposedAction],
+                _: &LoopConfig,
+                _: &CircuitBreakerRegistry,
+            ) -> Vec<Observation> {
+                panic!("pre-fetch bypassed authorization")
+            }
+            async fn execute_authorized(
+                &self,
+                actions: Vec<AuthorizedAction>,
+                _: &LoopConfig,
+                _: &CircuitBreakerRegistry,
+            ) -> Vec<Observation> {
+                actions
+                    .into_iter()
+                    .rev()
+                    .map(|grant| {
+                        let ProposedAction::ToolCall {
+                            call_id, arguments, ..
+                        } = grant.action()
+                        else {
+                            unreachable!()
+                        };
+                        let args: serde_json::Value = serde_json::from_str(arguments).unwrap();
+                        Observation::tool_result("resolve", args["input"].as_str().unwrap())
+                            .with_call_id(call_id)
+                    })
+                    .collect()
+            }
+        }
+        let executor = Resolver;
+        let gate = DefaultPolicyGate::permissive_for_dev_only();
+        let journal = BufferedJournal::new(100);
+        let circuit_breakers = CircuitBreakerRegistry::default();
+        let dispatcher = GovernedToolDispatcher {
+            executor: &executor,
+            gate: &gate,
+            journal: &journal,
+            circuit_breakers: &circuit_breakers,
+        };
+        let state = LoopState::new(
+            crate::types::AgentId::new(),
+            crate::reasoning::conversation::Conversation::new(),
+        );
+        let config = LoopConfig {
+            tool_definitions: executor.tool_definitions(),
+            ..Default::default()
+        };
+        let refs = [
+            ExtractedReference {
+                ref_type: "fixture".into(),
+                value: "😀é".into(),
+            },
+            ExtractedReference {
+                ref_type: "fixture".into(),
+                value: "second".into(),
+            },
+            ExtractedReference {
+                ref_type: "unsupported".into(),
+                value: "third".into(),
+            },
+        ];
+        let engine = PreHydrationEngine::new(PreHydrationConfig {
+            resolution_tools: [("fixture".into(), "resolve".into())].into(),
+            max_context_tokens: 1,
+            ..Default::default()
+        });
+        let result = engine
+            .hydrate(&refs, &dispatcher, &state, &config)
+            .await
+            .unwrap();
+        assert_eq!(result.resolved.len(), 1);
+        assert_eq!(result.resolved[0].reference.value, "😀é");
+        assert_eq!(result.resolved[0].content, "😀");
+        assert_eq!(result.total_tokens, 1);
+        assert_eq!(result.failed.len(), 2);
     }
 
     #[test]

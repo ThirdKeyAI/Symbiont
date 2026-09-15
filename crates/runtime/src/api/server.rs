@@ -59,6 +59,9 @@ use crate::types::RuntimeError;
         super::routes::list_agents,
         super::routes::get_metrics,
         super::routes::get_status,
+        super::routes::inspect_run,
+        super::routes::inspect_capacity,
+        super::routes::inspect_worker_usage,
         super::routes::create_agent,
         super::routes::update_agent,
         super::routes::delete_agent,
@@ -466,6 +469,18 @@ impl HttpApiServer {
                 .route("/api/v1/metrics", get(get_metrics))
                 .route("/api/v1/health/scheduler", get(get_scheduler_health))
                 .route("/api/v1/status", get(get_status))
+                .route(
+                    "/api/v1/sandbox/capacity",
+                    get(super::routes::inspect_capacity),
+                )
+                .route(
+                    "/api/v1/sandbox/workers/:lease/usage",
+                    get(super::routes::inspect_worker_usage),
+                )
+                .route(
+                    "/api/v1/audit/runs/:agent_id/:run_id",
+                    get(super::routes::inspect_run),
+                )
                 .layer(middleware::from_fn(auth_middleware))
                 .with_state(provider.clone());
 
@@ -565,7 +580,15 @@ impl HttpApiServer {
             let cors = CorsLayer::new()
                 .allow_origin(allowed_origins)
                 .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
-                .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
+                .allow_headers([
+                    header::AUTHORIZATION,
+                    header::CONTENT_TYPE,
+                    header::HeaderName::from_static("idempotency-key"),
+                ])
+                .expose_headers([
+                    header::HeaderName::from_static("idempotency-key"),
+                    header::HeaderName::from_static("idempotency-replayed"),
+                ])
                 .allow_credentials(false);
 
             router = router.layer(cors);

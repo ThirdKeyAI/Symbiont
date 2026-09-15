@@ -20,7 +20,7 @@ use uuid::Uuid;
 type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 type BuiltinFunction = fn(&[DslValue]) -> Result<DslValue>;
 type AsyncBuiltinFn =
-    Arc<dyn Fn(Vec<DslValue>) -> BoxFuture<'static, Result<DslValue>> + Send + Sync>;
+    Arc<dyn Fn(Vec<DslValue>, Option<Uuid>) -> BoxFuture<'static, Result<DslValue>> + Send + Sync>;
 
 /// Execution context for DSL evaluation
 #[derive(Debug, Clone)]
@@ -245,8 +245,9 @@ impl DslEvaluator {
             let ctx = ctx.clone();
             async_builtins.insert(
                 "reason".to_string(),
-                Arc::new(move |args| {
-                    let ctx = ctx.clone();
+                Arc::new(move |args, caller| {
+                    let mut ctx = ctx.clone();
+                    ctx.sender_agent_id = caller.map(symbi_runtime::types::AgentId);
                     Box::pin(async move { reasoning_builtins::builtin_reason(&args, &ctx).await })
                 }),
             );
@@ -255,8 +256,9 @@ impl DslEvaluator {
             let ctx = ctx.clone();
             async_builtins.insert(
                 "llm_call".to_string(),
-                Arc::new(move |args| {
-                    let ctx = ctx.clone();
+                Arc::new(move |args, caller| {
+                    let mut ctx = ctx.clone();
+                    ctx.sender_agent_id = caller.map(symbi_runtime::types::AgentId);
                     Box::pin(async move { reasoning_builtins::builtin_llm_call(&args, &ctx).await })
                 }),
             );
@@ -265,8 +267,9 @@ impl DslEvaluator {
             let ctx = ctx.clone();
             async_builtins.insert(
                 "delegate".to_string(),
-                Arc::new(move |args| {
-                    let ctx = ctx.clone();
+                Arc::new(move |args, caller| {
+                    let mut ctx = ctx.clone();
+                    ctx.sender_agent_id = caller.map(symbi_runtime::types::AgentId);
                     Box::pin(async move { reasoning_builtins::builtin_delegate(&args, &ctx).await })
                 }),
             );
@@ -275,8 +278,9 @@ impl DslEvaluator {
             let ctx = ctx.clone();
             async_builtins.insert(
                 "tool_call".to_string(),
-                Arc::new(move |args| {
-                    let ctx = ctx.clone();
+                Arc::new(move |args, caller| {
+                    let mut ctx = ctx.clone();
+                    ctx.sender_agent_id = caller.map(symbi_runtime::types::AgentId);
                     Box::pin(
                         async move { reasoning_builtins::builtin_tool_call(&args, &ctx).await },
                     )
@@ -289,8 +293,9 @@ impl DslEvaluator {
             let ctx = ctx.clone();
             async_builtins.insert(
                 "chain".to_string(),
-                Arc::new(move |args| {
-                    let ctx = ctx.clone();
+                Arc::new(move |args, caller| {
+                    let mut ctx = ctx.clone();
+                    ctx.sender_agent_id = caller.map(symbi_runtime::types::AgentId);
                     Box::pin(async move { pattern_builtins::builtin_chain(&args, &ctx).await })
                 }),
             );
@@ -299,8 +304,9 @@ impl DslEvaluator {
             let ctx = ctx.clone();
             async_builtins.insert(
                 "debate".to_string(),
-                Arc::new(move |args| {
-                    let ctx = ctx.clone();
+                Arc::new(move |args, caller| {
+                    let mut ctx = ctx.clone();
+                    ctx.sender_agent_id = caller.map(symbi_runtime::types::AgentId);
                     Box::pin(async move { pattern_builtins::builtin_debate(&args, &ctx).await })
                 }),
             );
@@ -309,8 +315,9 @@ impl DslEvaluator {
             let ctx = ctx.clone();
             async_builtins.insert(
                 "map_reduce".to_string(),
-                Arc::new(move |args| {
-                    let ctx = ctx.clone();
+                Arc::new(move |args, caller| {
+                    let mut ctx = ctx.clone();
+                    ctx.sender_agent_id = caller.map(symbi_runtime::types::AgentId);
                     Box::pin(async move { pattern_builtins::builtin_map_reduce(&args, &ctx).await })
                 }),
             );
@@ -319,8 +326,9 @@ impl DslEvaluator {
             let ctx = ctx.clone();
             async_builtins.insert(
                 "director".to_string(),
-                Arc::new(move |args| {
-                    let ctx = ctx.clone();
+                Arc::new(move |args, caller| {
+                    let mut ctx = ctx.clone();
+                    ctx.sender_agent_id = caller.map(symbi_runtime::types::AgentId);
                     Box::pin(async move { pattern_builtins::builtin_director(&args, &ctx).await })
                 }),
             );
@@ -331,8 +339,9 @@ impl DslEvaluator {
             let ctx = ctx.clone();
             async_builtins.insert(
                 "spawn_agent".to_string(),
-                Arc::new(move |args| {
-                    let ctx = ctx.clone();
+                Arc::new(move |args, caller| {
+                    let mut ctx = ctx.clone();
+                    ctx.sender_agent_id = caller.map(symbi_runtime::types::AgentId);
                     Box::pin(
                         async move { agent_composition::builtin_spawn_agent(&args, &ctx).await },
                     )
@@ -343,8 +352,9 @@ impl DslEvaluator {
             let ctx = ctx.clone();
             async_builtins.insert(
                 "ask".to_string(),
-                Arc::new(move |args| {
-                    let ctx = ctx.clone();
+                Arc::new(move |args, caller| {
+                    let mut ctx = ctx.clone();
+                    ctx.sender_agent_id = caller.map(symbi_runtime::types::AgentId);
                     Box::pin(async move { agent_composition::builtin_ask(&args, &ctx).await })
                 }),
             );
@@ -353,8 +363,9 @@ impl DslEvaluator {
             let ctx = ctx.clone();
             async_builtins.insert(
                 "send_to".to_string(),
-                Arc::new(move |args| {
-                    let ctx = ctx.clone();
+                Arc::new(move |args, caller| {
+                    let mut ctx = ctx.clone();
+                    ctx.sender_agent_id = caller.map(symbi_runtime::types::AgentId);
                     Box::pin(async move { agent_composition::builtin_send_to(&args, &ctx).await })
                 }),
             );
@@ -363,8 +374,9 @@ impl DslEvaluator {
             let ctx = ctx.clone();
             async_builtins.insert(
                 "parallel".to_string(),
-                Arc::new(move |args| {
-                    let ctx = ctx.clone();
+                Arc::new(move |args, caller| {
+                    let mut ctx = ctx.clone();
+                    ctx.sender_agent_id = caller.map(symbi_runtime::types::AgentId);
                     Box::pin(async move { agent_composition::builtin_parallel(&args, &ctx).await })
                 }),
             );
@@ -373,8 +385,9 @@ impl DslEvaluator {
             let ctx = ctx.clone();
             async_builtins.insert(
                 "race".to_string(),
-                Arc::new(move |args| {
-                    let ctx = ctx.clone();
+                Arc::new(move |args, caller| {
+                    let mut ctx = ctx.clone();
+                    ctx.sender_agent_id = caller.map(symbi_runtime::types::AgentId);
                     Box::pin(async move { agent_composition::builtin_race(&args, &ctx).await })
                 }),
             );
@@ -386,6 +399,10 @@ impl DslEvaluator {
     /// Get the execution monitor
     pub fn monitor(&self) -> Arc<ExecutionMonitor> {
         Arc::clone(&self.monitor)
+    }
+
+    pub fn audit_references(&self) -> Result<crate::dsl::inference_audit::AuditReferenceSnapshot> {
+        self.runtime_bridge.audit_references()
     }
 
     /// Return the names of all registered synchronous built-in functions.
@@ -416,28 +433,38 @@ impl DslEvaluator {
         }
     }
 
-    /// Execute a DSL program
+    /// Register a module's declarations together. Running behaviors keep their
+    /// own snapshot; later declarations affect only subsequent invocations.
     pub async fn execute_program(&self, program: Program) -> Result<DslValue> {
         let mut context = ExecutionContext::default();
-
-        // First pass: collect function definitions
-        for declaration in &program.declarations {
-            if let Declaration::Function(func) = declaration {
-                context.functions.insert(func.name.clone(), func.clone());
-            }
-        }
-
-        // Second pass: execute declarations
+        let mut pending_agents = Vec::new();
         let mut last_value = DslValue::Null;
         for declaration in &program.declarations {
+            if let Declaration::Agent(definition) = declaration {
+                let agent = self.prepare_agent(definition.clone()).await?;
+                last_value = DslValue::Agent(Box::new(agent.clone()));
+                pending_agents.push(agent);
+                continue;
+            }
             match self.execute_declaration(declaration, &mut context).await? {
                 ExecutionResult::Value(value) => last_value = value,
-                ExecutionResult::Return(value) => return Ok(value),
                 ExecutionResult::Error(msg) => return Err(ReplError::Execution(msg)),
                 _ => {}
             }
         }
 
+        // No declarations become visible until every agent passes validation.
+        // Merge only this module's definitions so concurrent loads do not erase
+        // unrelated modules. Never persist an invocation's variables or caller.
+        let mut agents = self.agents.write().await;
+        let mut global = self.global_context.lock().unwrap();
+        global.functions.extend(context.functions);
+        global.variables.extend(context.variables);
+        for agent in pending_agents {
+            self.monitor
+                .log_agent_event(&agent, TraceEventType::AgentCreated);
+            agents.insert(agent.id, agent);
+        }
         Ok(last_value)
     }
 
@@ -498,8 +525,47 @@ impl DslEvaluator {
     pub async fn create_agent(
         &self,
         agent_def: AgentDefinition,
-        context: &mut ExecutionContext,
+        _context: &mut ExecutionContext,
     ) -> Result<ExecutionResult> {
+        let agent = self.prepare_agent(agent_def).await?;
+        self.agents.write().await.insert(agent.id, agent.clone());
+        self.monitor
+            .log_agent_event(&agent, TraceEventType::AgentCreated);
+        // A declaration does not enter the new agent's authority scope.
+        Ok(ExecutionResult::Value(DslValue::Agent(Box::new(agent))))
+    }
+
+    async fn prepare_agent(&self, agent_def: AgentDefinition) -> Result<AgentInstance> {
+        // Legacy declarations cannot silently promise constraints that the
+        // project-configured builtin executor does not apply per agent.
+        let unsupported = if agent_def
+            .security
+            .as_ref()
+            .is_some_and(|security| security.tier.is_some() || security.sandbox.is_some())
+        {
+            Some("security tier or sandbox mode")
+        } else if agent_def.resources.as_ref().is_some_and(|resources| {
+            resources.memory.is_some()
+                || resources.cpu.is_some()
+                || resources.network.is_some()
+                || resources.storage.is_some()
+        }) {
+            Some("resource limits")
+        } else if agent_def.policies.as_ref().is_some_and(|policies| {
+            policies.execution_timeout.is_some()
+                || policies.retry_count.is_some()
+                || policies.failure_action.is_some()
+        }) {
+            Some("execution policies")
+        } else {
+            None
+        };
+        if let Some(requirement) = unsupported {
+            return Err(ReplError::Security(format!(
+                "Unsupported legacy agent {requirement}: this REPL uses the operator-configured project boundary; per-agent requirements cannot be enforced"
+            )));
+        }
+
         // Check capabilities
         if let Some(security) = &agent_def.security {
             for capability in &security.capabilities {
@@ -512,24 +578,12 @@ impl DslEvaluator {
             }
         }
 
-        let agent_id = Uuid::new_v4();
-        let agent = AgentInstance {
-            id: agent_id,
-            definition: agent_def.clone(),
+        Ok(AgentInstance {
+            id: Uuid::new_v4(),
+            definition: agent_def,
             state: AgentState::Created,
             created_at: chrono::Utc::now(),
-        };
-
-        // Log agent creation
-        self.monitor
-            .log_agent_event(&agent, TraceEventType::AgentCreated);
-
-        // Store agent instance
-        self.agents.write().await.insert(agent_id, agent.clone());
-        context.agent_id = Some(agent_id);
-
-        tracing::info!("Agent '{}' created with ID {}", agent_def.name, agent_id);
-        Ok(ExecutionResult::Value(DslValue::Agent(Box::new(agent))))
+        })
     }
 
     /// Execute a block of statements
@@ -946,7 +1000,7 @@ impl DslEvaluator {
 
         // Check for async built-in functions (reasoning, patterns)
         if let Some(async_builtin) = self.async_builtins.get(name) {
-            return async_builtin(arg_values).await;
+            return async_builtin(arg_values, context.agent_id).await;
         }
 
         // Check for user-defined functions
@@ -1390,20 +1444,16 @@ impl DslEvaluator {
             }
         }
 
-        // Look up behavior in global context (behaviors are defined separately)
-        let behavior = {
+        // Capture the entry point and its helpers in the same snapshot. Keep
+        // request variables and authority local, including across nested calls.
+        let (behavior, mut context) = {
             let context_guard = self.global_context.lock().unwrap();
             let behavior = context_guard.functions.get(behavior_name).ok_or_else(|| {
                 ReplError::Execution(format!("Behavior '{}' not found", behavior_name))
             })?;
-            behavior.clone()
+            (behavior.clone(), context_guard.clone())
         };
-
-        // Parse arguments if provided
-        let mut context = ExecutionContext {
-            agent_id: Some(agent_id),
-            ..ExecutionContext::default()
-        };
+        context.agent_id = Some(agent_id);
 
         // Simple argument parsing - in a real implementation this would be more sophisticated
         if !args.is_empty() {
@@ -1437,11 +1487,11 @@ impl DslEvaluator {
         );
 
         // Execute the function body
-        let result = match self.execute_block(&function.body, context).await? {
-            ExecutionResult::Value(value) => Ok(value),
-            ExecutionResult::Return(value) => Ok(value),
-            ExecutionResult::Error(msg) => Err(ReplError::Execution(msg)),
-            _ => Ok(DslValue::Null),
+        let result = match self.execute_block(&function.body, context).await {
+            Ok(ExecutionResult::Value(value) | ExecutionResult::Return(value)) => Ok(value),
+            Ok(ExecutionResult::Error(msg)) => Err(ReplError::Execution(msg)),
+            Err(error) => Err(error),
+            Ok(_) => Ok(DslValue::Null),
         };
 
         // End monitoring execution - handle the clone issue
@@ -1756,7 +1806,8 @@ pub fn builtin_print(args: &[DslValue]) -> Result<DslValue> {
         .collect::<Vec<_>>()
         .join(" ");
 
-    println!("{}", output);
+    // Stdout carries framed RPC replies in the shipping REPL server.
+    eprintln!("{}", output);
     Ok(DslValue::Null)
 }
 
@@ -1864,6 +1915,208 @@ mod tests {
 
         let evaluator = create_test_evaluator().await;
         evaluator.execute_program(program).await
+    }
+
+    fn parse_fixture(source: &str) -> Program {
+        let tokens = Lexer::new(source).tokenize().unwrap();
+        Parser::new(tokens).parse().unwrap()
+    }
+
+    #[tokio::test]
+    async fn unsupported_agent_constraints_refuse_module_and_direct_registration() {
+        let evaluator = create_test_evaluator().await;
+        evaluator
+            .execute_program(parse_fixture(
+                r#"agent Original {} function helper() { return "original" }"#,
+            ))
+            .await
+            .unwrap();
+        let original = evaluator.list_agents().await[0].id;
+        evaluator.start_agent(original).await.unwrap();
+        for body in [
+            "security { tier: Tier1 }",
+            "security { tier: Tier2 }",
+            "security { tier: Tier3 }",
+            "security { tier: Tier4 }",
+            "security { sandbox: strict }",
+            "security { sandbox: moderate }",
+            "security { sandbox: permissive }",
+            "resources { memory: 1MB }",
+            "resources { cpu: 1ms }",
+            "resources { network: false }",
+            "resources { network: true }",
+            "resources { storage: 1MB }",
+            "policies { timeout: 1ms }",
+            "policies { retry: 0 }",
+            "policies { failure: terminate }",
+            "policies { failure: restart }",
+            "policies { failure: escalate }",
+            "policies { failure: ignore }",
+        ] {
+            let source = format!("agent Rejected {{ {body} }}");
+            let Declaration::Agent(definition) = parse_fixture(&source).declarations.remove(0)
+            else {
+                panic!("agent fixture")
+            };
+            let error = evaluator
+                .create_agent(definition, &mut ExecutionContext::default())
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(error, ReplError::Security(ref message) if message.contains("Unsupported legacy agent")),
+                "{body}: {error}"
+            );
+            let module = format!(
+                "function helper() {{ return \"replacement\" }} agent Partial {{}} {source}"
+            );
+            assert!(matches!(
+                evaluator.execute_program(parse_fixture(&module)).await,
+                Err(ReplError::Security(_))
+            ));
+            assert_eq!(evaluator.list_agents().await.len(), 1);
+            assert_eq!(
+                evaluator
+                    .execute_agent_behavior(original, "helper", "")
+                    .await
+                    .unwrap(),
+                DslValue::String("original".into())
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn duplicate_agent_constraints_cannot_erase_requirements() {
+        for body in [
+            "security { sandbox: strict } security {}",
+            "security {} security { sandbox: strict }",
+            "security { tier: Tier3 } security { capabilities: [] }",
+            "resources { network: false } resources {}",
+            "resources {} resources { network: false }",
+            "policies { timeout: 1ms } policies {}",
+            "policies {} policies { timeout: 1ms }",
+            "security { capabilities: [\"unknown-capability\"] } security {}",
+            "security { capabilities: [\"unknown-capability\"] capabilities: [] }",
+            "security { capabilities: [] capabilities: [\"unknown-capability\"] }",
+        ] {
+            let source = format!("agent Rejected {{ {body} }}");
+            let tokens = Lexer::new(&source).tokenize().unwrap();
+            assert!(
+                matches!(
+                    Parser::new(tokens).parse(),
+                    Err(ReplError::Parsing(message)) if message.contains("Duplicate agent")
+                ),
+                "{body}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn empty_agent_constraints_and_capability_checks_remain_supported() {
+        let evaluator = create_test_evaluator().await;
+        evaluator
+            .execute_program(parse_fixture(
+                "agent Plain {} agent Empty { security {} resources {} policies {} }",
+            ))
+            .await
+            .unwrap();
+        assert_eq!(evaluator.list_agents().await.len(), 2);
+        assert!(matches!(
+            evaluator.execute_program(parse_fixture(
+                "agent Denied { security { capabilities: [\"unknown-capability\"] } }"
+            )).await,
+            Err(ReplError::Security(message)) if message.contains("Missing capability")
+        ));
+        assert_eq!(evaluator.list_agents().await.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn running_behavior_keeps_one_module_snapshot_across_awaits() {
+        let started = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let mut evaluator = create_test_evaluator().await;
+        let (entered, resume) = (started.clone(), release.clone());
+        evaluator.async_builtins.insert(
+            "pause_fixture".into(),
+            Arc::new(move |_, caller| {
+                let (entered, resume) = (entered.clone(), resume.clone());
+                Box::pin(async move {
+                    assert!(caller.is_some());
+                    entered.notify_one();
+                    resume.notified().await;
+                    Ok(DslValue::Null)
+                })
+            }),
+        );
+        evaluator
+            .execute_program(parse_fixture(
+                r#"
+            agent Worker {}
+            function helper() { return "original" }
+            behavior Work { steps { pause_fixture() return helper() } }
+        "#,
+            ))
+            .await
+            .unwrap();
+        let id = evaluator.list_agents().await[0].id;
+        evaluator.start_agent(id).await.unwrap();
+        let evaluator = Arc::new(evaluator);
+        let task_evaluator = evaluator.clone();
+        let task =
+            tokio::spawn(
+                async move { task_evaluator.execute_agent_behavior(id, "Work", "").await },
+            );
+        tokio::time::timeout(std::time::Duration::from_secs(2), started.notified())
+            .await
+            .unwrap();
+        evaluator
+            .execute_program(parse_fixture(
+                r#"function helper() { return "replacement" }"#,
+            ))
+            .await
+            .unwrap();
+        release.notify_one();
+        let result = tokio::time::timeout(std::time::Duration::from_secs(2), task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(result, DslValue::String("original".into()));
+        assert_eq!(
+            evaluator
+                .execute_agent_behavior(id, "helper", "")
+                .await
+                .unwrap(),
+            DslValue::String("replacement".into())
+        );
+    }
+
+    #[tokio::test]
+    async fn creating_agents_does_not_enter_their_authority_scope() {
+        let evaluator = create_test_evaluator().await;
+        let Declaration::Agent(definition) = parse_fixture("agent child {}").declarations.remove(0)
+        else {
+            panic!("agent fixture")
+        };
+        let parent = Uuid::new_v4();
+        for identity in [None, Some(parent)] {
+            let mut context = ExecutionContext {
+                agent_id: identity,
+                ..Default::default()
+            };
+            let result = evaluator
+                .create_agent(definition.clone(), &mut context)
+                .await
+                .unwrap();
+            let ExecutionResult::Value(DslValue::Agent(child)) = result else {
+                panic!("created agent")
+            };
+            assert_ne!(child.id, parent);
+            assert_eq!(
+                context.agent_id, identity,
+                "a declaration is not an invocation"
+            );
+            assert!(evaluator.get_agent(child.id).await.is_some());
+        }
     }
 
     #[tokio::test]

@@ -11,15 +11,15 @@ use utoipa::ToSchema;
 #[cfg(feature = "http-api")]
 use crate::types::{AgentId, AgentState};
 
-/// Request structure for workflow execution
+/// Administrative submission of raw workflow source for queued execution.
 #[cfg(feature = "http-api")]
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct WorkflowExecutionRequest {
-    /// The workflow definition or identifier
+    /// Raw DSL source (up to 1 MiB), not a workflow registry identifier.
     pub workflow_id: String,
-    /// Parameters to pass to the workflow
+    /// JSON input passed to this scheduled invocation.
     pub parameters: serde_json::Value,
-    /// Optional agent ID to execute the workflow
+    /// Registration ID to create or replace; omission allocates a new ID.
     pub agent_id: Option<AgentId>,
 }
 
@@ -165,9 +165,11 @@ pub struct DeleteAgentResponse {
 
 /// Request structure for executing an agent
 #[cfg(feature = "http-api")]
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
 pub struct ExecuteAgentRequest {
-    // Empty struct for now as specified
+    /// Payload supplied to this invocation.
+    #[serde(default)]
+    pub input: serde_json::Value,
 }
 
 /// Response structure for agent execution
@@ -231,6 +233,9 @@ pub struct CreateScheduleRequest {
     pub timezone: String,
     /// Name of the agent to execute.
     pub agent_name: String,
+    /// Input supplied to each scheduled invocation.
+    #[serde(default)]
+    pub input: serde_json::Value,
     /// Policy IDs to attach.
     #[serde(default)]
     pub policy_ids: Vec<String>,
@@ -315,12 +320,19 @@ pub struct NextRunsResponse {
 #[cfg(feature = "http-api")]
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ScheduleRunEntry {
+    /// Signed operator assessment, separate from the original execution result.
+    #[serde(default)]
+    pub resolution: Option<serde_json::Value>,
+    #[serde(default)]
+    pub admission_audit: Option<serde_json::Value>,
     pub run_id: String,
     pub started_at: String,
     pub completed_at: Option<String>,
     pub status: String,
     pub error: Option<String>,
     pub execution_time_ms: Option<u64>,
+    /// Actual runtime result and protected audit reference.
+    pub execution: Option<serde_json::Value>,
 }
 
 /// Response for schedule history endpoint.

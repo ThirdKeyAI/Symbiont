@@ -3,7 +3,7 @@
 
 [tool]
 name = "nmap_scan"
-version = "1.0.0"
+version = "1.0.1"
 binary = "nmap"
 description = "Network port scanning and service detection"
 timeout_seconds = 600
@@ -36,15 +36,18 @@ description = "Type of scan to perform"
 [args.extra_flags]
 position = 3
 required = false
-type = "string"
-sanitize = ["injection"]
+type = "enum"
+allowed = ["", "-n", "-Pn"]
 default = ""
-description = "Additional nmap flags (must pass Gate approval)"
+description = "Optional fixed flag: -n disables DNS, -Pn skips host discovery"
 
 # --- Command Construction ---
 
 [command]
-template = "nmap {_scan_flags} --max-rate {max_rate} -oX {_output_file} --no-stylesheet -v {extra_flags} {target}"
+template = "nmap {_scan_flags} --max-rate {max_rate} -oX {_output_file} --no-stylesheet -v {_extra_flags} {target}"
+
+[command.conditionals]
+extra_flags = { when = "extra_flags != ''", template = "{extra_flags}" }
 
 [command.defaults]
 max_rate = 1000

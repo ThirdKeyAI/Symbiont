@@ -28,6 +28,7 @@ use crate::reasoning::executor::ActionExecutor;
 use crate::reasoning::inference::{InferenceProvider, ToolDefinition};
 use crate::reasoning::loop_types::*;
 use crate::reasoning::policy_bridge::ReasoningPolicyGate;
+use crate::reasoning::prepared::AuthorizedAction;
 
 // ── Phase markers (zero-sized types) ────────────────────────────────
 
@@ -58,7 +59,7 @@ pub struct ReasoningOutput {
 /// Data produced by the policy check phase, consumed by tool dispatch.
 pub struct PolicyOutput {
     /// Actions approved by the policy gate.
-    pub approved_actions: Vec<ProposedAction>,
+    pub approved_actions: Vec<AuthorizedAction>,
     /// Actions denied, with their denial reasons.
     pub denied_reasons: Vec<(ProposedAction, String)>,
     /// Whether any Respond or Terminate action was approved.
@@ -103,7 +104,10 @@ enum PhaseData {
 
 impl AgentLoop<Reasoning> {
     /// Create a new agent loop in the Reasoning phase.
-    pub fn new(state: LoopState, config: LoopConfig) -> Self {
+    pub fn new(state: LoopState, mut config: LoopConfig) -> Self {
+        config
+            .shared_budget
+            .get_or_insert_with(|| super::budget::SharedBudget::new(config.max_total_tokens));
         Self {
             state,
             config,
@@ -124,6 +128,7 @@ impl AgentLoop<Reasoning> {
         provider: &dyn InferenceProvider,
         context_manager: &dyn ContextManager,
         delegation_available: bool,
+        journal: &dyn JournalWriter,
     ) -> Result<AgentLoop<PolicyCheck>, LoopTermination> {
         self.state.current_phase = "reasoning".into();
 
@@ -177,7 +182,7 @@ impl AgentLoop<Reasoning> {
         self.state.pending_observations.clear();
 
         // Build inference options
-        let options = crate::reasoning::inference::InferenceOptions {
+        let mut options = crate::reasoning::inference::InferenceOptions {
             max_tokens: self
                 .config
                 .max_total_tokens
@@ -193,14 +198,97 @@ impl AgentLoop<Reasoning> {
             ..Default::default()
         };
 
+        let input_reservation =
+            match provider.input_token_reservation(&self.state.conversation, &options) {
+                Ok(tokens) => tokens,
+                Err(error) => {
+                    return Err(LoopTermination {
+                        reason: LoopTerminationReason::Error {
+                            message: format!("Inference accounting unavailable: {error}"),
+                        },
+                        state: self.state,
+                    })
+                }
+            };
+        let budget = self
+            .config
+            .shared_budget
+            .as_ref()
+            .expect("initialized loop budget");
+        let proof = |maximum| {
+            let mut exact_options = options.clone();
+            exact_options.max_tokens = maximum;
+            let request =
+                serde_json::json!({"conversation":self.state.conversation,"options":exact_options});
+            let encoded = crate::reasoning::prepared::canonical_json(&request)?;
+            if encoded.len() > 4 * 1024 * 1024 {
+                return Err("inference accounting contract exceeds its byte limit".into());
+            }
+            use sha2::{Digest, Sha256};
+            Ok(super::budget::journal::InferenceReservation {
+                id: uuid::Uuid::nil(),
+                root_id: uuid::Uuid::nil(),
+                ancestors: Vec::new(),
+                input_tokens: 0,
+                output_tokens: 0,
+                agent_id: self.state.agent_id,
+                audit: journal.audit_reference(),
+                iteration: self.state.iteration,
+                provider: provider.provider_name().into(),
+                model: options
+                    .model
+                    .clone()
+                    .unwrap_or_else(|| provider.default_model().into()),
+                request_hash: format!("sha256:{}", hex::encode(Sha256::digest(encoded.as_bytes()))),
+                request_bytes: encoded.len() as u64,
+            })
+        };
+        let reservation = match budget
+            .reserve_audited(input_reservation, options.max_tokens, proof)
+            .await
+        {
+            Ok(reservation) => reservation,
+            Err(message) => {
+                return Err(LoopTermination {
+                    reason: if message == "shared token budget exhausted or already reserved" {
+                        LoopTerminationReason::MaxTokens {
+                            tokens: budget.snapshot().usage.total_tokens,
+                        }
+                    } else {
+                        LoopTerminationReason::Error { message }
+                    },
+                    state: self.state,
+                })
+            }
+        };
+        options.max_tokens = reservation.output_tokens();
+
         // Call the inference provider
         let response = match provider.complete(&self.state.conversation, &options).await {
             Ok(r) => r,
             Err(e) => {
+                // A provider error is a known outcome, not an ambiguous one.
+                // Settle the reservation so the journal carries a terminal
+                // record for it. Dropping it unsettled leaves the effect with
+                // no completion, which marks the whole run as requiring
+                // reconciliation and tells the caller to reconcile an outcome
+                // that is already established. Zero usage settles as
+                // `AccountingOutcome::Unknown`: the token cost is genuinely
+                // unknown, but the reservation itself is resolved.
+                let settlement = reservation
+                    .settle_audited(
+                        &crate::reasoning::inference::Usage::default(),
+                        self.state.iteration,
+                    )
+                    .await;
+                let message = match settlement {
+                    Ok(()) => format!("Inference failed: {e}"),
+                    Err(settle) => {
+                        format!("Inference failed: {e}; reservation settlement failed: {settle}")
+                    }
+                };
                 return Err(LoopTermination {
-                    reason: LoopTerminationReason::Error {
-                        message: format!("Inference failed: {}", e),
-                    },
+                    reason: LoopTerminationReason::Error { message },
                     state: self.state,
                 });
             }
@@ -208,6 +296,15 @@ impl AgentLoop<Reasoning> {
 
         // Track usage
         self.state.add_usage(&response.usage);
+        if let Err(message) = reservation
+            .settle_audited(&response.usage, self.state.iteration)
+            .await
+        {
+            return Err(LoopTermination {
+                reason: LoopTerminationReason::Error { message },
+                state: self.state,
+            });
+        }
 
         // A refusal, or a turn that produced neither tool calls nor any text, is a
         // no-progress turn. Terminate distinctly instead of returning an empty
@@ -293,6 +390,7 @@ impl AgentLoop<PolicyCheck> {
     pub async fn check_policy(
         mut self,
         gate: &dyn ReasoningPolicyGate,
+        executor: &dyn ActionExecutor,
     ) -> Result<AgentLoop<ToolDispatching>, LoopTermination> {
         self.state.current_phase = "policy_check".into();
 
@@ -313,98 +411,43 @@ impl AgentLoop<PolicyCheck> {
         let mut has_terminal = false;
         let mut terminal_output = None;
 
-        for action in reasoning_output.proposed_actions {
-            // M4 mitigation: validate tool-call arguments against the
-            // declared JSON schema (if any) before handing the action to
-            // the policy gate. The LLM controls `arguments` as a free-form
-            // string, so we treat a schema violation — or anything that
-            // isn't a JSON object — as a policy denial. This closes the
-            // simplest prompt-injection-to-exec path where the model is
-            // coerced into emitting malformed args.
-            //
-            // If no schema is registered for the named tool we still
-            // require the args to parse as a JSON object (the minimum bar
-            // — MCP servers and the local executor both expect an object
-            // payload). Reject strings, numbers, arrays, booleans, etc.
-            // Compute schema-validation result up-front so the immutable
-            // borrow of `action` ends before we (potentially) move it into
-            // `denied`.
-            let schema_check: Option<(String, String, String)> = match &action {
-                ProposedAction::ToolCall {
-                    call_id,
-                    name,
-                    arguments,
-                } => match validate_tool_call_arguments(
-                    name,
-                    arguments,
-                    &self.config.tool_definitions,
-                ) {
-                    Ok(()) => None,
-                    Err(reason) => Some((call_id.clone(), name.clone(), reason)),
-                },
-                _ => None,
+        let valid_ids = super::dispatch::valid_call_identities(&reasoning_output.proposed_actions);
+        for original in reasoning_output.proposed_actions {
+            let decision = if valid_ids {
+                super::dispatch::authorize_action(
+                    &original,
+                    &self.state,
+                    &self.config,
+                    executor,
+                    gate,
+                )
+                .await
+            } else {
+                Err("action batch requires unique, nonempty call identities".into())
             };
-
-            if let Some((call_id, name, reason)) = schema_check {
-                self.state.conversation.push(
-                    crate::reasoning::conversation::ConversationMessage::tool_result(
-                        call_id,
-                        name,
-                        format!("[Schema validation failed] {}", reason),
-                    ),
-                );
-                self.state
-                    .pending_observations
-                    .push(Observation::policy_denial(&reason));
-                denied.push((action, reason));
-                continue;
-            }
-
-            let decision = gate
-                .evaluate_action(&self.state.agent_id, &action, &self.state)
-                .await;
-
-            match decision {
-                LoopDecision::Allow => {
-                    if matches!(
-                        action,
-                        ProposedAction::Respond { .. } | ProposedAction::Terminate { .. }
-                    ) {
-                        has_terminal = true;
-                        if let ProposedAction::Respond { ref content } = action {
+            let denial = match decision {
+                Ok(authorized) => {
+                    match authorized.action() {
+                        ProposedAction::Respond { content } => {
+                            has_terminal = true;
                             terminal_output = Some(content.clone());
                         }
-                        if let ProposedAction::Terminate { ref output, .. } = action {
+                        ProposedAction::Terminate { output, .. } => {
+                            has_terminal = true;
                             terminal_output = Some(output.clone());
                         }
+                        _ => {}
                     }
-                    approved.push(action);
+                    approved.push(authorized);
+                    continue;
                 }
-                LoopDecision::Deny { reason } => {
-                    push_denial_tool_result(&mut self.state.conversation, &action, &reason);
-                    // Also feed denial back as pending observation for the loop driver
-                    self.state
-                        .pending_observations
-                        .push(Observation::policy_denial(&reason));
-                    denied.push((action, reason));
-                }
-                LoopDecision::Modify {
-                    modified_action,
-                    reason,
-                } => {
-                    tracing::info!("Policy modified action: {}", reason);
-                    if matches!(
-                        *modified_action,
-                        ProposedAction::Respond { .. } | ProposedAction::Terminate { .. }
-                    ) {
-                        has_terminal = true;
-                        if let ProposedAction::Respond { ref content } = *modified_action {
-                            terminal_output = Some(content.clone());
-                        }
-                    }
-                    approved.push(*modified_action);
-                }
-            }
+                Err(reason) => reason,
+            };
+            push_denial_tool_result(&mut self.state.conversation, &original, &denial);
+            self.state
+                .pending_observations
+                .push(Observation::policy_denial(&denial));
+            denied.push((original, denial));
         }
 
         Ok(AgentLoop {
@@ -494,6 +537,7 @@ pub(crate) fn tool_call_to_action(
 /// Dispatch approved `Delegate` actions through the delegation handle, returning
 /// one Observation per delegate. Never silently drops: a missing handle or any
 /// `DelegationError` becomes an honest `is_error` Observation.
+#[cfg(test)]
 pub(crate) async fn dispatch_delegations(
     actions: &[ProposedAction],
     delegation: Option<&dyn crate::reasoning::delegation::DelegationExecutor>,
@@ -522,6 +566,7 @@ pub(crate) async fn dispatch_delegations(
                         chain: chain.to_vec(),
                         max_iterations: config.max_iterations,
                         max_total_tokens: config.max_total_tokens,
+                        shared_budget: config.shared_budget.clone(),
                         timeout: config.timeout,
                     };
                     match d.delegate(target, message, ctx).await {
@@ -548,14 +593,47 @@ impl AgentLoop<ToolDispatching> {
         }
     }
 
+    pub fn approved_calls(&self) -> Vec<serde_json::Value> {
+        match &self.phase_data {
+            Some(PhaseData::Policy(output)) => output
+                .approved_actions
+                .iter()
+                .map(|grant| grant.audit_context())
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    pub fn denied_calls(&self) -> Vec<serde_json::Value> {
+        match &self.phase_data {
+            Some(PhaseData::Policy(output)) => output
+                .denied_reasons
+                .iter()
+                .map(|(action, reason)| serde_json::json!({"action": action, "reason": reason}))
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
     /// Dispatch approved actions through the executor.
     ///
     /// Consumes `self` and produces `AgentLoop<Observing>`.
     pub async fn dispatch_tools(
+        self,
+        executor: &dyn ActionExecutor,
+        circuit_breakers: &CircuitBreakerRegistry,
+        delegation: Option<&dyn crate::reasoning::delegation::DelegationExecutor>,
+    ) -> Result<AgentLoop<Observing>, LoopTermination> {
+        self.dispatch_tools_audited(executor, circuit_breakers, delegation, None)
+            .await
+    }
+
+    pub(crate) async fn dispatch_tools_audited(
         mut self,
         executor: &dyn ActionExecutor,
         circuit_breakers: &CircuitBreakerRegistry,
         delegation: Option<&dyn crate::reasoning::delegation::DelegationExecutor>,
+        journal: Option<&dyn super::loop_types::JournalWriter>,
     ) -> Result<AgentLoop<Observing>, LoopTermination> {
         self.state.current_phase = "tool_dispatching".into();
 
@@ -571,8 +649,27 @@ impl AgentLoop<ToolDispatching> {
             }
         };
 
-        // If we have a terminal action, skip tool dispatch
+        // A response may carry an immutable delivery capability. Its grant and
+        // required audit must still be checked before the external send.
         if policy_output.has_terminal_action {
+            for grant in policy_output.approved_actions {
+                if !matches!(
+                    grant.action(),
+                    ProposedAction::Respond { .. } | ProposedAction::Terminate { .. }
+                ) {
+                    continue;
+                }
+                let result = match grant.check_binding(&self.state, &self.config) {
+                    Ok(()) => super::response_delivery::dispatch(grant, journal).await,
+                    Err(error) => Err(error),
+                };
+                if let Err(message) = result {
+                    return Err(LoopTermination {
+                        reason: LoopTerminationReason::Error { message },
+                        state: self.state,
+                    });
+                }
+            }
             return Ok(AgentLoop {
                 state: self.state,
                 config: self.config,
@@ -585,20 +682,104 @@ impl AgentLoop<ToolDispatching> {
             });
         }
 
-        // Dispatch tool calls in parallel
-        let observations = executor
-            .execute_actions(
-                &policy_output.approved_actions,
-                &self.config,
-                circuit_breakers,
-            )
-            .await;
-
-        // Dispatch approved Delegate actions (tool calls are handled above).
-        let mut observations = observations;
-        let delegate_obs =
-            dispatch_delegations(&policy_output.approved_actions, delegation, &self.config).await;
-        observations.extend(delegate_obs);
+        // Verify that public loop state/configuration was not changed after
+        // authorization. Tickets are then consumed exactly once by dispatch.
+        let mut authorized = Vec::new();
+        let mut observations = Vec::new();
+        for grant in policy_output.approved_actions {
+            match grant.check_binding(&self.state, &self.config) {
+                Ok(()) => authorized.push(grant),
+                Err(reason) => {
+                    push_denial_tool_result(&mut self.state.conversation, grant.action(), &reason);
+                    observations.push(Observation::policy_denial(&reason));
+                }
+            }
+        }
+        let (delegates, tools): (Vec<_>, Vec<_>) = authorized
+            .into_iter()
+            .partition(|grant| matches!(grant.action(), ProposedAction::Delegate { .. }));
+        match super::dispatch::execute_tool_grants(
+            tools,
+            &self.config,
+            executor,
+            circuit_breakers,
+            journal,
+        )
+        .await
+        {
+            Ok(results) => observations.extend(results),
+            Err(error) => {
+                return Err(LoopTermination {
+                    reason: LoopTerminationReason::Error {
+                        message: format!("required tool effect journal failed: {error}"),
+                    },
+                    state: self.state,
+                })
+            }
+        }
+        for grant in delegates {
+            if observations.iter().any(Observation::has_unconfirmed_effect) {
+                if let ProposedAction::Delegate {
+                    call_id, target, ..
+                } = grant.action()
+                {
+                    observations.push(
+                        Observation::tool_error(
+                            format!("delegate:{target}"),
+                            "delegation not started after an unconfirmed effect",
+                        )
+                        .with_call_id(call_id),
+                    );
+                }
+                continue;
+            }
+            match grant.check_binding(&self.state, &self.config) {
+                Ok(()) => {
+                    let ProposedAction::Delegate {
+                        call_id, target, ..
+                    } = grant.action()
+                    else {
+                        unreachable!()
+                    };
+                    let ctx = super::delegation::DelegationContext {
+                        depth: self.config.delegation_depth,
+                        chain: self.config.delegation_chain.clone(),
+                        max_iterations: self.config.max_iterations,
+                        max_total_tokens: self.config.max_total_tokens,
+                        shared_budget: self.config.shared_budget.clone(),
+                        timeout: self.config.timeout,
+                    };
+                    let result = match delegation {
+                        Some(delegation) => {
+                            delegation.delegate_authorized(&grant, ctx, journal).await
+                        }
+                        None => Err(super::delegation::DelegationError::Failed(
+                            "agent delegation is not available in this runner".into(),
+                        )),
+                    };
+                    let source = format!("delegate:{target}");
+                    let observation = match result {
+                        Ok(output) => Observation::tool_result(source, output),
+                        Err(super::delegation::DelegationError::Audit(message)) => {
+                            return Err(LoopTermination {
+                                reason: LoopTerminationReason::Error {
+                                    message: format!("required delegation audit failed: {message}"),
+                                },
+                                state: self.state,
+                            });
+                        }
+                        Err(super::delegation::DelegationError::Unconfirmed(message)) => {
+                            let mut observation = Observation::tool_error(source, message);
+                            observation.mark_unconfirmed_effect();
+                            observation
+                        }
+                        Err(error) => Observation::tool_error(source, error.to_string()),
+                    };
+                    observations.push(observation.with_call_id(call_id.clone()));
+                }
+                Err(reason) => observations.push(Observation::policy_denial(&reason)),
+            }
+        }
 
         // Add tool results to conversation
         for obs in &observations {
@@ -646,6 +827,13 @@ pub enum LoopContinuation {
 impl AgentLoop<Observing> {
     /// Return observation count from the dispatch phase.
     /// Used by the loop driver to emit `ObservationsCollected` journal events.
+    pub fn observations(&self) -> Vec<Observation> {
+        match &self.phase_data {
+            Some(PhaseData::Dispatch(output)) => output.observations.clone(),
+            _ => Vec::new(),
+        }
+    }
+
     pub fn observation_count(&self) -> usize {
         match &self.phase_data {
             Some(PhaseData::Dispatch(output)) => output.observations.len(),
@@ -666,6 +854,11 @@ impl AgentLoop<Observing> {
                     output: String::new(),
                     iterations: self.state.iteration,
                     total_usage: self.state.total_usage.clone(),
+                    budget: self
+                        .config
+                        .shared_budget
+                        .as_ref()
+                        .map(|budget| budget.snapshot()),
                     termination_reason: TerminationReason::Error {
                         message: "Invalid phase data".into(),
                     },
@@ -675,11 +868,30 @@ impl AgentLoop<Observing> {
             }
         };
 
+        if dispatch_output
+            .observations
+            .iter()
+            .any(Observation::has_unconfirmed_effect)
+        {
+            return LoopContinuation::Complete(
+                LoopTermination {
+                    reason: LoopTerminationReason::UnconfirmedEffects,
+                    state: self.state,
+                }
+                .into_result(),
+            );
+        }
+
         if dispatch_output.should_terminate {
             return LoopContinuation::Complete(LoopResult {
                 output: dispatch_output.terminal_output.unwrap_or_default(),
                 iterations: self.state.iteration,
                 total_usage: self.state.total_usage.clone(),
+                budget: self
+                    .config
+                    .shared_budget
+                    .as_ref()
+                    .map(|budget| budget.snapshot()),
                 termination_reason: TerminationReason::Completed,
                 duration: self.state.elapsed().to_std().unwrap_or_default(),
                 conversation: self.state.conversation,
@@ -714,6 +926,7 @@ pub enum LoopTerminationReason {
     MaxIterations { iterations: u32 },
     MaxTokens { tokens: u32 },
     Timeout,
+    UnconfirmedEffects,
     Error { message: String },
 }
 
@@ -724,6 +937,7 @@ impl LoopTermination {
             LoopTerminationReason::MaxIterations { .. } => TerminationReason::MaxIterations,
             LoopTerminationReason::MaxTokens { .. } => TerminationReason::MaxTokens,
             LoopTerminationReason::Timeout => TerminationReason::Timeout,
+            LoopTerminationReason::UnconfirmedEffects => TerminationReason::UnconfirmedEffects,
             LoopTerminationReason::Error { message } => TerminationReason::Error {
                 message: message.clone(),
             },
@@ -732,6 +946,7 @@ impl LoopTermination {
             output: String::new(),
             iterations: self.state.iteration,
             total_usage: self.state.total_usage.clone(),
+            budget: None,
             termination_reason: reason,
             duration: self.state.elapsed().to_std().unwrap_or_default(),
             conversation: self.state.conversation,
@@ -745,19 +960,16 @@ impl LoopTermination {
 /// can be malformed, of the wrong shape, or intentionally adversarial.
 /// We enforce two layers of defence:
 ///
-/// 1. The string MUST parse as a JSON object. Strings, arrays, numbers
-///    and other primitives are rejected. This is the minimum bar even
-///    when no schema is registered for the named tool — every tool
-///    dispatcher in the runtime (the default executor, the MCP bridge)
-///    expects an object payload.
-/// 2. If the named tool is registered in `tool_definitions` and ships a
-///    JSON Schema, the parsed args are validated against that schema
+/// 1. The string MUST parse as a JSON object and the tool must be advertised
+///    for this run. Unknown top-level arguments are rejected when the
+///    contract enumerates its properties.
+/// 2. When the tool ships a JSON Schema, the parsed args are validated against it
 ///    via the `jsonschema` crate. The first violation is returned as
 ///    the denial reason.
 ///
 /// On success, returns `Ok(())`. On failure, returns the human-readable
 /// reason that `check_policy` will fold into a `LoopDecision::Deny`.
-fn validate_tool_call_arguments(
+pub(crate) fn validate_tool_call_arguments(
     name: &str,
     arguments: &str,
     tool_definitions: &[ToolDefinition],
@@ -773,8 +985,22 @@ fn validate_tool_call_arguments(
         ));
     }
 
-    // Layer 2: schema validation when a definition is registered.
-    if let Some(def) = tool_definitions.iter().find(|d| d.name == name) {
+    // An unadvertised tool is not an implicit capability.
+    let def = tool_definitions
+        .iter()
+        .find(|d| d.name == name)
+        .ok_or_else(|| format!("tool '{name}' was not advertised for this run"))?;
+    if let Some(properties) = def.parameters.get("properties").and_then(|p| p.as_object()) {
+        if let Some(unknown) = parsed
+            .as_object()
+            .unwrap()
+            .keys()
+            .find(|key| !properties.contains_key(*key))
+        {
+            return Err(format!("tool '{name}' has unknown argument '{unknown}'"));
+        }
+    }
+    {
         // Treat a missing/empty schema the same as "no schema" — the
         // object-shape check above is the floor in that case.
         if !def.parameters.is_null() {

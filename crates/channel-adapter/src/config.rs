@@ -31,7 +31,7 @@ pub struct SlackConfig {
     pub bot_token: String,
     /// App-level token for Socket Mode (xapp-...), if using Socket Mode.
     pub app_token: Option<String>,
-    /// Signing secret for verifying inbound webhook requests.
+    /// Required nonempty signing secret for authenticating all inbound callbacks.
     pub signing_secret: Option<String>,
     /// Workspace ID (auto-detected on connect if not provided).
     pub workspace_id: Option<String>,
@@ -95,12 +95,8 @@ pub struct TeamsConfig {
     pub bind_address: String,
     /// Default agent to invoke when no agent is specified.
     pub default_agent: Option<String>,
-    /// Skip JWKS signature verification on inbound Bot Framework tokens.
-    ///
-    /// **SECURITY**: when `true`, ANY JWT presented on the Teams webhook is
-    /// accepted. This is only safe for local/offline development and is
-    /// refused at runtime when `SYMBIONT_ENV=production`. Defaults to `false`
-    /// so production deployments fail closed by default.
+    /// Legacy configuration field. Setting this to true is always rejected;
+    /// every inbound Bot Framework request requires signature verification.
     #[serde(default)]
     pub skip_jwks_verification: bool,
 }

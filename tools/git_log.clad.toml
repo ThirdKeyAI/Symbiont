@@ -1,0 +1,9 @@
+[tool]
+name = "git_log"
+version = "1.1.0"
+description = "Read up to twenty recent source repository commits without patches or external helpers."
+timeout_seconds = 15
+[source]
+operation = "git_log"
+[output]
+format = "json"

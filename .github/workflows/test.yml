@@ -41,6 +41,17 @@ jobs:
       # when someone runs clippy locally.
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      - name: Test Docker containment against the daemon
+        env:
+          SYMBI_DOCKER_AMBIENT_CANARY: synthetic-ambient-value
+        run: |
+          docker pull python:3.12-slim
+          docker image inspect python:3.12-slim --format '{{.Id}}'
+          cargo build -p symbi-sandbox-supervisor
+          export SYMBIONT_SANDBOX_SUPERVISOR="$PWD/target/debug/symbi-sandbox-supervisor"
+          export SYMBIONT_SANDBOX_STATE_DIR="$RUNNER_TEMP/sandbox-leases"
+          cargo test -p symbi-sandbox-supervisor --test lifecycle -- --ignored --test-threads=2
+          cargo test -p symbi-runtime --lib sandbox::docker::tests::e2e:: -- --ignored --test-threads=2
       - name: Lint Cedar policies
         run: |
           files=$(git ls-files '*.cedar' 2>/dev/null || true)

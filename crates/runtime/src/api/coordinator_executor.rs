@@ -122,6 +122,9 @@ impl CoordinatorExecutor {
                 }),
             });
         }
+        for definition in &mut defs {
+            definition.parameters["additionalProperties"] = serde_json::json!(false);
+        }
         defs
     }
 
@@ -268,6 +271,14 @@ mod delegate_tool_tests {
 #[cfg(feature = "http-api")]
 #[async_trait]
 impl ActionExecutor for CoordinatorExecutor {
+    fn prepare_action(
+        &self,
+        action: &ProposedAction,
+        config: &LoopConfig,
+    ) -> Result<crate::reasoning::prepared::PreparedAction, String> {
+        prepare_coordinator_action(action, config)
+    }
+
     async fn execute_actions(
         &self,
         actions: &[ProposedAction],
@@ -313,5 +324,86 @@ impl ActionExecutor for CoordinatorExecutor {
     /// registry to resolve against.
     fn tool_definitions(&self) -> Vec<ToolDefinition> {
         Self::tool_definitions(&[])
+    }
+}
+
+/// Resolve typed monitoring targets before policy sees or authorizes them.
+#[cfg(feature = "http-api")]
+fn prepare_coordinator_action(
+    action: &ProposedAction,
+    config: &LoopConfig,
+) -> Result<crate::reasoning::prepared::PreparedAction, String> {
+    use crate::reasoning::{executor::prepare_registered_action, prepared::PreparedAction};
+    let mut action = action.clone();
+    let mut resource = None;
+    if let ProposedAction::ToolCall {
+        name, arguments, ..
+    } = &mut action
+    {
+        if name == "agent_status" {
+            let mut args: serde_json::Value =
+                serde_json::from_str(arguments).map_err(|error| error.to_string())?;
+            let id = args
+                .get("agent_id")
+                .and_then(|id| id.as_str())
+                .ok_or("missing agent_id")?;
+            let id = uuid::Uuid::parse_str(id)
+                .map_err(|_| "invalid agent_id UUID")?
+                .to_string();
+            args["agent_id"] = serde_json::json!(id);
+            *arguments = crate::reasoning::prepared::canonical_json(&args)?;
+            resource = Some(id);
+        }
+    }
+    let prepared =
+        prepare_registered_action(&action, config, &CoordinatorExecutor::tool_definitions(&[]))?;
+    if let Some(id) = resource {
+        let mut contract = prepared
+            .contract()
+            .cloned()
+            .ok_or("missing monitoring contract")?;
+        contract.resource_type = "Agent".into();
+        contract.resource_id = id.clone();
+        PreparedAction::new(action, Some(contract))?
+            .with_resolved(serde_json::json!({"runtime_resource":{"kind":"agent", "id":id}}))
+    } else {
+        Ok(prepared)
+    }
+}
+
+#[cfg(all(test, feature = "http-api"))]
+mod target_tests {
+    use super::*;
+    #[test]
+    fn monitoring_target_is_canonical_before_authorization() {
+        let config = LoopConfig {
+            tool_definitions: CoordinatorExecutor::tool_definitions(&[]),
+            ..Default::default()
+        };
+        let action = |args: &str| ProposedAction::ToolCall {
+            call_id: "status".into(),
+            name: "agent_status".into(),
+            arguments: args.into(),
+        };
+        let prepared = prepare_coordinator_action(
+            &action(r#"{"agent_id":"00112233445566778899AABBCCDDEEFF"}"#),
+            &config,
+        )
+        .unwrap();
+        let id = "00112233-4455-6677-8899-aabbccddeeff";
+        assert_eq!(prepared.contract().unwrap().resource_type, "Agent");
+        assert_eq!(prepared.contract().unwrap().resource_id, id);
+        assert_eq!(prepared.policy_context()["arguments"]["agent_id"], id);
+        assert_eq!(
+            prepared.policy_context()["resolved"]["runtime_resource"]["id"],
+            id
+        );
+        for args in [
+            r#"{"agent_id":"not-a-uuid"}"#,
+            r#"{"agent_id":null}"#,
+            r#"{"agent_id":"00112233445566778899AABBCCDDEEFF","extra":true}"#,
+        ] {
+            assert!(prepare_coordinator_action(&action(args), &config).is_err());
+        }
     }
 }

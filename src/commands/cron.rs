@@ -28,9 +28,51 @@ pub async fn run(matches: &ArgMatches) {
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 #[cfg(feature = "cron")]
-fn open_store() -> Result<SqliteJobStore, String> {
-    let path = SqliteJobStore::default_path();
-    SqliteJobStore::open(&path).map_err(|e| format!("Failed to open job store: {}", e))
+async fn open_store() -> Result<SqliteJobStore, String> {
+    let project = std::env::current_dir()
+        .and_then(|p| p.canonicalize())
+        .map_err(|e| e.to_string())?;
+    let path = project.join(".symbiont/cron_jobs.db");
+    let store =
+        SqliteJobStore::open(&path).map_err(|e| format!("Failed to open job store: {e}"))?;
+    store
+        .bind_project(&project)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(store)
+}
+
+#[cfg(feature = "cron")]
+fn selected_source(
+    name: &str,
+) -> Result<(String, String, symbi_runtime::types::SecurityTier), String> {
+    use std::path::Path;
+    if name.is_empty()
+        || matches!(name, "." | "..")
+        || !name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+    {
+        return Err("agent must be a direct source filename without an extension".into());
+    }
+    let reader = symbi_runtime::integrations::mcp::project::ProjectReader::open(Path::new("."))?;
+    let mut sources = Vec::new();
+    for extension in [dsl::SYMBI_EXTENSION, dsl::LEGACY_DSL_EXTENSION] {
+        let path = Path::new("agents").join(format!("{name}.{extension}"));
+        match std::fs::symlink_metadata(&path) {
+            Ok(_) => sources.push(reader.read_text(&path, 1024 * 1024)?),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    if sources.len() != 1 {
+        return Err("agent must identify exactly one source file in agents/".into());
+    }
+    let source = sources.remove(0);
+    let settings = dsl::resolve_execution_settings(&source, name)?;
+    dsl::ExecutionPolicy::parse(&source, &settings.agent_name)?;
+    let tier = super::up::resolve_security_tier(&source, &settings.agent_name)?;
+    Ok((source, settings.agent_name, tier))
 }
 
 #[cfg(feature = "cron")]
@@ -44,7 +86,7 @@ fn parse_job_id(s: &str) -> Result<CronJobId, String> {
 async fn cmd_list() {
     #[cfg(feature = "cron")]
     {
-        let store = match open_store() {
+        let store = match open_store().await {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("{}", e);
@@ -100,13 +142,19 @@ async fn cmd_add(matches: &ArgMatches) {
         let agent_name = matches.get_one::<String>("agent").expect("agent required");
         let one_shot = matches.get_flag("one-shot");
 
-        // Build a minimal AgentConfig — the runtime will resolve the full config on execution.
+        let (source, selected_name, security_tier) = match selected_source(agent_name) {
+            Ok(selected) => selected,
+            Err(error) => {
+                eprintln!("Cannot select scheduled source: {error}");
+                std::process::exit(1);
+            }
+        };
         let agent_config = symbi_runtime::types::AgentConfig {
             id: symbi_runtime::types::AgentId::new(),
-            name: agent_name.clone(),
-            dsl_source: String::new(),
+            name: selected_name,
+            dsl_source: source,
             execution_mode: symbi_runtime::types::ExecutionMode::Ephemeral,
-            security_tier: symbi_runtime::types::SecurityTier::Tier1,
+            security_tier,
             resource_limits: symbi_runtime::types::ResourceLimits::default(),
             capabilities: vec![],
             policies: vec![],
@@ -132,7 +180,7 @@ async fn cmd_add(matches: &ArgMatches) {
             std::process::exit(1);
         }
 
-        let store = match open_store() {
+        let store = match open_store().await {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("{}", e);
@@ -186,7 +234,7 @@ async fn cmd_remove(matches: &ArgMatches) {
                 return;
             }
         };
-        let store = match open_store() {
+        let store = match open_store().await {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("{}", e);
@@ -219,7 +267,7 @@ async fn cmd_pause(matches: &ArgMatches) {
                 return;
             }
         };
-        let store = match open_store() {
+        let store = match open_store().await {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("{}", e);
@@ -261,13 +309,25 @@ async fn cmd_resume(matches: &ArgMatches) {
                 return;
             }
         };
-        let store = match open_store() {
+        let store = match open_store().await {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("{}", e);
                 return;
             }
         };
+        #[cfg(unix)]
+        match store.job_has_unresolved_occurrence(job_id).await {
+            Ok(false) => {}
+            Ok(true) => {
+                eprintln!("Unresolved occurrences require reconciliation before resume");
+                std::process::exit(1);
+            }
+            Err(error) => {
+                eprintln!("Cannot check unresolved history: {error}");
+                std::process::exit(1);
+            }
+        }
         match store.get_job(job_id).await {
             Ok(Some(mut job)) => {
                 job.status = symbi_runtime::CronJobStatus::Active;
@@ -303,7 +363,7 @@ async fn cmd_status(matches: &ArgMatches) {
                 return;
             }
         };
-        let store = match open_store() {
+        let store = match open_store().await {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("{}", e);
@@ -383,7 +443,7 @@ async fn cmd_run(matches: &ArgMatches) {
         };
         // Force-triggering requires a running CronScheduler (with an AgentScheduler).
         // For offline use, we just validate the job exists.
-        let store = match open_store() {
+        let store = match open_store().await {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("{}", e);
@@ -397,7 +457,7 @@ async fn cmd_run(matches: &ArgMatches) {
                     job_id
                 );
                 println!(
-                    "Connect to the runtime API to trigger: POST /schedules/{}/trigger",
+                    "Connect to the runtime API: POST /api/v1/schedules/{}/trigger with an Idempotency-Key UUID retained for retries",
                     job_id
                 );
             }
@@ -420,7 +480,7 @@ async fn cmd_history(matches: &ArgMatches) {
             .and_then(|s| s.parse::<usize>().ok())
             .unwrap_or(20);
 
-        let store = match open_store() {
+        let store = match open_store().await {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("{}", e);
@@ -490,9 +550,20 @@ fn print_history(history: &[symbi_runtime::JobRunRecord]) {
             duration,
             run.error.as_deref().unwrap_or(""),
         );
+        if let Some(audit) = &run.admission_audit {
+            println!("  Audit run: {}", audit.run_id);
+            println!("  Journal: {}", audit.path.display());
+            println!("  Public key: {}", audit.public_key);
+        }
+        if let Some(resolution) = &run.resolution {
+            println!("  Operator resolution: {}", resolution["review"]["outcome"]);
+            println!("  Rationale: {}", resolution["review"]["rationale"]);
+            println!("  Evidence: {}", resolution["review"]["evidence"]);
+        }
     }
 }
 
+#[cfg(feature = "cron")]
 fn truncate(s: &str, max: usize) -> String {
     if s.len() > max {
         format!(

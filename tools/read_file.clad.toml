@@ -1,0 +1,30 @@
+[tool]
+name = "read_file"
+version = "1.1.0"
+description = "Read a bounded byte range from a regular source file below the authorized working directory. Symlinks and parent traversal are refused."
+timeout_seconds = 10
+
+[args.path]
+position = 1
+required = true
+type = "string"
+description = "Relative path from list_files, without parent traversal"
+[args.offset]
+position = 2
+type = "integer"
+default = 0
+min = 0
+max = 10000000
+[args.limit]
+position = 3
+type = "integer"
+default = 32768
+min = 1
+max = 65536
+clamp = true
+
+[source]
+operation = "read_file"
+
+[output]
+format = "json"

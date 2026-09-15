@@ -16,8 +16,12 @@ mod fleet_runner;
 mod orchestrator;
 mod orchestrator_executor;
 mod remote;
+mod sandbox_tools;
 mod secrets_store;
 mod session;
+#[cfg(all(test, unix))]
+mod shell_governance_tests;
+mod turn_audit;
 mod ui;
 mod validation;
 
@@ -28,10 +32,10 @@ use symbi_runtime::reasoning::policy_bridge::{DefaultPolicyGate, ReasoningPolicy
 const TICK_RATE: Duration = Duration::from_millis(100);
 
 /// Mutating tools that require human approval before the orchestrator may run
-/// them. `edit_file` is always gated; `shell` is gated (and only reachable at
+/// them. `edit_file` and `save_artifact` are always gated; `shell` is gated (and only reachable at
 /// all) when the operator opted in with `--allow-shell`.
 fn approval_tools(allow_shell: bool) -> Vec<String> {
-    let mut tools = vec!["edit_file".to_string()];
+    let mut tools = vec!["edit_file".to_string(), "save_artifact".to_string()];
     if allow_shell {
         tools.push("shell".to_string());
     }
@@ -59,14 +63,14 @@ struct ShellArgs {
     /// `--profile <name>` — isolate session/state dir under
     /// `$HOME/.symbi-<name>/` instead of `$HOME/.symbi/`.
     profile: Option<String>,
-    /// `--yes` — pre-approve orchestrator save/create actions so the
-    /// shell can be scripted without interactive "looks good" replies.
+    /// `--yes` — skip conversational artifact confirmation. Exact runtime
+    /// approval remains mandatory for each write or command.
     auto_approve: bool,
     /// `--theme <name>` — select a built-in theme. User TOML at
     /// `$HOME/.symbi[-<profile>]/theme.toml` still wins if present.
     theme: Option<String>,
     /// `--allow-shell` — enable the orchestrator's `shell` tool, which runs
-    /// arbitrary commands in the project root (still gated by human approval).
+    /// commands inside the selected sandbox (still gated by human approval).
     /// Off by default; the tool is neither advertised nor executable without it.
     allow_shell: bool,
 }
@@ -173,13 +177,13 @@ fn print_help() {
                                     delete anything.\n\
              --profile <name>       Isolate session/state dir under\n\
                                     $HOME/.symbi-<name>/ for parallel workspaces.\n\
-         -y, --yes                  Pre-approve orchestrator save/create actions\n\
-                                    so scripted flows don't block on confirmation.\n\
+         -y, --yes                  Skip conversational artifact confirmation\n\
+                                    Runtime approval is still required for writes.\n\
              --theme <name>         Select a built-in theme (default-dark,\n\
                                     solarized-dark, high-contrast). A user file at\n\
                                     $HOME/.symbi[-<profile>]/theme.toml overrides this.\n\
              --allow-shell          Enable the orchestrator 'shell' tool (runs commands\n\
-                                    in the project root, still gated by approval). Off\n\
+                                    in the selected sandbox, with exact approval). Off\n\
                                     by default.\n\
              --version              Print version and exit.\n\
          -h, --help                 Show this help and exit.\n\
@@ -254,6 +258,14 @@ async fn main() -> Result<()> {
         return handle_cleanup_sessions(args.older_than, args.dry_run);
     }
 
+    // Reject malformed authoring constraints before entering terminal raw mode.
+    let constraints = Arc::new(
+        validation::constraints::ProjectConstraints::load(std::path::Path::new(
+            ".symbi/constraints.toml",
+        ))
+        .map_err(|error| anyhow::anyhow!("Invalid project constraints: {error}"))?,
+    );
+
     // Inline viewport: ratatui draws a bounded region at the bottom
     // of the terminal (input + popup + throbber) while the rest of the
     // terminal stays "native". New transcript entries (user input,
@@ -277,14 +289,6 @@ async fn main() -> Result<()> {
     // out of the box. Production deployments must use the server crate with
     // an explicit policy instead of this shell.
     let runtime_bridge = Arc::new(repl_core::RuntimeBridge::new_permissive_for_dev());
-
-    // Load project constraints for artifact validation
-    let constraints = Arc::new(
-        validation::constraints::ProjectConstraints::load(std::path::Path::new(
-            ".symbi/constraints.toml",
-        ))
-        .unwrap_or_default(),
-    );
 
     // Shared synchronous mirror of the loaded agent fleet. The same `Arc` is
     // handed to the orchestrator's executor (for the `delegate` tool's fleet
@@ -384,7 +388,7 @@ async fn main() -> Result<()> {
             }
         };
 
-        // Approval-gated mutating tools (HITL): edit_file always, shell only
+        // Approval-gated mutating tools: edit_file and save_artifact always, shell only
         // when the operator opted in with --allow-shell.
         let approve = approval_tools(args.allow_shell);
         let policy_gate: Arc<dyn ReasoningPolicyGate> =
@@ -403,6 +407,7 @@ async fn main() -> Result<()> {
         // instead of silently falling back to `DefaultPolicyGate::new()`.
         runtime_bridge.set_reasoning_policy_gate(Arc::clone(&policy_gate));
 
+        let turn_audit = Arc::new(turn_audit::TurnAudit::default());
         let fleet_factory = fleet_runner::FleetRunnerFactory::new(
             Arc::clone(&provider)
                 as Arc<dyn symbi_runtime::reasoning::inference::InferenceProvider>,
@@ -411,10 +416,13 @@ async fn main() -> Result<()> {
             Arc::clone(&agent_cards),
             args.allow_shell,
             Arc::clone(&policy_gate),
-        );
+        )
+        .with_audit(turn_audit.clone());
 
         let orch =
-            orchestrator::Orchestrator::new(provider, executor, args.auto_approve, policy_gate);
+            orchestrator::Orchestrator::new(provider, executor, args.auto_approve, policy_gate)
+                .with_project_root(runtime_bridge.reasoning_context().project_root.clone())
+                .with_audit(turn_audit);
         Some((orch, escalation_queue, fleet_factory, policy_present))
     } else {
         None
@@ -469,7 +477,7 @@ async fn main() -> Result<()> {
             app.output.push(app::OutputEntry {
                 source: app::EntrySource::System,
                 content: format!(
-                    "{} .symbi agent(s) refused (sandbox tier — run via `symbi up`/`symbi run`): {}",
+                    "{} .symbi agent(s) refused (unsupported canonical execution requirements): {}",
                     report.sandbox_refused.len(),
                     report.sandbox_refused.join(", ")
                 ),
@@ -478,7 +486,7 @@ async fn main() -> Result<()> {
         for c in &report.collisions {
             app.output.push(app::OutputEntry {
                 source: app::EntrySource::System,
-                content: format!("agent name collision (last wins): {c}"),
+                content: format!("agent name collision (refused): {c}"),
             });
         }
         for e in &report.errors {
@@ -494,7 +502,7 @@ async fn main() -> Result<()> {
     if args.auto_approve {
         app.output.push(app::OutputEntry {
             source: app::EntrySource::System,
-            content: "Auto-approve (--yes) enabled — orchestrator saves without asking."
+            content: "--yes enabled — conversational confirmation skipped; exact runtime approval still required."
                 .to_string(),
         });
     }
@@ -562,7 +570,10 @@ async fn main() -> Result<()> {
     }
 
     let session_id = app.session_id.clone();
-    let result = run_loop(&mut terminal, &mut app).await;
+    let mut result = run_loop(&mut terminal, &mut app).await;
+    if let Err(error) = app.shutdown_pending().await {
+        result = Err(anyhow::anyhow!(error));
+    }
 
     // Auto-save before restoring the terminal so a crashed save doesn't
     // leave the terminal in a weird state either way.
@@ -622,19 +633,14 @@ async fn run_loop(
         let pending = app.drain_unflushed();
         if !pending.is_empty() {
             let lines = ui::content::render_entries_to_lines(&pending);
-            // Height passed to insert_before is the number of rows we
-            // need above the viewport. Line wrapping isn't accounted
-            // for here; long lines will truncate to their first row in
-            // scrollback. This matches how inline TUIs typically flush.
-            let height = lines.len() as u16;
+            use ratatui::widgets::{Paragraph, Wrap};
+            let width = terminal.size()?.width.max(1);
+            let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
+            let height = u16::try_from(paragraph.line_count(width))
+                .map_err(|_| anyhow::anyhow!("transcript exceeds the terminal row limit"))?;
             if height > 0 {
-                use ratatui::layout::Rect;
-                use ratatui::widgets::{Paragraph, Wrap};
                 terminal.insert_before(height, |buf| {
-                    let area = Rect::new(0, 0, buf.area.width, height);
-                    Paragraph::new(lines)
-                        .wrap(Wrap { trim: false })
-                        .render(area, buf);
+                    paragraph.render(buf.area, buf);
                 })?;
             }
         }
@@ -673,45 +679,47 @@ async fn run_loop(
 }
 
 async fn handle_key(app: &mut App, key: KeyEvent) {
-    // Ignore most keys while a request is pending (except Ctrl+C to cancel)
-    if app.is_busy() {
-        if let (KeyCode::Char('c'), KeyModifiers::CONTROL) = (key.code, key.modifiers) {
-            app.cancel_pending();
+    // Approval interaction must remain available while the governed run is held.
+    if key.code == KeyCode::Char('g') && key.modifiers == KeyModifiers::CONTROL {
+        app.gate_visible = !app.gate_visible;
+        app.gate_review = None;
+        if app.gate_visible {
+            app.gate_refresh();
         }
         return;
     }
-
-    // Gate panel captures navigation/approval keys before they reach the
-    // input line. Ctrl+G (toggle) and other global chords still fall
-    // through to the main match below.
+    if app.is_busy() && key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::CONTROL {
+        app.cancel_pending();
+        return;
+    }
     if app.gate_visible {
         match key.code {
-            KeyCode::Up => {
-                if app.gate_selected > 0 {
-                    app.gate_selected -= 1;
-                }
-                return;
+            KeyCode::Up if app.gate_review.is_some() => {
+                app.gate_detail_scroll = app.gate_detail_scroll.saturating_sub(1);
             }
-            KeyCode::Down => {
-                if app.gate_selected + 1 < app.gate_items.len() {
-                    app.gate_selected += 1;
-                }
-                return;
+            KeyCode::Down if app.gate_review.is_some() => {
+                app.gate_detail_scroll = app.gate_detail_scroll.saturating_add(1);
             }
-            KeyCode::Char('a') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
-                app.gate_resolve_selected(true);
-                return;
+            KeyCode::PageUp if app.gate_review.is_some() => {
+                app.gate_detail_scroll = app.gate_detail_scroll.saturating_sub(5);
             }
-            KeyCode::Char('d') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
-                app.gate_resolve_selected(false);
-                return;
+            KeyCode::PageDown if app.gate_review.is_some() => {
+                app.gate_detail_scroll = app.gate_detail_scroll.saturating_add(5);
             }
+            KeyCode::Up => app.gate_selected = app.gate_selected.saturating_sub(1),
+            KeyCode::Down if app.gate_selected + 1 < app.gate_items.len() => app.gate_selected += 1,
+            KeyCode::Enter if app.gate_review.is_none() => app.gate_open_selected(),
+            KeyCode::Char('a') if key.modifiers.is_empty() => app.gate_resolve_selected(true),
+            KeyCode::Char('d') if key.modifiers.is_empty() => app.gate_resolve_selected(false),
             KeyCode::Esc => {
-                app.gate_visible = false;
-                return;
+                app.gate_visible = app.gate_review.take().is_some();
             }
             _ => {}
         }
+        return;
+    }
+    if app.is_busy() {
+        return;
     }
 
     match (key.code, key.modifiers) {
@@ -803,14 +811,6 @@ async fn handle_key(app: &mut App, key: KeyEvent) {
         // "… +N more (ctrl+o)" hint rendered in collapsed card bodies.
         (KeyCode::Char('o'), KeyModifiers::CONTROL) => {
             app.toggle_last_tool_card();
-        }
-
-        // Toggle the Gate panel (held-action escalation queue).
-        (KeyCode::Char('g'), KeyModifiers::CONTROL) => {
-            app.gate_visible = !app.gate_visible;
-            if app.gate_visible {
-                app.gate_refresh();
-            }
         }
 
         // Tab — also accepts completion (alternative to Enter)
@@ -921,6 +921,82 @@ fn format_age(secs: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::approval_tools;
+
+    #[tokio::test]
+    async fn approval_keys_work_while_busy_and_require_explicit_review() {
+        use super::*;
+        use symbi_runtime::escalation::{
+            Decision, EscalationQueue, EscalationRequest, HeldActionKind,
+        };
+        let queue = Arc::new(EscalationQueue::new());
+        let (mut app, _pending_sender) = crate::app::tests::busy_app();
+        app.escalation_queue = Some(queue.clone());
+        let pending = queue.clone();
+        let held = tokio::spawn(async move {
+            pending
+                .enqueue(
+                    EscalationRequest {
+                        agent_id: "busy-fixture".into(),
+                        kind: HeldActionKind::ToolCall,
+                        summary: "tool_call edit_file".into(),
+                        reason: "approval required".into(),
+                        context_snapshot: Some(
+                            serde_json::json!({"arguments":{"path":"allowed/result"}}),
+                        ),
+                    },
+                    Duration::from_secs(5),
+                )
+                .await
+        });
+        while queue.list_pending_async().await.is_empty() {
+            tokio::task::yield_now().await;
+        }
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('g'), KeyModifiers::CONTROL),
+        )
+        .await;
+        assert!(app.gate_visible && app.is_busy());
+        for _ in 0..100 {
+            app.on_tick().await;
+            if !app.gate_items.is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
+        )
+        .await;
+        assert!(!held.is_finished(), "a list row is not an approval review");
+        handle_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await;
+        assert!(app
+            .gate_review
+            .as_ref()
+            .unwrap()
+            .details
+            .as_ref()
+            .unwrap()
+            .contains("allowed/result"));
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
+        )
+        .await;
+        assert_eq!(app.gate_items.len(), 1, "no optimistic removal");
+        assert!(matches!(held.await.unwrap(), Decision::Approve { .. }));
+        for _ in 0..100 {
+            app.on_tick().await;
+            if app.gate_message.starts_with("Approved") {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert!(app.gate_message.starts_with("Approved"));
+        assert!(queue.list_pending_async().await.is_empty());
+        assert!(app.is_busy());
+    }
 
     #[test]
     fn approval_tools_always_includes_edit_file() {

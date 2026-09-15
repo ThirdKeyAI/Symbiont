@@ -7,20 +7,26 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct StdioServerSpec {
     pub command: String,
     #[serde(default)]
     pub args: Vec<String>,
     #[serde(default)]
     pub env: HashMap<String, String>,
-    /// URL of the server's SchemaPin public key (PEM). Required for this
-    /// server's tools to pass verification under enforcement; when unset,
-    /// enforced invocation is blocked fail-closed (nothing to verify against).
+    /// HTTPS discovery URL for the server's SchemaPin public key (PEM).
+    /// Enforcement requires this URL or an operator-provisioned public key.
+    /// Missing trust configuration blocks invocation.
     #[serde(default)]
     pub public_key_url: Option<String>,
+    /// Optional operator-provisioned public trust anchor for offline verification.
+    /// It is never taken from the server's response or passed to its environment.
+    #[serde(default)]
+    pub public_key_pem: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RegistryFile {
     #[serde(default)]
     servers: HashMap<String, StdioServerSpec>,
@@ -32,22 +38,31 @@ pub struct McpServerRegistry {
 }
 
 impl McpServerRegistry {
-    /// Load from `./mcp-config.toml`, falling back to
-    /// `~/.symbiont/mcp-config.toml`; empty if neither exists or on read error
-    /// (a warning is logged). Never panics.
-    pub fn load() -> Self {
-        for path in Self::candidate_paths() {
-            if path.is_file() {
-                match std::fs::read_to_string(&path) {
-                    Ok(s) => match Self::from_toml_str(&s) {
-                        Ok(reg) => return reg,
-                        Err(e) => tracing::warn!("invalid MCP registry {}: {}", path.display(), e),
-                    },
-                    Err(e) => tracing::warn!("cannot read MCP registry {}: {}", path.display(), e),
+    /// Use the project registry, or the user registry if no project registry
+    /// exists. An invalid project registry must not fall back to a different
+    /// server configuration with potentially broader authority.
+    pub fn load() -> Result<Self, String> {
+        Self::load_from_paths(&Self::candidate_paths())
+    }
+
+    fn load_from_paths(paths: &[PathBuf]) -> Result<Self, String> {
+        for path in paths {
+            match std::fs::symlink_metadata(path) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => {
+                    return Err(format!(
+                        "Cannot inspect MCP registry {}: {error}",
+                        path.display()
+                    ))
                 }
+                Ok(_) => {}
             }
+            let contents = std::fs::read_to_string(path)
+                .map_err(|error| format!("Cannot read MCP registry {}: {error}", path.display()))?;
+            return Self::from_toml_str(&contents)
+                .map_err(|error| format!("Invalid MCP registry {}: {error}", path.display()));
         }
-        Self::default()
+        Ok(Self::default())
     }
 
     fn candidate_paths() -> Vec<PathBuf> {
@@ -98,5 +113,41 @@ mod tests {
     fn empty_toml_is_empty_registry() {
         let reg = McpServerRegistry::from_toml_str("").unwrap();
         assert!(reg.get("anything").is_none());
+    }
+
+    #[test]
+    fn invalid_project_registry_cannot_fall_back_to_user_servers() {
+        let dir = tempfile::tempdir().unwrap();
+        let local = dir.path().join("project.toml");
+        let fallback = dir.path().join("user.toml");
+        std::fs::write(&fallback, "[servers.fallback]\ncommand = 'fixture'").unwrap();
+        let paths = [local.clone(), fallback];
+        assert!(McpServerRegistry::load_from_paths(&paths)
+            .unwrap()
+            .get("fallback")
+            .is_some());
+        for content in [
+            "not valid TOML",
+            "[servers.local]\ncommand = 'fixture'\npublic_key_urll = 'typo'",
+        ] {
+            std::fs::write(&local, content).unwrap();
+            assert!(McpServerRegistry::load_from_paths(&paths).is_err());
+        }
+        std::fs::write(&local, "[servers.local]\ncommand = 'fixture'").unwrap();
+        let registry = McpServerRegistry::load_from_paths(&paths).unwrap();
+        assert!(registry.get("local").is_some());
+        assert!(registry.get("fallback").is_none());
+        std::fs::remove_file(&local).unwrap();
+        std::fs::create_dir(&local).unwrap();
+        assert!(McpServerRegistry::load_from_paths(&paths).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dangling_registry_symlink_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mcp-config.toml");
+        std::os::unix::fs::symlink(dir.path().join("missing"), &path).unwrap();
+        assert!(McpServerRegistry::load_from_paths(&[path]).is_err());
     }
 }

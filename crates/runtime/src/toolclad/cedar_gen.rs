@@ -83,6 +83,8 @@ mod tests {
 
     fn make_manifest(name: &str, risk: &str, approval: bool) -> Manifest {
         Manifest {
+            filesystem: None,
+            source: None,
             tool: ToolMeta {
                 name: name.to_string(),
                 version: "1.0.0".to_string(),

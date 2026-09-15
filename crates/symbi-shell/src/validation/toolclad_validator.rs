@@ -108,7 +108,10 @@ pub fn validate_toolclad(
                     continue;
                 }
                 let ty = arg.get("type").and_then(|v| v.as_str()).unwrap_or("");
-                if matches!(ty, "string" | "agent_summary" | "regex_match") {
+                if matches!(
+                    ty,
+                    "string" | "literal_text" | "agent_summary" | "regex_match"
+                ) {
                     issues.push(ValidationIssue {
                         severity: Severity::Error,
                         message: format!(

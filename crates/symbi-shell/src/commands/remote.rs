@@ -62,6 +62,9 @@ pub fn attach(app: &mut App, args: &str) -> CommandResult {
     match tokio::task::block_in_place(|| rt.block_on(conn.ping())) {
         Ok(()) => {
             let url_display = conn.base_url().to_string();
+            if let Err(error) = app.gate_reset_connection() {
+                return CommandResult::Error(error);
+            }
             app.remote = Some(conn);
             CommandResult::Output(format!(
                 "Attached to {}\n\n\
@@ -75,6 +78,9 @@ pub fn attach(app: &mut App, args: &str) -> CommandResult {
 }
 
 pub fn detach(app: &mut App) -> CommandResult {
+    if let Err(error) = app.gate_reset_connection() {
+        return CommandResult::Error(error);
+    }
     match app.remote.take() {
         Some(conn) => CommandResult::Output(format!("Detached from {}", conn.base_url())),
         None => CommandResult::Output("Not currently attached.".to_string()),

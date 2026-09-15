@@ -1,5 +1,7 @@
 # Guia do REPL do Symbiont
 
+> Esta branch rejeita no registro os campos legados explícitos de `security.tier`, `security.sandbox`, recursos e políticas de execução, pois não consegue aplicá-los por agente. Os builtins suportados usam o isolamento do projeto configurado pelo operador. Blocos vazios e declarações apenas de capacidades mantêm suas verificações. Um módulo rejeitado não substitui agentes nem funções existentes.
+
 ## Outros idiomas
 
 
@@ -226,7 +228,6 @@ agent SecureAgent {
   name: "Secure Agent"
   security {
     capabilities: ["filesystem", "network"]
-    sandbox: true
   }
 }
 
@@ -419,13 +420,8 @@ agent DataProcessor {
 
   security {
     capabilities: ["data_read", "data_write"]
-    sandbox: true
   }
 
-  resources {
-    memory: 256MB
-    cpu: 1
-  }
 }
 
 behavior ProcessCsv {

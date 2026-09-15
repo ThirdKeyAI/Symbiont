@@ -36,6 +36,10 @@ pub struct McpProxyDef {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Manifest {
     pub tool: ToolMeta,
+    /// Per-operation file capabilities, enforced by the embedding runtime.
+    pub filesystem: Option<crate::sandbox::files::FileAccess>,
+    /// Fixed read-only source broker; mutually exclusive with executable backends.
+    pub source: Option<crate::sandbox::source::SourceQuery>,
     #[serde(default)]
     pub args: HashMap<String, ArgDef>,
     #[serde(default)]
@@ -49,6 +53,30 @@ pub struct Manifest {
     pub session: Option<SessionDef>,
     /// Browser mode configuration (for headless browser sessions).
     pub browser: Option<BrowserDef>,
+}
+
+impl Manifest {
+    pub(crate) fn validate_source_backend(&self) -> Result<(), String> {
+        if self.source.is_some()
+            && (self.tool.mode != "oneshot"
+                || self.http.is_some()
+                || self.mcp.is_some()
+                || self.session.is_some()
+                || self.browser.is_some()
+                || self.filesystem.is_some()
+                || !self.tool.binary.is_empty()
+                || self.command.template.is_some()
+                || self.command.executor.is_some()
+                || !self.command.defaults.is_empty()
+                || !self.command.mappings.is_empty()
+                || !self.command.conditionals.is_empty()
+                || self.output.format != "json"
+                || self.output.parser.is_some())
+        {
+            return Err("source queries require an exclusive oneshot source backend with JSON output and no parser".into());
+        }
+        Ok(())
+    }
 }
 
 /// Tool metadata.
@@ -229,6 +257,9 @@ pub struct SessionCommandDef {
     pub risk_tier: String,
     #[serde(default)]
     pub human_approval: bool,
+    /// Close the worker after its response and publish declared new output.
+    #[serde(default)]
+    pub finalize: bool,
     /// If true, extract target from command for scope checking.
     #[serde(default)]
     pub extract_target: bool,
@@ -262,6 +293,8 @@ pub struct BrowserDef {
     pub max_interactions: u32,
     /// URL scope enforcement.
     pub scope: Option<BrowserScopeDef>,
+    /// Explicit request capabilities, separate from domain matching.
+    pub network: Option<BrowserNetworkDef>,
     /// Allowed browser commands.
     #[serde(default)]
     pub commands: HashMap<String, BrowserCommandDef>,
@@ -277,6 +310,30 @@ fn default_connect() -> String {
 }
 fn default_extract_mode() -> String {
     "accessibility_tree".to_string()
+}
+
+/// Browser request capabilities. Private destinations require exact literal
+/// origins; a domain allowlist alone does not authorize private network access.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BrowserNetworkDef {
+    #[serde(default = "default_browser_methods")]
+    pub allowed_methods: Vec<String>,
+    #[serde(default)]
+    pub private_origins: Vec<String>,
+}
+
+fn default_browser_methods() -> Vec<String> {
+    vec!["GET".into(), "HEAD".into()]
+}
+
+impl Default for BrowserNetworkDef {
+    fn default() -> Self {
+        Self {
+            allowed_methods: default_browser_methods(),
+            private_origins: Vec::new(),
+        }
+    }
 }
 
 /// Browser URL scope enforcement.
@@ -314,7 +371,10 @@ pub struct BrowserStateDef {
 pub fn load_manifest(path: &Path) -> Result<Manifest, String> {
     let content = std::fs::read_to_string(path)
         .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
-    toml::from_str(&content).map_err(|e| format!("Failed to parse {}: {}", path.display(), e))
+    let manifest: Manifest = toml::from_str(&content)
+        .map_err(|e| format!("Failed to parse {}: {}", path.display(), e))?;
+    manifest.validate_source_backend()?;
+    Ok(manifest)
 }
 
 /// Load all manifests from a directory.

@@ -131,10 +131,14 @@ pub fn format_response_meta(response: &OrchestratorResponse) -> String {
     } else {
         format!("{}ms", response.duration_ms)
     };
-    format!(
+    let mut meta = format!(
         "⎿ {} tokens · {} iter · {}",
         tokens, response.iterations, duration
-    )
+    );
+    if let Some(audit) = &response.audit {
+        meta.push_str(&format!(" · audit {}", audit.run_id));
+    }
+    meta
 }
 
 /// Parse an `@<agent> <message>` mention into `(agent, message)`.
@@ -162,6 +166,13 @@ fn format_thousands(n: u64) -> String {
         out.push(c);
     }
     out.chars().rev().collect()
+}
+
+/// One resolution bound to the request reviewed before dispatch.
+struct PendingGateResolution {
+    id: String,
+    approve: bool,
+    rx: oneshot::Receiver<Result<(), String>>,
 }
 
 /// Top-level application state.
@@ -237,6 +248,8 @@ pub struct App {
     /// async tick and push in-progress `ToolCall` cards when we see
     /// a `ReasoningComplete` event whose actions include tool calls.
     pub journal_seen: u64,
+    pub turn_audit: Option<Arc<crate::turn_audit::TurnAudit>>,
+    active_turn_started: Option<chrono::DateTime<chrono::Utc>>,
     /// Index into `output` marking the first entry that has NOT yet
     /// been flushed into the terminal scrollback via `insert_before`.
     /// Bumped by `drain_unflushed()` each frame. Enables the inline
@@ -249,6 +262,11 @@ pub struct App {
     pub gate_items: Vec<crate::ui::widgets::gate_panel::HeldActionView>,
     /// Index of the selected held action in the Gate panel.
     pub gate_selected: usize,
+    /// The complete request explicitly opened for review, independent of row order.
+    pub gate_review: Option<crate::ui::widgets::gate_panel::HeldActionView>,
+    pub gate_detail_scroll: usize,
+    pub gate_message: String,
+    gate_resolution: Option<PendingGateResolution>,
     /// In-flight poll of `GET /api/v1/approvals`, resolved on tick.
     gate_poll: Option<
         tokio::sync::oneshot::Receiver<
@@ -288,6 +306,7 @@ impl App {
             .as_ref()
             .map(|o| o.model_name().to_string())
             .unwrap_or_else(|| "none".to_string());
+        let turn_audit = orchestrator.as_ref().map(|o| o.audit_display());
         let orchestrator = orchestrator.map(|o| Arc::new(tokio::sync::Mutex::new(o)));
         let welcome = if orchestrator.is_some() {
             "Welcome to symbi shell. Type /help for commands, or just talk to the orchestrator."
@@ -328,10 +347,16 @@ impl App {
             busy_label: String::new(),
             session_id: uuid::Uuid::new_v4().to_string(),
             journal_seen: 0,
+            turn_audit,
+            active_turn_started: None,
             output_flushed: 0,
             gate_visible: false,
             gate_items: Vec::new(),
             gate_selected: 0,
+            gate_review: None,
+            gate_detail_scroll: 0,
+            gate_message: String::new(),
+            gate_resolution: None,
             gate_poll: None,
             gate_last_poll: None,
             focus_agent: None,
@@ -346,6 +371,9 @@ impl App {
     /// Kick off an async poll of the runtime's held-action queue. The
     /// result is consumed in `on_tick`. No-op when not attached.
     pub fn gate_refresh(&mut self) {
+        if self.gate_poll.is_some() {
+            return;
+        }
         // Local-first: when the in-process escalation queue is wired
         // (orchestrator HITL gate), poll it directly. The Gate panel then
         // approves/denies the orchestrator's own held actions in-process,
@@ -380,70 +408,175 @@ impl App {
                 .list_approvals()
                 .await
                 .map_err(|e| e.to_string())
-                .map(|v| {
-                    v.as_array()
-                        .map(|a| {
-                            a.iter()
-                                .filter_map(
-                                    crate::ui::widgets::gate_panel::HeldActionView::from_json,
-                                )
-                                .collect()
-                        })
-                        .unwrap_or_default()
-                });
+                .and_then(|value| crate::ui::widgets::gate_panel::parse_pending(&value));
             let _ = tx.send(res);
         });
     }
 
-    /// Approve (`approve == true`) or deny the currently selected held
-    /// action, then drop it from the local list optimistically.
-    pub fn gate_resolve_selected(&mut self, approve: bool) {
-        let id = match self.gate_items.get(self.gate_selected) {
-            Some(i) => i.id.clone(),
-            None => return,
-        };
+    pub fn gate_reset_connection(&mut self) -> Result<(), String> {
+        if self.gate_resolution.is_some() {
+            return Err(
+                "Wait for the pending approval resolution before changing connections.".into(),
+            );
+        }
+        self.gate_poll = None;
+        self.gate_items.clear();
+        self.gate_review = None;
+        self.gate_selected = 0;
+        self.gate_detail_scroll = 0;
+        self.gate_last_poll = None;
+        self.gate_message.clear();
+        Ok(())
+    }
 
-        // Local-first: resolve against the in-process queue when wired.
-        if let Some(queue) = self.escalation_queue.clone() {
-            use symbi_runtime::escalation::{Approver, Decision, Surface};
-            let decision = if approve {
-                Decision::Approve { reason: None }
-            } else {
-                Decision::Deny { reason: None }
-            };
-            let approver = Approver {
-                surface: Surface::Tui,
-                id: "local".into(),
-                display: "Local operator".into(),
-            };
-            tokio::spawn(async move {
-                let _ = queue.resolve_async(&id, decision, approver).await;
-            });
-            if self.gate_selected < self.gate_items.len() {
-                self.gate_items.remove(self.gate_selected);
-            }
-            if self.gate_selected > 0 && self.gate_selected >= self.gate_items.len() {
-                self.gate_selected -= 1;
-            }
+    pub fn gate_open_selected(&mut self) {
+        if self.gate_resolution.is_some() {
             return;
         }
-
-        let remote = match self.remote.clone() {
-            Some(r) => r,
-            None => return,
-        };
-        tokio::spawn(async move {
-            let _ = if approve {
-                remote.approve_held(&id, None).await
-            } else {
-                remote.deny_held(&id, None).await
-            };
-        });
-        if self.gate_selected < self.gate_items.len() {
-            self.gate_items.remove(self.gate_selected);
+        match self.gate_items.get(self.gate_selected) {
+            Some(item) if item.reviewable() => {
+                self.gate_review = Some(item.clone());
+                self.gate_detail_scroll = 0;
+                self.gate_message =
+                    "Complete escaped JSON; review the exact arguments before deciding.".into();
+            }
+            Some(_) => {
+                self.gate_message = "This request is expired or too large to review here.".into()
+            }
+            None => self.gate_message = "No pending request selected.".into(),
         }
-        if self.gate_selected > 0 && self.gate_selected >= self.gate_items.len() {
-            self.gate_selected -= 1;
+    }
+
+    fn gate_update_items(&mut self, items: Vec<crate::ui::widgets::gate_panel::HeldActionView>) {
+        let selected_id = self
+            .gate_items
+            .get(self.gate_selected)
+            .map(|item| item.id.clone());
+        self.gate_selected = selected_id
+            .and_then(|id| items.iter().position(|item| item.id == id))
+            .unwrap_or(0);
+        if let Some(review) = &self.gate_review {
+            if !items
+                .iter()
+                .any(|item| item.same_request(review) && item.reviewable())
+            {
+                self.gate_review = None;
+                self.gate_detail_scroll = 0;
+                if self.gate_resolution.is_none() {
+                    self.gate_message =
+                        "Reviewed request changed, expired or disappeared; open a fresh review."
+                            .into();
+                }
+            }
+        }
+        self.gate_items = items;
+    }
+
+    /// Resolve only the immutable request explicitly opened for review. Keep the
+    /// request visible until an actual resolution outcome is received.
+    pub fn gate_resolve_selected(&mut self, approve: bool) {
+        if self.gate_resolution.is_some() {
+            return;
+        }
+        let Some(review) = &self.gate_review else {
+            self.gate_message = "Press Enter to review the complete request first.".into();
+            return;
+        };
+        if !review.reviewable() || !self.gate_items.iter().any(|item| item.same_request(review)) {
+            self.gate_review = None;
+            self.gate_message =
+                "Reviewed request is no longer pending; refresh and review again.".into();
+            return;
+        }
+        let id = review.id.clone();
+        let queue = self.escalation_queue.clone();
+        let remote = self.remote.clone();
+        if queue.is_none() && remote.is_none() {
+            self.gate_message = "No approval queue is connected.".into();
+            return;
+        }
+        let (tx, rx) = oneshot::channel();
+        self.gate_resolution = Some(PendingGateResolution {
+            id: id.clone(),
+            approve,
+            rx,
+        });
+        self.gate_message = format!("Resolving {id}...");
+        tokio::spawn(async move {
+            let result = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+                if let Some(queue) = queue {
+                    use symbi_runtime::escalation::{Approver, Decision, Surface};
+                    let decision = if approve {
+                        Decision::Approve { reason: None }
+                    } else {
+                        Decision::Deny { reason: None }
+                    };
+                    queue
+                        .resolve_async(
+                            &id,
+                            decision,
+                            Approver {
+                                surface: Surface::Tui,
+                                id: "local".into(),
+                                display: "Local operator".into(),
+                            },
+                        )
+                        .await
+                        .map_err(|error| error.to_string())
+                } else if let Some(remote) = remote {
+                    if approve {
+                        remote.approve_held(&id, None).await
+                    } else {
+                        remote.deny_held(&id, None).await
+                    }
+                    .map(|_| ())
+                    .map_err(|error| error.to_string())
+                } else {
+                    Err("No approval queue is connected".into())
+                }
+            })
+            .await
+            .unwrap_or_else(|_| {
+                Err(
+                    "Resolution timed out; outcome is unknown. Refresh before any further action."
+                        .into(),
+                )
+            });
+            let _ = tx.send(result);
+        });
+    }
+
+    fn gate_poll_resolution(&mut self) {
+        let result =
+            self.gate_resolution
+                .as_mut()
+                .and_then(|pending| match pending.rx.try_recv() {
+                    Ok(result) => Some(result),
+                    Err(oneshot::error::TryRecvError::Closed) => {
+                        Some(Err("Resolution task closed; outcome is unknown.".into()))
+                    }
+                    Err(oneshot::error::TryRecvError::Empty) => None,
+                });
+        if let Some(result) = result {
+            let PendingGateResolution { id, approve, .. } = self
+                .gate_resolution
+                .take()
+                .expect("resolution receiver exists");
+            let message = match result {
+                Ok(()) => {
+                    self.gate_items.retain(|item| item.id != id);
+                    format!("{} {id}.", if approve { "Approved" } else { "Denied" })
+                }
+                Err(error) => format!("Resolution not confirmed for {id}: {error}"),
+            };
+            self.gate_review = None;
+            self.gate_poll = None; // A snapshot dispatched before resolution may be stale.
+            self.gate_message = message.clone();
+            self.output.push(OutputEntry {
+                source: EntrySource::System,
+                content: crate::ui::widgets::gate_panel::safe_label(&message),
+            });
+            self.gate_refresh();
         }
     }
 
@@ -567,15 +700,10 @@ impl App {
     /// post-hoc walk in `upsert_tool_call_card` finalizes them with
     /// the observation output.
     pub async fn stream_journal_events(&mut self) {
-        let Some(orch_arc) = self.orchestrator.clone() else {
+        let Some(audit) = self.turn_audit.as_ref() else {
             return;
         };
-        let journal = {
-            let Ok(guard) = orch_arc.try_lock() else {
-                return;
-            };
-            guard.journal().clone()
-        };
+        let journal = audit.display.clone();
         let entries = journal.entries().await;
         if entries.is_empty() {
             return;
@@ -589,7 +717,12 @@ impl App {
 
             use symbi_runtime::reasoning::loop_types::LoopEvent;
             match &entry.event {
-                LoopEvent::ReasoningComplete { actions, .. } => {
+                LoopEvent::ReasoningComplete { actions, .. }
+                    if self.is_busy()
+                        && self
+                            .active_turn_started
+                            .is_some_and(|started| entry.timestamp >= started) =>
+                {
                     for action in actions {
                         if let Some(card) = action_to_inprogress_card(action) {
                             self.push_inprogress_card(card);
@@ -732,21 +865,46 @@ impl App {
         self.pending_result.is_some() || self.pending_agent.is_some()
     }
 
-    /// Cancel a pending async operation.
-    pub fn cancel_pending(&mut self) {
-        let mut cancelled = self.pending_result.take().is_some();
-        if self.pending_agent.take().is_some() {
-            // The runner's conversation is only mutated inside the spawned task
-            // after a successful turn — no rollback needed here.
-            cancelled = true;
+    fn finish_unresolved_cards(&mut self, message: &str) {
+        for entry in &mut self.output {
+            if let EntrySource::ToolCall(card) = &mut entry.source {
+                if !card.done {
+                    card.done = true;
+                    card.is_error = true;
+                    card.output = message.into();
+                    if let Some(start) = card.started_at.take() {
+                        card.duration_ms = Some(start.elapsed().as_millis() as u64);
+                    }
+                }
+            }
         }
+    }
+
+    /// Closing the response channel cancels the caller; the turn owner retains
+    /// cleanup and terminal audit responsibilities.
+    pub fn cancel_pending(&mut self) {
+        let cancelled = self.pending_result.take().is_some() | self.pending_agent.take().is_some();
         if cancelled {
+            self.active_turn_started = None;
             self.busy_label.clear();
+            self.gate_visible = false;
+            self.gate_review = None;
+            self.finish_unresolved_cards(
+                "Cancellation requested; inspect /audit for the final outcome.",
+            );
             self.output.push(OutputEntry {
                 source: EntrySource::System,
-                content: "Cancelled.".to_string(),
+                content: "Cancellation requested; cleanup and terminal audit are pending.".into(),
             });
         }
+    }
+
+    pub async fn shutdown_pending(&mut self) -> Result<(), String> {
+        self.cancel_pending();
+        if let Some(audit) = &self.turn_audit {
+            audit.close().await?;
+        }
+        Ok(())
     }
 
     /// Called on each tick (~100ms) to advance animations, check pending
@@ -852,19 +1010,34 @@ impl App {
             }
         }
 
+        if !self.is_busy() {
+            self.active_turn_started = None;
+            self.finish_unresolved_cards(
+                "Turn ended without a final observation; inspect /audit for recorded effects.",
+            );
+        }
+
+        self.gate_poll_resolution();
+
         // Consume a completed Gate poll, then re-arm the poll while the
         // panel stays open so the queue + countdown refresh ~each second.
         if let Some(rx) = self.gate_poll.as_mut() {
             match rx.try_recv() {
                 Ok(Ok(items)) => {
-                    self.gate_items = items;
-                    if self.gate_selected >= self.gate_items.len() {
-                        self.gate_selected = 0;
-                    }
+                    self.gate_update_items(items);
                     self.gate_poll = None;
                 }
-                Ok(Err(_)) | Err(oneshot::error::TryRecvError::Closed) => {
+                Ok(Err(error)) => {
                     self.gate_poll = None;
+                    self.gate_review = None;
+                    self.gate_items.clear();
+                    self.gate_message = format!("Approval refresh failed: {error}");
+                }
+                Err(oneshot::error::TryRecvError::Closed) => {
+                    self.gate_poll = None;
+                    self.gate_review = None;
+                    self.gate_items.clear();
+                    self.gate_message = "Approval refresh closed; review is unavailable.".into();
                 }
                 Err(oneshot::error::TryRecvError::Empty) => {}
             }
@@ -1084,9 +1257,17 @@ impl App {
         self.busy_label = busy_label.to_string();
         self.pending_result = Some(rx);
 
+        self.active_turn_started = Some(chrono::Utc::now());
         tokio::spawn(async move {
-            let mut orch = orchestrator.lock().await;
-            let result = orch.send(&message).await.map_err(|e| e.to_string());
+            let mut tx = tx;
+            let result = tokio::select! {
+                biased;
+                _ = tx.closed() => return,
+                result = async {
+                    let mut orch = orchestrator.lock().await;
+                    orch.send(&message).await.map_err(|e| e.to_string())
+                } => result,
+            };
             let _ = tx.send(result);
         });
         true
@@ -1160,10 +1341,18 @@ impl App {
         let (tx, rx) = oneshot::channel();
         self.busy_label = format!("Asking {name}...");
         self.pending_agent = Some((name.clone(), rx));
+        self.active_turn_started = Some(chrono::Utc::now());
         tokio::spawn(async move {
-            let mut guard = runner.lock().await;
-            let r = guard.send(&message).await.map_err(|e| e.to_string());
-            let _ = tx.send(r);
+            let mut tx = tx;
+            let result = tokio::select! {
+                biased;
+                _ = tx.closed() => return,
+                result = async {
+                    let mut guard = runner.lock().await;
+                    guard.send(&message).await.map_err(|e| e.to_string())
+                } => result,
+            };
+            let _ = tx.send(result);
         });
         true
     }
@@ -1355,16 +1544,121 @@ fn action_to_inprogress_card(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
-    fn test_app() -> App {
+    pub(crate) fn test_app() -> App {
         App::new(
             Arc::new(RuntimeBridge::new_permissive_for_dev()),
             None,
             Arc::new(tokio::sync::RwLock::new(Vec::new())),
             None,
         )
+    }
+
+    pub(crate) fn busy_app() -> (App, oneshot::Sender<Result<OrchestratorResponse, String>>) {
+        let mut app = test_app();
+        let (tx, rx) = oneshot::channel();
+        app.pending_result = Some(rx);
+        (app, tx)
+    }
+
+    #[tokio::test]
+    async fn refresh_errors_invalidate_review_and_report_the_failure() {
+        use crate::ui::widgets::gate_panel::{tests::request, HeldActionView};
+        let mut app = test_app();
+        app.gate_update_items(vec![HeldActionView::from_json(&request(
+            "0000000000000001",
+        ))
+        .unwrap()]);
+        app.gate_open_selected();
+        let (tx, rx) = oneshot::channel();
+        app.gate_poll = Some(rx);
+        tx.send(Err("HTTP 403".into())).unwrap();
+        app.on_tick().await;
+        assert!(app.gate_review.is_none() && app.gate_items.is_empty());
+        assert!(app.gate_message.contains("HTTP 403"));
+    }
+
+    #[test]
+    fn changing_connections_discards_review_and_waits_for_resolution() {
+        use crate::ui::widgets::gate_panel::{tests::request, HeldActionView};
+        let mut app = test_app();
+        app.gate_update_items(vec![HeldActionView::from_json(&request(
+            "0000000000000001",
+        ))
+        .unwrap()]);
+        app.gate_open_selected();
+        let (_tx, rx) = oneshot::channel();
+        app.gate_resolution = Some(PendingGateResolution {
+            id: "0000000000000001".into(),
+            approve: true,
+            rx,
+        });
+        assert!(app.gate_reset_connection().is_err());
+        app.gate_resolution = None;
+        app.gate_reset_connection().unwrap();
+        assert!(app.gate_review.is_none() && app.gate_items.is_empty());
+    }
+
+    #[test]
+    fn reviewed_request_survives_reordering_but_not_changed_arguments() {
+        use crate::ui::widgets::gate_panel::{tests::request, HeldActionView};
+        let a = HeldActionView::from_json(&request("0000000000000001")).unwrap();
+        let mut b_json = request("0000000000000002");
+        let b = HeldActionView::from_json(&b_json).unwrap();
+        let mut app = test_app();
+        app.gate_update_items(vec![a.clone(), b.clone()]);
+        app.gate_selected = 1;
+        app.gate_open_selected();
+        app.gate_update_items(vec![b, a]);
+        assert_eq!(app.gate_selected, 0);
+        assert_eq!(app.gate_review.as_ref().unwrap().id, "0000000000000002");
+        b_json["context_snapshot"]["invocation"]["arguments"]["path"] = "substituted".into();
+        app.gate_update_items(vec![HeldActionView::from_json(&b_json).unwrap()]);
+        assert!(app.gate_review.is_none());
+        assert!(app.gate_message.contains("changed"));
+        app.gate_resolve_selected(true);
+        assert!(app.gate_resolution.is_none());
+    }
+
+    #[test]
+    fn removal_revokes_the_open_review() {
+        use crate::ui::widgets::gate_panel::{tests::request, HeldActionView};
+        let mut app = test_app();
+        app.gate_update_items(vec![HeldActionView::from_json(&request(
+            "0000000000000001",
+        ))
+        .unwrap()]);
+        app.gate_open_selected();
+        app.gate_update_items(vec![]);
+        assert!(app.gate_review.is_none());
+        app.gate_resolve_selected(true);
+        assert!(app.gate_resolution.is_none());
+    }
+
+    #[test]
+    fn resolution_failure_is_visible_and_does_not_claim_success() {
+        use crate::ui::widgets::gate_panel::{tests::request, HeldActionView};
+        let mut app = test_app();
+        app.gate_update_items(vec![HeldActionView::from_json(&request(
+            "0000000000000001",
+        ))
+        .unwrap()]);
+        app.gate_open_selected();
+        let (tx, rx) = oneshot::channel();
+        app.gate_resolution = Some(PendingGateResolution {
+            id: "0000000000000001".into(),
+            approve: true,
+            rx,
+        });
+        tx.send(Err("HTTP 403: authorization denied".into()))
+            .unwrap();
+        app.gate_poll_resolution();
+        assert_eq!(app.gate_items.len(), 1);
+        assert!(app.gate_message.contains("HTTP 403"));
+        assert!(app.gate_review.is_none());
+        assert!(app.output.last().unwrap().content.contains("not confirmed"));
     }
 
     #[test]
@@ -1461,6 +1755,7 @@ mod tests {
 
         // Approve the selected action; the blocked enqueue should resolve.
         app.gate_selected = 0;
+        app.gate_open_selected();
         app.gate_resolve_selected(true);
 
         let decision = held.await.unwrap();
@@ -1649,6 +1944,7 @@ mod tests {
     #[test]
     fn format_response_meta_renders_expected_shape() {
         let r = OrchestratorResponse {
+            audit: None,
             content: String::new(),
             tokens_used: 1273,
             iterations: 2,
@@ -1661,6 +1957,7 @@ mod tests {
     #[test]
     fn format_response_meta_uses_millis_under_one_second() {
         let r = OrchestratorResponse {
+            audit: None,
             content: String::new(),
             tokens_used: 42,
             iterations: 1,

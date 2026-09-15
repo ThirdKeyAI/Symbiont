@@ -5,6 +5,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::error::ChannelAdapterError;
+use crate::transport::{self, PreparedPost};
 use crate::types::{ChatDeliveryReceipt, ChatPlatform, OutboundMessage};
 
 /// Mattermost API client.
@@ -53,13 +54,13 @@ impl MattermostApiClient {
             ));
         }
 
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(15))
-            .build()
-            .map_err(|e| ChannelAdapterError::Internal(format!("HTTP client init: {}", e)))?;
+        let client = transport::client()?;
 
         // Strip trailing slash from server URL
-        let server_url = server_url.trim_end_matches('/').to_string();
+        let server_url = transport::base_url(server_url, true)?
+            .as_str()
+            .trim_end_matches('/')
+            .to_string();
 
         Ok(Self {
             client,
@@ -70,11 +71,14 @@ impl MattermostApiClient {
 
     /// Verify bot token and get bot user info via `GET /api/v4/users/me`.
     pub async fn get_me(&self) -> Result<MeResponse, ChannelAdapterError> {
-        let url = format!("{}/api/v4/users/me", self.server_url);
+        let url = transport::append_segments(
+            transport::base_url(&self.server_url, true)?,
+            &["api", "v4", "users", "me"],
+        )?;
 
         let resp = self
             .client
-            .get(&url)
+            .get(url)
             .bearer_auth(&self.bot_token)
             .send()
             .await
@@ -82,20 +86,25 @@ impl MattermostApiClient {
                 ChannelAdapterError::Connection(format!("Mattermost users/me failed: {}", e))
             })?;
 
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
-            return Err(ChannelAdapterError::Auth(format!(
-                "Mattermost auth rejected ({}): {}",
-                status, body
-            )));
-        }
-
-        let me: MeResponse = resp.json().await.map_err(|e| {
-            ChannelAdapterError::ParseError(format!("Mattermost users/me parse: {}", e))
-        })?;
+        let me: MeResponse = transport::read_json(resp, transport::RECEIPT_LIMIT).await?;
 
         Ok(me)
+    }
+
+    pub(crate) fn prepare_post(
+        &self,
+        message: &OutboundMessage,
+    ) -> Result<PreparedPost, ChannelAdapterError> {
+        let url = transport::append_segments(
+            transport::base_url(&self.server_url, true)?,
+            &["api", "v4", "posts"],
+        )?;
+        let body = CreatePostRequest {
+            channel_id: message.channel_id.clone(),
+            message: message.content.clone(),
+            root_id: message.thread_id.clone(),
+        };
+        Ok(PreparedPost::new(url, serde_json::json!(body)))
     }
 
     /// Create a post in a channel via `POST /api/v4/posts`.
@@ -103,44 +112,23 @@ impl MattermostApiClient {
         &self,
         message: &OutboundMessage,
     ) -> Result<ChatDeliveryReceipt, ChannelAdapterError> {
-        let url = format!("{}/api/v4/posts", self.server_url);
-
-        let body = CreatePostRequest {
-            channel_id: message.channel_id.clone(),
-            message: message.content.clone(),
-            root_id: message.thread_id.clone(),
-        };
+        let prepared = self.prepare_post(message)?;
 
         let resp = self
             .client
-            .post(&url)
+            .post(&prepared.url)
             .bearer_auth(&self.bot_token)
-            .json(&body)
+            .json(&prepared.body)
             .send()
             .await
             .map_err(|e| {
                 ChannelAdapterError::SendFailed(format!("Mattermost create_post failed: {}", e))
             })?;
 
-        let success = resp.status().is_success();
-        let status = resp.status();
-
-        if !success {
-            let body = resp.text().await.unwrap_or_default();
-            return Ok(ChatDeliveryReceipt {
-                platform: ChatPlatform::Mattermost,
-                channel_id: message.channel_id.clone(),
-                message_ts: None,
-                delivered_at: chrono::Utc::now(),
-                success: false,
-                error: Some(format!("HTTP {}: {}", status, body)),
-            });
-        }
-
-        let post_resp: CreatePostResponse = resp.json().await.unwrap_or(CreatePostResponse {
-            id: None,
-            channel_id: None,
-        });
+        let post_resp: CreatePostResponse =
+            transport::read_json(resp, transport::RECEIPT_LIMIT).await?;
+        let confirmed = post_resp.channel_id.as_deref() == Some(&message.channel_id)
+            && post_resp.id.as_ref().is_some_and(|id| !id.is_empty());
 
         Ok(ChatDeliveryReceipt {
             platform: ChatPlatform::Mattermost,
@@ -149,8 +137,8 @@ impl MattermostApiClient {
                 .unwrap_or_else(|| message.channel_id.clone()),
             message_ts: post_resp.id,
             delivered_at: chrono::Utc::now(),
-            success: true,
-            error: None,
+            success: confirmed,
+            error: (!confirmed).then(|| "Mattermost receipt is not confirmed".into()),
         })
     }
 }

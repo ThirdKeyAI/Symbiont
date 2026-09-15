@@ -20,15 +20,42 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use cron::Schedule;
 use parking_lot::RwLock;
-use rand::Rng;
 use tokio::sync::Notify;
 use tokio::time::interval;
+use tokio_util::sync::CancellationToken;
 
 use super::cron_types::*;
 use super::job_store::{JobStore, JobStoreError, SqliteJobStore};
 use super::policy_gate::{PolicyGate, ScheduleContext, SchedulePolicyDecision};
-use super::{AgentScheduler, DefaultAgentScheduler};
+use super::task_manager::{TaskCompletion, TaskStatus};
+use super::AgentScheduler;
+#[cfg(test)]
+use super::DefaultAgentScheduler;
+#[cfg(test)]
 use crate::types::ExecutionMode;
+
+#[cfg(unix)]
+#[path = "cron_runs.rs"]
+mod runs;
+
+struct RunReservation {
+    active: Arc<RwLock<usize>>,
+    per_job: Arc<RwLock<HashMap<CronJobId, usize>>>,
+    job_id: CronJobId,
+}
+impl Drop for RunReservation {
+    fn drop(&mut self) {
+        let mut active = self.active.write();
+        let mut per_job = self.per_job.write();
+        *active = active.saturating_sub(1);
+        if let Some(count) = per_job.get_mut(&self.job_id) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                per_job.remove(&self.job_id);
+            }
+        }
+    }
+}
 
 /// Configuration for the CronScheduler.
 #[derive(Debug, Clone)]
@@ -37,7 +64,7 @@ pub struct CronSchedulerConfig {
     pub tick_interval: Duration,
     /// Global cap on concurrent cron-triggered agent runs.
     pub max_concurrent_cron_jobs: usize,
-    /// Path to the SQLite job store. `None` = default path.
+    /// SQLite store path. `None` uses the project's private `.symbiont/cron_jobs.db`.
     pub job_store_path: Option<std::path::PathBuf>,
     /// Whether to catch up on runs that were missed while the process was down.
     pub enable_missed_run_catchup: bool,
@@ -91,15 +118,19 @@ pub struct CronMetrics {
 }
 
 /// The core cron scheduling engine.
+#[derive(Clone)]
 pub struct CronScheduler {
     store: Arc<SqliteJobStore>,
-    agent_scheduler: Arc<DefaultAgentScheduler>,
+    agent_scheduler: Arc<dyn AgentScheduler + Send + Sync>,
     config: CronSchedulerConfig,
     shutdown_notify: Arc<Notify>,
+    stopping: CancellationToken,
     is_running: Arc<RwLock<bool>>,
     active_runs: Arc<RwLock<usize>>,
     /// Per-job active run counters for concurrency limiting.
     per_job_active: Arc<RwLock<HashMap<CronJobId, usize>>>,
+    #[cfg(unix)]
+    pending_attempts: Arc<RwLock<std::collections::HashSet<uuid::Uuid>>>,
     /// Observable metrics snapshot (updated each tick).
     metrics: Arc<RwLock<CronMetrics>>,
     /// Optional AgentPin verifier. When present, every cron-triggered
@@ -107,23 +138,17 @@ pub struct CronScheduler {
     /// When the verifier is present but the job carries no JWT, the run
     /// is refused so "AgentPin enabled at the scheduler" cannot be
     /// bypassed by leaving the JWT column null.
-    agentpin_verifier: Option<Arc<dyn crate::integrations::AgentPinVerifier>>,
+    agentpin_verifier: Arc<RwLock<Option<Arc<dyn crate::integrations::AgentPinVerifier>>>>,
     /// Optional schedule policy gate. When present, every cron-triggered run
     /// (both `trigger_now` and the tick loop) is evaluated against it before
     /// the agent scheduler is invoked; a `Deny` or `RequiresApproval`
     /// decision refuses the run. `None` means no gate is installed and every
     /// run proceeds — the same "explicit opt-in" shape as `agentpin_verifier`,
-    /// not a fail-closed default. This is the single choke point every
-    /// cron-triggered run passes through, so a future replacement of the
-    /// current placeholder task body cannot bypass it by construction.
+    /// not a fail-closed default. Every cron invocation passes this gate
+    /// before the governed runtime separately authorizes its tool effects.
     ///
-    /// Held behind a lock (rather than a plain field like
-    /// `agentpin_verifier`) because `start_tick_loop` runs from inside `new`,
-    /// before a `with_policy_gate` builder call can happen — the tick loop's
-    /// background task clones this handle once at spawn time, so without a
-    /// shared lock a gate installed afterward (the only way `with_policy_gate`
-    /// is ever used) would be invisible to every tick-driven run and only
-    /// take effect for manual `trigger_now` calls.
+    /// The shared lock makes later guard changes visible to timer tasks.
+    /// Use `new_with_guards` to install startup authority before recovery begins.
     policy_gate: Arc<RwLock<Option<Arc<PolicyGate>>>>,
 }
 
@@ -131,25 +156,49 @@ impl CronScheduler {
     /// Create and start a new CronScheduler.
     pub async fn new(
         config: CronSchedulerConfig,
-        agent_scheduler: Arc<DefaultAgentScheduler>,
+        agent_scheduler: Arc<dyn AgentScheduler + Send + Sync>,
     ) -> Result<Self, CronSchedulerError> {
+        Self::new_with_guards(config, agent_scheduler, None, None).await
+    }
+
+    /// Install execution guards before starting timer dispatch or recovery.
+    pub async fn new_with_guards(
+        config: CronSchedulerConfig,
+        agent_scheduler: Arc<dyn AgentScheduler + Send + Sync>,
+        agentpin_verifier: Option<Arc<dyn crate::integrations::AgentPinVerifier>>,
+        policy_gate: Option<Arc<PolicyGate>>,
+    ) -> Result<Self, CronSchedulerError> {
+        #[cfg(unix)]
+        let project = agent_scheduler
+            .invocation_project()
+            .map_err(CronSchedulerError::Scheduler)?
+            .canonicalize()
+            .map_err(|e| CronSchedulerError::Scheduler(e.to_string()))?;
+        #[cfg(not(unix))]
+        let project: std::path::PathBuf = return Err(CronSchedulerError::Scheduler(
+            "protected cron execution requires Unix".into(),
+        ));
         let path = config
             .job_store_path
             .clone()
-            .unwrap_or_else(SqliteJobStore::default_path);
+            .unwrap_or_else(|| project.join(".symbiont/cron_jobs.db"));
         let store = Arc::new(SqliteJobStore::open(&path)?);
+        store.bind_project(&project).await?;
 
         let scheduler = Self {
             store,
             agent_scheduler,
             config,
             shutdown_notify: Arc::new(Notify::new()),
+            stopping: CancellationToken::new(),
             is_running: Arc::new(RwLock::new(true)),
             active_runs: Arc::new(RwLock::new(0)),
             per_job_active: Arc::new(RwLock::new(HashMap::new())),
+            #[cfg(unix)]
+            pending_attempts: Arc::new(RwLock::new(std::collections::HashSet::new())),
             metrics: Arc::new(RwLock::new(CronMetrics::default())),
-            agentpin_verifier: None,
-            policy_gate: Arc::new(RwLock::new(None)),
+            agentpin_verifier: Arc::new(RwLock::new(agentpin_verifier)),
+            policy_gate: Arc::new(RwLock::new(policy_gate)),
         };
 
         scheduler.start_tick_loop();
@@ -161,10 +210,10 @@ impl CronScheduler {
     /// a JWT are refused (see AP-3). Returns the scheduler builder-style
     /// for chaining.
     pub fn with_agentpin_verifier(
-        mut self,
+        self,
         verifier: Arc<dyn crate::integrations::AgentPinVerifier>,
     ) -> Self {
-        self.agentpin_verifier = Some(verifier);
+        *self.agentpin_verifier.write() = Some(verifier);
         self
     }
 
@@ -247,7 +296,8 @@ impl CronScheduler {
         &self,
         job: &CronJobDefinition,
     ) -> Result<(), CronSchedulerError> {
-        let Some(ref verifier) = self.agentpin_verifier else {
+        let verifier = self.agentpin_verifier.read().clone();
+        let Some(verifier) = verifier else {
             return Ok(());
         };
         let jwt = job.agentpin_jwt.as_deref().ok_or_else(|| {
@@ -256,9 +306,12 @@ impl CronScheduler {
                 "AgentPin verification is enabled but job has no agentpin_jwt".to_string(),
             )
         })?;
-        let result = verifier.verify_credential(jwt).await.map_err(|e| {
-            CronSchedulerError::IdentityVerificationFailed(job.job_id, e.to_string())
-        })?;
+        let result = tokio::select! {
+            biased;
+            _ = self.stopping.cancelled() => return Err(CronSchedulerError::Scheduler("cron scheduler is shutting down".into())),
+            result = tokio::time::timeout(Duration::from_secs(10), verifier.verify_credential(jwt)) => result,
+        }.map_err(|_| CronSchedulerError::IdentityVerificationFailed(job.job_id, "verification timed out".into()))?
+            .map_err(|e| CronSchedulerError::IdentityVerificationFailed(job.job_id, e.to_string()))?;
         if !result.valid {
             return Err(CronSchedulerError::IdentityVerificationFailed(
                 job.job_id,
@@ -292,7 +345,7 @@ impl CronScheduler {
     #[cfg(test)]
     pub async fn new_in_memory(
         config: CronSchedulerConfig,
-        agent_scheduler: Arc<DefaultAgentScheduler>,
+        agent_scheduler: Arc<dyn AgentScheduler + Send + Sync>,
     ) -> Result<Self, CronSchedulerError> {
         let store = Arc::new(SqliteJobStore::open_in_memory()?);
         let scheduler = Self {
@@ -300,11 +353,14 @@ impl CronScheduler {
             agent_scheduler,
             config,
             shutdown_notify: Arc::new(Notify::new()),
+            stopping: CancellationToken::new(),
             is_running: Arc::new(RwLock::new(true)),
             active_runs: Arc::new(RwLock::new(0)),
             per_job_active: Arc::new(RwLock::new(HashMap::new())),
+            #[cfg(unix)]
+            pending_attempts: Arc::new(RwLock::new(std::collections::HashSet::new())),
             metrics: Arc::new(RwLock::new(CronMetrics::default())),
-            agentpin_verifier: None,
+            agentpin_verifier: Arc::new(RwLock::new(None)),
             policy_gate: Arc::new(RwLock::new(None)),
         };
         scheduler.start_tick_loop();
@@ -334,6 +390,69 @@ impl CronScheduler {
         Ok(job.job_id)
     }
 
+    /// Register a source schedule once. Restarts preserve its identity, clock,
+    /// terminal state and history; changed definitions require explicit review.
+    #[cfg(unix)]
+    pub async fn add_source_job(
+        &self,
+        source_key: &str,
+        mut job: CronJobDefinition,
+    ) -> Result<CronJobId, CronSchedulerError> {
+        use super::{invocations::InvocationIdentity, occurrences::Occurrence};
+        use crate::reasoning::prepared::digest_json;
+        if source_key.is_empty() || source_key.len() > 4096 {
+            return Err(CronSchedulerError::Scheduler(
+                "invalid schedule source identity".into(),
+            ));
+        }
+        let hash = digest_json(&serde_json::json!([
+            "dsl-schedule:v1",
+            source_key,
+            job.name
+        ]))
+        .map_err(CronSchedulerError::Scheduler)?;
+        let bytes = hex::decode(hash.trim_start_matches("sha256:"))
+            .map_err(|e| CronSchedulerError::Scheduler(e.to_string()))?;
+        let id = uuid::Uuid::from_bytes(bytes[..16].try_into().expect("SHA-256 prefix"));
+        job.job_id = CronJobId::from_uuid(id);
+        job.agent_config.id = crate::types::AgentId(id);
+        Self::parse_cron(&job.cron_expression)?;
+        Self::validate_timezone(&job.timezone)?;
+        job.next_run = self.compute_next_run(&job.cron_expression, &job.timezone, None)?;
+        self.store.persist_job(&job, false).await?;
+        let saved = self
+            .store
+            .get_job(job.job_id)
+            .await?
+            .ok_or(CronSchedulerError::NotFound(job.job_id))?;
+        let identity = InvocationIdentity {
+            id,
+            context: serde_json::json!({"source":source_key}),
+        };
+        if Occurrence::manual(job.clone(), identity.clone())
+            .fingerprint()
+            .map_err(CronSchedulerError::Scheduler)?
+            != Occurrence::manual(saved, identity)
+                .fingerprint()
+                .map_err(CronSchedulerError::Scheduler)?
+        {
+            return Err(CronSchedulerError::Scheduler("persisted source schedule differs; inspect and update its stored definition explicitly".into()));
+        }
+        Ok(job.job_id)
+    }
+
+    #[cfg(not(unix))]
+    pub async fn add_source_job(
+        &self,
+        source_key: &str,
+        job: CronJobDefinition,
+    ) -> Result<CronJobId, CronSchedulerError> {
+        let _ = (source_key, job);
+        Err(CronSchedulerError::Scheduler(
+            "protected cron execution requires Unix".into(),
+        ))
+    }
+
     /// Remove a cron job.
     pub async fn remove_job(&self, job_id: CronJobId) -> Result<(), CronSchedulerError> {
         if !self.store.delete_job(job_id).await? {
@@ -360,6 +479,12 @@ impl CronScheduler {
 
     /// Resume a paused or dead-lettered cron job.
     pub async fn resume_job(&self, job_id: CronJobId) -> Result<(), CronSchedulerError> {
+        #[cfg(unix)]
+        if self.store.job_has_unresolved_occurrence(job_id).await? {
+            return Err(CronSchedulerError::Scheduler(
+                "unresolved occurrences require reconciliation before resume".into(),
+            ));
+        }
         let mut job = self
             .store
             .get_job(job_id)
@@ -421,140 +546,69 @@ impl CronScheduler {
         Ok(runs)
     }
 
-    /// Force-trigger a job immediately, regardless of its schedule.
+    /// Start a new trusted SDK trigger. Use trigger_identified for caller retries.
     pub async fn trigger_now(&self, job_id: CronJobId) -> Result<(), CronSchedulerError> {
-        let job = self
-            .store
-            .get_job(job_id)
-            .await?
-            .ok_or(CronSchedulerError::NotFound(job_id))?;
-        tracing::info!("Force-triggering cron job {} ({})", job_id, job.name);
-
-        // AgentPin identity check BEFORE scheduling. If verification fails we
-        // do not invoke the agent scheduler and we still persist a failed
-        // run record so the operator can see the identity-rejection in
-        // history.
-        if let Err(verify_err) = self.verify_job_credential(&job).await {
-            tracing::warn!(
-                "Refusing to trigger job {} ({}): {}",
-                job_id,
-                job.name,
-                verify_err
-            );
-            {
-                let mut m = self.metrics.write();
-                m.runs_skipped_identity = m.runs_skipped_identity.saturating_add(1);
-            }
-            let record = JobRunRecord {
-                run_id: uuid::Uuid::new_v4(),
-                job_id,
-                agent_id: job.agent_config.id,
-                started_at: Utc::now(),
-                completed_at: Some(Utc::now()),
-                status: JobRunStatus::Failed,
-                error: Some(verify_err.to_string()),
-                execution_time_ms: Some(0),
-            };
-            let _ = self.store.save_run_record(&record).await;
-            return Err(verify_err);
-        }
-
-        // Schedule policy check BEFORE scheduling, same shape as the
-        // identity check above: a denial (or an approval requirement this
-        // scheduler cannot route) skips the agent scheduler entirely and is
-        // recorded as a failed run rather than silently dropped.
-        let gate = self.policy_gate.read().clone();
-        let decision = Self::evaluate_schedule_policy(gate.as_deref(), &job);
-        if !matches!(decision, SchedulePolicyDecision::Allow) {
-            let reason = Self::describe_policy_refusal(&decision);
-            tracing::warn!(
-                "Refusing to trigger cron job {} ({}): {}",
-                job_id,
-                job.name,
-                reason
-            );
-            {
-                let mut m = self.metrics.write();
-                m.runs_skipped_policy = m.runs_skipped_policy.saturating_add(1);
-            }
-            let record = JobRunRecord {
-                run_id: uuid::Uuid::new_v4(),
-                job_id,
-                agent_id: job.agent_config.id,
-                started_at: Utc::now(),
-                completed_at: Some(Utc::now()),
-                status: JobRunStatus::Failed,
-                error: Some(format!("policy: {}", reason)),
-                execution_time_ms: Some(0),
-            };
-            let _ = self.store.save_run_record(&record).await;
-            return Err(CronSchedulerError::PolicyDenied(job_id, reason));
-        }
-
-        let mut run_config = job.agent_config.clone();
-        run_config.execution_mode = ExecutionMode::CronScheduled {
-            cron_expression: job.cron_expression.clone(),
-            timezone: job.timezone.clone(),
-        };
-        run_config
-            .metadata
-            .insert("trigger".to_string(), "cron_manual".to_string());
-        run_config
-            .metadata
-            .insert("cron_job_id".to_string(), job.job_id.to_string());
-        // Session isolation metadata
-        run_config
-            .metadata
-            .insert("session_id".to_string(), uuid::Uuid::new_v4().to_string());
-        run_config.metadata.insert(
-            "session_mode".to_string(),
-            format!("{:?}", job.session_mode),
-        );
-
-        let started_at = Utc::now();
-        let run_id = uuid::Uuid::new_v4();
-        let agent_id = job.agent_config.id;
-
-        let result = self.agent_scheduler.schedule_agent(run_config).await;
-
-        let (status, error) = match &result {
-            Ok(_) => (JobRunStatus::Succeeded, None),
-            Err(e) => (JobRunStatus::Failed, Some(e.to_string())),
-        };
-        let completed_at = Utc::now();
-        let exec_ms = (completed_at - started_at).num_milliseconds().max(0) as u64;
-
-        let record = JobRunRecord {
-            run_id,
-            job_id: job.job_id,
-            agent_id,
-            started_at,
-            completed_at: Some(completed_at),
-            status,
-            error,
-            execution_time_ms: Some(exec_ms),
-        };
-        self.store.save_run_record(&record).await?;
-
-        result
-            .map(|_| ())
-            .map_err(|e| CronSchedulerError::Scheduler(e.to_string()))
-    }
-
-    /// Graceful shutdown — stops the tick loop.
-    pub async fn shutdown(&self) {
+        #[cfg(unix)]
         {
-            let is_running = self.is_running.read();
-            if !*is_running {
-                return;
+            use super::invocations::{recorded_completion, Admission, InvocationIdentity};
+            use crate::reasoning::invocation::ExistingInvocation;
+            let admission=self.trigger_identified(job_id,InvocationIdentity {id:uuid::Uuid::new_v4(),context:serde_json::json!({"caller":"trusted-sdk","route":"schedule.trigger"})}).await?;
+            let completion = match admission {
+                Admission::Queued { handle, .. } => {
+                    struct CancelOnDrop(super::task_manager::TaskHandle);
+                    impl Drop for CancelOnDrop {
+                        fn drop(&mut self) {
+                            self.0.cancel();
+                        }
+                    }
+                    let guard = CancelOnDrop(handle);
+                    guard.0.wait().await
+                }
+                Admission::Existing(ExistingInvocation::Recorded { audit, result }) => {
+                    recorded_completion(&audit, result).map_err(CronSchedulerError::Scheduler)?
+                }
+                _ => {
+                    return Err(CronSchedulerError::Scheduler(
+                        "cron invocation is active or requires reconciliation".into(),
+                    ))
+                }
+            };
+            if completion.status == TaskStatus::Completed {
+                Ok(())
+            } else {
+                Err(CronSchedulerError::Scheduler(
+                    completion
+                        .error
+                        .unwrap_or_else(|| "cron invocation did not complete".into()),
+                ))
             }
         }
-        *self.is_running.write() = false;
-        self.shutdown_notify.notify_waiters();
-        tracing::info!("CronScheduler shutdown complete");
+        #[cfg(not(unix))]
+        {
+            let _ = job_id;
+            Err(CronSchedulerError::Scheduler(
+                "protected cron execution requires Unix".into(),
+            ))
+        }
     }
 
-    /// Get run history for a specific job.
+    /// Stop dispatch and cancel active cron runs, waiting for their cleanup.
+    pub async fn shutdown(&self) {
+        *self.is_running.write() = false;
+        self.stopping.cancel();
+        self.shutdown_notify.notify_waiters();
+        let stopped = tokio::time::timeout(Duration::from_secs(30), async {
+            while *self.active_runs.read() > 0 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await;
+        if stopped.is_err() {
+            tracing::error!("cron execution cleanup remains unconfirmed after shutdown");
+        }
+    }
+
+    /// Get persisted run history, including actual runtime outcomes.
     pub async fn get_run_history(
         &self,
         job_id: CronJobId,
@@ -599,368 +653,31 @@ impl CronScheduler {
 
     // ── Internals ─────────────────────────────────────────────────────
 
+    fn reserve(&self, job: &CronJobDefinition) -> Option<RunReservation> {
+        let running = self.is_running.read();
+        if !*running {
+            return None;
+        }
+        let mut active = self.active_runs.write();
+        let mut per_job = self.per_job_active.write();
+        if *active >= self.config.max_concurrent_cron_jobs
+            || per_job.get(&job.job_id).copied().unwrap_or(0) >= job.max_concurrent as usize
+        {
+            self.metrics.write().runs_skipped_concurrency += 1;
+            return None;
+        }
+        *active += 1;
+        *per_job.entry(job.job_id).or_default() += 1;
+        Some(RunReservation {
+            active: self.active_runs.clone(),
+            per_job: self.per_job_active.clone(),
+            job_id: job.job_id,
+        })
+    }
+
     fn start_tick_loop(&self) {
-        let store = self.store.clone();
-        let agent_scheduler = self.agent_scheduler.clone();
-        let shutdown = self.shutdown_notify.clone();
-        let is_running = self.is_running.clone();
-        let tick = self.config.tick_interval;
-        let max_concurrent = self.config.max_concurrent_cron_jobs;
-        let active_runs = self.active_runs.clone();
-        let per_job_active = self.per_job_active.clone();
-        let metrics = self.metrics.clone();
-        let agentpin_verifier = self.agentpin_verifier.clone();
-        let policy_gate = self.policy_gate.clone();
-
-        tokio::spawn(async move {
-            let mut ticker = interval(tick);
-
-            loop {
-                tokio::select! {
-                    _ = ticker.tick() => {
-                        if !*is_running.read() {
-                            break;
-                        }
-
-                        let current_active = *active_runs.read();
-                        if current_active >= max_concurrent {
-                            tracing::debug!("CronScheduler: at capacity ({}/{}), skipping tick",
-                                current_active, max_concurrent);
-                            continue;
-                        }
-
-                        let now = Utc::now();
-                        let due_jobs = match store.get_due_jobs(now).await {
-                            Ok(jobs) => jobs,
-                            Err(e) => {
-                                tracing::error!("CronScheduler: failed to query due jobs: {}", e);
-                                continue;
-                            }
-                        };
-
-                        for job in due_jobs {
-                            let remaining = max_concurrent.saturating_sub(*active_runs.read());
-                            if remaining == 0 {
-                                break;
-                            }
-
-                            // ── Per-job concurrency guard ─────────────
-                            {
-                                let pja = per_job_active.read();
-                                let job_active = pja.get(&job.job_id).copied().unwrap_or(0);
-                                if job_active >= job.max_concurrent as usize {
-                                    tracing::debug!(
-                                        "CronScheduler: job {} at per-job concurrency limit ({}/{}), skipping",
-                                        job.job_id, job_active, job.max_concurrent
-                                    );
-                                    metrics.write().runs_skipped_concurrency += 1;
-                                    continue;
-                                }
-                            }
-
-                            // ── Compute next run (DST-aware via chrono-tz) ──
-                            let next_run = compute_next_run_static(
-                                &job.cron_expression,
-                                &job.timezone,
-                                Some(now),
-                            );
-                            let new_status = if job.one_shot {
-                                CronJobStatus::Completed
-                            } else {
-                                CronJobStatus::Active
-                            };
-                            let enabled = !job.one_shot;
-
-                            // Update run state.
-                            if let Err(e) = store
-                                .update_run_state(
-                                    job.job_id,
-                                    now,
-                                    next_run,
-                                    job.run_count + 1,
-                                    new_status,
-                                    enabled,
-                                )
-                                .await
-                            {
-                                tracing::error!("CronScheduler: failed to update run state for {}: {}", job.job_id, e);
-                                continue;
-                            }
-
-                            // ── Increment counters ──
-                            let store_c = store.clone();
-                            let sched_c = agent_scheduler.clone();
-                            let active_c = active_runs.clone();
-                            let pja_c = per_job_active.clone();
-                            let metrics_c = metrics.clone();
-                            let verifier_c = agentpin_verifier.clone();
-                            let policy_gate_c = policy_gate.clone();
-
-                            *active_c.write() += 1;
-                            {
-                                let mut pja = pja_c.write();
-                                *pja.entry(job.job_id).or_insert(0) += 1;
-                            }
-
-                            tokio::spawn(async move {
-                                // ── AgentPin identity check ───────────
-                                // When a verifier is installed we must refuse
-                                // to invoke the agent scheduler without a
-                                // valid JWT whose `sub` covers this job's
-                                // agent. A failed check is recorded as a
-                                // skipped run with JobRunStatus::Failed so
-                                // operators see it in history.
-                                if let Some(verifier) = verifier_c.as_ref() {
-                                    let ident_err = match job.agentpin_jwt.as_deref() {
-                                        None => Some(
-                                            "AgentPin verification is enabled but \
-                                             job has no agentpin_jwt"
-                                                .to_string(),
-                                        ),
-                                        Some(jwt) => match verifier.verify_credential(jwt).await {
-                                            Ok(r) if r.valid => {
-                                                let expected =
-                                                    job.agent_config.id.0.to_string();
-                                                if r.agent_id
-                                                    .as_deref()
-                                                    .map(|s| s == expected)
-                                                    .unwrap_or(false)
-                                                {
-                                                    None
-                                                } else {
-                                                    Some(format!(
-                                                        "JWT subject {:?} does not match \
-                                                         job agent {}",
-                                                        r.agent_id, expected
-                                                    ))
-                                                }
-                                            }
-                                            Ok(r) => Some(
-                                                r.error_message
-                                                    .unwrap_or_else(|| {
-                                                        "invalid credential".to_string()
-                                                    }),
-                                            ),
-                                            Err(e) => Some(e.to_string()),
-                                        },
-                                    };
-                                    if let Some(reason) = ident_err {
-                                        tracing::warn!(
-                                            job_id = %job.job_id,
-                                            "Cron run refused by AgentPin: {}",
-                                            reason
-                                        );
-                                        let now = Utc::now();
-                                        let record = JobRunRecord {
-                                            run_id: uuid::Uuid::new_v4(),
-                                            job_id: job.job_id,
-                                            agent_id: job.agent_config.id,
-                                            started_at: now,
-                                            completed_at: Some(now),
-                                            status: JobRunStatus::Failed,
-                                            error: Some(format!("identity: {}", reason)),
-                                            execution_time_ms: Some(0),
-                                        };
-                                        let _ = store_c.save_run_record(&record).await;
-                                        {
-                                            let mut m = metrics_c.write();
-                                            m.runs_skipped_identity =
-                                                m.runs_skipped_identity.saturating_add(1);
-                                        }
-                                        {
-                                            // One write guard, no read: the
-                                            // read guard's temporary would live
-                                            // to the end of the statement, and
-                                            // parking_lot's RwLock is not
-                                            // reentrant, so taking the write
-                                            // while it is held deadlocks the
-                                            // scheduler tick.
-                                            let mut active = active_c.write();
-                                            *active = active.saturating_sub(1);
-                                        }
-                                        {
-                                            let mut pja = pja_c.write();
-                                            if let Some(c) = pja.get_mut(&job.job_id) {
-                                                *c = c.saturating_sub(1);
-                                            }
-                                        }
-                                        return;
-                                    }
-                                }
-
-                                // ── Schedule policy gate ──────────────
-                                // Same shape as the AgentPin check above: a
-                                // Deny or RequiresApproval decision skips the
-                                // agent scheduler entirely and is recorded as
-                                // a failed run rather than executed anyway.
-                                let gate = policy_gate_c.read().clone();
-                                let decision = CronScheduler::evaluate_schedule_policy(
-                                    gate.as_deref(),
-                                    &job,
-                                );
-                                if !matches!(decision, SchedulePolicyDecision::Allow) {
-                                    let reason =
-                                        CronScheduler::describe_policy_refusal(&decision);
-                                    tracing::warn!(
-                                        job_id = %job.job_id,
-                                        job_name = %job.name,
-                                        "Cron run refused by schedule policy: {}",
-                                        reason
-                                    );
-                                    let now = Utc::now();
-                                    let record = JobRunRecord {
-                                        run_id: uuid::Uuid::new_v4(),
-                                        job_id: job.job_id,
-                                        agent_id: job.agent_config.id,
-                                        started_at: now,
-                                        completed_at: Some(now),
-                                        status: JobRunStatus::Failed,
-                                        error: Some(format!("policy: {}", reason)),
-                                        execution_time_ms: Some(0),
-                                    };
-                                    let _ = store_c.save_run_record(&record).await;
-                                    {
-                                        let mut m = metrics_c.write();
-                                        m.runs_skipped_policy =
-                                            m.runs_skipped_policy.saturating_add(1);
-                                    }
-                                    {
-                                        let mut active = active_c.write();
-                                        *active = active.saturating_sub(1);
-                                    }
-                                    {
-                                        let mut pja = pja_c.write();
-                                        if let Some(c) = pja.get_mut(&job.job_id) {
-                                            *c = c.saturating_sub(1);
-                                        }
-                                    }
-                                    return;
-                                }
-
-                                // ── Jitter ────────────────────────────
-                                if job.jitter_max_secs > 0 {
-                                    let jitter_ms = {
-                                        let mut rng = rand::thread_rng();
-                                        rng.gen_range(0..=(job.jitter_max_secs as u64 * 1000))
-                                    };
-                                    tokio::time::sleep(Duration::from_millis(jitter_ms)).await;
-                                }
-
-                                let started_at = Utc::now();
-                                let run_id = uuid::Uuid::new_v4();
-                                let agent_id = job.agent_config.id;
-                                let session_id = uuid::Uuid::new_v4();
-
-                                // Build an ephemeral agent config for the run.
-                                let mut run_config = job.agent_config.clone();
-                                run_config.execution_mode = ExecutionMode::CronScheduled {
-                                    cron_expression: job.cron_expression.clone(),
-                                    timezone: job.timezone.clone(),
-                                };
-                                run_config.metadata.insert(
-                                    "trigger".to_string(),
-                                    "cron".to_string(),
-                                );
-                                run_config.metadata.insert(
-                                    "cron_job_id".to_string(),
-                                    job.job_id.to_string(),
-                                );
-                                run_config.metadata.insert(
-                                    "cron_expression".to_string(),
-                                    job.cron_expression.clone(),
-                                );
-                                // Session isolation metadata
-                                run_config.metadata.insert(
-                                    "session_id".to_string(),
-                                    session_id.to_string(),
-                                );
-                                run_config.metadata.insert(
-                                    "session_mode".to_string(),
-                                    format!("{:?}", job.session_mode),
-                                );
-
-                                let result: Result<crate::types::AgentId, crate::types::SchedulerError> =
-                                    sched_c.schedule_agent(run_config).await;
-
-                                let (status, error) = match &result {
-                                    Ok(_) => (JobRunStatus::Succeeded, None),
-                                    Err(e) => (JobRunStatus::Failed, Some(e.to_string())),
-                                };
-
-                                let completed_at = Utc::now();
-                                let exec_ms = (completed_at - started_at).num_milliseconds().max(0) as u64;
-
-                                // Update metrics
-                                {
-                                    let mut m = metrics_c.write();
-                                    m.runs_total += 1;
-                                    match status {
-                                        JobRunStatus::Succeeded => m.runs_succeeded += 1,
-                                        JobRunStatus::Failed => m.runs_failed += 1,
-                                        _ => {}
-                                    }
-                                    if exec_ms > m.longest_run_ms {
-                                        m.longest_run_ms = exec_ms;
-                                    }
-                                    // Rolling average
-                                    if m.runs_total > 0 {
-                                        m.average_execution_time_ms = m.average_execution_time_ms
-                                            + (exec_ms as f64 - m.average_execution_time_ms)
-                                                / m.runs_total as f64;
-                                    }
-                                }
-
-                                let record = JobRunRecord {
-                                    run_id,
-                                    job_id: job.job_id,
-                                    agent_id,
-                                    started_at,
-                                    completed_at: Some(completed_at),
-                                    status,
-                                    error: error.clone(),
-                                    execution_time_ms: Some(exec_ms),
-                                };
-
-                                if let Err(e) = store_c.save_run_record(&record).await {
-                                    tracing::error!("CronScheduler: failed to save run record: {}", e);
-                                }
-
-                                // ── Dead-letter handling on failure ──
-                                if result.is_err() {
-                                    let new_fail = job.failure_count + 1;
-                                    let fail_status = if new_fail >= job.max_retries as u64 {
-                                        tracing::warn!(
-                                            "CronScheduler: job {} exceeded max_retries ({}), moving to dead letter",
-                                            job.job_id, job.max_retries
-                                        );
-                                        CronJobStatus::DeadLetter
-                                    } else {
-                                        CronJobStatus::Active
-                                    };
-                                    let _ = store_c.record_failure(job.job_id, new_fail, fail_status).await;
-                                }
-
-                                // ── Decrement counters ──
-                                *active_c.write() -= 1;
-                                {
-                                    let mut pja = pja_c.write();
-                                    if let Some(count) = pja.get_mut(&job.job_id) {
-                                        *count = count.saturating_sub(1);
-                                        if *count == 0 {
-                                            pja.remove(&job.job_id);
-                                        }
-                                    }
-                                }
-                            });
-                        }
-                    }
-                    _ = shutdown.notified() => {
-                        tracing::info!("CronScheduler tick loop shutting down");
-                        break;
-                    }
-                }
-            }
-        });
+        #[cfg(unix)]
+        self.start_occurrence_loop();
     }
 
     fn parse_cron(expr: &str) -> Result<Schedule, CronSchedulerError> {
@@ -1026,7 +743,7 @@ mod tests {
         AgentConfig {
             id: AgentId::new(),
             name: "cron_agent".to_string(),
-            dsl_source: "agent cron_agent {}".to_string(),
+            dsl_source: "agent cron_agent() {}".to_string(),
             execution_mode: ExecutionMode::Ephemeral,
             security_tier: SecurityTier::Tier1,
             resource_limits: ResourceLimits::default(),
@@ -1037,27 +754,107 @@ mod tests {
         }
     }
 
+    struct ScheduleProvider;
+    #[async_trait::async_trait]
+    impl crate::reasoning::inference::InferenceProvider for ScheduleProvider {
+        async fn complete(
+            &self,
+            _: &crate::reasoning::conversation::Conversation,
+            _: &crate::reasoning::inference::InferenceOptions,
+        ) -> Result<
+            crate::reasoning::inference::InferenceResponse,
+            crate::reasoning::inference::InferenceError,
+        > {
+            use crate::reasoning::inference::*;
+            Ok(InferenceResponse {
+                content: "scheduled result".into(),
+                tool_calls: vec![],
+                finish_reason: FinishReason::Stop,
+                model: "fixture".into(),
+                usage: Usage {
+                    prompt_tokens: 1,
+                    completion_tokens: 1,
+                    total_tokens: 2,
+                },
+            })
+        }
+        fn provider_name(&self) -> &str {
+            "fixture"
+        }
+        fn default_model(&self) -> &str {
+            "fixture"
+        }
+        fn supports_native_tools(&self) -> bool {
+            true
+        }
+        fn supports_structured_output(&self) -> bool {
+            false
+        }
+    }
+    struct ScheduleFixture {
+        _root: tempfile::TempDir,
+        inner: super::super::execution::GovernedAgentExecutor,
+    }
+    impl ScheduleFixture {
+        fn new() -> Self {
+            let root = tempfile::tempdir().unwrap();
+            let inner = super::super::execution::GovernedAgentExecutor::new(root.path())
+                .unwrap()
+                .with_provider(Arc::new(ScheduleProvider))
+                .with_policy_gate(Arc::new(
+                    crate::reasoning::policy_bridge::DefaultPolicyGate::new(),
+                ));
+            Self { _root: root, inner }
+        }
+    }
+    #[async_trait::async_trait]
+    impl super::super::execution::ScheduledAgentExecutor for ScheduleFixture {
+        #[cfg(unix)]
+        fn invocation_project(&self) -> Result<&std::path::Path, String> {
+            self.inner.invocation_project()
+        }
+        async fn execute(
+            &self,
+            task: &super::super::ScheduledTask,
+            budget: Duration,
+            cancellation: tokio_util::sync::CancellationToken,
+        ) -> TaskCompletion {
+            self.inner.execute(task, budget, cancellation).await
+        }
+    }
+
     async fn make_scheduler() -> (CronScheduler, Arc<DefaultAgentScheduler>) {
         let sched = Arc::new(
-            DefaultAgentScheduler::new(SchedulerConfig::default())
-                .await
-                .unwrap(),
+            DefaultAgentScheduler::new_with_executor(
+                SchedulerConfig::default(),
+                None,
+                Arc::new(ScheduleFixture::new()),
+            )
+            .await
+            .unwrap(),
         );
         let config = CronSchedulerConfig {
             tick_interval: Duration::from_millis(100),
             ..Default::default()
         };
         let store = Arc::new(SqliteJobStore::open_in_memory().unwrap());
+        store
+            .bind_project(sched.invocation_project().unwrap())
+            .await
+            .unwrap();
         let cron = CronScheduler {
             store,
             agent_scheduler: sched.clone(),
             config,
             shutdown_notify: Arc::new(Notify::new()),
+            stopping: CancellationToken::new(),
             is_running: Arc::new(RwLock::new(true)),
             active_runs: Arc::new(RwLock::new(0)),
             per_job_active: Arc::new(RwLock::new(HashMap::new())),
+            #[cfg(unix)]
+            pending_attempts: Arc::new(RwLock::new(std::collections::HashSet::new())),
             metrics: Arc::new(RwLock::new(CronMetrics::default())),
-            agentpin_verifier: None,
+            agentpin_verifier: Arc::new(RwLock::new(None)),
             policy_gate: Arc::new(RwLock::new(None)),
         };
         cron.start_tick_loop();
@@ -1779,10 +1576,8 @@ mod tests {
         assert_eq!(before.runs_total, 0);
 
         cron.trigger_now(id).await.unwrap();
-        // trigger_now records directly, but metrics are updated by the tick loop.
-        // The trigger_now path records in the store but the tick-loop path
-        // updates metrics. Since trigger_now bypasses the tick loop, we verify
-        // the run record exists instead.
+        assert_eq!(cron.metrics().runs_total, 1);
+        assert_eq!(cron.metrics().runs_succeeded, 1);
         let history = cron.get_run_history(id, 10).await.unwrap();
         assert_eq!(history.len(), 1);
         assert_eq!(history[0].status, JobRunStatus::Succeeded);
@@ -1957,7 +1752,7 @@ mod tests {
 
         let history = cron.get_run_history(id, 10).await.unwrap();
         assert_eq!(history.len(), 1);
-        assert_eq!(history[0].status, JobRunStatus::Failed);
+        assert_eq!(history[0].status, JobRunStatus::Unresolved);
         assert!(history[0].error.as_deref().unwrap_or("").contains("policy"));
         cron.shutdown().await;
     }
@@ -2017,7 +1812,7 @@ mod tests {
 
         let history = cron.get_run_history(id, 10).await.unwrap();
         assert_eq!(history.len(), 1, "denied run must still be recorded");
-        assert_eq!(history[0].status, JobRunStatus::Failed);
+        assert_eq!(history[0].status, JobRunStatus::Unresolved);
         assert!(history[0].error.as_deref().unwrap_or("").contains("policy"));
 
         let metrics = cron.metrics();
@@ -2064,5 +1859,358 @@ mod tests {
         assert_eq!(metrics.runs_skipped_policy, 0);
         assert!(metrics.runs_succeeded >= 1);
         cron.shutdown().await;
+    }
+    #[tokio::test]
+    async fn timer_observes_identity_verifier_installed_after_construction() {
+        let (cron, scheduler) = make_scheduler().await;
+        let cron = cron.with_agentpin_verifier(Arc::new(
+            crate::integrations::MockAgentPinVerifier::new_failure(),
+        ));
+        let config = test_agent_config();
+        let agent_id = config.id;
+        let mut job = CronJobDefinition::new(
+            "identity-timer".into(),
+            "* * * * * *".into(),
+            "UTC".into(),
+            config,
+        );
+        job.agentpin_jwt = Some("synthetic.jwt.fixture".into());
+        job.one_shot = true;
+        let id = cron.add_job(job).await.unwrap();
+        let history = tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                let rows = cron.get_run_history(id, 10).await.unwrap();
+                if rows.first().is_some_and(|r| {
+                    !matches!(r.status, JobRunStatus::Pending | JobRunStatus::Running)
+                }) {
+                    break rows;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].status, JobRunStatus::Unresolved);
+        assert!(history[0].execution.is_none());
+        assert!(!scheduler.has_agent(agent_id));
+        assert_eq!(cron.metrics().runs_skipped_identity, 1);
+        cron.shutdown().await;
+        scheduler.shutdown().await.unwrap();
+    }
+    #[tokio::test]
+    async fn cron_cannot_reinterpret_external_registration_as_local_execution() {
+        let (cron, scheduler) = make_scheduler().await;
+        let mut config = test_agent_config();
+        let agent_id = config.id;
+        config.execution_mode = ExecutionMode::External {
+            endpoint: None,
+            agentpin_domain: None,
+            heartbeat_interval_secs: 60,
+        };
+        scheduler.register_agent(config.clone()).await.unwrap();
+        let job = CronJobDefinition::new(
+            "external".into(),
+            "0 0 * * * *".into(),
+            "UTC".into(),
+            config,
+        );
+        let id = cron.add_job(job).await.unwrap();
+        assert!(cron
+            .trigger_now(id)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("external agents require their own execution transport"));
+        let rows = cron.get_run_history(id, 10).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].status, JobRunStatus::Unresolved);
+        assert!(rows[0].execution.is_none());
+        assert!(matches!(
+            scheduler.get_agent_config(agent_id).unwrap().execution_mode,
+            ExecutionMode::External { .. }
+        ));
+        cron.shutdown().await;
+        scheduler.shutdown().await.unwrap();
+    }
+    #[tokio::test]
+    async fn refused_identity_cannot_be_replayed_after_policy_changes() {
+        use crate::scheduler::invocations::{Admission, InvocationIdentity};
+        let (cron, sched) = make_scheduler().await;
+        let cron = cron.with_policy_gate(Arc::new(deny_all_gate()));
+        let job = CronJobDefinition::new(
+            "refused".into(),
+            "0 0 0 1 1 * 2099".into(),
+            "UTC".into(),
+            test_agent_config(),
+        );
+        let agent_id = job.agent_config.id;
+        let id = cron.add_job(job).await.unwrap();
+        let identity = InvocationIdentity {
+            id: uuid::Uuid::new_v4(),
+            context: serde_json::json!({"caller":"fixture"}),
+        };
+        assert!(matches!(
+            cron.trigger_identified(id, identity.clone()).await,
+            Err(CronSchedulerError::PolicyDenied(_, _))
+        ));
+        let cron = cron.with_policy_gate(Arc::new(allow_all_gate()));
+        assert!(matches!(
+            cron.trigger_identified(id, identity).await.unwrap(),
+            Admission::Existing(
+                crate::reasoning::invocation::ExistingInvocation::Unresolved { .. }
+            )
+        ));
+        assert!(!sched.has_agent(agent_id));
+        assert_eq!(cron.get_run_history(id, 10).await.unwrap().len(), 1);
+        assert_eq!(cron.metrics().runs_failed, 1);
+        assert!(cron.resume_job(id).await.is_err());
+        cron.shutdown().await;
+        sched.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn prepared_intent_and_stale_history_recover_without_duplicate_execution() {
+        use crate::scheduler::{invocations::InvocationIdentity, occurrences::Occurrence};
+        let (original, sched) = make_scheduler().await;
+        original.shutdown().await;
+        let path = sched
+            .invocation_project()
+            .unwrap()
+            .join(".symbiont/cron_jobs.db");
+        let store = SqliteJobStore::open(&path).unwrap();
+        let job = CronJobDefinition::new(
+            "recover".into(),
+            "0 0 0 1 1 * 2099".into(),
+            "UTC".into(),
+            test_agent_config(),
+        );
+        let id = job.job_id;
+        store.save_job(&job).await.unwrap();
+        let occurrence = Occurrence::manual(
+            job,
+            InvocationIdentity {
+                id: uuid::Uuid::new_v4(),
+                context: serde_json::json!({"caller":"fixture"}),
+            },
+        );
+        store
+            .prepare_occurrence(&occurrence, None, 10)
+            .await
+            .unwrap()
+            .unwrap();
+        let config = CronSchedulerConfig {
+            tick_interval: Duration::from_millis(20),
+            ..Default::default()
+        };
+        let recovered = CronScheduler::new(config.clone(), sched.clone())
+            .await
+            .unwrap();
+        async fn terminal(cron: &CronScheduler, id: CronJobId) -> JobRunRecord {
+            tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    let rows = cron.get_run_history(id, 10).await.unwrap();
+                    if let Some(row) = rows
+                        .into_iter()
+                        .find(|r| r.status == JobRunStatus::Succeeded)
+                    {
+                        break row;
+                    }
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+            })
+            .await
+            .unwrap()
+        }
+        let first = terminal(&recovered, id).await;
+        assert_eq!(
+            first.execution.as_ref().unwrap().output.as_deref(),
+            Some("scheduled result")
+        );
+        recovered.shutdown().await;
+        // Simulate loss of the cron bookkeeping commit after core completion.
+        store.conn.lock().await.execute_batch("UPDATE cron_occurrences SET state='running'; UPDATE job_run_log SET status='running',execution_json=NULL,completed_at=NULL;").unwrap();
+        let recovered = CronScheduler::new(config, sched.clone()).await.unwrap();
+        let second = terminal(&recovered, id).await;
+        assert_eq!(
+            serde_json::to_value(&second.admission_audit).unwrap(),
+            serde_json::to_value(&first.admission_audit).unwrap()
+        );
+        assert_eq!(
+            second.execution.unwrap().run_id,
+            first.execution.unwrap().run_id
+        );
+        let journals = std::fs::read_dir(
+            sched
+                .invocation_project()
+                .unwrap()
+                .join(".symbiont/governed"),
+        )
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|e| e.path().extension().is_some_and(|e| e == "jsonl"))
+        .count();
+        assert_eq!(journals, 1);
+        recovered.shutdown().await;
+        sched.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn startup_guard_applies_before_recovering_persisted_intent() {
+        use crate::scheduler::{invocations::InvocationIdentity, occurrences::Occurrence};
+        let (original, sched) = make_scheduler().await;
+        original.shutdown().await;
+        let path = sched
+            .invocation_project()
+            .unwrap()
+            .join(".symbiont/cron_jobs.db");
+        let store = SqliteJobStore::open(&path).unwrap();
+        let job = CronJobDefinition::new(
+            "recover-denied".into(),
+            "0 0 0 1 1 * 2099".into(),
+            "UTC".into(),
+            test_agent_config(),
+        );
+        let id = job.job_id;
+        let agent_id = job.agent_config.id;
+        store.save_job(&job).await.unwrap();
+        let occurrence = Occurrence::manual(
+            job,
+            InvocationIdentity {
+                id: uuid::Uuid::new_v4(),
+                context: serde_json::json!({"caller":"fixture"}),
+            },
+        );
+        store
+            .prepare_occurrence(&occurrence, None, 10)
+            .await
+            .unwrap()
+            .unwrap();
+        let cron = CronScheduler::new_with_guards(
+            CronSchedulerConfig::default(),
+            sched.clone(),
+            Some(Arc::new(
+                crate::integrations::MockAgentPinVerifier::new_failure(),
+            )),
+            None,
+        )
+        .await
+        .unwrap();
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                if store.get_run_history(id, 1).await.unwrap()[0].status == JobRunStatus::Unresolved
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(!sched.has_agent(agent_id));
+        assert_eq!(cron.metrics().runs_skipped_identity, 1);
+        assert!(cron.resume_job(id).await.is_err());
+        cron.shutdown().await;
+        sched.shutdown().await.unwrap();
+    }
+    #[tokio::test]
+    async fn source_schedule_restart_preserves_terminal_state_and_rejects_changed_source() {
+        let (cron, sched) = make_scheduler().await;
+        let make = || {
+            CronJobDefinition::new(
+                "source".into(),
+                "0 0 0 1 1 * 2099".into(),
+                "UTC".into(),
+                test_agent_config(),
+            )
+        };
+        let id = cron
+            .add_source_job("agents/fixture.symbi", make())
+            .await
+            .unwrap();
+        let mut saved = cron.get_job(id).await.unwrap();
+        saved.run_count = 3;
+        saved.enabled = false;
+        saved.status = CronJobStatus::Completed;
+        saved.next_run = None;
+        cron.store.save_job(&saved).await.unwrap();
+        assert_eq!(
+            cron.add_source_job("agents/fixture.symbi", make())
+                .await
+                .unwrap(),
+            id
+        );
+        let restored = cron.get_job(id).await.unwrap();
+        assert_eq!(restored.status, CronJobStatus::Completed);
+        assert!(!restored.enabled);
+        assert_eq!(restored.run_count, 3);
+        assert!(restored.next_run.is_none());
+        let mut changed = make();
+        changed.agent_config.dsl_source.push_str("// changed");
+        assert!(cron
+            .add_source_job("agents/fixture.symbi", changed)
+            .await
+            .is_err());
+        assert_eq!(cron.list_jobs().await.unwrap().len(), 1);
+        cron.shutdown().await;
+        sched.shutdown().await.unwrap();
+    }
+    #[tokio::test]
+    async fn corrupt_protected_claim_is_visible_as_unresolved_history() {
+        use crate::reasoning::invocation::{open_invocation, OpenInvocation};
+        use crate::scheduler::{invocations::InvocationIdentity, occurrences::Occurrence};
+        let (cron, sched) = make_scheduler().await;
+        cron.stopping.cancel();
+        let job = CronJobDefinition::new(
+            "corrupt".into(),
+            "0 0 0 1 1 * 2099".into(),
+            "UTC".into(),
+            test_agent_config(),
+        );
+        let id = cron.add_job(job).await.unwrap();
+        let identity = InvocationIdentity {
+            id: uuid::Uuid::new_v4(),
+            context: serde_json::json!({"caller":"fixture"}),
+        };
+        let occurrence = Occurrence::manual(cron.get_job(id).await.unwrap(), identity.clone());
+        cron.store
+            .prepare_occurrence(&occurrence, None, 10)
+            .await
+            .unwrap()
+            .unwrap();
+        let (config, input, bound) = occurrence.admission();
+        let request =
+            serde_json::json!({"version":1,"context":bound.context,"target":config,"input":input});
+        let claim = open_invocation(
+            sched.invocation_project().unwrap(),
+            "scheduler:v1",
+            bound.id,
+            &request,
+            config.id,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(&claim, OpenInvocation::Fresh(_)));
+        drop(claim);
+        let path = std::fs::read_dir(
+            sched
+                .invocation_project()
+                .unwrap()
+                .join(".symbiont/invocations"),
+        )
+        .unwrap()
+        .filter_map(Result::ok)
+        .find(|e| e.path().extension().is_some_and(|x| x == "jsonl"))
+        .unwrap()
+        .path();
+        std::fs::write(path, "invalid claim\n").unwrap();
+        assert!(cron.trigger_identified(id, identity).await.is_err());
+        let history = cron.get_run_history(id, 10).await.unwrap();
+        assert_eq!(history[0].status, JobRunStatus::Unresolved);
+        assert!(history[0].error.as_ref().unwrap().contains("lookup failed"));
+        assert!(!sched.has_agent(config.id));
+        assert!(cron.resume_job(id).await.is_err());
+        cron.shutdown().await;
+        sched.shutdown().await.unwrap();
     }
 }

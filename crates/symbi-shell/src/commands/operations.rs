@@ -132,16 +132,24 @@ pub fn audit(app: &mut App, args: &str) -> CommandResult {
     };
 
     let entries = tokio::task::block_in_place(|| rt.block_on(orch.journal().entries()));
+    let references = match orch.audit_references() {
+        Ok(references) => references,
+        Err(error) => return CommandResult::Error(error),
+    };
 
-    if entries.is_empty() {
+    if entries.is_empty() && references.entries.is_empty() {
         return CommandResult::Output("Audit journal is empty.".to_string());
     }
 
     let mut out = format!(
-        "Audit journal ({} entries, showing last {}):\n\n",
+        "Audit display ({} entries, showing last {}):\n\n",
         entries.len(),
         limit
     );
+    match serde_json::to_string_pretty(&references) {
+        Ok(json) => out.push_str(&format!("Protected run references:\n{json}\n\n")),
+        Err(error) => return CommandResult::Error(error.to_string()),
+    }
 
     for entry in entries.iter().rev().take(limit).rev() {
         let event_desc = match &entry.event {
@@ -164,6 +172,7 @@ pub fn audit(app: &mut App, args: &str) -> CommandResult {
                 iteration,
                 action_count,
                 denied_count,
+                ..
             } => {
                 let status = if *denied_count > 0 { "DENIED" } else { "OK" };
                 format!(
@@ -181,6 +190,17 @@ pub fn audit(app: &mut App, args: &str) -> CommandResult {
                     iteration, tool_count, duration
                 )
             }
+            symbi_runtime::reasoning::loop_types::LoopEvent::ToolBatchCompleted {
+                iteration,
+                observations,
+                duration,
+            } => format!(
+                "Tool batch: iter={}, results={}, errors={}, duration={:?}",
+                iteration,
+                observations.len(),
+                observations.iter().filter(|obs| obs.is_error).count(),
+                duration
+            ),
             symbi_runtime::reasoning::loop_types::LoopEvent::ObservationsCollected {
                 iteration,
                 observation_count,

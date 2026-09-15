@@ -22,8 +22,8 @@
 ### 设计原则
 
 - **编译时安全**：通过 Rust 的类型系统在编译时捕获无效的阶段转换
-- **渐进式复杂度**：循环只需提供者和策略门控即可工作；知识桥接、Cedar 策略和人机协作都是可选的
-- **向后兼容**：添加新功能（如知识桥接）永远不会破坏现有代码
+- **显式执行配置**：提供推理服务、执行器和日志；默认策略门控拒绝工具，直到策略允许执行
+- **强制审计**：日志初始化和必需的写入必须成功，才能继续产生作用
 - **可观测性**：每个阶段都会发出日志事件和追踪 span
 
 ---
@@ -33,38 +33,38 @@
 ### 最小示例
 
 ```rust
-use std::sync::Arc;
-use symbi_runtime::reasoning::circuit_breaker::CircuitBreakerRegistry;
-use symbi_runtime::reasoning::context_manager::DefaultContextManager;
+use std::{path::Path, sync::Arc};
 use symbi_runtime::reasoning::conversation::{Conversation, ConversationMessage};
-use symbi_runtime::reasoning::executor::DefaultActionExecutor;
-use symbi_runtime::reasoning::loop_types::{BufferedJournal, LoopConfig};
-use symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate;
+use symbi_runtime::reasoning::executor::UnavailableToolExecutor;
+use symbi_runtime::reasoning::loop_types::LoopConfig;
 use symbi_runtime::reasoning::reasoning_loop::ReasoningLoopRunner;
+use symbi_runtime::reasoning::run_audit::open_run_journal;
 use symbi_runtime::types::AgentId;
 
-// Set up the runner with default components
-let runner = ReasoningLoopRunner {
-    provider: Arc::new(my_inference_provider),
-    policy_gate: Arc::new(DefaultPolicyGate::permissive()),
-    executor: Arc::new(DefaultActionExecutor::default()),
-    context_manager: Arc::new(DefaultContextManager::default()),
-    circuit_breakers: Arc::new(CircuitBreakerRegistry::default()),
-    journal: Arc::new(BufferedJournal::new(1000)),
-    knowledge_bridge: None,
-};
+// Select this directory from trusted operator configuration.
+let project = Path::new("/path/to/trusted/project");
+let agent_id = AgentId::new();
+let (journal, audit) = open_run_journal(project, agent_id).await?;
+println!("Audit: {}", serde_json::to_string(&audit)?);
+let runner = ReasoningLoopRunner::builder()
+    .provider(Arc::new(my_inference_provider))
+    .executor(Arc::new(UnavailableToolExecutor))
+    .journal(journal)
+    .build();
 
 // Build a conversation
 let mut conv = Conversation::with_system("You are a helpful assistant.");
 conv.push(ConversationMessage::user("What is 6 * 7?"));
 
 // Run the loop
-let result = runner.run(AgentId::new(), conv, LoopConfig::default()).await;
+let result = runner.run(agent_id, conv, LoopConfig::default()).await;
 
 println!("Output: {}", result.output);
 println!("Iterations: {}", result.iterations);
 println!("Tokens used: {}", result.total_usage.total_tokens);
 ```
+
+每次调用都应创建新的受保护日志，并使用相同的代理 ID 执行。缺少 `.journal(...)` 时，构建器会在推理前拒绝执行。显式指定的 `BufferedJournal` 可用于测试和展示，但不提供持久审计证据。
 
 ### 使用工具定义
 

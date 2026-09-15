@@ -22,7 +22,7 @@ http://127.0.0.1:8080/api/v1
 
 ### 認証
 
-エージェント管理エンドポイントはBearerトークンによる認証が必要です。環境変数 `API_AUTH_TOKEN` を設定し、Authorizationヘッダーにトークンを含めてください：
+ヘルスチェック以外のランタイム経路には Bearer 認証が必要です。非公開の API キーファイル、または従来の運用者トークン `SYMBIONT_API_TOKEN` を設定してください。
 
 ```
 Authorization: Bearer <your-token>
@@ -30,7 +30,7 @@ Authorization: Bearer <your-token>
 
 **保護されたエンドポイント：**
 - `/api/v1/agents/*` のすべてのエンドポイントは認証が必要
-- `/api/v1/health`、`/api/v1/workflows/execute`、`/api/v1/metrics` エンドポイントは認証不要
+- 公開されるのはヘルスチェックのみです。ワークフローの送信とメトリクスの取得には管理者権限が必要です。
 
 ### 利用可能なエンドポイント
 
@@ -67,21 +67,25 @@ GET /api/v1/health
 POST /api/v1/workflows/execute
 ```
 
-指定されたパラメータでワークフローを実行します。
+管理者は `workflow_id` に DSL ソースを送信し、`parameters` は実行入力になります。`agent_id` を指定すると登録を作成または置換し、省略すると新しい ID を割り当てます。エージェントに限定されたキーは `403 ADMIN_REQUIRED` となり、登録済みソースを `/agents/{id}/execute` から実行できます。`queued` は受付を示します。`/agents/{id}/history` の `execution_id` で実際の結果を確認してください。[詳細な仕様](../../crates/runtime/API_REFERENCE.md#execute-workflow)を参照してください。
 
 **リクエストボディ：**
 ```json
 {
-  "workflow_id": "string",
+  "workflow_id": "agent report() { with sandbox = \"docker\" {} }",
   "parameters": {},
-  "agent_id": "optional-agent-id"
+  "agent_id": null
 }
 ```
 
 **レスポンス（200 OK）：**
 ```json
 {
-  "result": "workflow execution result"
+  "status": "queued",
+  "workflow_id": "agent report() { with sandbox = \"docker\" {} }",
+  "agent_id": "19b183f7-97c4-4e42-9c62-5e9c940bfae3",
+  "execution_id": "c7022f13-7140-4a09-8e30-b1941e0cbb32",
+  "metadata": {}
 }
 ```
 
@@ -210,6 +214,7 @@ Authorization: Bearer <your-token>
 ##### エージェント実行
 ```http
 POST /api/v1/agents/{id}/execute
+Idempotency-Key: <UUID retained for retries>
 Authorization: Bearer <your-token>
 ```
 
@@ -224,7 +229,7 @@ Authorization: Bearer <your-token>
 ```json
 {
   "execution_id": "uuid",
-  "status": "execution_started"
+  "status": "queued"
 }
 ```
 
@@ -678,7 +683,10 @@ POST /api/v1/schedules/{id}/pause
 POST /api/v1/schedules/{id}/resume
 POST /api/v1/schedules/{id}/trigger
 Authorization: Bearer <your-token>
+Idempotency-Key: <invocation-uuid>
 ```
+
+手動実行には管理者トークンと `Idempotency-Key` ヘッダーの UUID が必要です。`queued`、保存済みの結果、または `in_progress` / `unresolved` / `conflict` を返します。再試行では同じ UUID を使用してください。一時停止と再開は以下の応答形式を維持します。未解決の実行がある場合は再開できません。[cron の復旧](../cron-recovery.md)を参照してください。
 
 **レスポンス（200 OK）：**
 ```json

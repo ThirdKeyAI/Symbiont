@@ -10,6 +10,8 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { id: 'fleet', label: 'Fleet Overview', icon: '⬡' },
+  { id: 'runs', label: 'Run Inspector', icon: '◎' },
+  { id: 'capacity', label: 'Worker capacity', icon: '▥' },
   { id: 'audit', label: 'Audit Trail', icon: '◈' },
   { id: 'compliance', label: 'Compliance', icon: '◉' },
   { id: 'coordinator', label: 'Coordinator', icon: '◇' },

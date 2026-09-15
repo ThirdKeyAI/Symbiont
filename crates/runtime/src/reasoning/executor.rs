@@ -14,6 +14,16 @@ use std::time::Duration;
 /// Trait for executing proposed actions and producing observations.
 #[async_trait]
 pub trait ActionExecutor: Send + Sync {
+    /// Frozen runtime-owned metadata, included in policy bindings and run audit.
+    fn execution_context(&self) -> std::collections::HashMap<String, serde_json::Value> {
+        std::collections::HashMap::new()
+    }
+
+    /// Validate frozen operator configuration before the reasoning provider runs.
+    fn validate_configuration(&self) -> Result<(), String> {
+        Ok(())
+    }
+
     /// Execute a batch of approved actions, potentially in parallel.
     ///
     /// Returns observations from all action results. Circuit breakers
@@ -25,6 +35,84 @@ pub trait ActionExecutor: Send + Sync {
         circuit_breakers: &CircuitBreakerRegistry,
     ) -> Vec<Observation>;
 
+    /// Stop all persistent effects owned by a run. Cancellation must be
+    /// synchronous so dropping the run future can signal worker ownership.
+    fn cancel_run(&self, _run: &str, _deadline: std::time::Instant) {}
+
+    /// Await required cleanup before publishing normal loop termination.
+    async fn close_run(&self, run: &str, deadline: std::time::Instant) -> Result<(), String> {
+        self.cancel_run(run, deadline);
+        Ok(())
+    }
+
+    /// Validate and normalize before policy evaluation. Implementations with
+    /// mutable registries must attach a frozen backend snapshot here.
+    fn prepare_action(
+        &self,
+        action: &ProposedAction,
+        config: &LoopConfig,
+    ) -> Result<super::prepared::PreparedAction, String> {
+        prepare_registered_action(action, config, &self.tool_definitions())
+    }
+
+    /// Consume policy grants. Legacy executors are rechecked against their
+    /// current registry immediately before receiving the normalized action.
+    async fn execute_authorized(
+        &self,
+        actions: Vec<super::prepared::AuthorizedAction>,
+        config: &LoopConfig,
+        circuit_breakers: &CircuitBreakerRegistry,
+    ) -> Vec<Observation> {
+        let mut observations = Vec::new();
+        for authorized in actions {
+            let action = authorized.action().clone();
+            let checked = authorized.check_live().and_then(|()| {
+                let current = self.prepare_action(&action, config)?;
+                if !current.matches_authorized_call(authorized.prepared())? {
+                    return Err("tool contract changed after authorization".into());
+                }
+                authorized.check_live()
+            });
+            match checked {
+                Ok(()) => {
+                    let remaining = authorized
+                        .deadline()
+                        .saturating_duration_since(std::time::Instant::now());
+                    match tokio::time::timeout(
+                        remaining,
+                        self.execute_actions(
+                            std::slice::from_ref(&action),
+                            config,
+                            circuit_breakers,
+                        ),
+                    )
+                    .await
+                    {
+                        Ok(results) => observations.extend(results),
+                        Err(_) => {
+                            if let ProposedAction::ToolCall { call_id, name, .. } = action {
+                                observations.push(
+                                    Observation::tool_error(
+                                        name,
+                                        "authorized execution timed out; completion is unconfirmed",
+                                    )
+                                    .with_call_id(call_id),
+                                );
+                            }
+                        }
+                    }
+                }
+                Err(error) => {
+                    if let ProposedAction::ToolCall { call_id, name, .. } = action {
+                        observations
+                            .push(Observation::tool_error(name, error).with_call_id(call_id));
+                    }
+                }
+            }
+        }
+        observations
+    }
+
     /// Return tool definitions this executor can handle.
     ///
     /// The runner auto-populates `LoopConfig.tool_definitions` from this
@@ -35,7 +123,100 @@ pub trait ActionExecutor: Send + Sync {
     }
 }
 
-/// Default executor that dispatches tool calls in parallel.
+/// Own persistent effects across a governed run. SDK dispatchers should keep
+/// one guard for their whole run, then await `close`. Dropping an interrupted
+/// run signals cancellation immediately.
+pub struct ExecutionRunGuard {
+    executor: std::sync::Arc<dyn ActionExecutor>,
+    run: String,
+    deadline: std::time::Instant,
+    armed: bool,
+}
+impl ExecutionRunGuard {
+    pub fn new(
+        executor: std::sync::Arc<dyn ActionExecutor>,
+        state: &super::loop_types::LoopState,
+        config: &LoopConfig,
+    ) -> Result<Self, String> {
+        let remaining = config
+            .timeout
+            .saturating_sub(state.elapsed().to_std().unwrap_or(Duration::ZERO));
+        let deadline = std::time::Instant::now()
+            .checked_add(remaining)
+            .ok_or("run deadline exceeds supported range")?;
+        Ok(Self {
+            executor,
+            run: super::prepared::execution_run_key(state),
+            deadline,
+            armed: true,
+        })
+    }
+    pub async fn close(mut self) -> Result<(), String> {
+        let result = tokio::time::timeout(
+            Duration::from_secs(22),
+            self.executor.close_run(&self.run, self.deadline),
+        )
+        .await
+        .unwrap_or_else(|_| Err("run cleanup acknowledgement timed out".into()));
+        if result.is_ok() {
+            self.armed = false;
+        }
+        result
+    }
+}
+impl Drop for ExecutionRunGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            self.executor.cancel_run(&self.run, self.deadline);
+        }
+    }
+}
+
+pub fn prepare_registered_action(
+    action: &ProposedAction,
+    config: &LoopConfig,
+    definitions: &[ToolDefinition],
+) -> Result<super::prepared::PreparedAction, String> {
+    use super::prepared::{canonical_json, digest_json, PreparedAction, ToolContract};
+    let ProposedAction::ToolCall {
+        call_id,
+        name,
+        arguments,
+    } = action
+    else {
+        return PreparedAction::new(action.clone(), None);
+    };
+    super::phases::validate_tool_call_arguments(name, arguments, &config.tool_definitions)?;
+    let definitions = if definitions.is_empty() {
+        config.tool_definitions.as_slice()
+    } else {
+        definitions
+    };
+    let definition = definitions
+        .iter()
+        .find(|d| d.name == *name)
+        .ok_or_else(|| format!("executor does not advertise '{name}'"))?;
+    let args: serde_json::Value = serde_json::from_str(arguments).map_err(|e| e.to_string())?;
+    PreparedAction::new(
+        ProposedAction::ToolCall {
+            call_id: call_id.clone(),
+            name: name.clone(),
+            arguments: canonical_json(&args)?,
+        },
+        Some(ToolContract {
+            name: name.clone(),
+            version: String::new(),
+            digest: digest_json(&serde_json::to_value(definition).map_err(|e| e.to_string())?)?,
+            action_type: "Action".into(),
+            action_id: format!("tool_call::{name}"),
+            resource_type: "Resource".into(),
+            resource_id: "default".into(),
+            requires_approval: false,
+        }),
+    )
+}
+
+/// Compatibility executor with no tool backend. Every tool call fails honestly.
 pub struct DefaultActionExecutor {
     tool_timeout: Duration,
 }
@@ -108,8 +289,7 @@ impl ActionExecutor for DefaultActionExecutor {
 
                     // Execute the tool call with timeout
                     let result = tokio::time::timeout(timeout, async {
-                        // In production, this would call the ToolInvocationEnforcer.
-                        // For now, produce an observation indicating the tool was called.
+                        // No backend is installed on this compatibility executor.
                         execute_tool_call(&name, &arguments).await
                     })
                     .await;
@@ -161,16 +341,10 @@ impl ActionExecutor for DefaultActionExecutor {
     }
 }
 
-/// Execute a single tool call. In production, this delegates to the
-/// ToolInvocationEnforcer → MCP client pipeline. This default implementation
-/// returns the arguments as the "result" for testing purposes.
-async fn execute_tool_call(name: &str, arguments: &str) -> Result<String, String> {
-    tracing::debug!("Executing tool '{}' with arguments: {}", name, arguments);
-    // Production implementation would call through ToolInvocationEnforcer here.
-    // For the reasoning loop infrastructure, we return a placeholder.
-    Ok(format!(
-        "Tool '{}' executed successfully with arguments: {}",
-        name, arguments
+/// A default executor cannot claim an effect when no backend was installed.
+async fn execute_tool_call(name: &str, _arguments: &str) -> Result<String, String> {
+    Err(format!(
+        "Tool '{name}' was not executed: no tool backend is configured"
     ))
 }
 
@@ -183,10 +357,8 @@ async fn execute_tool_call(name: &str, arguments: &str) -> Result<String, String
 /// manifests are present, so those paths never tell the model a tool
 /// "executed successfully" when nothing ran.
 ///
-/// Contrast: [`DefaultActionExecutor`] is a parallel-dispatch executor whose
-/// per-call result is an echo placeholder (a test double, not for production
-/// tool execution); [`crate::toolclad::executor::ToolCladExecutor`] performs
-/// real, SchemaPin-verified execution when `tools/` manifests are configured.
+/// [`DefaultActionExecutor`] also refuses unconfigured tools. Use
+/// [`crate::toolclad::executor::ToolCladExecutor`] for real configured backends.
 #[derive(Default)]
 pub struct UnavailableToolExecutor;
 
@@ -204,9 +376,7 @@ impl ActionExecutor for UnavailableToolExecutor {
                 ProposedAction::ToolCall { call_id, name, .. } => Some(Observation {
                     source: name.clone(),
                     content: format!(
-                        "Tool '{}' was not executed: this runner has no tool backend \
-                         configured (MCP-backed tool execution is not yet available). \
-                         Reason about the task and respond without tool results.",
+                        "Tool '{}' was not executed: this runner has no tool backend configured.",
                         name
                     ),
                     is_error: true,
@@ -254,7 +424,8 @@ mod tests {
             .execute_actions(&actions, &config, &circuit_breakers)
             .await;
         assert_eq!(obs.len(), 1);
-        assert!(!obs[0].is_error);
+        assert!(obs[0].is_error);
+        assert!(obs[0].content.contains("not executed"));
         assert_eq!(obs[0].source, "search");
         assert_eq!(obs[0].call_id.as_deref(), Some("c1"));
     }
@@ -309,23 +480,16 @@ mod tests {
             })
             .collect();
 
-        let start = std::time::Instant::now();
         let obs = executor
             .execute_actions(&actions, &config, &circuit_breakers)
             .await;
-        let elapsed = start.elapsed();
 
         assert_eq!(obs.len(), 3);
-        // All should succeed
-        assert!(obs.iter().all(|o| !o.is_error));
-        // Parallel dispatch means wall-clock ≈ max(individual), not sum
-        // Individual calls are near-instant in the default executor,
-        // so elapsed should be well under 100ms
-        assert!(
-            elapsed.as_millis() < 100,
-            "Parallel dispatch took {}ms, expected <100ms",
-            elapsed.as_millis()
-        );
+        // No backend may fabricate success.
+        assert!(obs.iter().all(|o| o.is_error));
+        let ids: std::collections::HashSet<_> =
+            obs.iter().map(|o| o.call_id.as_deref().unwrap()).collect();
+        assert_eq!(ids, std::collections::HashSet::from(["c0", "c1", "c2"]));
     }
 
     #[tokio::test]

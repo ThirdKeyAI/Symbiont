@@ -21,6 +21,7 @@ pub struct AgentSpec {
     // Retained for routing and future DSL-agent execution phases.
     #[allow(dead_code)]
     pub source: AgentSource,
+    pub definition: Option<dsl::ConversationalAgent>,
 }
 
 /// A synchronous summary of a loaded agent, used to build the `delegate` tool's
@@ -69,12 +70,13 @@ pub fn parse_manifest(path: &Path) -> Result<AgentSpec, LoadError> {
         system_prompt: m.system_prompt,
         tools: m.tools,
         source: AgentSource::Manifest(path.to_path_buf()),
+        definition: None,
     })
 }
 
 /// Scan a directory for agent definitions: `*.toml` manifests and `*.symbi` /
 /// `*.dsl` DSL agents. Returns successfully-parsed specs, a per-file error for
-/// each that failed, and the names of agents refused by the sandbox-tier gate.
+/// each that failed, and the names of agents with unsupported execution requirements.
 /// A missing directory yields empty results.
 pub fn scan_dir(dir: &Path) -> (Vec<AgentSpec>, Vec<LoadError>, Vec<String>) {
     let mut specs = Vec::new();
@@ -95,8 +97,12 @@ pub fn scan_dir(dir: &Path) -> (Vec<AgentSpec>, Vec<LoadError>, Vec<String>) {
                 Ok(loads) => {
                     for load in loads {
                         match load {
-                            crate::agents::symbi::SymbiLoad::Loaded(s) => specs.push(s),
-                            crate::agents::symbi::SymbiLoad::Refused { name, .. } => {
+                            crate::agents::symbi::SymbiLoad::Loaded(s) => specs.push(*s),
+                            crate::agents::symbi::SymbiLoad::Refused { name, reason } => {
+                                errors.push(LoadError {
+                                    path: path.clone(),
+                                    message: format!("{name}: {reason}"),
+                                });
                                 refused.push(name)
                             }
                         }
@@ -116,8 +122,7 @@ pub struct LoadReport {
     pub loaded: usize,
     pub errors: Vec<LoadError>,
     pub collisions: Vec<String>,
-    /// Names of `.symbi` agents refused because their declared sandbox tier
-    /// requires isolation the shell can't provide.
+    /// Names of `.symbi` agents refused because conversational execution cannot enforce their declared requirements.
     pub sandbox_refused: Vec<String>,
 }
 
@@ -166,8 +171,7 @@ actually returned.",
     )
 }
 
-/// Scan `dir`, register every spec into the bridge's registry (last-wins on name
-/// collision), rebuild the synchronous `cards` mirror, and collect sandbox
+/// Scan `dir`, register unambiguous specs into the bridge's registry, rebuild the synchronous `cards` mirror, and collect sandbox
 /// refusals. Per-file parse errors are collected, never fatal.
 pub async fn load_agents_into(
     dir: &Path,
@@ -176,7 +180,7 @@ pub async fn load_agents_into(
 ) -> LoadReport {
     let (specs, errors, sandbox_refused) = scan_dir(dir);
 
-    // De-dupe by name, last wins; record which names collided.
+    // Ambiguous names grant no authority. Do not select by directory order.
     let mut by_name: std::collections::HashMap<String, AgentSpec> =
         std::collections::HashMap::new();
     let mut collisions = Vec::new();
@@ -188,15 +192,46 @@ pub async fn load_agents_into(
         }
     }
 
+    for name in &collisions {
+        by_name.remove(name);
+        bridge.agent_registry().remove_agent(name).await;
+    }
+    for name in &sandbox_refused {
+        by_name.remove(name);
+        bridge.agent_registry().remove_agent(name).await;
+    }
+
+    let previous: Vec<_> = cards
+        .read()
+        .await
+        .iter()
+        .map(|card| card.name.clone())
+        .collect();
+    for name in previous {
+        if !by_name.contains_key(&name) {
+            bridge.agent_registry().remove_agent(&name).await;
+        }
+    }
     let mut new_cards = Vec::new();
     for spec in by_name.values() {
-        bridge
-            .register_agent(
-                &spec.name,
-                &tool_aware_system_prompt(&spec.system_prompt, &spec.tools),
-                spec.tools.clone(),
-            )
-            .await;
+        if let Some(definition) = &spec.definition {
+            bridge
+                .agent_registry()
+                .register_canonical(
+                    definition.clone(),
+                    tool_aware_system_prompt(&spec.system_prompt, &spec.tools),
+                    spec.tools.clone(),
+                )
+                .await;
+        } else {
+            bridge
+                .register_agent(
+                    &spec.name,
+                    &tool_aware_system_prompt(&spec.system_prompt, &spec.tools),
+                    spec.tools.clone(),
+                )
+                .await;
+        }
         new_cards.push(AgentCard {
             name: spec.name.clone(),
             description: spec.description.clone(),
@@ -283,17 +318,26 @@ mod tests {
     }
 
     #[test]
-    fn scan_dir_refuses_high_tier_symbi() {
+    fn scan_dir_preserves_selected_tier_symbi() {
         let dir = tempfile::tempdir().unwrap();
-        // Full grammar: with-block sandbox tier triggers the fail-closed gate.
+        // Declared tier remains bound to the canonical contract.
         write(
             dir.path(),
             "risky.symbi",
             "agent Risky {\n  capabilities = [\"read\"]\n  with sandbox = \"Tier2\" {\n  }\n}\n",
         );
         let (specs, _errors, refused) = scan_dir(dir.path());
-        assert!(specs.is_empty());
-        assert_eq!(refused, vec!["Risky".to_string()]);
+        assert_eq!(specs.len(), 1);
+        assert!(refused.is_empty());
+        assert_eq!(
+            specs[0]
+                .definition
+                .as_ref()
+                .unwrap()
+                .settings()
+                .sandbox_tier,
+            Some(dsl::SandboxTier::GVisor)
+        );
     }
 
     #[tokio::test]
@@ -311,7 +355,7 @@ mod tests {
             "b.toml",
             "name=\"b\"\ndescription=\"second\"\nsystem_prompt=\"p\"\n",
         );
-        // collision: a second 'a' — last loaded wins
+        // A second declaration of a makes that name unavailable.
         write(
             dir.path(),
             "a2.toml",
@@ -328,11 +372,12 @@ mod tests {
         let cards = Arc::new(RwLock::new(Vec::<AgentCard>::new()));
         let report = load_agents_into(dir.path(), &bridge, &cards).await;
 
-        assert_eq!(report.loaded, 3, "a (deduped) + b + z(.symbi)");
+        assert_eq!(report.loaded, 2, "b + z; ambiguous a is refused");
         assert_eq!(report.collisions, vec!["a".to_string()]);
         assert!(report.sandbox_refused.is_empty());
         let names: Vec<_> = cards.read().await.iter().map(|c| c.name.clone()).collect();
-        assert!(names.contains(&"a".to_string()) && names.contains(&"b".to_string()));
+        assert!(!names.contains(&"a".to_string()) && names.contains(&"b".to_string()));
+        assert!(bridge.agent_registry().get_agent("a").await.is_none());
         assert!(
             names.contains(&"z".to_string()),
             ".symbi agent is now registered"
@@ -461,7 +506,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn symbi_and_manifest_collision_last_wins() {
+    async fn symbi_and_manifest_collision_grants_no_authority() {
         let dir = tempfile::tempdir().unwrap();
         write(
             dir.path(),
@@ -477,7 +522,55 @@ mod tests {
         let bridge = Arc::new(repl_core::RuntimeBridge::new_permissive_for_dev());
         let cards = Arc::new(RwLock::new(Vec::<AgentCard>::new()));
         let report = load_agents_into(dir.path(), &bridge, &cards).await;
-        assert_eq!(report.loaded, 1, "deduped by name");
+        assert_eq!(report.loaded, 0, "ambiguous name is unavailable");
         assert_eq!(report.collisions, vec!["dup".to_string()]);
+        assert!(bridge.agent_registry().get_agent("dup").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn reload_removes_contracts_with_missing_or_unsupported_source() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = "agent retained() { capabilities = [\"read\"] with sandbox = \"docker\" {} }";
+        write(dir.path(), "retained.symbi", source);
+        let bridge = Arc::new(repl_core::RuntimeBridge::new());
+        let cards = Arc::new(RwLock::new(Vec::<AgentCard>::new()));
+        assert_eq!(
+            load_agents_into(dir.path(), &bridge, &cards).await.loaded,
+            1
+        );
+        let original = bridge.agent_registry().get_agent("retained").await.unwrap();
+        write(
+            dir.path(),
+            "retained.symbi",
+            "agent retained() { policy mandatory { require: true } }",
+        );
+        let report = load_agents_into(dir.path(), &bridge, &cards).await;
+        assert_eq!(report.loaded, 0);
+        assert_eq!(report.sandbox_refused, ["retained"]);
+        assert!(report.errors[0]
+            .message
+            .contains("require rules require an unsupported interpreter"));
+        assert!(bridge
+            .agent_registry()
+            .get_agent("retained")
+            .await
+            .is_none());
+        assert!(cards.read().await.is_empty());
+        assert_eq!(original.definition.unwrap().source(), source);
+        write(dir.path(), "retained.symbi", source);
+        assert_eq!(
+            load_agents_into(dir.path(), &bridge, &cards).await.loaded,
+            1
+        );
+        std::fs::remove_file(dir.path().join("retained.symbi")).unwrap();
+        assert_eq!(
+            load_agents_into(dir.path(), &bridge, &cards).await.loaded,
+            0
+        );
+        assert!(bridge
+            .agent_registry()
+            .get_agent("retained")
+            .await
+            .is_none());
     }
 }

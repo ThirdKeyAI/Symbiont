@@ -70,13 +70,16 @@ name = "echo_mcp_server"
 path = "tests/fixtures/echo_mcp_server.rs"
 required-features = ["mcp-client"]
 [dependencies]
+symbi-sandbox-guest = { path = "../sandbox-guest", version = "1.20.0" }
+symbi-sandbox-supervisor = { path = "../sandbox-supervisor", version = "1.20.0" }
 symbi-dsl = { path = "../dsl", version = "1.20.0" }
 symbi-session = { path = "../symbi-session", version = "1.20.0", optional = true }
 symbi-invis-strip = { path = "../symbi-invis-strip", version = "0.3.0" }
 symbi-channel-adapter = { path = "../channel-adapter", version = "0.1.5", default-features = false }
 tokio = { version = "1.0", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde_json = { version = "1.0", features = ["raw_value"] }
 serde_yaml = "0.9"
 uuid = { version = "1.0", features = ["v4", "v5", "serde"] }
 thiserror = "1.0"
@@ -132,7 +135,6 @@ rlimit = { version = "0.10", optional = true }
 libc = "0.2"
 dotenvy = "0.15"
 fd-lock = "4.0"
-pty-process = { version = "0.4", optional = true }
 shlex = "1.3"
 # OS keychain access dependencies
 keyring = { version = "2.0", optional = true }
@@ -201,7 +203,7 @@ keychain = ["keyring"]
 cron = ["dep:cron", "dep:chrono-tz", "dep:rusqlite"]
 native-sandbox = ["rlimit"]
 cli-executor = []
-toolclad-session = ["dep:pty-process"]
+toolclad-session = []  # Interactive PTYs are allocated inside the selected container.
 toolclad-browser = []  # CDP browser backend seam; empty until the driver dep lands. Not in default/full — no build implies browser execution works.
 mcp-client = ["dep:rmcp", "dep:schemars"]  # MCP client (stdio child-process transport) — toml already a non-optional dep; schemars backs the echo_mcp_server test fixture's tool params
 metrics = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp"]
@@ -223,6 +225,7 @@ security-framework = { version = "2.9", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 secret-service = { version = "3.0", optional = true }
+landlock = "0.4.7"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi = { version = "0.3", features = ["wincred"], optional = true }

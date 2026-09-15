@@ -21,6 +21,9 @@ pub mod manager;
 pub mod traits;
 pub mod types;
 
+#[cfg(any(feature = "slack", feature = "teams", feature = "mattermost"))]
+mod transport;
+
 pub mod adapters;
 
 // Re-export core types

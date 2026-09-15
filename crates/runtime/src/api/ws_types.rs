@@ -14,11 +14,13 @@ use serde::{Deserialize, Serialize};
 pub enum ClientMessage {
     /// Send a chat message to the coordinator.
     ChatSend {
-        /// Client-generated message id (for dedup / optimistic UI).
+        /// Non-nil client-generated UUID, retained unchanged for retries.
         id: String,
         /// Natural-language content.
         content: String,
     },
+    /// Look up the original message without creating a claim or running work.
+    ChatInspect { id: String, content: String },
     /// Client ping (keepalive).
     Ping,
 }
@@ -28,14 +30,23 @@ pub enum ClientMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum ServerMessage {
+    /// Protected audit opened before inference. This is a reference, not a
+    /// completion assertion; clients must verify the terminal signed record.
+    AuditOpened {
+        request_id: String,
+        audit: crate::reasoning::run_audit::RunAuditReference,
+    },
     /// A chunk of the assistant's streaming response.
     ChatChunk {
-        /// Server-generated UUID correlating all events for one user message.
+        /// Client message UUID correlating all events for one admitted message.
         request_id: String,
         /// Chunk content (may be empty on the final `done` message).
         content: String,
         /// `true` on the last chunk — signals the response is complete.
         done: bool,
+        /// A saved result, returned without inference or action execution.
+        #[serde(default)]
+        replayed: bool,
     },
     /// A tool call has started executing.
     ToolCallStarted {

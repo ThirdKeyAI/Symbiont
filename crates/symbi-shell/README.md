@@ -20,8 +20,8 @@ Interactive TUI shell for the Symbi agent orchestration platform. Provides a ful
 # Launch the interactive shell
 symbi-shell
 
-# Connect to a remote runtime
-symbi-shell --endpoint http://localhost:8080
+# Inside the shell, attach to a local runtime with its API token:
+# /attach http://localhost:8080 --token <runtime-token>
 ```
 
 ### Key bindings
@@ -29,15 +29,29 @@ symbi-shell --endpoint http://localhost:8080
 | Key | Action |
 |-----|--------|
 | `Ctrl+G` / `/gate` | Open Gate panel (held-action approvals) |
-| `a` | Approve selected held action (Gate panel) |
-| `d` | Deny selected held action (Gate panel) |
+| `Enter` | Open the complete selected request in the Gate panel |
+| `a` / `d` | Approve / deny the request opened for review |
+| `↑/↓`, `Page Up/Down` | Scroll the complete request while reviewing |
+| `Esc` | Return from review to queue, then close the Gate panel |
 | `↑/↓` | Navigate lists |
 | `Tab` | Switch panels |
-| `q` / `Ctrl+C` | Quit |
+| `Ctrl+D` | Quit |
+| `Ctrl+C` | Cancel an active turn |
 
 ## Gate panel
 
-The Gate panel lets operators respond to held agent actions without leaving the shell. When the runtime blocks an action pending human approval (see `SYMBIONT_REQUIRE_APPROVAL_TOOLS` and the `[escalation]` config block), the pending item appears in the Gate panel. Select it, review the action details, and press `a` to approve or `d` to deny. Approvals are sent to the runtime's `/api/v1/approvals` REST endpoint.
+Ctrl+G opens the Gate panel even during a busy turn. Select a pending action and
+press Enter to review its complete escaped JSON; scroll through all arguments,
+then press `a` or `d`. A list row alone cannot approve. Review follows the exact
+request across queue reordering and is invalidated by changes, expiry, removal
+or refresh failure.
+
+The panel reports actual resolution outcomes; a timeout means the outcome is
+unknown. A configured local escalation queue takes precedence, otherwise the
+panel uses the attached runtime's authenticated `/api/v1/approvals` API. Changing
+connections discards prior reviews and waits for pending resolution. See
+[approval lifecycle](../../docs/approval-lifecycle.md) for limits and the
+[branch guide](../../docs/containment-branch-guide.md) for remaining execution gaps.
 
 ## See Also
 

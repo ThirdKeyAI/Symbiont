@@ -16,7 +16,6 @@ use crate::traits::ChannelAdapter;
 #[cfg(any(feature = "slack", feature = "teams", feature = "mattermost"))]
 use crate::traits::InboundHandler;
 use crate::types::ChatDeliveryReceipt;
-#[cfg(any(feature = "slack", feature = "teams", feature = "mattermost"))]
 use crate::types::InboundMessage;
 use crate::types::{ChatPlatform, OutboundMessage};
 
@@ -44,6 +43,29 @@ pub trait AgentInvoker: Send + Sync {
     /// Invoke an agent by name with the given input text.
     /// Returns the agent's response text.
     async fn invoke(&self, agent_name: &str, input: &str) -> Result<String, String>;
+
+    /// Own invocation through actual delivery. Runtime implementations override
+    /// this to require policy and audit for the final formatted message. The SDK
+    /// default leaves governance to its embedding application.
+    async fn invoke_and_deliver(
+        &self,
+        agent_name: &str,
+        message: &InboundMessage,
+        adapter: Arc<dyn ChannelAdapter>,
+    ) -> Result<(), String> {
+        let content = self.invoke(agent_name, &message.content).await?;
+        let receipt = adapter
+            .send_response(build_platform_response(message, &content, agent_name))
+            .await
+            .map_err(|error| error.to_string())?;
+        if !receipt.success
+            || receipt.platform != message.platform
+            || receipt.channel_id != message.channel_id
+        {
+            return Err("response delivery was not confirmed for the requested destination".into());
+        }
+        Ok(())
+    }
 }
 
 /// Lightweight orchestrator for channel adapters.
@@ -329,8 +351,17 @@ impl InboundHandler for ManagerInboundHandler {
             }
         }
 
-        // Invoke the agent
-        let result = self.invoker.invoke(agent_name, &message.content).await;
+        // The invoker owns the full response lifecycle, including the final
+        // formatted send. Never send again after an audited invoker returns.
+        let adapter = self.adapter.read().await.clone();
+        let result = match adapter {
+            Some(adapter) => {
+                self.invoker
+                    .invoke_and_deliver(agent_name, &message, adapter)
+                    .await
+            }
+            None => Err("no adapter available for response delivery".into()),
+        };
 
         let (success, duration_ms) = match &result {
             Ok(_) => (true, Some(start.elapsed().as_millis() as u64)),
@@ -360,41 +391,7 @@ impl InboundHandler for ManagerInboundHandler {
         }
 
         match result {
-            Ok(response_text) => {
-                // Format response based on platform
-                let response = build_platform_response(&message, &response_text, agent_name);
-
-                // Send response through the adapter
-                let adapter_guard = self.adapter.read().await;
-                if let Some(ref adapter) = *adapter_guard {
-                    match adapter.send_response(response).await {
-                        Ok(receipt) => {
-                            tracing::info!(
-                                agent = %agent_name,
-                                channel = %message.channel_id,
-                                delivered = %receipt.success,
-                                "Agent response delivered"
-                            );
-                        }
-                        Err(e) => {
-                            tracing::error!(
-                                agent = %agent_name,
-                                channel = %message.channel_id,
-                                error = %e,
-                                "Failed to deliver agent response"
-                            );
-                        }
-                    }
-                } else {
-                    tracing::warn!(
-                        agent = %agent_name,
-                        channel = %message.channel_id,
-                        "No adapter available for response delivery"
-                    );
-                }
-
-                Ok(())
-            }
+            Ok(()) => Ok(()),
             Err(e) => {
                 tracing::error!(
                     agent = %agent_name,
@@ -410,18 +407,16 @@ impl InboundHandler for ManagerInboundHandler {
 
 /// Build a platform-appropriate outbound message with formatted content.
 ///
-/// Used only by `ManagerInboundHandler`, so it is compiled only when a platform
-/// feature is enabled.
-#[cfg(any(feature = "slack", feature = "teams", feature = "mattermost"))]
-fn build_platform_response(
+/// Shared with runtime invokers so authorization covers the actual formatting.
+pub fn build_platform_response(
     message: &InboundMessage,
     content: &str,
-    agent_name: &str,
+    _agent_name: &str,
 ) -> OutboundMessage {
     match message.platform {
         #[cfg(feature = "slack")]
         ChatPlatform::Slack => {
-            let blocks = format_slack_response(content, agent_name);
+            let blocks = format_slack_response(content, _agent_name);
             OutboundMessage {
                 channel_id: message.channel_id.clone(),
                 thread_id: message.thread_id.clone(),
@@ -434,7 +429,7 @@ fn build_platform_response(
         }
         #[cfg(feature = "teams")]
         ChatPlatform::Teams => {
-            let card = format_teams_response(content, agent_name);
+            let card = format_teams_response(content, _agent_name);
             // Extract service_url and activity id from the raw_payload
             // so the adapter can route the reply correctly.
             let teams_meta = message.raw_payload.as_ref().map(|payload| {
@@ -459,7 +454,7 @@ fn build_platform_response(
         }
         #[cfg(feature = "mattermost")]
         ChatPlatform::Mattermost => {
-            let formatted = format_mattermost_response(content, agent_name);
+            let formatted = format_mattermost_response(content, _agent_name);
             OutboundMessage {
                 channel_id: message.channel_id.clone(),
                 thread_id: message.thread_id.clone(),
@@ -515,7 +510,7 @@ mod tests {
         let handler = ManagerInboundHandler {
             invoker: Arc::new(EchoInvoker),
             logger: logger.clone(),
-            adapter: tokio::sync::RwLock::new(None),
+            adapter: tokio::sync::RwLock::new(Some(super::delivery_tests::adapter(true))),
             default_agent: Some("echo".to_string()),
             interceptor: None,
             #[cfg(feature = "enterprise-hooks")]
@@ -548,7 +543,7 @@ mod tests {
         let handler = ManagerInboundHandler {
             invoker: Arc::new(FailInvoker),
             logger: logger.clone(),
-            adapter: tokio::sync::RwLock::new(None),
+            adapter: tokio::sync::RwLock::new(Some(super::delivery_tests::adapter(true))),
             default_agent: Some("broken".to_string()),
             interceptor: None,
             #[cfg(feature = "enterprise-hooks")]
@@ -668,7 +663,110 @@ mod interceptor_tests {
             calls: Mutex::new(0),
         });
         let handler = ManagerInboundHandler::for_test(invoker.clone(), None);
+        handler
+            .set_adapter(super::delivery_tests::adapter(true))
+            .await;
         let _ = handler.handle_message(msg()).await;
         assert_eq!(*invoker.calls.lock().unwrap(), 1);
+    }
+}
+
+#[cfg(all(
+    test,
+    any(feature = "slack", feature = "teams", feature = "mattermost")
+))]
+mod delivery_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    struct ReceiptAdapter {
+        success: bool,
+    }
+    #[async_trait]
+    impl ChannelAdapter for ReceiptAdapter {
+        async fn start(&self) -> Result<(), ChannelAdapterError> {
+            Ok(())
+        }
+        async fn stop(&self) -> Result<(), ChannelAdapterError> {
+            Ok(())
+        }
+        fn platform(&self) -> ChatPlatform {
+            ChatPlatform::Slack
+        }
+        async fn check_health(&self) -> Result<crate::types::AdapterHealth, ChannelAdapterError> {
+            Err(ChannelAdapterError::Internal(
+                "fixture health unavailable".into(),
+            ))
+        }
+        async fn send_response(
+            &self,
+            message: OutboundMessage,
+        ) -> Result<ChatDeliveryReceipt, ChannelAdapterError> {
+            Ok(ChatDeliveryReceipt {
+                platform: ChatPlatform::Slack,
+                channel_id: message.channel_id,
+                message_ts: Some("fixture-receipt".into()),
+                delivered_at: chrono::Utc::now(),
+                success: self.success,
+                error: None,
+            })
+        }
+    }
+    pub(super) fn adapter(success: bool) -> Arc<dyn ChannelAdapter> {
+        Arc::new(ReceiptAdapter { success })
+    }
+    fn message() -> InboundMessage {
+        InboundMessage {
+            id: "m".into(),
+            platform: ChatPlatform::Slack,
+            workspace_id: "w".into(),
+            channel_id: "C1".into(),
+            thread_id: None,
+            sender_id: "U1".into(),
+            sender_name: "fixture".into(),
+            content: "input".into(),
+            command: None,
+            timestamp: chrono::Utc::now(),
+            raw_payload: None,
+        }
+    }
+    struct Plain;
+    #[async_trait]
+    impl AgentInvoker for Plain {
+        async fn invoke(&self, _: &str, _: &str) -> Result<String, String> {
+            Ok("response".into())
+        }
+    }
+    #[tokio::test]
+    async fn missing_adapter_and_negative_receipt_are_errors() {
+        let handler = ManagerInboundHandler::for_test(Arc::new(Plain), None);
+        assert!(handler.handle_message(message()).await.is_err());
+        handler.set_adapter(adapter(false)).await;
+        assert!(handler.handle_message(message()).await.is_err());
+        handler.set_adapter(adapter(true)).await;
+        assert!(handler.handle_message(message()).await.is_ok());
+    }
+    struct Owned(AtomicUsize);
+    #[async_trait]
+    impl AgentInvoker for Owned {
+        async fn invoke(&self, _: &str, _: &str) -> Result<String, String> {
+            panic!("manager bypassed owned delivery")
+        }
+        async fn invoke_and_deliver(
+            &self,
+            _: &str,
+            _: &InboundMessage,
+            _: Arc<dyn ChannelAdapter>,
+        ) -> Result<(), String> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+    #[tokio::test]
+    async fn manager_uses_the_owned_delivery_contract() {
+        let invoker = Arc::new(Owned(AtomicUsize::new(0)));
+        let handler = ManagerInboundHandler::for_test(invoker.clone(), None);
+        handler.set_adapter(adapter(false)).await;
+        handler.handle_message(message()).await.unwrap();
+        assert_eq!(invoker.0.load(Ordering::SeqCst), 1);
     }
 }

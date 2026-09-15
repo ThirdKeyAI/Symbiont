@@ -22,8 +22,8 @@
 ### 設計原則
 
 - **コンパイル時の安全性**：無効なフェーズ遷移はRustの型システムによりコンパイル時に検出
-- **オプトイン複雑性**：ループはプロバイダーとポリシーゲートだけで動作し、ナレッジブリッジ、Cedarポリシー、ヒューマン・イン・ザ・ループはすべてオプション
-- **後方互換性**：新機能（ナレッジブリッジなど）の追加で既存コードが壊れることはない
+- **明示的な実行設定**：プロバイダー、エグゼキューター、ジャーナルを指定します。既定のポリシーゲートは、ポリシーで許可されるまでツールを拒否します
+- **必須の監査**：後続の作用を実行する前に、ジャーナルの初期化と必須の書き込みが成功する必要があります
 - **可観測性**：すべてのフェーズがジャーナルイベントとトレーシングスパンを発行
 
 ---
@@ -33,38 +33,38 @@
 ### 最小限の例
 
 ```rust
-use std::sync::Arc;
-use symbi_runtime::reasoning::circuit_breaker::CircuitBreakerRegistry;
-use symbi_runtime::reasoning::context_manager::DefaultContextManager;
+use std::{path::Path, sync::Arc};
 use symbi_runtime::reasoning::conversation::{Conversation, ConversationMessage};
-use symbi_runtime::reasoning::executor::DefaultActionExecutor;
-use symbi_runtime::reasoning::loop_types::{BufferedJournal, LoopConfig};
-use symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate;
+use symbi_runtime::reasoning::executor::UnavailableToolExecutor;
+use symbi_runtime::reasoning::loop_types::LoopConfig;
 use symbi_runtime::reasoning::reasoning_loop::ReasoningLoopRunner;
+use symbi_runtime::reasoning::run_audit::open_run_journal;
 use symbi_runtime::types::AgentId;
 
-// Set up the runner with default components
-let runner = ReasoningLoopRunner {
-    provider: Arc::new(my_inference_provider),
-    policy_gate: Arc::new(DefaultPolicyGate::permissive()),
-    executor: Arc::new(DefaultActionExecutor::default()),
-    context_manager: Arc::new(DefaultContextManager::default()),
-    circuit_breakers: Arc::new(CircuitBreakerRegistry::default()),
-    journal: Arc::new(BufferedJournal::new(1000)),
-    knowledge_bridge: None,
-};
+// Select this directory from trusted operator configuration.
+let project = Path::new("/path/to/trusted/project");
+let agent_id = AgentId::new();
+let (journal, audit) = open_run_journal(project, agent_id).await?;
+println!("Audit: {}", serde_json::to_string(&audit)?);
+let runner = ReasoningLoopRunner::builder()
+    .provider(Arc::new(my_inference_provider))
+    .executor(Arc::new(UnavailableToolExecutor))
+    .journal(journal)
+    .build();
 
 // Build a conversation
 let mut conv = Conversation::with_system("You are a helpful assistant.");
 conv.push(ConversationMessage::user("What is 6 * 7?"));
 
 // Run the loop
-let result = runner.run(AgentId::new(), conv, LoopConfig::default()).await;
+let result = runner.run(agent_id, conv, LoopConfig::default()).await;
 
 println!("Output: {}", result.output);
 println!("Iterations: {}", result.iterations);
 println!("Tokens used: {}", result.total_usage.total_tokens);
 ```
+
+呼び出しごとに新しい保護されたジャーナルを設定し、同じエージェント ID で実行してください。`.journal(...)` がない場合、推論前に実行を拒否します。明示的な `BufferedJournal` はテストや表示用であり、永続的な監査証拠にはなりません。
 
 ### ツール定義付き
 

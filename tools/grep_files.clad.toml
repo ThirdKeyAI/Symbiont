@@ -1,0 +1,15 @@
+[tool]
+name = "grep_files"
+version = "1.1.0"
+description = "Search regular source files for a literal string using bounded reads without following symlinks. Reports incomplete searches explicitly."
+timeout_seconds = 10
+[args.needle]
+position = 1
+required = true
+type = "string"
+description = "Literal UTF-8 text, at most 1024 bytes"
+[source]
+operation = "grep_files"
+
+[output]
+format = "json"

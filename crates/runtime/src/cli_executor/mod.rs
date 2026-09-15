@@ -8,10 +8,17 @@
 
 pub mod adapter;
 pub mod adapters;
+#[cfg(unix)]
+pub mod broker;
 pub mod executor;
+#[cfg(unix)]
+pub mod inference_broker;
+mod monitor;
 pub mod watchdog;
 
 pub use adapter::{AiCliAdapter, CodeGenRequest, CodeGenResult};
+#[cfg(unix)]
+pub mod governed;
 pub use adapters::{AiderAdapter, ClaudeCodeAdapter, CodexAdapter, CodexApprovalMode};
 pub use executor::{CliExecutor, CliExecutorConfig, StdinStrategy};
 pub use watchdog::{LineSink, OutputWatchdog, WatchdogOutput};

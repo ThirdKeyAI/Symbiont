@@ -22,8 +22,8 @@ O loop continua até que o LLM produza uma resposta final de texto, atinja limit
 ### Princípios de Design
 
 - **Segurança em tempo de compilação**: Transições de fase inválidas são detectadas em tempo de compilação através do sistema de tipos do Rust
-- **Complexidade opcional**: O loop funciona apenas com um provedor e portão de políticas; ponte de conhecimento, políticas Cedar e human-in-the-loop são todos opcionais
-- **Retrocompatível**: Adicionar novos recursos (como a ponte de conhecimento) nunca quebra código existente
+- **Configuração explícita de execução**: Forneça um provedor, um executor e um diário; o portão de políticas padrão nega ferramentas até que uma política as permita
+- **Auditoria obrigatória**: A inicialização do diário e as gravações obrigatórias devem ter sucesso antes de novos efeitos
 - **Observável**: Cada fase emite eventos de journal e spans de tracing
 
 ---
@@ -33,38 +33,38 @@ O loop continua até que o LLM produza uma resposta final de texto, atinja limit
 ### Exemplo Mínimo
 
 ```rust
-use std::sync::Arc;
-use symbi_runtime::reasoning::circuit_breaker::CircuitBreakerRegistry;
-use symbi_runtime::reasoning::context_manager::DefaultContextManager;
+use std::{path::Path, sync::Arc};
 use symbi_runtime::reasoning::conversation::{Conversation, ConversationMessage};
-use symbi_runtime::reasoning::executor::DefaultActionExecutor;
-use symbi_runtime::reasoning::loop_types::{BufferedJournal, LoopConfig};
-use symbi_runtime::reasoning::policy_bridge::DefaultPolicyGate;
+use symbi_runtime::reasoning::executor::UnavailableToolExecutor;
+use symbi_runtime::reasoning::loop_types::LoopConfig;
 use symbi_runtime::reasoning::reasoning_loop::ReasoningLoopRunner;
+use symbi_runtime::reasoning::run_audit::open_run_journal;
 use symbi_runtime::types::AgentId;
 
-// Set up the runner with default components
-let runner = ReasoningLoopRunner {
-    provider: Arc::new(my_inference_provider),
-    policy_gate: Arc::new(DefaultPolicyGate::permissive()),
-    executor: Arc::new(DefaultActionExecutor::default()),
-    context_manager: Arc::new(DefaultContextManager::default()),
-    circuit_breakers: Arc::new(CircuitBreakerRegistry::default()),
-    journal: Arc::new(BufferedJournal::new(1000)),
-    knowledge_bridge: None,
-};
+// Select this directory from trusted operator configuration.
+let project = Path::new("/path/to/trusted/project");
+let agent_id = AgentId::new();
+let (journal, audit) = open_run_journal(project, agent_id).await?;
+println!("Audit: {}", serde_json::to_string(&audit)?);
+let runner = ReasoningLoopRunner::builder()
+    .provider(Arc::new(my_inference_provider))
+    .executor(Arc::new(UnavailableToolExecutor))
+    .journal(journal)
+    .build();
 
 // Build a conversation
 let mut conv = Conversation::with_system("You are a helpful assistant.");
 conv.push(ConversationMessage::user("What is 6 * 7?"));
 
 // Run the loop
-let result = runner.run(AgentId::new(), conv, LoopConfig::default()).await;
+let result = runner.run(agent_id, conv, LoopConfig::default()).await;
 
 println!("Output: {}", result.output);
 println!("Iterations: {}", result.iterations);
 println!("Tokens used: {}", result.total_usage.total_tokens);
 ```
+
+Configure um novo diário protegido para cada execução e use o mesmo ID de agente. Sem `.journal(...)`, o construtor recusa a execução antes da inferência. Um `BufferedJournal` explícito serve para testes e exibição, mas não fornece evidência de auditoria persistente.
 
 ### Com Definições de Ferramentas
 

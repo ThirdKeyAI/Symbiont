@@ -18,7 +18,10 @@ export interface PolicyTrace {
   reason: string;
 }
 
+import type { RunAuditReference } from '../../../api/run-audit.js';
+
 export interface ChatMessageData {
+  audit?: RunAuditReference;
   id: string;
   role: 'user' | 'assistant';
   content: string;
@@ -266,6 +269,7 @@ export class ChatMessage extends LitElement {
 
     return html`
       <div class="assistant-row">
+        ${this.data.audit ? html`<audit-reference .reference=${this.data.audit}></audit-reference>` : ''}
         ${this.data.policyTraces?.map(
           (p) => html`
             <span class="policy-badge ${p.decision === 'allow' ? 'policy-allow' : 'policy-deny'}">

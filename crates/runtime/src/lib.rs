@@ -469,99 +469,164 @@ pub struct RuntimeConfig {
 #[async_trait]
 #[allow(unused_variables)] // Params used inside #[cfg(feature = "cron")] blocks
 impl RuntimeApiProvider for AgentRuntime {
+    #[cfg(unix)]
+    async fn inspect_capacity(
+        &self,
+        lease: Option<uuid::Uuid>,
+    ) -> Result<serde_json::Value, String> {
+        use sandbox::command::{CommandBoundary, CommandTier};
+        let project = self.scheduler.invocation_project()?;
+        let boundary = CommandBoundary::load(project)?;
+        let supervisor = match boundary.tier {
+            CommandTier::Docker => boundary.docker.supervisor,
+            CommandTier::GVisor => boundary.gvisor.docker.supervisor,
+            CommandTier::Firecracker => {
+                boundary
+                    .firecracker
+                    .ok_or("missing Firecracker configuration")?
+                    .supervisor
+            }
+            _ => return Err("the project backend has no local shared worker pool".into()),
+        };
+        sandbox::supervisor::inspect(&supervisor, lease)
+            .await
+            .map_err(|error| error.to_string())
+    }
+
+    #[cfg(unix)]
+    async fn inspect_run(
+        &self,
+        agent_id: AgentId,
+        run_id: uuid::Uuid,
+        public_key: [u8; 32],
+    ) -> Result<serde_json::Value, String> {
+        static READERS: std::sync::OnceLock<Arc<tokio::sync::Semaphore>> =
+            std::sync::OnceLock::new();
+        let permit = READERS
+            .get_or_init(|| Arc::new(tokio::sync::Semaphore::new(2)))
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| "run inspection is busy; try again later".to_string())?;
+        let project = self.scheduler.invocation_project()?.to_path_buf();
+        tokio::task::spawn_blocking(move || {
+            // Cancellation of the HTTP request must not release capacity while
+            // signature verification is still running on the blocking worker.
+            let _permit = permit;
+            reasoning::run_view::inspect(&project, agent_id, run_id, &public_key)
+        })
+        .await
+        .map_err(|e| format!("run inspection worker failed: {e}"))?
+    }
+
+    #[cfg(unix)]
+    async fn admit_execution(
+        &self,
+        target: api::invocations::ExecutionTarget,
+        identity: scheduler::invocations::InvocationIdentity,
+    ) -> Result<scheduler::invocations::Admission, api::invocations::AdmissionError> {
+        if let api::invocations::ExecutionTarget::Schedule { job_id } = &target {
+            #[cfg(feature = "cron")]
+            {
+                let id = job_id.parse().map_err(|_| {
+                    api::invocations::AdmissionError::Invalid("invalid cron job UUID".into())
+                })?;
+                let cron = self.cron_scheduler.as_ref().ok_or_else(|| {
+                    api::invocations::AdmissionError::Unavailable(
+                        "cron scheduler is unavailable".into(),
+                    )
+                })?;
+                return cron
+                    .trigger_identified(id, identity)
+                    .await
+                    .map_err(|e| match e {
+                        scheduler::cron_scheduler::CronSchedulerError::NotFound(_) => {
+                            api::invocations::AdmissionError::NotFound
+                        }
+                        scheduler::cron_scheduler::CronSchedulerError::Store(scheduler::job_store::JobStoreError::InvocationConflict)=>api::invocations::AdmissionError::Conflict,
+                        error @ (scheduler::cron_scheduler::CronSchedulerError::IdentityVerificationFailed(..)|scheduler::cron_scheduler::CronSchedulerError::PolicyDenied(..))=>api::invocations::AdmissionError::Forbidden(error.to_string()),
+                        scheduler::cron_scheduler::CronSchedulerError::Scheduler(message)=>api::invocations::AdmissionError::storage(message),
+                        other=>api::invocations::AdmissionError::Unavailable(other.to_string()),
+                    });
+            }
+            #[cfg(not(feature = "cron"))]
+            {
+                return Err(api::invocations::AdmissionError::Unavailable(
+                    "cron support is unavailable".into(),
+                ));
+            }
+        }
+        let (config, input) = match target {
+            api::invocations::ExecutionTarget::Agent { id, input } => (
+                self.scheduler
+                    .get_agent_config(id)
+                    .ok_or(api::invocations::AdmissionError::NotFound)?,
+                input,
+            ),
+            api::invocations::ExecutionTarget::Workflow(request) => (
+                api::invocations::workflow_config(&request, AgentId(identity.id))
+                    .map_err(api::invocations::AdmissionError::Invalid)?,
+                request.parameters,
+            ),
+            api::invocations::ExecutionTarget::Schedule { .. } => {
+                unreachable!("schedule handled above")
+            }
+        };
+        let agent_id = config.id;
+        let admission = self
+            .scheduler
+            .schedule_identified_invocation(config, input, identity)
+            .await
+            .map_err(api::invocations::AdmissionError::storage)?;
+        if let scheduler::invocations::Admission::Queued { handle, .. } = &admission {
+            self.execution_log
+                .record(agent_id, &handle.run_id().to_string(), "queued");
+            let handle = handle.clone();
+            let log = self.execution_log.clone();
+            tokio::spawn(async move {
+                let result = handle.wait().await;
+                log.record(
+                    agent_id,
+                    &result.run_id.to_string(),
+                    &format!("{:?}", result.status),
+                );
+            });
+        }
+        Ok(admission)
+    }
+
     async fn execute_workflow(
         &self,
         request: WorkflowExecutionRequest,
     ) -> Result<serde_json::Value, RuntimeError> {
-        tracing::info!("Executing workflow: {}", request.workflow_id);
+        let agent_config = api::invocations::workflow_config(&request, AgentId::new())
+            .map_err(RuntimeError::Internal)?;
+        let metadata = agent_config.metadata.clone();
 
-        // Step 1: Parse the workflow DSL and extract metadata (before any await)
-        let workflow_dsl = &request.workflow_id; // For now, treat workflow_id as DSL source
-        let (metadata, agent_config) = {
-            let parsed_tree = dsl::parse_dsl(workflow_dsl)
-                .map_err(|e| RuntimeError::Internal(format!("DSL parsing failed: {}", e)))?;
-
-            // Extract metadata from the parsed workflow
-            let metadata = dsl::extract_metadata(&parsed_tree, workflow_dsl);
-
-            // Check for parsing errors
-            let root_node = parsed_tree.root_node();
-            if root_node.has_error() {
-                return Err(RuntimeError::Internal(
-                    "DSL contains syntax errors".to_string(),
-                ));
-            }
-
-            // Create agent configuration from the workflow
-            let agent_id = request.agent_id.unwrap_or_default();
-            let agent_config = AgentConfig {
-                id: agent_id,
-                name: metadata
-                    .get("name")
-                    .cloned()
-                    .unwrap_or_else(|| "workflow_agent".to_string()),
-                dsl_source: workflow_dsl.to_string(),
-                execution_mode: ExecutionMode::Ephemeral,
-                security_tier: SecurityTier::Tier1,
-                resource_limits: ResourceLimits::default(),
-                capabilities: vec![Capability::Computation], // Basic capability for workflow execution
-                policies: vec![],
-                metadata: metadata.clone(),
-                priority: Priority::Normal,
-            };
-
-            (metadata, agent_config)
-        };
-
-        // Step 2: Schedule the agent for execution
-        let scheduled_agent_id = self
+        let agent_id = agent_config.id;
+        let handle = self
             .scheduler
-            .schedule_agent(agent_config)
+            .schedule_invocation(agent_config, request.parameters)
             .await
             .map_err(RuntimeError::Scheduler)?;
-
-        // Step 3: Wait briefly and check initial status (simple implementation)
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
-        // Step 4: Collect basic execution information
-        let system_status = self.scheduler.get_system_status().await;
-
-        // Step 5: Prepare and return result
-        let mut result = serde_json::json!({
-            "status": "success",
-            "workflow_id": request.workflow_id,
-            "agent_id": scheduled_agent_id.to_string(),
-            "execution_started": true,
-            "metadata": metadata,
-            "system_status": {
-                "total_agents": system_status.total_agents,
-                "running_agents": system_status.running_agents,
-                "resource_utilization": {
-                    "memory_used": system_status.resource_utilization.memory_used,
-                    "cpu_utilization": system_status.resource_utilization.cpu_utilization,
-                    "disk_io_rate": system_status.resource_utilization.disk_io_rate,
-                    "network_io_rate": system_status.resource_utilization.network_io_rate
-                }
-            }
+        let execution_id = handle.run_id().to_string();
+        self.execution_log.record(agent_id, &execution_id, "queued");
+        let log = self.execution_log.clone();
+        tokio::spawn(async move {
+            let completion = handle.wait().await;
+            log.record(
+                agent_id,
+                &completion.run_id.to_string(),
+                &format!("{:?}", completion.status),
+            );
         });
-
-        // Add parameters if provided
-        if !request.parameters.is_null() {
-            result["parameters"] = request.parameters;
-        }
-
-        // Record execution in history log
-        self.execution_log.record(
-            scheduled_agent_id,
-            &scheduled_agent_id.to_string(),
-            "workflow_started",
-        );
-
-        tracing::info!(
-            "Workflow execution initiated for agent: {}",
-            scheduled_agent_id
-        );
-        Ok(result)
+        tracing::info!(%agent_id, %execution_id, "Workflow invocation queued");
+        Ok(serde_json::json!({
+            "status": "queued",
+            "workflow_id": request.workflow_id,
+            "agent_id": agent_id.to_string(),
+            "execution_id": execution_id,
+            "metadata": metadata,
+        }))
     }
 
     async fn get_agent_status(
@@ -814,14 +879,14 @@ impl RuntimeApiProvider for AgentRuntime {
             priority: Priority::Normal,
         };
 
-        // Schedule the agent for execution
+        // Register without running inference or tools
         let scheduled_agent_id = self
             .scheduler
-            .schedule_agent(agent_config)
+            .register_agent(agent_config)
             .await
             .map_err(RuntimeError::Scheduler)?;
 
-        tracing::info!("Created and scheduled agent: {}", scheduled_agent_id);
+        tracing::info!("Created agent: {}", scheduled_agent_id);
 
         // Record creation in execution log
         self.execution_log.record(
@@ -832,7 +897,7 @@ impl RuntimeApiProvider for AgentRuntime {
 
         Ok(CreateAgentResponse {
             id: scheduled_agent_id.to_string(),
-            status: "scheduled".to_string(),
+            status: "ready".to_string(),
         })
     }
 
@@ -896,53 +961,29 @@ impl RuntimeApiProvider for AgentRuntime {
         agent_id: AgentId,
         request: ExecuteAgentRequest,
     ) -> Result<ExecuteAgentResponse, RuntimeError> {
-        // Ensure the agent exists in the registry
-        if !self.scheduler.has_agent(agent_id) {
-            return Err(RuntimeError::Internal(format!(
-                "Agent {} not found",
-                agent_id
-            )));
-        }
-
-        // Re-schedule from stored config if the agent isn't currently active
-        let status = self.get_agent_status(agent_id).await?;
-        if status.state == AgentState::Completed {
-            if let Some(config) = self.scheduler.get_agent_config(agent_id) {
-                self.scheduler
-                    .schedule_agent(config)
-                    .await
-                    .map_err(RuntimeError::Scheduler)?;
-            }
-        } else if status.state != AgentState::Running {
-            self.lifecycle
-                .start_agent(agent_id)
-                .await
-                .map_err(RuntimeError::Lifecycle)?;
-        }
-        let execution_id = uuid::Uuid::new_v4().to_string();
-        let payload_data: bytes::Bytes = serde_json::to_vec(&request)
-            .map_err(|e| RuntimeError::Internal(e.to_string()))?
-            .into();
-        let message = self.communication.create_internal_message(
-            self.system_agent_id,
-            agent_id,
-            payload_data,
-            types::MessageType::Direct(agent_id),
-            std::time::Duration::from_secs(300),
-        );
-        self.communication
-            .send_message(message)
+        let config = self
+            .scheduler
+            .get_agent_config(agent_id)
+            .ok_or_else(|| RuntimeError::Internal(format!("Agent {agent_id} not found")))?;
+        let handle = self
+            .scheduler
+            .schedule_invocation(config, request.input)
             .await
-            .map_err(RuntimeError::Communication)?;
-
-        // Record execution in the history log
-        #[cfg(feature = "http-api")]
-        self.execution_log
-            .record(agent_id, &execution_id, "execution_started");
-
+            .map_err(RuntimeError::Scheduler)?;
+        let execution_id = handle.run_id().to_string();
+        self.execution_log.record(agent_id, &execution_id, "queued");
+        let log = self.execution_log.clone();
+        tokio::spawn(async move {
+            let completion = handle.wait().await;
+            log.record(
+                agent_id,
+                &completion.run_id.to_string(),
+                &format!("{:?}", completion.status),
+            );
+        });
         Ok(ExecuteAgentResponse {
             execution_id,
-            status: "execution_started".to_string(),
+            status: "queued".into(),
         })
     }
 
@@ -1001,24 +1042,27 @@ impl RuntimeApiProvider for AgentRuntime {
             } else {
                 request.timezone
             };
-            let agent_config = types::AgentConfig {
-                id: types::AgentId::new(),
-                name: request.agent_name,
-                dsl_source: String::new(),
-                execution_mode: Default::default(),
-                security_tier: Default::default(),
-                resource_limits: Default::default(),
-                capabilities: Vec::new(),
-                policies: Vec::new(),
-                metadata: Default::default(),
-                priority: Default::default(),
-            };
+            let mut matches = Vec::new();
+            for id in self.scheduler.list_agents().await {
+                if let Some(config) = self.scheduler.get_agent_config(id) {
+                    if config.name == request.agent_name {
+                        matches.push(config);
+                    }
+                }
+            }
+            if matches.len() != 1 {
+                return Err(RuntimeError::Internal(
+                    "scheduled agent name must identify one registered agent".into(),
+                ));
+            }
+            let agent_config = matches.remove(0);
             let job = CronJobDefinition {
                 job_id: CronJobId::new(),
                 name: request.name,
                 cron_expression: request.cron_expression,
                 timezone: tz,
                 agent_config,
+                input: request.input,
                 policy_ids: request.policy_ids,
                 audit_level: Default::default(),
                 status: scheduler::cron_types::CronJobStatus::Active,
@@ -1222,12 +1266,15 @@ impl RuntimeApiProvider for AgentRuntime {
                 history: runs
                     .into_iter()
                     .map(|r| ScheduleRunEntry {
+                        resolution: r.resolution,
+                        admission_audit: r.admission_audit.map(|a| serde_json::json!(a)),
                         run_id: r.run_id.to_string(),
                         started_at: r.started_at.to_rfc3339(),
                         completed_at: r.completed_at.map(|t| t.to_rfc3339()),
                         status: format!("{:?}", r.status),
                         error: r.error,
                         execution_time_ms: r.execution_time_ms,
+                        execution: r.execution.map(|result| serde_json::json!(result)),
                     })
                     .collect(),
             });

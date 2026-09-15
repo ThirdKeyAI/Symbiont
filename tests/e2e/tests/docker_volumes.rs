@@ -50,16 +50,19 @@ fn refuses_kubelet_and_rancher_paths() {
 }
 
 #[test]
-fn allows_named_volume() {
-    assert!(base().with_volume("my-volume:/data").is_ok());
+fn refuses_named_volume() {
+    assert!(base().with_volume("my-volume:/data").is_err());
 }
 
 #[test]
 fn allows_plain_host_path_with_container_path() {
-    // Under /tmp or /home/user/... these should be fine; we don't
-    // check existence at config time.
-    assert!(base().with_volume("/tmp/sandbox:/data").is_ok());
-    assert!(base().with_volume("/home/user/code:/workspace:ro").is_ok());
+    let source = tempfile::tempdir().unwrap();
+    assert!(base()
+        .with_volume(&format!("{}:/data:ro", source.path().display()))
+        .is_ok());
+    assert!(base()
+        .with_volume("/nonexistent-sandbox-source:/workspace:ro")
+        .is_err());
 }
 
 #[test]

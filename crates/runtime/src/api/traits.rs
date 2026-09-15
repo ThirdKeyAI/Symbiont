@@ -27,6 +27,40 @@ use super::types::{
 #[cfg(feature = "http-api")]
 #[async_trait]
 pub trait RuntimeApiProvider: Send + Sync {
+    /// Inspect the operator-configured pool or measure one retained worker.
+    /// Unsupported providers must not invent an empty pool or zero usage.
+    async fn inspect_capacity(
+        &self,
+        lease: Option<uuid::Uuid>,
+    ) -> Result<serde_json::Value, String> {
+        let _ = lease;
+        Err("worker capacity inspection is unavailable from this provider".into())
+    }
+
+    /// Read a bounded, verified journal snapshot from the trusted project.
+    async fn inspect_run(
+        &self,
+        agent_id: AgentId,
+        run_id: uuid::Uuid,
+        public_key: [u8; 32],
+    ) -> Result<serde_json::Value, String> {
+        let _ = (agent_id, run_id, public_key);
+        Err("run inspection is unavailable from this provider".into())
+    }
+
+    /// Durable admission. Unsupported providers must not silently enqueue work.
+    #[cfg(unix)]
+    async fn admit_execution(
+        &self,
+        target: super::invocations::ExecutionTarget,
+        identity: crate::scheduler::invocations::InvocationIdentity,
+    ) -> Result<crate::scheduler::invocations::Admission, super::invocations::AdmissionError> {
+        let _ = (target, identity);
+        Err(super::invocations::AdmissionError::Unavailable(
+            "execution provider does not support persistence".into(),
+        ))
+    }
+
     /// Execute a workflow with the given parameters
     async fn execute_workflow(
         &self,

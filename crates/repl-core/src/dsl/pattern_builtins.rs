@@ -7,16 +7,14 @@ use crate::dsl::evaluator::DslValue;
 use crate::dsl::reasoning_builtins::ReasoningBuiltinContext;
 use crate::error::{ReplError, Result};
 use std::collections::HashMap;
-use std::sync::Arc;
 use symbi_runtime::reasoning::conversation::{Conversation, ConversationMessage};
 use symbi_runtime::reasoning::inference::InferenceOptions;
 
 // --- Fan-out / iteration caps ---
 //
-// `director`, `debate`, and `map_reduce` are not host actions — a policy gate
-// has nothing to evaluate here, since no tool executes and no side effect
-// occurs outside the inference provider. What they *can* do is turn one DSL
-// call into an unbounded number of downstream inference calls, driven by
+// `director`, `debate`, and `map_reduce` invoke the configured provider without
+// executing returned tool calls. Each provider call requires its own audit and
+// deadline. A single DSL call can amplify downstream inference calls, driven by
 // either model-authored output (`director`'s plan) or an unbounded
 // caller-supplied count (`debate`'s `rounds`, `map_reduce`'s `inputs`). That
 // is cost amplification and, for model-authored fields, prompt-injection
@@ -64,10 +62,9 @@ const MAX_MAP_REDUCE_CONCURRENCY: usize = 8;
 ///
 /// Returns the final step's output as a string.
 pub async fn builtin_chain(args: &[DslValue], ctx: &ReasoningBuiltinContext) -> Result<DslValue> {
-    let provider = ctx
-        .provider
-        .as_ref()
-        .ok_or_else(|| ReplError::Execution("No inference provider configured".into()))?;
+    let mut invocation = ctx.clone();
+    invocation.sender_agent_id = Some(ctx.sender_agent_id.unwrap_or_default());
+    let ctx = &invocation;
 
     let steps = match args.first() {
         Some(DslValue::List(steps)) => steps.clone(),
@@ -134,8 +131,8 @@ pub async fn builtin_chain(args: &[DslValue], ctx: &ReasoningBuiltinContext) -> 
         let mut conv = Conversation::with_system(&system);
         conv.push(ConversationMessage::user(&user_msg));
 
-        let response = provider
-            .complete(&conv, &InferenceOptions::default())
+        let response = ctx
+            .infer("chain", &conv, &InferenceOptions::default(), None)
             .await
             .map_err(|e| ReplError::Execution(format!("Chain step {} failed: {}", i, e)))?;
 
@@ -165,10 +162,9 @@ pub async fn builtin_chain(args: &[DslValue], ctx: &ReasoningBuiltinContext) -> 
 ///
 /// Returns a map with keys: final_answer, rounds_completed, history.
 pub async fn builtin_debate(args: &[DslValue], ctx: &ReasoningBuiltinContext) -> Result<DslValue> {
-    let provider = ctx
-        .provider
-        .as_ref()
-        .ok_or_else(|| ReplError::Execution("No inference provider configured".into()))?;
+    let mut invocation = ctx.clone();
+    invocation.sender_agent_id = Some(ctx.sender_agent_id.unwrap_or_default());
+    let ctx = &invocation;
 
     let params = match args.first() {
         Some(DslValue::Map(map)) => map.clone(),
@@ -217,8 +213,8 @@ pub async fn builtin_debate(args: &[DslValue], ctx: &ReasoningBuiltinContext) ->
             )));
         }
 
-        let writer_response = provider
-            .complete(&writer_conv, &InferenceOptions::default())
+        let writer_response = ctx
+            .infer("debate", &writer_conv, &InferenceOptions::default(), None)
             .await
             .map_err(|e| {
                 ReplError::Execution(format!("Debate writer round {} failed: {}", round, e))
@@ -238,8 +234,8 @@ pub async fn builtin_debate(args: &[DslValue], ctx: &ReasoningBuiltinContext) ->
             writer_response.content
         )));
 
-        let critic_response = provider
-            .complete(&critic_conv, &InferenceOptions::default())
+        let critic_response = ctx
+            .infer("debate", &critic_conv, &InferenceOptions::default(), None)
             .await
             .map_err(|e| {
                 ReplError::Execution(format!("Debate critic round {} failed: {}", round, e))
@@ -261,8 +257,8 @@ pub async fn builtin_debate(args: &[DslValue], ctx: &ReasoningBuiltinContext) ->
         current_content, topic
     )));
 
-    let final_response = provider
-        .complete(&final_conv, &InferenceOptions::default())
+    let final_response = ctx
+        .infer("debate", &final_conv, &InferenceOptions::default(), None)
         .await
         .map_err(|e| ReplError::Execution(format!("Debate final response failed: {}", e)))?;
 
@@ -292,10 +288,9 @@ pub async fn builtin_map_reduce(
     args: &[DslValue],
     ctx: &ReasoningBuiltinContext,
 ) -> Result<DslValue> {
-    let provider = ctx
-        .provider
-        .as_ref()
-        .ok_or_else(|| ReplError::Execution("No inference provider configured".into()))?;
+    let mut invocation = ctx.clone();
+    invocation.sender_agent_id = Some(ctx.sender_agent_id.unwrap_or_default());
+    let ctx = &invocation;
 
     let params = match args.first() {
         Some(DslValue::Map(map)) => map.clone(),
@@ -331,14 +326,13 @@ pub async fn builtin_map_reduce(
                 DslValue::String(s) => s.clone(),
                 other => format!("{:?}", other),
             };
-            let provider = Arc::clone(provider);
+            let ctx = ctx.clone();
             let mapper_prompt = mapper_prompt.clone();
 
             map_futures.push(async move {
                 let mut conv = Conversation::with_system(&mapper_prompt);
                 conv.push(ConversationMessage::user(&input_str));
-                provider
-                    .complete(&conv, &InferenceOptions::default())
+                ctx.infer("map_reduce", &conv, &InferenceOptions::default(), None)
                     .await
                     .map(|r| r.content)
                     .map_err(|e| ReplError::Execution(format!("Map failed: {}", e)))
@@ -363,8 +357,13 @@ pub async fn builtin_map_reduce(
         combined
     )));
 
-    let reduce_response = provider
-        .complete(&reduce_conv, &InferenceOptions::default())
+    let reduce_response = ctx
+        .infer(
+            "map_reduce",
+            &reduce_conv,
+            &InferenceOptions::default(),
+            None,
+        )
         .await
         .map_err(|e| ReplError::Execution(format!("Reduce failed: {}", e)))?;
 
@@ -393,10 +392,9 @@ pub async fn builtin_director(
     args: &[DslValue],
     ctx: &ReasoningBuiltinContext,
 ) -> Result<DslValue> {
-    let provider = ctx
-        .provider
-        .as_ref()
-        .ok_or_else(|| ReplError::Execution("No inference provider configured".into()))?;
+    let mut invocation = ctx.clone();
+    invocation.sender_agent_id = Some(ctx.sender_agent_id.unwrap_or_default());
+    let ctx = &invocation;
 
     let params = match args.first() {
         Some(DslValue::Map(map)) => map.clone(),
@@ -460,8 +458,8 @@ pub async fn builtin_director(
         ..Default::default()
     };
 
-    let plan_response = provider
-        .complete(&plan_conv, &plan_options)
+    let plan_response = ctx
+        .infer("director", &plan_conv, &plan_options, None)
         .await
         .map_err(|e| ReplError::Execution(format!("Director planning failed: {}", e)))?;
 
@@ -479,8 +477,8 @@ pub async fn builtin_director(
         let mut worker_conv = Conversation::with_system(worker_system);
         worker_conv.push(ConversationMessage::user(subtask));
 
-        let response = provider
-            .complete(&worker_conv, &InferenceOptions::default())
+        let response = ctx
+            .infer("director", &worker_conv, &InferenceOptions::default(), None)
             .await
             .map_err(|e| ReplError::Execution(format!("Worker '{}' failed: {}", worker_name, e)))?;
 
@@ -523,8 +521,8 @@ pub async fn builtin_director(
         results_summary, task
     )));
 
-    let synth_response = provider
-        .complete(&synth_conv, &InferenceOptions::default())
+    let synth_response = ctx
+        .infer("director", &synth_conv, &InferenceOptions::default(), None)
         .await
         .map_err(|e| ReplError::Execution(format!("Director synthesis failed: {}", e)))?;
 
@@ -685,6 +683,7 @@ mod tests {
     // the cap actually ran", not just "the error string looks right".
 
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
     use symbi_runtime::reasoning::inference::{
         FinishReason, InferenceError, InferenceProvider, InferenceResponse, Usage,
     };
@@ -788,10 +787,13 @@ mod tests {
         let plan = serde_json::json!({ "assignments": assignments }).to_string();
 
         let provider = Arc::new(CountingProvider::new(plan));
+        let project = tempfile::tempdir().unwrap();
         let ctx = ReasoningBuiltinContext {
             provider: Some(provider.clone() as Arc<dyn InferenceProvider>),
             ..Default::default()
-        };
+        }
+        .with_project_root(project.path())
+        .unwrap();
 
         let mut params = HashMap::new();
         params.insert(
@@ -832,10 +834,13 @@ mod tests {
         .to_string();
 
         let provider = Arc::new(CountingProvider::new(plan));
+        let project = tempfile::tempdir().unwrap();
         let ctx = ReasoningBuiltinContext {
             provider: Some(provider.clone() as Arc<dyn InferenceProvider>),
             ..Default::default()
-        };
+        }
+        .with_project_root(project.path())
+        .unwrap();
 
         let mut params = HashMap::new();
         params.insert(
@@ -867,10 +872,13 @@ mod tests {
     #[tokio::test]
     async fn debate_rejects_rounds_above_cap() {
         let provider = Arc::new(CountingProvider::new("response"));
+        let project = tempfile::tempdir().unwrap();
         let ctx = ReasoningBuiltinContext {
             provider: Some(provider.clone() as Arc<dyn InferenceProvider>),
             ..Default::default()
-        };
+        }
+        .with_project_root(project.path())
+        .unwrap();
 
         let mut params = HashMap::new();
         params.insert(
@@ -910,10 +918,13 @@ mod tests {
         let provider = Arc::new(
             CountingProvider::new("mapped").with_delay(std::time::Duration::from_millis(20)),
         );
+        let project = tempfile::tempdir().unwrap();
         let ctx = ReasoningBuiltinContext {
             provider: Some(provider.clone() as Arc<dyn InferenceProvider>),
             ..Default::default()
-        };
+        }
+        .with_project_root(project.path())
+        .unwrap();
 
         let inputs: Vec<DslValue> = (0..n)
             .map(|i| DslValue::String(format!("item {i}")))

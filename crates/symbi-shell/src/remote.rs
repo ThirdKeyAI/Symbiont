@@ -152,9 +152,34 @@ impl RemoteConnection {
             .await
     }
 
-    pub async fn trigger_schedule(&self, id: &str) -> Result<Value> {
-        self.post(&format!("/api/v1/schedules/{}/trigger", id), None)
-            .await
+    /// The caller retains this UUID and supplies it again for a retry.
+    pub async fn trigger_schedule(&self, id: &str, invocation: uuid::Uuid) -> Result<Value> {
+        let job = uuid::Uuid::parse_str(id).map_err(|_| anyhow!("Invalid schedule UUID"))?;
+        let url = format!("{}/api/v1/schedules/{job}/trigger", self.base_url);
+        let mut request = self
+            .client
+            .post(url)
+            .header("Idempotency-Key", invocation.to_string());
+        if let Some(token) = &self.token {
+            request = request.bearer_auth(token);
+        }
+        let response = request.send().await?;
+        let code = response.status();
+        let text = response.text().await?;
+        let body: Value = serde_json::from_str(&text)
+            .map_err(|_| anyhow!("Invalid trigger response: HTTP {code}"))?;
+        let state = body.get("status").and_then(Value::as_str);
+        let recognized = (code.is_success() && matches!(state, Some("queued" | "completed")))
+            || (code.as_u16() == 409
+                && matches!(
+                    state,
+                    Some("in_progress" | "unresolved" | "reconciled" | "conflict")
+                ))
+            || (code.as_u16() == 422 && state == Some("failed"));
+        if !recognized {
+            return Err(anyhow!("HTTP {}: {}", code.as_u16(), body));
+        }
+        Ok(body)
     }
 
     pub async fn schedule_history(&self, id: &str) -> Result<Value> {

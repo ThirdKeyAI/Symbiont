@@ -156,10 +156,16 @@ pub fn is_non_public_ip(ip: IpAddr) -> bool {
         IpAddr::V4(v4) => {
             v4.is_loopback()
                 || v4.is_private()
+                // RFC 6598 shared address space is not globally reachable.
+                // It includes metadata services on some cloud networks.
+                || (v4.octets()[0] == 100 && (64..=127).contains(&v4.octets()[1]))
                 || v4.is_link_local()
                 || v4.is_broadcast()
                 || v4.is_unspecified()
                 || v4.is_documentation()
+                || v4.is_multicast()
+                || v4.octets()[0] == 0
+                || v4.octets()[0] >= 240
                 // Explicit AWS/GCP metadata endpoint — `is_link_local` covers
                 // this but we want a labelled log on hit.
                 || v4.octets() == [169, 254, 169, 254]
@@ -169,6 +175,10 @@ pub fn is_non_public_ip(ip: IpAddr) -> bool {
                 || v6.is_unspecified()
                 || v6.is_unique_local()
                 || v6.is_unicast_link_local()
+                || v6.is_multicast()
+                || v6
+                    .to_ipv4()
+                    .is_some_and(|v4| is_non_public_ip(IpAddr::V4(v4)))
         }
     }
 }
@@ -185,7 +195,7 @@ pub fn is_non_public_ip(ip: IpAddr) -> bool {
 /// record can respond with a public IP during the lexical check and then
 /// switch to `10.0.0.1` (or any other RFC 1918 address) by the time the
 /// reqwest connector asks for addresses. This resolver rejects the
-/// resolution itself when any returned IP is non-public, closing that gap.
+/// non-public addresses before the connector can use them, closing that gap.
 #[derive(Debug, Clone, Default)]
 pub struct SsrfSafeResolver;
 
@@ -255,10 +265,9 @@ impl reqwest::dns::Resolve for SsrfSafeResolver {
 /// factory rather than `reqwest::Client::new()`.
 ///
 /// # Notes
-/// - Redirects are disabled by default so a trusted endpoint can't bounce
-///   requests to an internal target after the fact. Callers that need
-///   redirect following should build their own `ClientBuilder` and compose
-///   with `SsrfSafeResolver`.
+/// - Redirects are disabled so a trusted endpoint can't bounce requests to
+///   an internal target. Following a redirect requires separately validating
+///   and authorizing its URL, including IP literals that bypass DNS.
 /// - The connect / request timeout is caller-supplied; pick a tight value
 ///   (5–15 seconds) for user-facing flows.
 pub fn build_ssrf_safe_client(
@@ -267,20 +276,32 @@ pub fn build_ssrf_safe_client(
     use std::sync::Arc;
     reqwest::Client::builder()
         .timeout(timeout)
+        .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
         .dns_resolver(Arc::new(SsrfSafeResolver))
         .build()
 }
 
+/// Blocking counterpart for synchronous tool backends. Callers must also
+/// validate the initial URL: IP literals do not pass through a DNS resolver.
+pub fn build_ssrf_safe_blocking_client(
+    timeout: std::time::Duration,
+) -> Result<reqwest::blocking::Client, reqwest::Error> {
+    reqwest::blocking::Client::builder()
+        .timeout(timeout)
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .dns_resolver(std::sync::Arc::new(SsrfSafeResolver))
+        .build()
+}
+
 /// Same as [`build_ssrf_safe_client`] but allows the caller to extend the
-/// default `ClientBuilder` (for example to set a custom redirect policy,
-/// add default headers, or enable `gzip`). The SSRF-safe DNS resolver is
-/// applied *after* the caller's customisations so it can't be swapped out;
-/// other settings (including redirect policy) remain caller-controlled.
-///
-/// Redirects are safe to follow under this factory because every hop's DNS
-/// goes through [`SsrfSafeResolver`], so a redirect to an internal host
-/// will be rejected at resolve time just like the original request would be.
+/// default `ClientBuilder` (for example to add default headers or enable
+/// `gzip`). DNS filtering, disabled redirects,
+/// and disabled ambient proxies are applied after customisation. IP-literal
+/// redirects bypass DNS resolution, so following them requires a separate
+/// authorization of the next URL. Operator-supplied inference endpoints use
+/// [`customise_operator_client`] instead.
 pub fn customise_ssrf_safe_client<F>(
     timeout: std::time::Duration,
     customise: F,
@@ -291,7 +312,11 @@ where
     use std::sync::Arc;
     let builder = reqwest::Client::builder().timeout(timeout);
     let builder = customise(builder);
-    builder.dns_resolver(Arc::new(SsrfSafeResolver)).build()
+    builder
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .dns_resolver(Arc::new(SsrfSafeResolver))
+        .build()
 }
 
 /// Build a client for an endpoint the **operator** configured, with no SSRF
@@ -385,12 +410,7 @@ fn normalise_legacy_ipv4(host: &str) -> Option<String> {
 
 fn is_bad_ipv4(dotted: &str) -> bool {
     if let Ok(v4) = dotted.parse::<std::net::Ipv4Addr>() {
-        v4.is_loopback()
-            || v4.is_private()
-            || v4.is_link_local()
-            || v4.is_broadcast()
-            || v4.is_unspecified()
-            || v4.is_documentation()
+        is_non_public_ip(IpAddr::V4(v4))
     } else {
         false
     }
@@ -417,6 +437,134 @@ fn extract_embedded_ipv4(host: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn read_fixture_request(socket: &mut tokio::net::TcpStream) {
+        use tokio::io::AsyncReadExt;
+        let mut received = Vec::new();
+        while !received.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+            let mut chunk = [0u8; 1024];
+            let count = socket.read(&mut chunk).await.unwrap();
+            assert!(count > 0, "request ended before its headers");
+            received.extend_from_slice(&chunk[..count]);
+            assert!(received.len() <= 4096, "fixture request too large");
+        }
+    }
+
+    #[test]
+    fn dns_address_filter_rejects_embedded_private_ipv4_and_multicast() {
+        for address in [
+            "::ffff:127.0.0.1",
+            "::10.0.0.1",
+            "::ffff:169.254.169.254",
+            "224.0.0.1",
+            "ff02::1",
+            "0.1.2.3",
+            "240.1.2.3",
+        ] {
+            assert!(is_non_public_ip(address.parse().unwrap()), "{address}");
+        }
+        for address in ["8.8.8.8", "::ffff:8.8.8.8", "2606:4700:4700::1111"] {
+            assert!(!is_non_public_ip(address.parse().unwrap()), "{address}");
+        }
+    }
+
+    #[test]
+    fn shared_address_space_is_denied_for_literals_and_dns_answers() {
+        for address in [
+            "100.64.0.0",
+            "100.127.255.255",
+            "100.100.100.200",
+            "::ffff:100.100.100.200",
+        ] {
+            let ip: IpAddr = address.parse().unwrap();
+            assert!(is_non_public_ip(ip));
+            let host = if ip.is_ipv6() {
+                format!("[{address}]")
+            } else {
+                address.into()
+            };
+            assert!(reject_ssrf_url(&format!("http://{host}/")).is_err());
+        }
+        for address in ["100.63.255.255", "100.128.0.0"] {
+            assert!(!is_non_public_ip(address.parse().unwrap()));
+            assert!(reject_ssrf_url(&format!("https://{address}/")).is_ok());
+        }
+    }
+
+    #[tokio::test]
+    async fn resolver_refuses_localhost_at_connection_time() {
+        use reqwest::dns::Resolve;
+        assert!(SsrfSafeResolver
+            .resolve("localhost".parse().unwrap())
+            .await
+            .is_err());
+    }
+
+    // Transport tests deliberately address a loopback fixture directly.
+    // Production callers additionally apply reject_ssrf_url before dispatch;
+    // a DNS resolver cannot filter IP literals.
+    #[tokio::test]
+    async fn safe_client_disables_redirects_after_customisation() {
+        use tokio::io::AsyncWriteExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            read_fixture_request(&mut socket).await;
+            socket.write_all(format!("HTTP/1.1 302 Found\r\nLocation: http://{address}/private\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
+        });
+        let client = customise_ssrf_safe_client(std::time::Duration::from_secs(2), |b| {
+            b.redirect(reqwest::redirect::Policy::limited(5))
+        })
+        .unwrap();
+        let response = client
+            .get(format!("http://{address}/allowed"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::FOUND);
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn safe_client_removes_proxies_after_customisation() {
+        use tokio::io::AsyncWriteExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let proxy = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy_address = proxy.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            read_fixture_request(&mut socket).await;
+            socket
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 7\r\nConnection: close\r\n\r\nallowed",
+                )
+                .await
+                .unwrap();
+        });
+        let client = customise_ssrf_safe_client(std::time::Duration::from_secs(2), |b| {
+            b.proxy(reqwest::Proxy::all(format!("http://{proxy_address}")).unwrap())
+        })
+        .unwrap();
+        assert_eq!(
+            client
+                .get(format!("http://{address}/"))
+                .send()
+                .await
+                .unwrap()
+                .text()
+                .await
+                .unwrap(),
+            "allowed"
+        );
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(30), proxy.accept())
+                .await
+                .is_err()
+        );
+        server.await.unwrap();
+    }
 
     #[test]
     fn rejects_loopback() {

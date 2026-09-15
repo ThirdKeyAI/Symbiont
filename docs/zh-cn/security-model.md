@@ -70,6 +70,8 @@ graph TB
 ```
 
 > **三个主机隔离层 —— Docker、gVisor 和 Firecracker —— 全部包含在 OSS 运行时中。** 运维方可在 DSL 的 `with { sandbox = ... }` 块中按智能体选择层级，或通过 `symbiont.toml` 的 `[sandbox] tier = "..."` 设置项目默认值。E2B 仅可通过 DSL（`with { sandbox = "e2b" }`）显式启用，并且故意不作为 `[sandbox] tier` 的取值暴露。
+>
+> 强隔离是基线，而非增值销售项。这些层级保留在开源运行时中，以便社区能够阅读、审计并复现自己所依赖的边界。来宾证明是最清晰的例子：针对无法阅读的源码计算的指纹并不能证明任何事情，因此来宾服务正是因为它是一项安全控制才必须开源。
 
 ### 第一层：Docker 隔离
 
@@ -143,6 +145,9 @@ gvisor_security:
 - 每次执行使用一个由运维方提供的内核 + rootfs 的 microVM
 - 默认只读的根文件系统
 - 与主机不共享任何内核表面
+- **来宾证明：** 握手会校验协议版本以及来宾服务源码的指纹，并在发送任何命令之前拒绝过期或不匹配的镜像
+- **独立的 VMM 所有权：** 推理循环之外的监督进程拥有 VM 生命周期，因此 VM 无法比其监督进程存活更久；孤立的 VM 会针对经过验证的进程标识（而非可复用的 PID）进行回收
+- **非特权来宾工作负载：** 命令以非 root 的来宾用户身份运行，并施加 `no_new_privs` 以及明确的进程数和文件描述符上限
 
 **配置：** `symbiont.toml` 中的 `[sandbox.firecracker]`：
 
@@ -328,10 +333,16 @@ use symbi_runtime::reasoning::cedar_gate::CedarPolicyGate;
 
 // Create a Cedar policy gate with deny-by-default stance
 let cedar_gate = CedarPolicyGate::deny_by_default();
+let agent_id = symbi_runtime::types::AgentId::new();
+let (journal, audit) = symbi_runtime::reasoning::run_audit::open_run_journal(
+    trusted_project, agent_id,
+).await?;
+println!("Audit: {}", serde_json::to_string(&audit)?);
 let runner = ReasoningLoopRunner::builder()
     .provider(provider)
     .executor(executor)
     .policy_gate(Arc::new(cedar_gate))
+    .journal(journal)
     .build();
 ```
 

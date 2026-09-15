@@ -8,9 +8,15 @@
 
 use std::collections::HashMap;
 
-use super::browser_state::BrowserScopeChecker;
+use super::browser_network::BrowserNetworkPolicy;
 use super::manifest::Manifest;
 use super::validator;
+
+// Exercises the private CDP pipe against real contained Chromium. The public
+// route stays unavailable until request mediation and run ownership are wired.
+#[cfg(all(test, unix, feature = "mcp-client"))]
+#[path = "browser/transport_tests.rs"]
+mod transport_tests;
 
 /// Manages browser tool manifests. Validates and scope-checks browser commands;
 /// actual CDP execution awaits the `toolclad-browser` backend.
@@ -47,6 +53,25 @@ impl BrowserExecutor {
     /// Validate and scope-check a browser command, then return an honest error:
     /// CDP execution is not implemented. NEVER returns a fabricated success.
     pub fn execute_browser_command(
+        &self,
+        tool_name: &str,
+        args_json: &str,
+    ) -> Result<serde_json::Value, String> {
+        let (base, command) = parse_browser_tool_name(tool_name)?;
+        if self.manifests.get(&base).is_some_and(|manifest| {
+            manifest.tool.human_approval
+                || manifest
+                    .browser
+                    .as_ref()
+                    .and_then(|s| s.commands.get(&command))
+                    .is_some_and(|c| c.human_approval)
+        }) {
+            return Err("command requires an authorized exact-call approval".into());
+        }
+        self.execute_prepared_browser_command(tool_name, args_json)
+    }
+
+    pub(super) fn execute_prepared_browser_command(
         &self,
         tool_name: &str,
         args_json: &str,
@@ -95,8 +120,8 @@ impl BrowserExecutor {
             let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("");
             match &browser_def.scope {
                 Some(scope) => {
-                    let checker = BrowserScopeChecker::new(scope);
-                    checker.check_url(url)?;
+                    BrowserNetworkPolicy::new(scope, browser_def.network.as_ref())?
+                        .check_destination(url, "GET")?;
                 }
                 None => {
                     return Err(

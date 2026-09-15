@@ -37,6 +37,8 @@ members = [
     "crates/approval-relay",
     "crates/symbi-invis-strip",
     "crates/symbi-session",
+    "crates/sandbox-supervisor",
+    "crates/sandbox-guest",
     "tests/e2e",
 ]
 
@@ -54,6 +56,7 @@ chrono-tz = { version = "0.10", optional = true }
 dsl = { path = "crates/dsl", version = "1.20.0", package = "symbi-dsl" }
 symbi-channel-adapter = { path = "crates/channel-adapter", version = "0.1.5", features = ["teams", "mattermost"] }
 async-trait = "0.1"
+anyhow = "1.0"
 reqwest = { version = "0.12", features = ["json"] }
 serde_json = "1.0"
 tracing = "0.1"
@@ -74,12 +77,13 @@ name = "native-execution-example"
 required-features = ["native-sandbox"]
 
 [features]
-default = ["cron", "interactive", "cli-executor", "cedar"]
+default = ["cron", "interactive", "cli-executor", "cedar", "toolclad-session"]
 interactive = ["dep:dialoguer"]
 cron = ["symbi-runtime/cron", "dep:cron", "dep:chrono", "dep:chrono-tz"]
 cedar = ["symbi-runtime/cedar", "dep:cedar-policy"]
 native-sandbox = ["symbi-runtime/native-sandbox"]
 cli-executor = ["symbi-runtime/cli-executor"]
+toolclad-session = ["symbi-runtime/toolclad-session"]
 vendored-openssl = ["symbi-runtime/vendored-openssl"]
 # Experimental: multiparty session-type protocol monitor (off by default).
 session = ["symbi-runtime/session"]

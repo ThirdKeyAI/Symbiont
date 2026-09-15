@@ -195,13 +195,13 @@ fn run_load(app: &mut App, dir: &str) -> CommandResult {
     let mut msg = format!("Loaded {} agent(s) from {dir}.", report.loaded);
     if !report.sandbox_refused.is_empty() {
         msg.push_str(&format!(
-            "\n  {} .symbi agent(s) refused (sandbox tier — run via `symbi up`/`symbi run`): {}",
+            "\n  {} .symbi agent(s) refused (unsupported canonical execution requirements): {}",
             report.sandbox_refused.len(),
             report.sandbox_refused.join(", ")
         ));
     }
     for c in &report.collisions {
-        msg.push_str(&format!("\n  collision (last wins): {c}"));
+        msg.push_str(&format!("\n  collision (refused): {c}"));
     }
     for e in &report.errors {
         msg.push_str(&format!("\n  skipped {}: {}", e.path.display(), e.message));

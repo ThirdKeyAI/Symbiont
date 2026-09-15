@@ -444,11 +444,18 @@ api_server.start().await?;
 - `DELETE /api/v1/agents/{id}` - Delete an agent (requires authentication)
 - `POST /api/v1/agents/{id}/execute` - Execute an agent (requires authentication)
 - `GET /api/v1/agents/{id}/history` - Get agent execution history (requires authentication)
-- `POST /api/v1/workflows/execute` - Execute workflows
-- `GET /api/v1/metrics` - System performance metrics
+- `POST /api/v1/workflows/execute` - Submit raw source for queued execution (admin)
+- `GET /api/v1/metrics` - System performance metrics (admin)
 
-> **Note:** All `/api/v1/agents*` endpoints require Bearer token authentication. Set the `API_AUTH_TOKEN` environment variable and use the header:
+> **Note:** Runtime endpoints other than health probes require Bearer authentication. Configure a private API key store or the legacy operator token `SYMBIONT_API_TOKEN` and use the header:
 > `Authorization: Bearer <your-token>`
+
+Workflow source submission requires administrative authority even when targeting
+an existing agent. Agent-scoped keys invoke registered source through
+`/api/v1/agents/{id}/execute`. Both execution endpoints require an `Idempotency-Key` UUID for safe retries.
+Fresh workflow responses contain `status: queued` and
+an `execution_id`; match that ID in agent history for the eventual outcome.
+See the [workflow contract](API_REFERENCE.md#execute-workflow).
 
 #### Example Usage
 
@@ -457,12 +464,15 @@ api_server.start().await?;
 curl http://localhost:8080/api/v1/health
 
 # List all agents
-curl http://localhost:8080/api/v1/agents
+curl -H "Authorization: Bearer $SYMBIONT_API_TOKEN" http://localhost:8080/api/v1/agents
 
-# Execute a workflow
+# Execute a workflow (retain this UUID for retries)
+INVOCATION_ID=$(cat /proc/sys/kernel/random/uuid)
 curl -X POST http://localhost:8080/api/v1/workflows/execute \
+  -H "Idempotency-Key: $INVOCATION_ID" \
+  -H "Authorization: Bearer $SYMBIONT_API_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"workflow_id": "example", "parameters": {}}'
+  -d '{"workflow_id":"agent report() { with sandbox = \"docker\" {} }","parameters":{}}'
 ```
 
 #### Enable HTTP API

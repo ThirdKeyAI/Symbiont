@@ -356,3 +356,6 @@ data/vector_db/
 # Subagent-driven-development scratch (ledgers, briefs, reports)
 .superpowers/
 .symbi/
+
+# Private execution journals and signing keys at any project depth
+**/.symbiont/governed/

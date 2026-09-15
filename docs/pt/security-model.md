@@ -70,6 +70,12 @@ graph TB
 ```
 
 > **As três camadas de isolamento no host — Docker, gVisor e Firecracker — são todas entregues no runtime OSS.** Operadores escolhem a camada por agente via o bloco DSL `with { sandbox = ... }`, ou definem um padrão de projeto via `[sandbox] tier = "..."` em `symbiont.toml`. O E2B é opt-in apenas via DSL (`with { sandbox = "e2b" }`) e intencionalmente não é exposto como um valor de `[sandbox] tier`.
+>
+> Isolamento forte é uma base, não um upsell. As camadas permanecem no runtime de
+> código aberto para que a comunidade possa ler, auditar e reproduzir o limite do
+> qual depende. A atestação do convidado é o caso mais claro: uma impressão digital
+> sobre fontes que você não pode ler não atesta nada, por isso o serviço convidado é
+> de código aberto justamente por ser um controle de segurança.
 
 ### Camada 1: Isolamento Docker
 
@@ -143,6 +149,16 @@ gvisor_security:
 - microVM por execução com kernel + rootfs fornecidos pelo operador
 - Sistema de arquivos raiz somente leitura por padrão
 - Sem superfície de kernel compartilhada com o host
+- **Atestação do convidado:** o handshake verifica a versão do protocolo e uma
+  impressão digital das fontes do serviço convidado, e recusa uma imagem obsoleta ou
+  incompatível antes de qualquer comando ser enviado
+- **Propriedade independente do VMM:** um supervisor fora do loop de raciocínio
+  detém o ciclo de vida da VM, de modo que uma VM não pode sobreviver ao seu
+  supervisor, e uma VM órfã é recuperada contra uma identidade de processo
+  verificada em vez de um PID reutilizável
+- **Carga de trabalho convidada sem privilégios:** os comandos são executados como
+  usuário convidado não root com `no_new_privs` e limites explícitos de processos e
+  descritores de arquivo
 
 **Configuração:** `[sandbox.firecracker]` em `symbiont.toml`:
 
@@ -328,10 +344,16 @@ use symbi_runtime::reasoning::cedar_gate::CedarPolicyGate;
 
 // Criar um portão de políticas Cedar com postura deny-by-default
 let cedar_gate = CedarPolicyGate::deny_by_default();
+let agent_id = symbi_runtime::types::AgentId::new();
+let (journal, audit) = symbi_runtime::reasoning::run_audit::open_run_journal(
+    trusted_project, agent_id,
+).await?;
+println!("Audit: {}", serde_json::to_string(&audit)?);
 let runner = ReasoningLoopRunner::builder()
     .provider(provider)
     .executor(executor)
     .policy_gate(Arc::new(cedar_gate))
+    .journal(journal)
     .build();
 ```
 

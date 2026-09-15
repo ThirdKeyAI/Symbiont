@@ -31,13 +31,13 @@ use super::types::{
     AddIdentityMappingRequest, AgentStatusResponse, ChannelActionResponse, ChannelAuditResponse,
     ChannelDetail, ChannelHealthResponse, ChannelSummary, CreateAgentRequest, CreateAgentResponse,
     CreateScheduleRequest, CreateScheduleResponse, DeleteAgentResponse, DeleteChannelResponse,
-    DeleteScheduleResponse, ErrorResponse, ExecuteAgentRequest, ExecuteAgentResponse,
-    GetAgentHistoryResponse, HeartbeatRequest, IdentityMappingEntry, MessageStatusResponse,
-    NextRunsResponse, PushEventRequest, ReceiveMessagesResponse, RegisterChannelRequest,
-    RegisterChannelResponse, ScheduleActionResponse, ScheduleDetail, ScheduleHistoryResponse,
-    ScheduleSummary, SchedulerHealthResponse, SendMessageRequest, SendMessageResponse,
-    StatusResponse, UpdateAgentRequest, UpdateAgentResponse, UpdateChannelRequest,
-    UpdateScheduleRequest, WorkflowExecutionRequest,
+    DeleteScheduleResponse, ErrorResponse, ExecuteAgentRequest, GetAgentHistoryResponse,
+    HeartbeatRequest, IdentityMappingEntry, MessageStatusResponse, NextRunsResponse,
+    PushEventRequest, ReceiveMessagesResponse, RegisterChannelRequest, RegisterChannelResponse,
+    ScheduleActionResponse, ScheduleDetail, ScheduleHistoryResponse, ScheduleSummary,
+    SchedulerHealthResponse, SendMessageRequest, SendMessageResponse, StatusResponse,
+    UpdateAgentRequest, UpdateAgentResponse, UpdateChannelRequest, UpdateScheduleRequest,
+    WorkflowExecutionRequest,
 };
 
 #[cfg(feature = "http-api")]
@@ -115,6 +115,124 @@ fn scope_filter(validated: Option<&ValidatedKey>) -> Option<&Vec<String>> {
     validated.and_then(|k| k.agent_scope.as_ref())
 }
 
+#[derive(serde::Deserialize)]
+pub struct RunInspectionQuery {
+    public_key: String,
+}
+
+async fn capacity_response(
+    provider: Arc<dyn RuntimeApiProvider>,
+    validated: Option<Extension<ValidatedKey>>,
+    lease: Option<uuid::Uuid>,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let mut response = match require_admin(validated.as_deref()) {
+        Err(error) => error.into_response(),
+        Ok(()) => match provider.inspect_capacity(lease).await {
+            Ok(snapshot) => Json(snapshot).into_response(),
+            Err(error) => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(ErrorResponse {
+                    code: "CAPACITY_UNAVAILABLE".into(),
+                    error,
+                    details: None,
+                }),
+            )
+                .into_response(),
+        },
+    };
+    response.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store"),
+    );
+    response
+}
+
+#[utoipa::path(get, path="/api/v1/sandbox/capacity",
+    responses((status=200,description="Current retained worker reservations"),(status=403,description="Administrative key required"),(status=503,description="Supervisor accounting unavailable")),
+    security(("bearer_auth"=[])))]
+pub async fn inspect_capacity(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    validated: Option<Extension<ValidatedKey>>,
+) -> axum::response::Response {
+    capacity_response(provider, validated, None).await
+}
+
+#[utoipa::path(get, path="/api/v1/sandbox/workers/{lease}/usage",
+    params(("lease"=String,Path,description="Retained supervisor lease UUID")),
+    responses((status=200,description="One separately sampled worker measurement"),(status=403,description="Administrative key required"),(status=503,description="Measurement unavailable")),
+    security(("bearer_auth"=[])))]
+pub async fn inspect_worker_usage(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    validated: Option<Extension<ValidatedKey>>,
+    Path(lease): Path<uuid::Uuid>,
+) -> axum::response::Response {
+    capacity_response(provider, validated, Some(lease)).await
+}
+
+/// Inspect one project-local signed journal. This endpoint never executes work.
+#[utoipa::path(
+    get,
+    path = "/api/v1/audit/runs/{agent_id}/{run_id}",
+    params(
+        ("agent_id" = String, Path, description = "Agent UUID"),
+        ("run_id" = String, Path, description = "Run UUID"),
+        ("public_key" = String, Query, description = "Independently retained Ed25519 public key, 64 hex characters")
+    ),
+    responses((status = 200, description = "Verified bounded snapshot"),
+        (status = 403, description = "Administrative key required"),
+        (status = 422, description = "Evidence unavailable or invalid")),
+    security(("bearer_auth" = []))
+)]
+pub async fn inspect_run(
+    State(provider): State<Arc<dyn RuntimeApiProvider>>,
+    validated: Option<Extension<ValidatedKey>>,
+    Path((agent_id, run_id)): Path<(AgentId, uuid::Uuid)>,
+    axum::extract::Query(query): axum::extract::Query<RunInspectionQuery>,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let mut response = match require_admin(validated.as_deref()) {
+        Err(error) => error.into_response(),
+        Ok(()) => {
+            let key = if query.public_key.len() == 64 {
+                hex::decode(&query.public_key)
+                    .ok()
+                    .and_then(|bytes| bytes.try_into().ok())
+            } else {
+                None
+            };
+            match key {
+                None => (
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        code: "INVALID_AUDIT_KEY".into(),
+                        error: "public_key must be 64 hexadecimal characters".into(),
+                        details: None,
+                    }),
+                )
+                    .into_response(),
+                Some(key) => match provider.inspect_run(agent_id, run_id, key).await {
+                    Ok(view) => Json(view).into_response(),
+                    Err(error) => (
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        Json(ErrorResponse {
+                            code: "AUDIT_UNAVAILABLE".into(),
+                            error,
+                            details: None,
+                        }),
+                    )
+                        .into_response(),
+                },
+            }
+        }
+    };
+    response.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store"),
+    );
+    response
+}
+
 // ── AGENTS.md endpoint ─────────────────────────────────────────────────
 
 /// Serve AGENTS.md with sensitive sections stripped.
@@ -178,57 +296,39 @@ fn strip_sensitive_sections(content: &str) -> String {
 
 // ── Workflow / Agent / Schedule / Channel endpoints ────────────────────
 
-/// Workflow execution endpoint handler
+/// Submit raw workflow source with administrative authority.
 #[cfg(feature = "http-api")]
 #[utoipa::path(
     post,
     path = "/api/v1/workflows/execute",
+    params(("Idempotency-Key" = String, Header, description = "UUID retained for retries")),
     request_body = WorkflowExecutionRequest,
     responses(
-        (status = 200, description = "Workflow executed successfully", body = serde_json::Value),
-        (status = 500, description = "Internal server error", body = ErrorResponse)
+        (status = 200, description = "Workflow invocation queued; execution_id identifies its history", body = serde_json::Value),
+        (status = 401, description = "Authentication required"),
+        (status = 403, description = "Administrative authority required", body = ErrorResponse),
+        (status = 400, description = "Invalid UUID header or workflow source", body = serde_json::Value),
+        (status = 409, description = "Active, unresolved or conflicting invocation", body = serde_json::Value),
+        (status = 422, description = "Saved known terminal failure", body = serde_json::Value),
+        (status = 503, description = "Persistent admission unavailable", body = serde_json::Value)
     ),
     tag = "workflows"
 )]
 pub async fn execute_workflow(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     validated: Option<Extension<ValidatedKey>>,
+    caller: Option<Extension<super::invocations::AuthenticatedCaller>>,
+    headers: axum::http::HeaderMap,
     Json(request): Json<WorkflowExecutionRequest>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    // If the workflow targets a specific agent and the caller is scoped,
-    // enforce scope; otherwise require admin (workflow may span agents).
-    if let Some(agent_id) = request.agent_id.as_ref() {
-        check_agent_access(validated.as_ref().map(|Extension(k)| k), agent_id)?;
-    } else {
-        require_admin(validated.as_ref().map(|Extension(k)| k))?;
-    }
-    match provider.execute_workflow(request).await {
-        Ok(result) => match serde_json::to_value(result) {
-            Ok(v) => Ok(Json(v)),
-            Err(e) => {
-                tracing::error!(
-                    error = %e,
-                    "Failed to serialize workflow result"
-                );
-                Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: "Failed to serialize workflow result".to_string(),
-                        code: "WORKFLOW_SERIALIZATION_FAILED".to_string(),
-                        details: None,
-                    }),
-                ))
-            }
-        },
-        Err(e) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: e.to_string(),
-                code: "WORKFLOW_EXECUTION_FAILED".to_string(),
-                details: None,
-            }),
-        )),
-    }
+) -> Result<axum::response::Response, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(validated.as_ref().map(|Extension(k)| k))?;
+    Ok(super::invocations::submit(
+        provider.as_ref(),
+        caller.map(|Extension(c)| c),
+        headers,
+        super::invocations::ExecutionTarget::Workflow(request),
+    )
+    .await)
 }
 
 /// Agent status endpoint handler
@@ -434,12 +534,17 @@ pub async fn delete_agent(
     post,
     path = "/api/v1/agents/{id}/execute",
     params(
-        ("id" = AgentId, Path, description = "Agent identifier")
+        ("id" = AgentId, Path, description = "Agent identifier"),
+        ("Idempotency-Key" = String, Header, description = "UUID retained for retries")
     ),
     request_body = ExecuteAgentRequest,
     responses(
-        (status = 200, description = "Agent executed successfully", body = ExecuteAgentResponse),
-        (status = 500, description = "Internal server error", body = ErrorResponse)
+        (status = 200, description = "Queued invocation or previously recorded completion", body = serde_json::Value),
+        (status = 400, description = "Invalid UUID header", body = serde_json::Value),
+        (status = 404, description = "Registered agent unavailable", body = serde_json::Value),
+        (status = 409, description = "Active, unresolved or conflicting invocation", body = serde_json::Value),
+        (status = 422, description = "Saved known terminal failure", body = serde_json::Value),
+        (status = 503, description = "Persistent admission unavailable", body = serde_json::Value)
     ),
     tag = "agents"
 )]
@@ -447,20 +552,21 @@ pub async fn execute_agent(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Path(agent_id): Path<AgentId>,
     validated: Option<Extension<ValidatedKey>>,
+    caller: Option<Extension<super::invocations::AuthenticatedCaller>>,
+    headers: axum::http::HeaderMap,
     Json(request): Json<ExecuteAgentRequest>,
-) -> Result<Json<ExecuteAgentResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<axum::response::Response, (StatusCode, Json<ErrorResponse>)> {
     check_agent_access(validated.as_ref().map(|Extension(k)| k), &agent_id)?;
-    match provider.execute_agent(agent_id, request).await {
-        Ok(response) => Ok(Json(response)),
-        Err(e) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: e.to_string(),
-                code: "AGENT_EXECUTION_FAILED".to_string(),
-                details: None,
-            }),
-        )),
-    }
+    Ok(super::invocations::submit(
+        provider.as_ref(),
+        caller.map(|Extension(c)| c),
+        headers,
+        super::invocations::ExecutionTarget::Agent {
+            id: agent_id,
+            input: request.input,
+        },
+    )
+    .await)
 }
 
 /// Get agent execution history endpoint handler
@@ -722,10 +828,18 @@ pub async fn resume_schedule(
 #[utoipa::path(
     post,
     path = "/api/v1/schedules/{id}/trigger",
-    params(("id" = String, Path, description = "Job UUID")),
+    params(
+        ("id" = String, Path, description = "Job UUID"),
+        ("Idempotency-Key" = String, Header, description = "UUID retained for retries")
+    ),
     responses(
-        (status = 200, description = "Schedule triggered", body = ScheduleActionResponse),
-        (status = 404, description = "Not found", body = ErrorResponse)
+        (status = 200, description = "Queued or verified saved completion", body = serde_json::Value),
+        (status = 400, description = "Invalid invocation identity", body = serde_json::Value),
+        (status = 403, description = "Administrative or schedule authority refused", body = serde_json::Value),
+        (status = 404, description = "Schedule not found", body = serde_json::Value),
+        (status = 409, description = "In progress, unresolved or conflicting identity", body = serde_json::Value),
+        (status = 422, description = "Verified saved failure", body = serde_json::Value),
+        (status = 503, description = "Persistent admission unavailable", body = serde_json::Value)
     ),
     tag = "schedules"
 )]
@@ -733,18 +847,17 @@ pub async fn trigger_schedule(
     State(provider): State<Arc<dyn RuntimeApiProvider>>,
     Path(id): Path<String>,
     validated: Option<Extension<ValidatedKey>>,
-) -> Result<Json<ScheduleActionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    caller: Option<Extension<super::invocations::AuthenticatedCaller>>,
+    headers: axum::http::HeaderMap,
+) -> Result<axum::response::Response, (StatusCode, Json<ErrorResponse>)> {
     require_admin(validated.as_ref().map(|Extension(k)| k))?;
-    provider.trigger_schedule(&id).await.map(Json).map_err(|e| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: e.to_string(),
-                code: "SCHEDULE_TRIGGER_FAILED".to_string(),
-                details: None,
-            }),
-        )
-    })
+    Ok(super::invocations::submit(
+        provider.as_ref(),
+        caller.map(|Extension(c)| c),
+        headers,
+        super::invocations::ExecutionTarget::Schedule { job_id: id },
+    )
+    .await)
 }
 
 /// Get run history for a scheduled job
@@ -1624,6 +1737,7 @@ mod scope_tests {
 #[cfg(all(test, feature = "http-api"))]
 mod status_tests {
     use super::*;
+    use crate::api::types::ExecuteAgentResponse;
     use crate::types::RuntimeError;
     use async_trait::async_trait;
     use axum::extract::State;
@@ -1894,5 +2008,81 @@ mod status_tests {
         assert!(result.is_err(), "scoped key should be rejected");
         let (status_code, _) = result.unwrap_err();
         assert_eq!(status_code, StatusCode::FORBIDDEN);
+    }
+    #[tokio::test]
+    async fn capacity_requires_admin_and_unavailable_samples_are_never_zero_or_cached() {
+        let provider: Arc<dyn RuntimeApiProvider> = Arc::new(MockStatusProvider {
+            agents: 0,
+            schedules: 0,
+            channels: 0,
+            healthy: true,
+        });
+        for lease in [None, Some(uuid::Uuid::new_v4())] {
+            let denied = capacity_response(
+                provider.clone(),
+                Some(Extension(ValidatedKey {
+                    key_id: "scoped".into(),
+                    agent_scope: Some(vec![AgentId::new().to_string()]),
+                })),
+                lease,
+            )
+            .await;
+            assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+            assert_eq!(
+                denied.headers()[axum::http::header::CACHE_CONTROL],
+                "no-store"
+            );
+            let missing = capacity_response(provider.clone(), None, lease).await;
+            assert_eq!(missing.status(), StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(
+                missing.headers()[axum::http::header::CACHE_CONTROL],
+                "no-store"
+            );
+            let body = axum::body::to_bytes(missing.into_body(), 4096)
+                .await
+                .unwrap();
+            let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(body["code"], "CAPACITY_UNAVAILABLE");
+            assert!(body.get("reserved").is_none());
+            assert!(body.get("memory_bytes").is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn run_inspection_rejects_scoped_keys_before_validation_and_never_caches() {
+        let provider: Arc<dyn RuntimeApiProvider> = Arc::new(MockStatusProvider {
+            agents: 0,
+            schedules: 0,
+            channels: 0,
+            healthy: true,
+        });
+        let agent = AgentId::new();
+        let response = inspect_run(
+            State(provider.clone()),
+            Some(Extension(ValidatedKey {
+                key_id: "scoped".into(),
+                agent_scope: Some(vec![agent.to_string()]),
+            })),
+            Path((agent, uuid::Uuid::new_v4())),
+            axum::extract::Query(RunInspectionQuery {
+                public_key: "invalid".into(),
+            }),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(
+            response.headers()[axum::http::header::CACHE_CONTROL],
+            "no-store"
+        );
+        let response = inspect_run(
+            State(provider),
+            None,
+            Path((agent, uuid::Uuid::new_v4())),
+            axum::extract::Query(RunInspectionQuery {
+                public_key: "invalid".into(),
+            }),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 }

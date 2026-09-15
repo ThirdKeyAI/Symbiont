@@ -22,7 +22,7 @@ http://127.0.0.1:8080/api/v1
 
 ### Autenticação
 
-Os endpoints de gerenciamento de agentes requerem autenticação com token Bearer. Configure a variável de ambiente `API_AUTH_TOKEN` e inclua o token no cabeçalho Authorization:
+As rotas do runtime, exceto as verificações de saúde, exigem autenticação Bearer. Configure um arquivo privado de chaves API ou o token legado de operador `SYMBIONT_API_TOKEN`.
 
 ```
 Authorization: Bearer <your-token>
@@ -30,7 +30,7 @@ Authorization: Bearer <your-token>
 
 **Endpoints Protegidos:**
 - Todos os endpoints `/api/v1/agents/*` requerem autenticação
-- Os endpoints `/api/v1/health`, `/api/v1/workflows/execute` e `/api/v1/metrics` não requerem autenticação
+- Somente as verificações de saúde são públicas. Fluxos de trabalho e métricas exigem privilégios de administrador.
 
 ### Endpoints Disponíveis
 
@@ -67,21 +67,25 @@ Retorna o status atual de saúde do sistema e informações básicas do runtime.
 POST /api/v1/workflows/execute
 ```
 
-Executa um fluxo de trabalho com parâmetros especificados.
+Um administrador envia código DSL em `workflow_id`; `parameters` é a entrada da execução. `agent_id` cria ou substitui um registro; sua omissão aloca um novo ID. Chaves limitadas a um agente recebem `403 ADMIN_REQUIRED` e podem executar o código registrado por `/agents/{id}/execute`. `queued` confirma a admissão; consulte `/agents/{id}/history` pelo `execution_id` para obter o resultado. Veja o [contrato completo](../../crates/runtime/API_REFERENCE.md#execute-workflow).
 
 **Corpo da Solicitação:**
 ```json
 {
-  "workflow_id": "string",
+  "workflow_id": "agent report() { with sandbox = \"docker\" {} }",
   "parameters": {},
-  "agent_id": "optional-agent-id"
+  "agent_id": null
 }
 ```
 
 **Resposta (200 OK):**
 ```json
 {
-  "result": "workflow execution result"
+  "status": "queued",
+  "workflow_id": "agent report() { with sandbox = \"docker\" {} }",
+  "agent_id": "19b183f7-97c4-4e42-9c62-5e9c940bfae3",
+  "execution_id": "c7022f13-7140-4a09-8e30-b1941e0cbb32",
+  "metadata": {}
 }
 ```
 
@@ -210,6 +214,7 @@ Exclui um agente existente do runtime.
 ##### Executar Agente
 ```http
 POST /api/v1/agents/{id}/execute
+Idempotency-Key: <UUID retained for retries>
 Authorization: Bearer <your-token>
 ```
 
@@ -224,7 +229,7 @@ Aciona a execução de um agente específico.
 ```json
 {
   "execution_id": "uuid",
-  "status": "execution_started"
+  "status": "queued"
 }
 ```
 
@@ -678,7 +683,10 @@ POST /api/v1/schedules/{id}/pause
 POST /api/v1/schedules/{id}/resume
 POST /api/v1/schedules/{id}/trigger
 Authorization: Bearer <your-token>
+Idempotency-Key: <invocation-uuid>
 ```
+
+O acionamento manual exige um token administrativo e um UUID em `Idempotency-Key`. Retorna `queued`, um resultado salvo ou `in_progress` / `unresolved` / `conflict`. Reutilize o UUID nas tentativas seguintes. Pausar e retomar mantêm a resposta abaixo; execuções não resolvidas impedem a retomada. Veja [recuperação do cron](../cron-recovery.md).
 
 **Resposta (200 OK):**
 ```json

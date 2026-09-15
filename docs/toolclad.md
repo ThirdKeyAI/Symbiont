@@ -114,22 +114,37 @@ description = "Maximum packets per second"
 | `enum` | Must match one of the `allowed` values |
 | `scope_target` | IP, CIDR, or hostname — validated against project scope |
 | `url` | Must contain "://", optional scheme whitelist |
-| `path` | No `..` traversal, symlinks canonicalized |
+| `path` | Relative path; rejects absolute/rooted paths and `..` components; preserves the validated spelling |
 | `ip_address` | Valid IPv4 or IPv6 |
 | `cidr` | Valid CIDR notation with prefix validation |
-| `credential_file` | File path that must exist on disk |
+| `credential_file` | Relative path that must name an existing regular file on the controller |
 | `duration` | Integer with suffix (s/m/h), converted to seconds |
+| `literal_text` | Explicit bounded UTF-8 content (32 KiB), preserving whitespace and metacharacters; rejects NUL. Use with a pre-tokenized argv contract. An interpreter such as `sh -c` deliberately treats it as code and requires the appropriate policy, sandbox and approval. |
 | `regex_match` | Custom regex from the `pattern` field |
-| `agent_summary` | Free text bound for a downstream agent's prompt — strips invisible Unicode and renderer-hidden markup, rejects known injection markers. Best-effort defense-in-depth, **not** a load-bearing control (see [Typed + grounded decisions](#typed--grounded-decisions)) |
+| `agent_summary` | Free text bound for a downstream agent's prompt — strips invisible Unicode and renderer-hidden markup, rejects known injection markers. Best-effort defense-in-depth, **not** a load-bearing control (see [Typed + grounded decisions](#typed-grounded-decisions)) |
 
-All types reject shell metacharacters: `;` `|` `&` `$` `` ` `` `(` `)` `{` `}` `[` `]` `<` `>` `!` `\n` `\r` `\0`
+`string` rejects shell metacharacters; the explicit `literal_text` type preserves them as data: `;` `|` `&` `$` `` ` `` `(` `)` `{` `}` `[` `]` `<` `>` `!` `\n` `\r` `\0`
+
+Path validation is lexical and portable across `/` and `\` separators. It does
+not canonicalize against the controller filesystem: a relative path remains
+relative to the selected worker's working directory. Ordinary dotted filenames
+such as `report..csv` remain valid. Absolute paths previously accepted by this
+embedded validator are now rejected, matching ToolClad's relative-path contract.
+For intentional absolute argv data, declare `literal_text` explicitly and apply
+the appropriate policy and sandbox restrictions.
+
+`credential_file` adds a controller-side regular-file preflight and preserves the
+relative argument. It follows filesystem links and does not prove that a file
+exists or is confined in the worker. Mounts, working directory and the selected
+sandbox define the worker's filesystem authority; path syntax alone does not
+prevent a tool from following symlinks within that authority.
 
 **Optional argument flags:**
 
 | Flag | Meaning |
 |------|---------|
 | `scope_check = true` | Validate the value against the project scope (IP/CIDR/hostname args) |
-| `feeds_decision = true` | This argument's value feeds a privileged downstream decision (routing, escalation, authorization). Free-text types (`string`, `agent_summary`, `regex_match`) marked this way are flagged as an anti-pattern by ToolClad manifest validation — use an `enum` plus Cedar grounding instead (see [Typed + grounded decisions](#typed--grounded-decisions)) |
+| `feeds_decision = true` | This argument's value feeds a privileged downstream decision (routing, escalation, authorization). Free-text types (`string`, `literal_text`, `agent_summary`, `regex_match`) marked this way are flagged as an anti-pattern by ToolClad manifest validation — use an `enum` plus Cedar grounding instead (see [Typed + grounded decisions](#typed-grounded-decisions)) |
 
 **Custom types** can be defined in a project-level `toolclad.toml`:
 
@@ -227,7 +242,7 @@ scan_type = "mode"
 
 ### Session (interactive CLI)
 
-Spawns a tool in a pseudo-terminal and maintains conversation state across multiple commands. Requires the `toolclad-session` feature.
+Spawns a real pseudo-terminal inside the selected Docker/gVisor container and maintains state across commands in one governed run. Requires `toolclad-session`, enabled in the default CLI. See [terminal boundaries and SDK lifecycle](interactive-terminal-boundary.md) for image requirements, limits and cleanup.
 
 ```toml
 [tool]
@@ -242,10 +257,10 @@ idle_timeout_seconds = 300
 max_interactions = 50
 
 [session.commands.run]
-pattern = "use {module}; set RHOSTS {target}; run"
-description = "Run a Metasploit module"
-risk_tier = "high"
-human_approval = true
+pattern = "help"
+description = "Show command help"
+risk_tier = "low"
+human_approval = false
 ```
 
 Each declared command becomes a separate MCP tool definition (e.g., `msfconsole.run`).
@@ -256,10 +271,11 @@ Each declared command becomes a separate MCP tool definition (e.g., `msfconsole.
 > argument-validated, and scope-checked, but Chrome DevTools Protocol execution
 > is not implemented yet. It is gated behind the `toolclad-browser` cargo feature,
 > whose real backend is still pending — until then a browser command returns an
-> honest error, never a fabricated result. Declare browser tools now if you like;
-> they will start executing once the CDP backend lands.
+> honest error, never a fabricated result. Private transport fixtures can drive
+> contained Chromium, but they do not enable the public browser executor.
 
-Headless or live Chrome DevTools Protocol for web interaction. Requires the `toolclad-browser` feature.
+The manifest describes the intended Chrome DevTools Protocol interface.
+Neither `connect = "launch"` nor live attachment starts a browser today.
 
 ```toml
 [tool]
@@ -276,11 +292,15 @@ allowed_domains = ["example.com", "*.test.example.com"]
 blocked_domains = ["admin.example.com"]
 allow_external = false
 
+[browser.network]
+allowed_methods = ["GET", "HEAD"]
+private_origins = []
+
 [browser.commands.navigate]
 description = "Navigate to URL"
 ```
 
-Built-in browser commands: `navigate`, `snapshot`, `click`, `type_text`, `submit_form`, `extract`, `screenshot`, `execute_js`, `wait_for`, `go_back`, `list_tabs`, `network_timing`.
+Planned browser commands: `navigate`, `snapshot`, `click`, `type_text`, `submit_form`, `extract`, `screenshot`, `execute_js`, `wait_for`, `go_back`, `list_tabs`, `network_timing`.
 
 ---
 
@@ -303,15 +323,64 @@ Arguments with `scope_check = true` are validated against this scope. IPs are ch
 
 ### URL scope (browser mode)
 
-Browser tools enforce domain-level scope via `[browser.scope]`. Navigation to disallowed domains is blocked.
+Navigation requires `[browser.scope]` and an HTTP(S) URL without embedded
+credentials. Domain comparisons use canonical hostnames, including case,
+internationalized names, encoded host characters and a final DNS dot. Blocked
+rules take precedence; `*.example.com` matches the base domain and its
+subdomains. Malformed rules fail closed, including when `allow_external = true`.
+At most 256 domain rules and an 8 KiB URL are accepted. Control characters,
+backslashes and ambiguous URL forms are rejected.
+
+Prepared navigation binds the normalized URL before policy, approval and audit.
+Its prepared context also includes the effective `[browser.network]` settings;
+the manifest digest binds these capabilities through authorization. GET and HEAD
+are the default methods. Other supported methods (POST, PUT, PATCH, DELETE and
+OPTIONS) require explicit inclusion; CONNECT and TRACE are refused.
+
+Domain scope does not grant access to private addresses. An operator can grant an
+exact literal origin, such as `private_origins = ["http://127.0.0.1:8080"]`, and
+also include its address in `allowed_domains`. The scheme, address and effective
+port must match. The exception accepts loopback, RFC1918 and IPv6 unique-local
+addresses, excluding the AWS IPv6 metadata endpoint. DNS names, link-local,
+multicast, unspecified and mapped IPv6 addresses cannot use it. A redirect to
+another port or origin needs its own grant. Blocked domain rules still win.
+
+The reusable `browser_network::BrowserNetworkPolicy` builds scoped requests from
+CDP interception events. It removes authority/framing and hop-by-hop headers,
+requires complete bounded request bodies, and refuses multipart/file uploads.
+Requests are limited to 2 MiB of application data, responses to 4 MiB, and headers
+to 128 entries / 64 KiB. The broker client uses DNS filtering, no ambient proxy,
+no redirect following and no automatic content decompression. Responses preserve
+duplicate cookies and binary header values for CDP fulfillment. Chromium receives
+redirect responses and each resulting request must be checked again.
+
+These request-construction helpers do not issue execution authority. A trusted
+driver must retain the worker, mediate every target and use the call-bound journal
+before sending each unchanged request. The public browser route stays unavailable
+while that production driver and browser lifetime ownership are integrated.
+The [contained Chromium transport fixtures](../crates/runtime/tests/fixtures/browser/README.md)
+include a real local HTTP case with pre-connection signed audit, an exact POST
+effect, denied method/subresource/redirect destinations and worker removal.
+This is component integration evidence, not a shipping browser-command E2E.
 
 ### SSRF protection (HTTP backend)
 
 HTTP backend requests automatically block:
 - Localhost (`127.0.0.1`, `::1`, `localhost`)
 - Cloud metadata (`169.254.169.254`, `metadata.google.internal`)
+- Shared address space (`100.64.0.0/10`), including `100.100.100.200`, in both URL checks and DNS answers
 - Private IP ranges (RFC 1918, link-local, broadcast)
 - Non-HTTP/HTTPS schemes
+
+HTTP exchange uses asynchronous I/O, a bounded request and response body, and the
+remaining call deadline. Automatic redirects and ambient proxies stay disabled.
+Preparation resolves the method and canonical destination before policy and
+approval, including path segments that the HTTP client would normalize. URL
+userinfo credentials are rejected; use explicit headers. URLs are limited to
+8 KiB without control characters.
+Governed calls record the built request before connecting and record the actual
+response or incomplete outcome through their existing protected journal. See
+[request audit records](run-audit.md). No new approval or UI control is required.
 
 ---
 
@@ -415,7 +484,7 @@ The pattern that holds:
 2. **Ground it in trusted context.** Derive the authoritative facts from trusted input (e.g. severity inferred from the ticket the system received, not from the agent's self-report), and make the decision a [Cedar policy](/security-model) over that trusted context. The lower-trust agent's output is advisory, not authoritative.
 3. **Keep `agent_summary` as defense-in-depth only.** It still strips invisible Unicode / hidden markup and logs injection-shaped attempts, but it is never the load-bearing control for a privileged decision.
 
-Mark any argument that feeds such a decision with `feeds_decision = true`. ToolClad manifest validation flags free-text decision inputs (`string`, `agent_summary`, `regex_match`) as an anti-pattern, steering authors to an `enum` plus Cedar grounding.
+Mark any argument that feeds such a decision with `feeds_decision = true`. ToolClad manifest validation flags free-text decision inputs (`string`, `literal_text`, `agent_summary`, `regex_match`) as an anti-pattern, steering authors to an `enum` plus Cedar grounding.
 
 Reference implementation:
 

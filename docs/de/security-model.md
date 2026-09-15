@@ -74,6 +74,12 @@ graph TB
 ```
 
 > **Alle drei Host-Isolationsstufen — Docker, gVisor und Firecracker — werden im OSS-Runtime ausgeliefert.** Betreiber waehlen die Stufe pro Agent ueber den DSL-Block `with { sandbox = ... }` oder setzen einen Projekt-Standard via `[sandbox] tier = "..."` in `symbiont.toml`. E2B ist ausschliesslich ueber DSL Opt-in (`with { sandbox = "e2b" }`) und wird absichtlich nicht als `[sandbox] tier`-Wert angeboten.
+>
+> Starke Isolation ist eine Grundlage, kein Upsell. Die Stufen bleiben im
+> Open-Source-Runtime, damit die Community die Grenze, auf die sie sich verlaesst,
+> lesen, pruefen und reproduzieren kann. Die Gast-Attestierung ist der klarste Fall:
+> Ein Fingerabdruck ueber Quellen, die man nicht lesen kann, bezeugt nichts. Der
+> Gastdienst ist gerade deshalb quelloffen, weil er eine Sicherheitskontrolle ist.
 
 ### Stufe 1: Docker-Isolation
 
@@ -147,6 +153,15 @@ gvisor_security:
 - microVM pro Ausfuehrung mit vom Betreiber bereitgestelltem Kernel + rootfs
 - Standardmaessig schreibgeschuetztes Root-Dateisystem
 - Keine geteilte Kernel-Oberflaeche mit dem Host
+- **Gast-Attestierung:** Der Handshake prueft die Protokollversion und einen
+  Fingerabdruck der Quellen des Gastdienstes und weist ein veraltetes oder nicht
+  passendes Image zurueck, bevor ein Befehl gesendet wird
+- **Unabhaengige VMM-Eigentuemerschaft:** Ein Supervisor ausserhalb der
+  Reasoning-Schleife besitzt die VM-Lebensdauer, sodass eine VM ihren Supervisor
+  nicht ueberdauern kann; eine verwaiste VM wird anhand einer verifizierten
+  Prozessidentitaet statt einer wiederverwendbaren PID zurueckgeholt
+- **Unprivilegierte Gast-Workload:** Befehle laufen als Nicht-Root-Gastbenutzer mit
+  `no_new_privs` sowie expliziten Prozess- und Dateideskriptor-Limits
 
 **Konfiguration:** `[sandbox.firecracker]` in `symbiont.toml`:
 
@@ -332,10 +347,16 @@ use symbi_runtime::reasoning::cedar_gate::CedarPolicyGate;
 
 // Cedar-Policy-Gate mit Deny-by-Default-Haltung erstellen
 let cedar_gate = CedarPolicyGate::deny_by_default();
+let agent_id = symbi_runtime::types::AgentId::new();
+let (journal, audit) = symbi_runtime::reasoning::run_audit::open_run_journal(
+    trusted_project, agent_id,
+).await?;
+println!("Audit: {}", serde_json::to_string(&audit)?);
 let runner = ReasoningLoopRunner::builder()
     .provider(provider)
     .executor(executor)
     .policy_gate(Arc::new(cedar_gate))
+    .journal(journal)
     .build();
 ```
 

@@ -41,6 +41,8 @@ fn build_echo_manifest() -> Manifest {
     );
 
     Manifest {
+        filesystem: None,
+        source: None,
         tool: ToolMeta {
             name: "echo".to_string(),
             version: "1.0.0".to_string(),
@@ -103,6 +105,7 @@ where
 async fn execute_actions_invokes_real_mcp_tool() {
     let observations = with_echo_registry_cwd(|| async {
         let executor = ToolCladExecutor::new(vec![("echo".to_string(), build_echo_manifest())])
+            .with_development_host_execution()
             .with_mcp_verification(false);
         let action = ProposedAction::ToolCall {
             call_id: "c1".to_string(),
@@ -138,6 +141,7 @@ async fn execute_actions_fails_closed_when_verification_enforced() {
     // an is_error observation, never a fabricated success.
     let observations = with_echo_registry_cwd(|| async {
         let executor = ToolCladExecutor::new(vec![("echo".to_string(), build_echo_manifest())])
+            .with_development_host_execution()
             .with_mcp_verification(true);
         let action = ProposedAction::ToolCall {
             call_id: "c1".to_string(),
@@ -189,8 +193,9 @@ async fn execute_actions_times_out_a_hung_mcp_server() {
     let original = std::env::current_dir().expect("cwd");
     std::env::set_current_dir(dir.path()).expect("set cwd");
 
-    let executor =
-        ToolCladExecutor::new(vec![("echo".to_string(), manifest)]).with_mcp_verification(false);
+    let executor = ToolCladExecutor::new(vec![("echo".to_string(), manifest)])
+        .with_development_host_execution()
+        .with_mcp_verification(false);
     let action = ProposedAction::ToolCall {
         call_id: "c1".to_string(),
         name: "echo".to_string(),

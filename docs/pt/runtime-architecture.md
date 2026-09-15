@@ -510,7 +510,7 @@ pub struct AuditEvent {
 - **Prevenção de Vazamentos**: Limpeza automática e monitoramento
 
 **Utilização de CPU:**
-- **Overhead do Agendador**: <2% CPU para 10.000 agentes
+- **Overhead do Agendador**: A latência do registro e da fila limitada é testada. O consumo de CPU de 10.000 agentes em execução não foi demonstrado.
 - **Troca de Contexto**: Threads virtuais assistidas por hardware
 - **Balanceamento de Carga**: Distribuição dinâmica de carga
 - **Agendamento por Prioridade**: Camadas de processamento em tempo real e em lote

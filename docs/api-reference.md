@@ -22,7 +22,7 @@ http://127.0.0.1:8080/api/v1
 
 ### Authentication
 
-Agent management endpoints require Bearer token authentication. Set the `API_AUTH_TOKEN` environment variable and include the token in the Authorization header:
+Runtime routes other than health probes require Bearer authentication. Configure a private API key store or the legacy operator token `SYMBIONT_API_TOKEN`.
 
 ```
 Authorization: Bearer <your-token>
@@ -30,7 +30,7 @@ Authorization: Bearer <your-token>
 
 **Protected Endpoints:**
 - All `/api/v1/agents/*` endpoints require authentication
-- `/api/v1/health`, `/api/v1/workflows/execute`, and `/api/v1/metrics` endpoints do not require authentication
+- Only health probes are public. Workflow submission and metrics require administrative authority.
 
 ### Available Endpoints
 
@@ -67,21 +67,25 @@ Returns the current system health status and basic runtime information.
 POST /api/v1/workflows/execute
 ```
 
-Execute a workflow with specified parameters.
+Administrators submit raw DSL source in `workflow_id`; `parameters` is the invocation input. Omit `agent_id` to allocate a registration, or supply an ID to create or replace it. Agent-scoped keys receive `403 ADMIN_REQUIRED` here and can invoke their registered source through `/agents/{id}/execute`. A `queued` response acknowledges admission; match `execution_id` in `/agents/{id}/history` for the eventual outcome. See the [workflow contract](../crates/runtime/API_REFERENCE.md#execute-workflow) for source selection, validation and migration details.
 
 **Request Body:**
 ```json
 {
-  "workflow_id": "string",
+  "workflow_id": "agent report() { with sandbox = \"docker\" {} }",
   "parameters": {},
-  "agent_id": "optional-agent-id"
+  "agent_id": null
 }
 ```
 
 **Response (200 OK):**
 ```json
 {
-  "result": "workflow execution result"
+  "status": "queued",
+  "workflow_id": "agent report() { with sandbox = \"docker\" {} }",
+  "agent_id": "19b183f7-97c4-4e42-9c62-5e9c940bfae3",
+  "execution_id": "c7022f13-7140-4a09-8e30-b1941e0cbb32",
+  "metadata": {}
 }
 ```
 
@@ -210,10 +214,13 @@ Delete an existing agent from the runtime.
 ##### Execute Agent
 ```http
 POST /api/v1/agents/{id}/execute
+Idempotency-Key: <UUID retained for retries>
 Authorization: Bearer <your-token>
 ```
 
-Trigger execution of a specific agent.
+Submit one invocation of the selected agent. Reuse the UUID and request to retrieve
+a saved completion or an explicit active/unresolved/reconciled/conflict outcome. See
+[scheduler retry states](scheduler-idempotency.md).
 
 **Request Body:**
 ```json
@@ -224,7 +231,7 @@ Trigger execution of a specific agent.
 ```json
 {
   "execution_id": "uuid",
-  "status": "execution_started"
+  "status": "queued"
 }
 ```
 
@@ -696,7 +703,10 @@ POST /api/v1/schedules/{id}/pause
 POST /api/v1/schedules/{id}/resume
 POST /api/v1/schedules/{id}/trigger
 Authorization: Bearer <your-token>
+Idempotency-Key: <invocation-uuid>
 ```
+
+Manual triggers require an administrative token and an `Idempotency-Key` UUID. They return `queued`, a saved result, or an explicit `in_progress` / `unresolved` / `reconciled` / `conflict` state. Reuse the same UUID for retries. Pause and resume retain the action response below; unresolved occurrences prevent resume. See [cron recovery](cron-recovery.md).
 
 **Response (200 OK):**
 ```json
@@ -1351,3 +1361,9 @@ For API support and questions:
 - Review the [Runtime Architecture documentation](runtime-architecture.md)
 - Check the [Security Model documentation](security-model.md)
 - File issues on the project's GitHub repository
+
+A reconciled invocation returns HTTP 409 and its separately signed operator
+`resolution`; it never returns a manufactured runtime completion. Cron history
+retains `Reconciled` status, the original error and audit, and the resolution
+object. The job remains paused until explicit resume. See
+[operator reconciliation](invocation-reconciliation.md).

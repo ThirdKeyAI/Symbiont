@@ -212,7 +212,10 @@ pub async fn auth_middleware(request: Request, next: Next) -> Result<Response, S
                     // Attach the validated key to request extensions so handlers
                     // can enforce per-agent authorization (e.g. sender spoofing,
                     // inbox theft on messaging endpoints).
+                    let caller =
+                        super::invocations::AuthenticatedCaller::verified(token, Some(&validated));
                     let mut request = request;
+                    request.extensions_mut().insert(caller);
                     request.extensions_mut().insert(validated);
                     Ok(next.run(request).await)
                 }
@@ -275,6 +278,9 @@ pub async fn auth_middleware(request: Request, next: Next) -> Result<Response, S
          Argon2 hashing, and key rotation. Set SYMBIONT_REFUSE_LEGACY_API_TOKEN=1 \
          once migration is complete to disable the env-var fallback."
     );
+    let caller = super::invocations::AuthenticatedCaller::verified(token, None);
+    let mut request = request;
+    request.extensions_mut().insert(caller);
     Ok(next.run(request).await)
 }
 

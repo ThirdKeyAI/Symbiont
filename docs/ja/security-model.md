@@ -69,6 +69,8 @@ graph TB
 ```
 
 > **3つのホスト分離ティア — Docker、gVisor、Firecracker — はすべて OSS ランタイムに同梱されています。** 運用者は DSL の `with { sandbox = ... }` ブロックでエージェントごとにティアを選択するか、`symbiont.toml` の `[sandbox] tier = "..."` でプロジェクト全体のデフォルトを設定します。E2B は DSL 経由（`with { sandbox = "e2b" }`）でのみオプトインで利用可能であり、`[sandbox] tier` の値としては意図的に公開していません。
+>
+> 強力な分離は基盤であり、追加販売の対象ではありません。コミュニティが依存する境界を自ら読み、監査し、再現できるように、各ティアはオープンソースのランタイムに留まります。ゲスト認証はその最も明快な例です。読むことのできないソースに対するフィンガープリントは何も証明しないため、ゲストサービスはまさにセキュリティ制御であるからこそオープンソースになっています。
 
 ### ティア1：Docker分離
 
@@ -142,6 +144,9 @@ gvisor_security:
 - 運用者が提供するカーネル + rootfs を用いた実行ごとの microVM
 - デフォルトで読み取り専用のルートファイルシステム
 - ホストとカーネル表面を共有しない
+- **ゲスト認証：** ハンドシェイクでプロトコルバージョンとゲストサービスのソースのフィンガープリントを検証し、古いイメージや一致しないイメージはコマンド送信前に拒否されます
+- **独立した VMM 所有権：** 推論ループの外にあるスーパーバイザが VM のライフタイムを所有するため、VM がスーパーバイザより長く存続することはなく、孤立した VM は再利用可能な PID ではなく検証済みのプロセス識別子に対して回収されます
+- **非特権のゲストワークロード：** コマンドは非 root のゲストユーザーとして実行され、`no_new_privs` とプロセス数・ファイルディスクリプタ数の明示的な上限が適用されます
 
 **設定：** `symbiont.toml` の `[sandbox.firecracker]`：
 
@@ -327,10 +332,16 @@ use symbi_runtime::reasoning::cedar_gate::CedarPolicyGate;
 
 // デフォルト拒否のスタンスでCedarポリシーゲートを作成
 let cedar_gate = CedarPolicyGate::deny_by_default();
+let agent_id = symbi_runtime::types::AgentId::new();
+let (journal, audit) = symbi_runtime::reasoning::run_audit::open_run_journal(
+    trusted_project, agent_id,
+).await?;
+println!("Audit: {}", serde_json::to_string(&audit)?);
 let runner = ReasoningLoopRunner::builder()
     .provider(provider)
     .executor(executor)
     .policy_gate(Arc::new(cedar_gate))
+    .journal(journal)
     .build();
 ```
 

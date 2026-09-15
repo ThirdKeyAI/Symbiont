@@ -21,20 +21,40 @@ Chat channel adapters for the [Symbi](https://crates.io/crates/symbi) platform â
 ## Usage
 
 ```rust
-use symbi_channel_adapter::{ChannelAdapterManager, ChannelConfig, SlackConfig};
+use symbi_channel_adapter::{ChannelConfig, ChatPlatform, PlatformSettings, SlackConfig};
 
 let config = ChannelConfig {
-    platform: SlackConfig {
-        bot_token: std::env::var("SLACK_BOT_TOKEN").unwrap(),
-        app_token: std::env::var("SLACK_APP_TOKEN").unwrap(),
-        signing_secret: std::env::var("SLACK_SIGNING_SECRET").unwrap(),
+    name: "slack-support".into(),
+    platform: ChatPlatform::Slack,
+    settings: PlatformSettings::Slack(SlackConfig {
+        bot_token: std::env::var("SLACK_BOT_TOKEN").expect("SLACK_BOT_TOKEN"),
+        signing_secret: Some(
+            std::env::var("SLACK_SIGNING_SECRET").expect("SLACK_SIGNING_SECRET"),
+        ),
         ..Default::default()
-    }.into(),
-    ..Default::default()
+    }),
 };
-
-let manager = ChannelAdapterManager::new(config);
 ```
+
+Create `ChannelAdapterManager::new(invoker, logger)` with the application's
+`AgentInvoker` and `BasicInteractionLogger`, then await
+`manager.register_adapter(config)`. Install any approval command interceptor
+before registering adapters so their handlers receive it.
+
+### Slack authentication and approval commands
+
+Before enabling Slack, configure a nonempty app signing secret. Startup fails
+without it, and both callback routes reject unsigned, invalid or stale requests.
+Verification covers the exact received body bytes and timestamp. Environment
+labels and `SYMBIONT_SLACK_ALLOW_UNSIGNED` cannot bypass this requirement.
+
+When the runtime approval queue and approver allowlist are configured, Slack
+`/symbi gate` commands route to approval control. Use `/symbi gate show <id>`,
+then copy `/symbi gate approve <id> <review-digest>` from the complete review;
+`/symbi gate deny <id>` needs no review. ID-only approval is no longer accepted.
+Chat reviews have an 8 KiB budget including commands and cannot be truncated to
+make an action approvable. See [approval lifecycle](../../docs/approval-lifecycle.md)
+for the other review surfaces and remaining platform/workspace trust limits.
 
 ### Enabling additional platforms
 

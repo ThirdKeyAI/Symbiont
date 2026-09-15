@@ -1,5 +1,7 @@
 # Getting Started
 
+> On `fix/containment-boundary`, start with the [branch operator guide](containment-branch-guide.md) for execution prerequisites, approval changes and current coverage.
+
 This guide will walk you through setting up Symbi and creating your first AI agent.
 
 ▶ **Watch the get-started walkthrough:**
@@ -270,6 +272,13 @@ The command resolves agent names by searching: direct path, then `agents/` direc
 symbi run assistant -i 'Summarize this document'
 symbi run agents/recon.symbi -i '{"target": "10.0.1.5"}' --max-iterations 5
 ```
+
+Tool commands, parsers, MCP and PTY execution require the selected container
+backend, a cached image with the declared executables, and explicit data mounts.
+Unavailable backends cannot fall back to host execution. Selected agent settings
+and project defaults are checked before inference. Runs also require protected
+`.symbiont/governed/` storage and print their public audit reference. See
+[command configuration](toolclad-command-boundary.md) and [run audit](run-audit.md).
 
 ### Starting from a template (`symbi new`)
 
@@ -643,44 +652,40 @@ See [symbi-claude-code](https://github.com/thirdkeyai/symbi-claude-code) for det
 
 #### Mode B: governed Claude Code subprocess
 
-Beyond the in-editor hooks, Symbiont can run Claude Code as a *governed
-subprocess* — the "Mode B" (ORGA-managed) path. An agent whose metadata declares
-`executor = "claude_code"` runs by spawning Claude Code under the runtime's
-`CliExecutor` instead of the LLM reasoning loop. The bundled `code_reviewer`
-agent is the reference example:
+An agent with `metadata { executor = "claude_code" }` runs its CLI child in the
+selected Docker/gVisor container with scratch storage and private runtime
+inference/tool channels. The bundled `code_reviewer` is the reference agent.
+First configure a cached CLI/Python image, explicit backend source mounts,
+registered ToolClad tools and Cedar policies, and `[managed_cli.inference]`.
+See [managed CLI containment](managed-cli-containment.md) for a complete example.
 
 ```bash
-# Review a working tree with a governed Claude Code subprocess
-symbi run code_reviewer --target /path/to/repo
+# /srv/source must map to an explicit backend mount in the control project.
+symbi run code_reviewer --target /srv/source --max-turns 12 --budget-timeout 15m
 
-# Bounds: --max-turns is the primary (cooperative) limit; --budget-timeout is a
-# hard wall-clock backstop (graceful SIGTERM -> SIGKILL).
-symbi run code_reviewer --target . --max-turns 12 --budget-timeout 15m
+# Add operator review for tools that require approval.
+symbi run code_reviewer --target /srv/source --approval-terminal
 ```
 
-On each run Symbiont:
+The child receives no direct source mount, external network access, host login
+state or provider credential. Registered tools broker allowed file/Git access.
+Built-in tools and automatic discovery are disabled. Every action requires
+runtime authorization; a spawn approval does not authorize subsequent actions.
+Plugins are not loaded and `--plugin-dir` is rejected.
 
-- evaluates the spawn through the policy **Gate** (fail-closed — allow it via a
-  Cedar policy, or `SYMBI_INSECURE_ALLOW_ALL=1` for local development);
-- sets the env handshake (`SYMBIONT_MANAGED=true`, `SYMBIONT_SESSION_ID`,
-  `SYMBIONT_BUDGET_TOKENS`, `SYMBIONT_BUDGET_TIMEOUT`, `CLAUDE_PROJECT_DIR`) so the
-  symbi-claude-code plugin **defers** its hooks to the outer Gate;
-- loads the plugin via `--plugin-dir` and wires the stdio `symbi mcp` back-channel
-  via `--mcp-config --strict-mcp-config`;
-- runs Claude Code headless (`--print --output-format json --permission-mode dontAsk`).
+| Flag / setting | Purpose |
+|---|---|
+| `--target` | Source directory mapped to an explicit backend mount |
+| `--max-turns` | Conversation bound; default 12 |
+| `--budget-timeout` | Wall-clock bound including initialization; default `15m` |
+| `--budget-tokens` | Reserved inference output-token allowance; default 100000, not total billed tokens |
+| `--approval-terminal` | Opt-in controlling-terminal review for mandatory approvals |
+| `[managed_cli.inference]` | Explicit provider endpoint, model and credential variable; credential stays in the runtime |
 
-| Variable / flag | Purpose | Default |
-|---|---|---|
-| `SYMBIONT_CLAUDE_PLUGIN_DIR` | Path to the symbi-claude-code plugin | autodetect sibling repo |
-| `--plugin-dir` | Override the plugin path for one run | — |
-| `--target` | Working directory to operate on | current dir |
-| `--max-turns` | Primary cooperative bound (agentic turns) | 12 |
-| `--budget-timeout` | Wall-clock backstop, e.g. `15m` / `900s` | 15m |
-| `--budget-tokens` | Token budget hint passed to the subprocess (awareness) | 100000 |
-
-> **Auth:** the subprocess uses Claude Code's own authentication — a logged-in
-> session (`claude /login`) or `ANTHROPIC_API_KEY`. The `cli-executor` feature is
-> on by default.
+Required signed session journals live in private `.symbiont/governed/` storage.
+The runtime prints the public verification key. Missing approval, unsafe audit
+storage, an unavailable backend or failed cleanup cannot silently report success.
+Inference responses are buffered, including SSE, so streamed output is delayed.
 
 ### Gemini CLI
 
@@ -774,13 +779,30 @@ collection_name = "symbi_knowledge"
 
 ### Human-in-the-loop approvals
 
-When a tool listed in `SYMBIONT_REQUIRE_APPROVAL_TOOLS` (or a policy that escalates)
-holds an agent action, the runtime queues it and waits (up to the escalation
-timeout, fail-closed). Operators resolve held actions in real time via:
+Manifest/subcommand approval requirements remain mandatory even when Cedar
+allows a call. The shared queue holds each request until an authorized decision,
+expiry or cancellation. A stalled notifier cannot block another approval surface.
 
-- **REST:** `GET /api/v1/approvals`, `POST /api/v1/approvals/{id}/approve`, `.../deny`
-- **The `symbi-shell` Gate panel:** open with `/gate` or `Ctrl+G`; `↑/↓` select, `a` approve, `d` deny.
-- **Chat:** reply `/symbi gate approve <id>` or `/symbi gate deny <id> [reason]` in a configured approval channel (allowlisted senders only).
+- **Ordinary/managed CLI:** add `--approval-terminal`, optionally with
+  `--approval-timeout 120` (1–3600 seconds). Review the complete escaped JSON and
+  enter `approve <request-id>` exactly on the controlling terminal. Without the
+  flag, approval-required calls fail closed.
+- **REST:** authenticated `GET /api/v1/approvals`,
+  `POST /api/v1/approvals/{id}/approve` and `.../deny` resolve pending requests.
+- **Shell:** Ctrl+G opens the Gate panel even during a busy turn. Select with
+  ↑/↓, press Enter to review the full request, scroll, then press `a` or `d`.
+  `/gate` also opens the panel. A list row alone cannot approve.
+- **Chat:** an allowlisted sender uses `/symbi gate show <id>`, then copies
+  `/symbi gate approve <id> <review-digest>` from the complete review, or sends
+  `/symbi gate deny <id>`. ID-only approvals are rejected. Oversized messages
+  need another attached review surface.
+
+Changed, expired or removed requests require a fresh review. The TUI reports
+resolution errors and unknown outcomes explicitly. Approval is permission to
+continue through the gate; verify actual execution in the signed run audit.
+Slack requires a nonempty signing secret and valid callback signatures in every
+environment. The former unsigned-callback override is no longer supported.
+See [approval lifecycle](approval-lifecycle.md) for limits and trust assumptions.
 
 Configure the timeout and chat approval channels in `symbiont.toml`:
 

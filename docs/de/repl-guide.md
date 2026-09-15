@@ -1,5 +1,7 @@
 # Symbiont REPL-Leitfaden
 
+> Diese Variante verweigert bei der Registrierung explizite ältere Angaben zu `security.tier`, `security.sandbox`, Ressourcen und Ausführungsrichtlinien, da sie diese nicht pro Agent durchsetzt. Die unterstützten Builtins verwenden die vom Betreiber konfigurierte Projekt-Sandbox. Leere Blöcke und reine Capability-Deklarationen behalten ihre bisherigen Prüfungen. Ein abgelehntes Modul ersetzt keine vorhandenen Agenten oder Hilfsfunktionen.
+
 ## Andere Sprachen
 
 
@@ -230,7 +232,6 @@ agent SecureAgent {
   name: "Secure Agent"
   security {
     capabilities: ["filesystem", "network"]
-    sandbox: true
   }
 }
 
@@ -423,13 +424,8 @@ agent DataProcessor {
 
   security {
     capabilities: ["data_read", "data_write"]
-    sandbox: true
   }
 
-  resources {
-    memory: 256MB
-    cpu: 1
-  }
 }
 
 behavior ProcessCsv {

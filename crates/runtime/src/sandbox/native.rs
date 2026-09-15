@@ -115,7 +115,6 @@ impl NativeConfig {
         // the canonicalisation performed in `NativeRunner::new` which resolves
         // symlinks before re-checking.
         const BLOCKED_WORKDIR_ROOTS: &[&str] = &[
-            "/", // bare root — also caught by prefix loop below but explicit
             "/boot",
             "/etc",
             "/lib",
@@ -131,6 +130,12 @@ impl NativeConfig {
             "/var/run",
         ];
         let wd = self.working_directory.as_path();
+        // The host root is an exact match only. Every absolute path begins
+        // with "/", so listing it among the prefixes below rejected every
+        // working directory the runner could ever be given.
+        if wd == std::path::Path::new("/") {
+            anyhow::bail!("Working directory '/' is the host root");
+        }
         for blocked in BLOCKED_WORKDIR_ROOTS {
             let bp = std::path::Path::new(blocked);
             if wd == bp || wd.starts_with(bp) {

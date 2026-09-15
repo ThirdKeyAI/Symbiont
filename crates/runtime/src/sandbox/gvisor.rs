@@ -16,7 +16,6 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::process::Stdio;
 
 use super::docker::{DockerConfig, DockerRunner};
 use super::{ExecutionResult, SandboxRunner};
@@ -24,6 +23,7 @@ use super::{ExecutionResult, SandboxRunner};
 /// Configuration for gVisor sandbox execution. Layers on top of
 /// `DockerConfig` since gVisor runs as a Docker OCI runtime.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct GVisorConfig {
     /// Underlying Docker configuration (image, limits, network, etc).
     pub docker: DockerConfig,
@@ -61,36 +61,23 @@ pub struct GVisorRunner {
 }
 
 impl GVisorRunner {
+    pub(crate) fn into_docker_runner(self) -> DockerRunner {
+        self.inner
+    }
+
     /// Create a new gVisor runner. Validates that the `runsc` binary is
     /// reachable before constructing the underlying Docker runner.
-    pub fn new(mut config: GVisorConfig) -> Result<Self, anyhow::Error> {
-        // Preflight: confirm runsc is installed. We only check that the
-        // binary is reachable; whether the Docker daemon has it registered
-        // surfaces at first `docker run` either way.
-        let runsc_check = std::process::Command::new(&config.runsc_binary)
-            .arg("--version")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-        match runsc_check {
-            Ok(status) if status.success() => {}
-            _ => {
-                anyhow::bail!(
-                    "gVisor (`{}`) is not available. Install runsc \
-                     (https://gvisor.dev/docs/user_guide/install/) and register it \
-                     with the Docker daemon at /etc/docker/daemon.json.",
-                    config.runsc_binary
-                );
-            }
-        }
+    pub fn new(config: GVisorConfig) -> Result<Self, anyhow::Error> {
+        super::command::check_binary(
+            &config.runsc_binary,
+            "--version",
+            config
+                .docker
+                .max_execution_time
+                .min(std::time::Duration::from_secs(5)),
+        )?;
 
-        // Inject --runtime=<runtime_name> into the Docker invocation.
-        config
-            .docker
-            .extra_flags
-            .insert(0, format!("--runtime={}", config.runtime_name));
-
-        let inner = DockerRunner::new(config.docker)?;
+        let inner = DockerRunner::with_runtime(config.docker, config.runtime_name.clone())?;
         tracing::info!(
             "gVisor sandbox initialized (runtime={})",
             config.runtime_name
@@ -126,18 +113,5 @@ mod tests {
         let cfg = GVisorConfig::for_image("alpine:latest");
         assert_eq!(cfg.docker.image, "alpine:latest");
         assert_eq!(cfg.runtime_name, "runsc");
-    }
-
-    #[test]
-    fn runtime_flag_is_prepended_to_extra_flags() {
-        // We can't actually construct a GVisorRunner without runsc on the
-        // host, but we can verify the injection logic by replicating it.
-        let mut cfg = GVisorConfig::default();
-        cfg.docker.extra_flags = vec!["--label".into(), "test=1".into()];
-        cfg.docker
-            .extra_flags
-            .insert(0, format!("--runtime={}", cfg.runtime_name));
-        assert_eq!(cfg.docker.extra_flags[0], "--runtime=runsc");
-        assert_eq!(cfg.docker.extra_flags[1], "--label");
     }
 }

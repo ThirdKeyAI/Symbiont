@@ -61,7 +61,9 @@ fn cmd_list() {
             .as_ref()
             .map(|c| c.resource.as_str())
             .unwrap_or("-");
-        let binary = if m.tool.binary.is_empty() {
+        let binary = if m.source.is_some() {
+            "source broker"
+        } else if m.tool.binary.is_empty() {
             "-"
         } else {
             &m.tool.binary
@@ -200,7 +202,12 @@ fn do_test(manifest: &symbi_runtime::toolclad::manifest::Manifest, arg_strs: &[S
     let _executor = ToolCladExecutor::new(vec![(manifest.tool.name.clone(), manifest.clone())]);
     // Use the internal build_command logic via a simple approach
     println!();
-    if let Some(template) = &manifest.command.template {
+    if let Some(source) = &manifest.source {
+        println!(
+            "  Source:    {:?} (fixed broker; no source read during dry run)",
+            source.operation
+        );
+    } else if let Some(template) = &manifest.command.template {
         let mut cmd = template.clone();
         // Apply defaults
         for (key, val) in &manifest.command.defaults {

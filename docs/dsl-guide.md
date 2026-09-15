@@ -95,31 +95,34 @@ Managed-CLI agents (Mode B) recognize these additional metadata keys, read by `s
 | `system_prompt` | String | Extra system prompt appended for the subprocess |
 | `permission_mode` | String | Optional. Passed through as `--permission-mode`. Omitted when unset, leaving the subprocess its own default, which still prompts for anything outside `allowed_tools`. Set `"dontAsk"` for agents that must run unattended |
 
-The spawn itself is policy-gated once, as `tool_call::claude_code`, but nothing
-gates the subprocess afterward — whatever `allowed_tools` and `permission_mode`
-resolve to apply for the whole session. That is why `allowed_tools` is
-mandatory and why `permission_mode` is opt-in: one gate decision should
-authorize a bounded session, not an unrestricted one.
-
-That single gate decision is read from `policies/managed-cli/` — **not**
-`policies/run/`. Spawning a subprocess is a different blast radius from the
-in-process reasoning loop, so the two surfaces do not share a policy directory.
-A minimal permit:
+The spawn is policy-gated as `tool_call::claude_code`, and that decision is read
+from `policies/managed-cli/` — **not** `policies/run/`. Spawning a subprocess is
+a different blast radius from the in-process reasoning loop, so the two surfaces
+do not share a policy directory. A minimal permit:
 
 ```cedar
 // policies/managed-cli/claude_code.cedar
 permit(principal, action == Action::"tool_call::claude_code", resource);
 ```
 
-Because the gate cannot see what the subprocess does next, each run is
-journalled instead. The child runs with `--output-format stream-json` and every
-tool call it makes is appended to `.symbiont/audit/mode-b-<session>.jsonl` as it
-happens — tool name, arguments, whether the result errored, and a closing record
-with the turn count and any permission denials. Records are written live rather
-than at exit, so a run killed by its timeout still leaves a trail. Argument
-values under keys like `token`, `api_key` or `password` are redacted, and
-oversize arguments are truncated, so the log identifies what the child did
-without becoming a second copy of the payload.
+The spawn decision is not the only decision. The child runs inside the selected
+Docker, gVisor or Firecracker worker with scratch storage and private inference
+and tool channels — no source mount, no external network, no host login state,
+no host credentials. Built-in CLI tools and automatic project/plugin discovery
+are disabled, and `--plugin-dir` is rejected. Source access is a set of
+registered ToolClad tools, and **every tool call the child makes is brokered
+back through the runtime**: prepare and normalize, obtain any mandatory exact
+approval, evaluate Cedar, persist the required pre-effect record, dispatch, then
+record the outcome. `allowed_tools` names an exact subset of registered tools;
+wildcard permission expressions and built-in CLI names are not accepted as
+registry entries.
+
+That is why `allowed_tools` is mandatory and why `permission_mode` is opt-in:
+they bound what the child may *ask for*, while the runtime — not the child —
+decides what actually happens. Each managed CLI session retains its own signed
+journal. See [Managed CLI containment](managed-cli-containment.md) for image,
+mount, policy and `[managed_cli.inference]` configuration, and the
+[governed tool broker](governed-tool-broker.md) for the brokerage contract.
 
 ---
 

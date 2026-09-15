@@ -12,6 +12,11 @@ pub mod routes;
 #[cfg(feature = "http-api")]
 pub mod middleware;
 
+#[cfg(all(unix, feature = "http-api"))]
+mod chat_invocations;
+#[cfg(feature = "http-api")]
+pub mod invocations;
+
 #[cfg(feature = "http-api")]
 pub mod api_keys;
 
@@ -44,3 +49,6 @@ pub use server::HttpApiServer;
 
 #[cfg(feature = "http-api")]
 pub use traits::RuntimeApiProvider;
+
+#[cfg(all(test, unix, feature = "http-api"))]
+mod coordinator_tests;

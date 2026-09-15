@@ -1,0 +1,10 @@
+[tool]
+name = "list_files"
+version = "1.1.0"
+description = "List regular source files below the authorized working directory, without following symlinks. Reports truncation at directory, file or output limits."
+timeout_seconds = 10
+[source]
+operation = "list_files"
+
+[output]
+format = "json"

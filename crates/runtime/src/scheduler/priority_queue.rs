@@ -1,7 +1,7 @@
 //! Priority queue implementation for agent scheduling.
 //!
 //! Uses a BinaryHeap for O(log n) push/pop with a HashMap for O(1)
-//! membership checks. The index tracks presence only — not heap positions,
+//! membership checks. The index tracks counts — not heap positions,
 //! which are unstable across operations.
 
 use std::collections::BinaryHeap;
@@ -17,8 +17,8 @@ use crate::types::AgentId;
 #[derive(Debug)]
 pub struct PriorityQueue<T> {
     heap: BinaryHeap<T>,
-    /// Tracks which agent IDs are in the queue (presence only, not position).
-    members: HashMap<AgentId, ()>,
+    /// Tracks which agent IDs are in the queue (counts, not position).
+    members: HashMap<AgentId, usize>,
 }
 
 impl<T> PriorityQueue<T>
@@ -44,21 +44,22 @@ where
     /// Add an item to the queue. O(log n).
     pub fn push(&mut self, item: T) {
         let agent_id = item.agent_id();
-        self.members.insert(agent_id, ());
+        *self.members.entry(agent_id).or_default() += 1;
         self.heap.push(item);
     }
 
     /// Remove and return the highest priority item. O(log n).
     pub fn pop(&mut self) -> Option<T> {
         let item = self.heap.pop()?;
-        self.members.remove(&item.agent_id());
+        self.decrement(&item.agent_id());
         Some(item)
     }
 
     /// Remove a specific item by agent ID. O(n) — acceptable for
     /// infrequent cancellations.
     pub fn remove(&mut self, agent_id: &AgentId) -> Option<T> {
-        self.members.remove(agent_id)?;
+        self.members.get(agent_id)?;
+        self.decrement(agent_id);
 
         // Drain heap, extract target, rebuild.
         let items: Vec<T> = self.heap.drain().collect();
@@ -77,6 +78,15 @@ where
         self.heap = remaining.into_iter().collect();
 
         removed
+    }
+
+    fn decrement(&mut self, id: &AgentId) {
+        if let Some(count) = self.members.get_mut(id) {
+            *count -= 1;
+            if *count == 0 {
+                self.members.remove(id);
+            }
+        }
     }
 
     /// Check if the queue contains an agent. O(1).
@@ -224,5 +234,23 @@ mod tests {
         let mut queue: PriorityQueue<ScheduledTask> = PriorityQueue::new();
         let fake_id = AgentId::new();
         assert!(queue.remove(&fake_id).is_none());
+    }
+    #[test]
+    fn repeated_principal_membership_survives_pop_and_remove() {
+        let first = create_test_task(Priority::High);
+        let second = ScheduledTask::new(first.config.clone());
+        let third = ScheduledTask::new(first.config.clone());
+        let id = first.agent_id;
+        let mut queue = PriorityQueue::new();
+        for task in [first, second, third] {
+            queue.push(task);
+        }
+        queue.pop().unwrap();
+        assert!(queue.contains(&id));
+        queue.remove(&id).unwrap();
+        assert!(queue.find(&id).is_some());
+        queue.remove(&id).unwrap();
+        assert!(!queue.contains(&id));
+        assert!(queue.is_empty());
     }
 }

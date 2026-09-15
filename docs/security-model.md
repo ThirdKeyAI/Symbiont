@@ -8,6 +8,17 @@ Comprehensive security architecture ensuring zero-trust, policy-driven protectio
 
 ## Overview
 
+**Branch coverage:** `fix/containment-boundary` adds selected Docker/gVisor effect
+boundaries, exact prepared-call approvals, protected journals on covered entry
+points and independent worker ownership. See the [branch guide](containment-branch-guide.md)
+for implemented paths and deployment assumptions. The architecture and tier
+configuration below are not evidence of complete enforcement across all paths.
+Firecracker oneshot commands, parsers, MCP stdio, PTY sessions and managed CLI
+workers use a versioned guest transport and independent VMM ownership. Managed
+VMs receive only runtime-issued tool/inference capabilities. Isolated browser
+execution remains unavailable. [Firecracker setup](firecracker-setup.md) describes guest and
+host deployment requirements; Docker tests do not validate a VM deployment.
+
 Symbiont implements a security-first architecture designed for regulated and high-assurance environments. The security model is built on zero-trust principles with comprehensive policy enforcement, multi-tier sandboxing, and cryptographic auditability.
 
 ### Security Principles
@@ -67,7 +78,59 @@ graph TB
     H --> H1
 ```
 
-> **All three host-isolation tiers — Docker, gVisor, and Firecracker — ship in the OSS runtime.** Operators pick the tier per agent via the DSL `with { sandbox = ... }` block, or set a project default via `[sandbox] tier = "..."` in `symbiont.toml`. E2B is opt-in only via the DSL (`with { sandbox = "e2b" }`) and is intentionally not exposed as an `[sandbox] tier` value.
+> **Every host-isolation tier — landlock, Docker, gVisor, and Firecracker — ships in the OSS runtime.** Operators pick the tier per agent via the DSL `with { sandbox = ... }` block, or set a project default via `[sandbox] tier = "..."` in `symbiont.toml`. E2B is opt-in only via the DSL (`with { sandbox = "e2b" }`) and is intentionally not exposed as an `[sandbox] tier` value.
+>
+> Strong isolation is a baseline, not an upsell. The tiers stay in the open-source
+> runtime so the community can read, audit and reproduce the boundary it depends on.
+> Guest attestation is the clearest case: a fingerprint over sources you cannot read
+> attests to nothing, so the guest service is open source precisely because it is a
+> security control.
+
+### Landlock (daemon-free)
+
+Named `landlock`, not numbered. It sits below Docker in isolation strength but
+needs no daemon, no image and no helper binary, which makes it the practical
+default on a single machine such as a desktop.
+
+**Configuration:** `[sandbox] tier = "landlock"` in `symbiont.toml`. Read-only
+and writable ceilings come from `[sandbox.roots]`, shared with the other
+backends. `[sandbox.landlock]` carries only `abi_floor` and `require_network`.
+
+**Use cases:**
+- A workstation or desktop where running a container daemon per agent is not
+  reasonable
+- Confining a coding agent's filesystem reach and outbound connections without
+  provisioning an image
+
+**Security features:**
+- Filesystem confinement to declared roots, enforced by the kernel
+- Outbound TCP restriction, requiring Landlock ABI 4 (Linux 6.7) or later
+- A narrow base grant for the interpreter, loader and shared libraries, needed
+  before any dynamically linked program can start. It carries no writable path,
+  nothing under a home directory and no broad `/etc` grant.
+- Rulesets demand full enforcement. The crate's default is best-effort, which
+  silently ignores what the kernel does not support; that default is not used.
+
+**Coverage.** One-shot commands, custom output parsers and the managed CLI.
+MCP stdio sessions and interactive PTY still require Docker or above.
+
+**The guarantee is not uniform.** A landlock domain cannot be relaxed once
+applied. A one-shot command is a fresh process, so it receives a domain scoped
+to exactly that call's grants. The managed-CLI child is a single long-lived
+process, so it receives its domain once at spawn, covering the whole session,
+and its working directory is granted for the duration. That is a weaker
+guarantee than a one-shot command gets.
+
+**Fail-closed.** If the running kernel cannot enforce everything the profile
+declares, boundary validation fails and the run never starts. There is no
+partial application and no fallback to host execution. Because validation runs
+before authorization, a run is never authorized against a boundary the kernel
+could not enforce.
+
+**Not available for registered agents.** No `SecurityTier` names landlock, so a
+scheduled or HTTP-registered agent cannot declare it; those paths refuse it
+rather than mapping it onto a neighboring tier and misreporting the isolation
+in use. Select it in `[sandbox]` for direct runs.
 
 ### Tier 1: Docker Isolation
 
@@ -141,6 +204,14 @@ gvisor_security:
 - Per-execution microVM with operator-supplied kernel + rootfs
 - Read-only root filesystem by default
 - No shared kernel surface with the host
+- **Guest attestation:** the handshake checks the protocol version and a fingerprint
+  of the guest service sources, and refuses a stale or mismatched image before any
+  command is sent
+- **Independent VMM ownership:** a supervisor outside the reasoning loop owns VM
+  lifetime, so a VM cannot outlive its supervisor, and an orphaned VM is reclaimed
+  against a verified process identity rather than a reusable PID
+- **Unprivileged guest workload:** commands run as a non-root guest user with
+  `no_new_privs` and explicit process and file-descriptor limits
 
 **Configuration:** `[sandbox.firecracker]` in `symbiont.toml`:
 
@@ -156,7 +227,7 @@ mem_mib           = 512
 rootfs_read_only  = true
 ```
 
-**Prerequisites:** Operator must supply (a) a Firecracker-compatible kernel image and (b) a root filesystem image with an init script that reads the agent payload. **See [`docs/firecracker-setup.md`](firecracker-setup.md) for a step-by-step quickstart, the in-VM init contract, and a hardening checklist.** `symbi doctor` reports whether the `firecracker` binary is reachable.
+**Prerequisites:** Operator must supply (a) a Firecracker-compatible kernel image and (b) a root filesystem image with the matching compiled guest service. **See [`docs/firecracker-setup.md`](firecracker-setup.md) for a step-by-step quickstart, the in-VM init contract, and a hardening checklist.** `symbi doctor` reports whether the `firecracker` binary is reachable.
 
 Once you have both artifacts, scaffold a tier3 project with:
 
@@ -326,10 +397,16 @@ use symbi_runtime::reasoning::cedar_gate::CedarPolicyGate;
 
 // Create a Cedar policy gate with deny-by-default stance
 let cedar_gate = CedarPolicyGate::deny_by_default();
+let agent_id = symbi_runtime::types::AgentId::new();
+let (journal, audit) = symbi_runtime::reasoning::run_audit::open_run_journal(
+    trusted_project, agent_id,
+).await?;
+println!("Audit: {}", serde_json::to_string(&audit)?);
 let runner = ReasoningLoopRunner::builder()
     .provider(provider)
     .executor(executor)
     .policy_gate(Arc::new(cedar_gate))
+    .journal(journal)
     .build();
 ```
 
@@ -495,11 +572,18 @@ Two subsystems keep a signed, hash-chained record: the critic audit chain
 (`crates/runtime/src/session/transcript.rs`). The structure below describes those
 chains.
 
-This is **not** a system-wide audit log. In particular the reasoning loop's own
-record is a `JournalWriter` (`BufferedJournal` by default — in-memory, capacity
-bounded, neither signed nor hash-chained), and a delegated sub-agent's internal
-steps go to a separate journal that is not surfaced to the operator. Treat the
-guarantees below as scoped to the two chains named above.
+The branch also adds required protected run journals for ordinary/managed CLI,
+HTTP, scheduled ORGA and default DSL `reason()`/`tool_call()` execution. These are
+private, durably appended, Ed25519-signed and hash-chained; invocation-bound
+records include the run ID. See [run audit](run-audit.md) for the actual format,
+key custody, verification and incomplete terminal outcomes.
+
+This remains short of a system-wide audit log. The underlying `JournalWriter`
+interface still permits a buffered in-memory writer on other paths or explicit
+SDK injection; delegated internal journals are not all surfaced to the operator.
+Direct LLM/composition and other shell reasoning paths still need migration. The
+illustrative event structure below describes the critic/transcript chains, not
+the protected run journal's wire format.
 
 An event in those chains looks like:
 

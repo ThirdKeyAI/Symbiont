@@ -39,21 +39,16 @@ pub fn capabilities_to_tools(caps: &[String]) -> Vec<String> {
 
 /// Outcome of loading one agent declaration from a `.symbi` file.
 pub enum SymbiLoad {
-    Loaded(AgentSpec),
-    // `reason` is surfaced in future diagnostic output and test assertions.
-    Refused {
-        name: String,
-        #[allow(dead_code)]
-        reason: String,
-    },
+    Loaded(Box<AgentSpec>),
+    Refused { name: String, reason: String },
 }
 
 /// Parse a `.symbi` (or legacy `.dsl`) file into one `SymbiLoad`. Uses the
 /// tree-sitter `symbi-dsl` parser (the same one `symbi run` uses) so real
 /// full-grammar agents parse. A read/syntax error — or a file with no agent
 /// declaration — is a `LoadError` (the file is skipped). An agent that declares
-/// any `with { sandbox = ... }` tier is `Refused` (the in-process shell provides
-/// no isolation). One agent per file.
+/// unsupported executable requirements is `Refused`. Each declared name retains its
+/// own source contract; settings and grants never come from a sibling declaration.
 pub fn parse_symbi(path: &Path) -> Result<Vec<SymbiLoad>, LoadError> {
     let err = |m: String| LoadError {
         path: path.to_path_buf(),
@@ -61,41 +56,25 @@ pub fn parse_symbi(path: &Path) -> Result<Vec<SymbiLoad>, LoadError> {
     };
     let text = std::fs::read_to_string(path).map_err(|e| err(e.to_string()))?;
 
-    let tree = dsl::parse_dsl(&text).map_err(|e| err(format!("parse error: {e}")))?;
-    if tree.root_node().has_error() {
-        return Err(err("syntax error in .symbi file".to_string()));
-    }
-
-    let name = dsl::extract_agent_name(&tree, &text)
-        .ok_or_else(|| err("no agent declaration found".to_string()))?;
-
-    // Fail-closed sandbox gate: any declared with-block sandbox tier needs
-    // isolation symbi-shell (in-process tools) cannot provide.
-    let with_blocks = dsl::extract_with_blocks(&tree, &text)
-        .map_err(|e| err(format!("with-block parse error: {e}")))?;
-    if let Some(tier) = with_blocks.iter().find_map(|w| w.sandbox_tier.as_ref()) {
-        return Ok(vec![SymbiLoad::Refused {
-            name,
-            reason: format!(
-                "declares sandbox tier {tier} requiring isolation symbi-shell cannot provide; run it via `symbi up` or `symbi run`"
-            ),
-        }]);
-    }
-
-    let tools = capabilities_to_tools(&dsl::extract_capabilities(&tree, &text));
-    let description = dsl::extract_metadata(&tree, &text)
-        .get("description")
-        .map(|d| d.trim_matches('"').to_string())
-        .filter(|d| !d.trim().is_empty())
-        .unwrap_or_else(|| format!("{name} (.symbi agent)"));
-
-    Ok(vec![SymbiLoad::Loaded(AgentSpec {
-        name,
-        description: description.clone(),
-        system_prompt: description,
-        tools,
-        source: AgentSource::Symbi(path.to_path_buf()),
-    })])
+    let names = dsl::conversational_agent_names(&text).map_err(err)?;
+    Ok(names
+        .into_iter()
+        .map(|name| match dsl::ConversationalAgent::parse(&text, &name) {
+            Ok(definition) => {
+                let tools = capabilities_to_tools(definition.capabilities());
+                let description = definition.description().to_owned();
+                SymbiLoad::Loaded(Box::new(AgentSpec {
+                    name,
+                    description: description.clone(),
+                    system_prompt: description,
+                    tools,
+                    source: AgentSource::Symbi(path.to_path_buf()),
+                    definition: Some(definition),
+                }))
+            }
+            Err(reason) => SymbiLoad::Refused { name, reason },
+        })
+        .collect())
 }
 
 #[cfg(test)]
@@ -146,7 +125,7 @@ mod tests {
     }
 
     #[test]
-    fn agent_with_sandbox_tier_is_refused() {
+    fn agent_with_sandbox_tier_retains_its_contract() {
         // Minimal valid with-block that declares a sandbox tier. The with_block
         // grammar rule is: 'with' repeat(with_attribute) block where
         // with_attribute is: identifier '=' value. The block is '{ }' (empty).
@@ -157,11 +136,14 @@ mod tests {
             "agent risky {\n  capabilities = [\"read\"]\n  with sandbox = \"Tier2\" {\n  }\n}\n",
         );
         match &parse_symbi(&p).unwrap()[0] {
-            SymbiLoad::Refused { name, reason } => {
-                assert_eq!(name, "risky");
-                assert!(reason.contains("symbi up") || reason.contains("symbi run"));
+            SymbiLoad::Loaded(spec) => {
+                assert_eq!(spec.name, "risky");
+                assert_eq!(
+                    spec.definition.as_ref().unwrap().settings().sandbox_tier,
+                    Some(dsl::SandboxTier::GVisor)
+                );
             }
-            SymbiLoad::Loaded(_) => panic!("sandbox-tier agent must be refused"),
+            SymbiLoad::Refused { reason, .. } => panic!("{reason}"),
         }
     }
 

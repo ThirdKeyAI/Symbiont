@@ -15,6 +15,7 @@ use crate::orchestrator_executor::OrchestratorExecutor;
 use crate::validation::constraints::ProjectConstraints;
 
 pub struct FleetRunnerFactory {
+    audit: Arc<crate::turn_audit::TurnAudit>,
     provider: Arc<dyn InferenceProvider>,
     constraints: Arc<ProjectConstraints>,
     bridge: Arc<repl_core::RuntimeBridge>,
@@ -33,6 +34,7 @@ impl FleetRunnerFactory {
         gate: Arc<dyn ReasoningPolicyGate>,
     ) -> Self {
         Self {
+            audit: Arc::new(crate::turn_audit::TurnAudit::default()),
             provider,
             constraints,
             bridge,
@@ -42,32 +44,61 @@ impl FleetRunnerFactory {
         }
     }
 
+    pub fn with_audit(mut self, audit: Arc<crate::turn_audit::TurnAudit>) -> Self {
+        self.audit = audit;
+        self
+    }
+
     /// Build a governed runner for `name`, scoped to `manifest_tools` minus
     /// `delegate` (orchestrator-only). Returns `None` if the agent is unknown.
     pub async fn build(&self, name: &str, manifest_tools: &[String]) -> Option<Orchestrator> {
-        let system_prompt = self.bridge.agent_system_prompt(name).await?;
+        let agent = self.bridge.agent_registry().get_agent(name).await?;
         let allowed: HashSet<String> = manifest_tools
             .iter()
-            .filter(|t| t.as_str() != "delegate")
+            .filter(|t| t.as_str() != "delegate" && agent.tools.contains(t))
             .cloned()
             .collect();
         let engine = Arc::new(repl_core::ReplEngine::new(Arc::clone(&self.bridge)));
-        let executor: Arc<dyn ActionExecutor> = Arc::new(
-            OrchestratorExecutor::new(
-                Arc::clone(&self.constraints),
-                engine,
-                Arc::clone(&self.bridge),
-                Arc::clone(&self.cards),
-                self.allow_shell,
+        let mut executor = OrchestratorExecutor::new(
+            Arc::clone(&self.constraints),
+            engine,
+            Arc::clone(&self.bridge),
+            Arc::clone(&self.cards),
+            self.allow_shell,
+        )
+        .with_allowed_tools(allowed);
+        if let Some(definition) = &agent.definition {
+            executor = executor.with_definition(definition, self.allow_shell);
+        }
+        let executor: Arc<dyn ActionExecutor> = Arc::new(executor);
+        let executor = if let Some(definition) = &agent.definition {
+            Arc::new(
+                symbi_runtime::reasoning::source_policy::SourcePolicyExecutor::new(
+                    executor,
+                    definition.policy().clone(),
+                ),
+            ) as Arc<dyn ActionExecutor>
+        } else {
+            executor
+        };
+        Some(
+            Orchestrator::for_agent(
+                Arc::clone(&self.provider),
+                executor,
+                Arc::clone(&self.gate),
+                &agent.system_prompt,
             )
-            .with_allowed_tools(allowed),
-        );
-        Some(Orchestrator::for_agent(
-            Arc::clone(&self.provider),
-            executor,
-            Arc::clone(&self.gate),
-            &system_prompt,
-        ))
+            .with_project_root(self.bridge.reasoning_context().project_root.clone())
+            .with_principal(agent.agent_id)
+            .with_timeout(
+                agent
+                    .definition
+                    .as_ref()
+                    .and_then(|definition| definition.settings().timeout_seconds)
+                    .map(std::time::Duration::from_secs),
+            )
+            .with_audit(self.audit.clone()),
+        )
     }
 }
 
@@ -127,7 +158,12 @@ mod tests {
 
     #[tokio::test]
     async fn build_known_agent_returns_runner() {
-        let bridge = Arc::new(repl_core::RuntimeBridge::new_permissive_for_dev());
+        let project = tempfile::tempdir().unwrap();
+        let bridge = Arc::new(
+            repl_core::RuntimeBridge::new_permissive_for_dev()
+                .with_project_root(project.path())
+                .unwrap(),
+        );
         bridge
             .register_agent("reviewer", "You review.", vec!["read_file".into()])
             .await;

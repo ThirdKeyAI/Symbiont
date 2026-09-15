@@ -5,11 +5,14 @@
 //! executes tools, and wraps output in evidence envelopes.
 
 pub mod browser_executor;
+pub mod browser_network;
 pub mod browser_state;
 pub mod cedar_gen;
 pub mod decision;
 pub mod executor;
+mod http_transport;
 pub mod manifest;
+pub(crate) mod process;
 pub mod scope;
 pub mod session_executor;
 pub mod session_state;

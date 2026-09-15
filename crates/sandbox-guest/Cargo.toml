@@ -1,0 +1,21 @@
+[package]
+name = "symbi-sandbox-guest"
+version = "1.20.0"
+edition = "2021"
+authors = ["Jascha Wanger / ThirdKey.ai"]
+description = "Versioned guest command transport for Symbiont microVMs"
+license = "Apache-2.0"
+repository = "https://github.com/thirdkeyai/symbiont"
+
+[dependencies]
+anyhow = "1.0"
+libc = "0.2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+
+[[bin]]
+name = "symbi-sandbox-guest"
+path = "src/main.rs"
+[build-dependencies]
+sha2 = "0.10"

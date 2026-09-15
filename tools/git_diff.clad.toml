@@ -1,0 +1,9 @@
+[tool]
+name = "git_diff"
+version = "1.1.0"
+description = "Read the unstaged diff in the authorized source repository, without external diff drivers, text conversion or hooks."
+timeout_seconds = 15
+[source]
+operation = "git_diff"
+[output]
+format = "json"

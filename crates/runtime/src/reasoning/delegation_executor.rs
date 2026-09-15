@@ -18,6 +18,15 @@ use crate::reasoning::policy_bridge::ReasoningPolicyGate;
 use crate::reasoning::reasoning_loop::ReasoningLoopRunner;
 use crate::types::AgentId;
 
+mod audit;
+mod registry;
+pub use registry::RegisteredDelegationRegistry;
+
+enum JournalSource {
+    CallerOwned(Arc<dyn JournalWriter>),
+    Protected(Result<std::path::PathBuf, String>),
+}
+
 /// Namespace for delegated-agent ids. Stable across processes so the same target
 /// always presents the same principal to the policy gate and the journal.
 const DELEGATE_ID_NAMESPACE: uuid::Uuid = uuid::Uuid::from_bytes([
@@ -42,9 +51,11 @@ pub struct SubLoopDelegationExecutor {
     policy_gate: Arc<dyn ReasoningPolicyGate>,
     context_manager: Arc<dyn ContextManager>,
     circuit_breakers: Arc<CircuitBreakerRegistry>,
-    journal: Arc<dyn JournalWriter>,
+    journal: JournalSource,
+    children: std::sync::Mutex<HashMap<String, Vec<audit::ChildRun>>>,
     /// Agent name -> system prompt for that agent.
     registry: HashMap<String, String>,
+    registered: Option<Arc<RegisteredDelegationRegistry>>,
     max_depth: u32,
     /// Self-reference so a sub-loop can itself delegate (B -> C).
     self_ref: Weak<SubLoopDelegationExecutor>,
@@ -71,6 +82,83 @@ impl SubLoopDelegationExecutor {
         registry: HashMap<String, String>,
         max_depth: u32,
     ) -> Arc<Self> {
+        Self::construct(
+            provider,
+            executor,
+            policy_gate,
+            context_manager,
+            circuit_breakers,
+            JournalSource::CallerOwned(journal),
+            registry,
+            None,
+            max_depth,
+        )
+    }
+
+    /// Production delegation uses fresh protected storage for every child.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_protected(
+        provider: Arc<dyn InferenceProvider>,
+        executor: Arc<dyn ActionExecutor>,
+        policy_gate: Arc<dyn ReasoningPolicyGate>,
+        context_manager: Arc<dyn ContextManager>,
+        circuit_breakers: Arc<CircuitBreakerRegistry>,
+        project: Result<std::path::PathBuf, String>,
+        registry: HashMap<String, String>,
+        max_depth: u32,
+    ) -> Arc<Self> {
+        let project =
+            project.and_then(|path| std::fs::canonicalize(path).map_err(|error| error.to_string()));
+        Self::construct(
+            provider,
+            executor,
+            policy_gate,
+            context_manager,
+            circuit_breakers,
+            JournalSource::Protected(project),
+            registry,
+            None,
+            max_depth,
+        )
+    }
+
+    /// Canonical coordinator targets retain selected source rules and identity.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new_registered(
+        provider: Arc<dyn InferenceProvider>,
+        executor: Arc<dyn ActionExecutor>,
+        policy_gate: Arc<dyn ReasoningPolicyGate>,
+        context_manager: Arc<dyn ContextManager>,
+        circuit_breakers: Arc<CircuitBreakerRegistry>,
+        project: Result<std::path::PathBuf, String>,
+        registry: Arc<RegisteredDelegationRegistry>,
+        max_depth: u32,
+    ) -> Arc<Self> {
+        Self::construct(
+            provider,
+            executor,
+            policy_gate,
+            context_manager,
+            circuit_breakers,
+            JournalSource::Protected(project),
+            HashMap::new(),
+            Some(registry),
+            max_depth,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn construct(
+        provider: Arc<dyn InferenceProvider>,
+        executor: Arc<dyn ActionExecutor>,
+        policy_gate: Arc<dyn ReasoningPolicyGate>,
+        context_manager: Arc<dyn ContextManager>,
+        circuit_breakers: Arc<CircuitBreakerRegistry>,
+        journal: JournalSource,
+        registry: HashMap<String, String>,
+        registered: Option<Arc<RegisteredDelegationRegistry>>,
+        max_depth: u32,
+    ) -> Arc<Self> {
         Arc::new_cyclic(|weak| SubLoopDelegationExecutor {
             provider,
             executor,
@@ -78,7 +166,9 @@ impl SubLoopDelegationExecutor {
             context_manager,
             circuit_breakers,
             journal,
+            children: std::sync::Mutex::new(HashMap::new()),
             registry,
+            registered,
             max_depth,
             self_ref: weak.clone(),
             delegated_tokens: std::sync::atomic::AtomicU32::new(0),
@@ -88,12 +178,59 @@ impl SubLoopDelegationExecutor {
 
 #[async_trait]
 impl DelegationExecutor for SubLoopDelegationExecutor {
+    async fn delegate_authorized(
+        &self,
+        grant: &super::prepared::AuthorizedAction,
+        ctx: DelegationContext,
+        journal: Option<&dyn JournalWriter>,
+    ) -> Result<String, DelegationError> {
+        grant.check_live().map_err(DelegationError::Failed)?;
+        match &self.journal {
+            JournalSource::Protected(project) => {
+                self.delegate_protected(grant, ctx, journal, project).await
+            }
+            JournalSource::CallerOwned(_) => {
+                let super::loop_types::ProposedAction::Delegate {
+                    target, message, ..
+                } = grant.action()
+                else {
+                    return Err(DelegationError::Failed(
+                        "expected a delegation grant".into(),
+                    ));
+                };
+                self.delegate(target, message, ctx).await
+            }
+        }
+    }
+
+    fn cancel_run(&self, run: &str) {
+        let children = self.take_children(run);
+        for child in &children {
+            child.cancellation.cancel();
+        }
+        // Dropping JoinHandles detaches the retained tasks. They still finish
+        // their own cleanup and audit; cancellation itself needs no async context.
+    }
+
+    async fn close_run(&self, run: &str) -> Result<(), String> {
+        let children = self.take_children(run);
+        for child in &children {
+            child.cancellation.cancel();
+        }
+        audit::join_children(children).await
+    }
+
     async fn delegate(
         &self,
         target: &str,
         message: &str,
         ctx: DelegationContext,
     ) -> Result<String, DelegationError> {
+        let JournalSource::CallerOwned(journal) = &self.journal else {
+            return Err(DelegationError::Audit(
+                "protected delegation requires a governed parent journal".into(),
+            ));
+        };
         // Resolve first, then enforce guards BEFORE running anything.
         let system_prompt = self
             .registry
@@ -119,7 +256,7 @@ impl DelegationExecutor for SubLoopDelegationExecutor {
             policy_gate: self.policy_gate.clone(),
             context_manager: self.context_manager.clone(),
             circuit_breakers: self.circuit_breakers.clone(),
-            journal: self.journal.clone(),
+            journal: journal.clone(),
             knowledge_bridge: None,
             delegation: self
                 .self_ref
@@ -129,13 +266,19 @@ impl DelegationExecutor for SubLoopDelegationExecutor {
 
         let mut chain = ctx.chain.clone();
         chain.push(target.to_string());
-        // Each hop inherits the parent's configured ceiling, not its remaining budget, so total spend across hops is bounded in practice only by the parent run's wall-clock `timeout` and by sub-loops currently having no tools; true remaining-budget deduction is the follow-up if either changes.
+        let shared_budget = ctx
+            .shared_budget
+            .as_ref()
+            .map(|budget| budget.child(ctx.max_total_tokens))
+            .transpose()
+            .map_err(DelegationError::Failed)?;
         let config = LoopConfig {
             delegation_depth: ctx.depth + 1,
             delegation_chain: chain,
             max_delegation_depth: self.max_depth,
             max_iterations: ctx.max_iterations,
             max_total_tokens: ctx.max_total_tokens,
+            shared_budget,
             timeout: ctx.timeout,
             ..Default::default()
         };
@@ -164,15 +307,14 @@ impl DelegationExecutor for SubLoopDelegationExecutor {
             // empty `Completed` output means the target meant to say
             // nothing, not that delegation failed.
             TerminationReason::Completed => Ok(result.output),
-            TerminationReason::PolicyDenial { reason } => Err(DelegationError::Failed(format!(
-                "target '{}' was denied by policy: {}",
-                target, reason
-            ))),
-            TerminationReason::Error { message } => Err(DelegationError::Failed(format!(
+            TerminationReason::PolicyDenial { reason } => Err(DelegationError::Unconfirmed(
+                format!("target '{}' was denied by policy: {}", target, reason),
+            )),
+            TerminationReason::Error { message } => Err(DelegationError::Unconfirmed(format!(
                 "target '{}' errored: {}",
                 target, message
             ))),
-            other => Err(DelegationError::Failed(format!(
+            other => Err(DelegationError::Unconfirmed(format!(
                 "target '{}' did not complete: {:?}",
                 target, other
             ))),
@@ -410,7 +552,7 @@ mod tests {
         // A sub-loop that never reaches Respond/Terminate (it keeps calling
         // tools until it exhausts its iteration budget, i.e. terminates with
         // `TerminationReason::MaxIterations`) must surface as
-        // `DelegationError::Failed`, never as `Ok("")`. Before the fix,
+        // `DelegationError::Unconfirmed`, never as `Ok("")`. Before the fix,
         // `delegate()` unconditionally returned `Ok(result.output)`, which is
         // `Ok("")` for every non-`Completed` termination -- a fabricated
         // success the caller would read as an empty-but-successful
@@ -422,8 +564,8 @@ mod tests {
             .await
             .unwrap_err();
         assert!(
-            matches!(err, DelegationError::Failed(_)),
-            "expected DelegationError::Failed for a non-completing sub-loop, got {:?}",
+            matches!(err, DelegationError::Unconfirmed(_)),
+            "expected DelegationError::Unconfirmed for a non-completing sub-loop, got {:?}",
             err
         );
     }

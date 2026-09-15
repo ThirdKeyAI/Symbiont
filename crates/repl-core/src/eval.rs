@@ -39,12 +39,10 @@ impl ReplEngine {
         match self.evaluate_dsl(trimmed).await {
             Ok(value) => Ok(self.format_value(value)),
             Err(e) => {
-                // Try to evaluate as a simple expression for better UX
-                if trimmed.contains('=') || trimmed.contains('+') || trimmed.contains('-') {
-                    self.evaluate_simple_expression(trimmed)
-                } else {
-                    Err(e)
-                }
+                // Preserve DSL diagnostics unless this is valid arithmetic.
+                self.try_basic_arithmetic(trimmed)
+                    .map(|value| value.to_string())
+                    .ok_or(e)
             }
         }
     }
@@ -58,6 +56,10 @@ impl ReplEngine {
 
         match parts[0] {
             ":help" | ":h" => Ok(Some(self.show_help())),
+            ":audit" => Ok(Some(
+                serde_json::to_string_pretty(&self.evaluator.audit_references()?)
+                    .map_err(|error| ReplError::Execution(error.to_string()))?,
+            )),
             ":agents" => Ok(Some(self.list_agents().await)),
             ":agent" => {
                 if parts.len() > 1 {
@@ -203,19 +205,6 @@ impl ReplEngine {
         self.evaluator.execute_program(program).await
     }
 
-    /// Simple expression evaluation for basic arithmetic
-    fn evaluate_simple_expression(&self, input: &str) -> Result<String> {
-        // Very basic arithmetic parser for immediate feedback
-        if let Some(result) = self.try_basic_arithmetic(input) {
-            Ok(result.to_string())
-        } else {
-            Err(ReplError::Evaluation(format!(
-                "Unable to evaluate: {}",
-                input
-            )))
-        }
-    }
-
     /// Try to evaluate basic arithmetic expressions
     fn try_basic_arithmetic(&self, input: &str) -> Option<f64> {
         // Very simple arithmetic - just for demo purposes
@@ -339,6 +328,7 @@ REPL Commands:
   :monitor traces [limit] - Show execution traces
   :monitor report         - Show detailed execution report
   :monitor clear          - Clear monitoring data
+  :audit                  - Show direct inference journal references
   :clear                  - Clear the session
   :version                - Show version information
 
@@ -579,6 +569,101 @@ mod tests {
     async fn create_test_engine() -> ReplEngine {
         let runtime_bridge = Arc::new(RuntimeBridge::new_permissive_for_dev());
         ReplEngine::new(runtime_bridge)
+    }
+
+    #[tokio::test]
+    async fn separate_declarations_execute_with_helpers_and_local_arguments() {
+        let engine = create_test_engine().await;
+        engine.evaluate("agent Worker {}").await.unwrap();
+        let id = engine.evaluator().list_agents().await[0].id;
+        engine
+            .evaluate("function decorate(value: string) { return upper(value) }")
+            .await
+            .unwrap();
+        engine
+            .evaluate("behavior Work { steps { let local = args return decorate(local) } }")
+            .await
+            .unwrap();
+        assert!(engine
+            .evaluate(&format!(":agent execute {id} Work sample"))
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("not started"));
+        engine
+            .evaluate(&format!(":agent start {id}"))
+            .await
+            .unwrap();
+        assert_eq!(
+            engine
+                .evaluate(&format!(":agent execute {id} Work sample"))
+                .await
+                .unwrap(),
+            format!("Executed behavior 'Work' on agent {id}: \"SAMPLE\"")
+        );
+        // A subsequent invocation cannot inherit the previous arguments.
+        assert!(engine
+            .evaluate(&format!(":agent execute {id} Work"))
+            .await
+            .is_err());
+        let monitor = engine.evaluator().monitor();
+        assert_eq!(monitor.get_stats().successful_executions, 1);
+        assert_eq!(monitor.get_stats().failed_executions, 1);
+        assert!(monitor.get_active_executions().is_empty());
+    }
+
+    #[tokio::test]
+    async fn rejected_module_does_not_publish_partial_definitions_or_agents() {
+        let engine = create_test_engine().await;
+        engine
+            .evaluate("function helper() { return 1 }")
+            .await
+            .unwrap();
+        let error = engine
+            .evaluate(
+                r#"
+            function helper() { return 2 }
+            behavior Partial { steps { return helper() } }
+            agent Allowed {}
+            agent Rejected { security { capabilities: ["missing-capability"] } }
+        "#,
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("Missing capability: missing-capability"),
+            "{error}"
+        );
+        assert!(engine.evaluator().list_agents().await.is_empty());
+        engine.evaluate("agent Worker {}").await.unwrap();
+        let id = engine.evaluator().list_agents().await[0].id;
+        engine
+            .evaluate(&format!(":agent start {id}"))
+            .await
+            .unwrap();
+        assert!(engine
+            .evaluate(&format!(":agent execute {id} Partial"))
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("not found"));
+        assert!(engine
+            .evaluate(&format!(":agent execute {id} helper"))
+            .await
+            .unwrap()
+            .ends_with(": 1"));
+    }
+
+    #[tokio::test]
+    async fn invalid_dsl_preserves_parser_diagnostics_with_operators() {
+        let engine = create_test_engine().await;
+        let error = engine
+            .evaluate("function broken() { let value = }")
+            .await
+            .unwrap_err();
+        assert!(matches!(error, ReplError::Parsing(_)), "{error}");
     }
 
     #[tokio::test]

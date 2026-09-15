@@ -23,18 +23,33 @@ use tokio::sync::RwLock;
 /// Build a Cedar `Context` from the loop's trusted context map. Empty map
 /// preserves the previous `Context::empty()` behavior. Trusted context is
 /// runtime-populated only (see `LoopState::trusted_context`).
-fn build_context(trusted: &std::collections::HashMap<String, serde_json::Value>) -> Context {
-    if trusted.is_empty() {
-        return Context::empty();
-    }
+fn build_context(
+    trusted: &std::collections::HashMap<String, serde_json::Value>,
+) -> Result<Context, String> {
     let map: serde_json::Map<String, serde_json::Value> = trusted.clone().into_iter().collect();
-    let obj = serde_json::Value::Object(map);
-    match Context::from_json_value(obj, None) {
-        Ok(ctx) => ctx,
-        Err(e) => {
-            tracing::warn!("failed to build Cedar context from trusted_context: {e}; using empty");
-            Context::empty()
-        }
+    Context::from_json_value(cedar_context_value(serde_json::Value::Object(map))?, None)
+        .map_err(|e| format!("invalid trusted Cedar context: {e}"))
+}
+
+// Cedar has no null value. Absent optional record fields stay absent in its
+// policy view; the fingerprint and journal retain the exact original JSON.
+// Never drop array elements or coerce an unsupported value into another type.
+fn cedar_context_value(value: serde_json::Value) -> Result<serde_json::Value, String> {
+    use serde_json::Value;
+    match value {
+        Value::Object(fields) => fields
+            .into_iter()
+            .filter(|(_, value)| !value.is_null())
+            .map(|(key, value)| cedar_context_value(value).map(|value| (key, value)))
+            .collect::<Result<serde_json::Map<_, _>, _>>()
+            .map(Value::Object),
+        Value::Array(values) => values
+            .into_iter()
+            .map(cedar_context_value)
+            .collect::<Result<Vec<_>, _>>()
+            .map(Value::Array),
+        Value::Null => Err("Cedar context cannot represent a null array element".into()),
+        value => Ok(value),
     }
 }
 
@@ -180,6 +195,7 @@ impl CedarPolicyGate {
         agent_id: &AgentId,
         action: &ProposedAction,
         state: &LoopState,
+        prepared: Option<&super::prepared::PreparedAction>,
     ) -> LoopDecision {
         let active_policies: Vec<_> = policies.iter().filter(|p| p.active).collect();
 
@@ -187,13 +203,16 @@ impl CedarPolicyGate {
             return self.default_decision.clone();
         }
 
-        // Map the action to a Cedar action name
-        let action_name = match action {
-            ProposedAction::ToolCall { name, .. } => format!("tool_call::{}", name),
-            ProposedAction::Respond { .. } => "respond".to_string(),
-            ProposedAction::Delegate { target, .. } => format!("delegate::{}", target),
-            ProposedAction::Terminate { .. } => "terminate".to_string(),
-        };
+        let contract = prepared.and_then(|p| p.contract());
+        // Manifest-backed calls use the same action/resource namespace as the generated policies.
+        let action_name = contract
+            .map(|c| c.action_id.clone())
+            .unwrap_or_else(|| match action {
+                ProposedAction::ToolCall { name, .. } => format!("tool_call::{}", name),
+                ProposedAction::Respond { .. } => "respond".to_string(),
+                ProposedAction::Delegate { target, .. } => format!("delegate::{}", target),
+                ProposedAction::Terminate { .. } => "terminate".to_string(),
+            });
 
         // Concatenate all active policy sources into one policy set
         let combined_source: String = active_policies
@@ -226,7 +245,9 @@ impl CedarPolicyGate {
         };
         let principal = EntityUid::from_type_name_and_id(agent_type, agent_eid);
 
-        let Ok(action_type) = EntityTypeName::from_str("Action") else {
+        let Ok(action_type) =
+            EntityTypeName::from_str(contract.map(|c| c.action_type.as_str()).unwrap_or("Action"))
+        else {
             return LoopDecision::Deny {
                 reason: "Cedar: invalid entity type 'Action'".into(),
             };
@@ -238,19 +259,50 @@ impl CedarPolicyGate {
         };
         let cedar_action = EntityUid::from_type_name_and_id(action_type, action_eid);
 
-        let Ok(resource_type) = EntityTypeName::from_str("Resource") else {
+        let Ok(resource_type) = EntityTypeName::from_str(
+            contract
+                .map(|c| c.resource_type.as_str())
+                .unwrap_or("Resource"),
+        ) else {
             return LoopDecision::Deny {
                 reason: "Cedar: invalid entity type 'Resource'".into(),
             };
         };
-        let Ok(resource_eid) = EntityId::from_str("default") else {
+        let Ok(resource_eid) = EntityId::from_str(
+            contract
+                .map(|c| c.resource_id.as_str())
+                .unwrap_or("default"),
+        ) else {
             return LoopDecision::Deny {
                 reason: "Cedar: invalid entity id 'default'".into(),
             };
         };
         let resource = EntityUid::from_type_name_and_id(resource_type, resource_eid);
 
-        let context = build_context(&state.trusted_context);
+        let mut trusted = state.trusted_context.clone();
+        let mut entities = Entities::empty();
+        if let Some(prepared) = prepared {
+            trusted.insert("invocation".into(), prepared.policy_context());
+        }
+        if let (Some(prepared), Some(contract)) = (prepared, contract) {
+            let value = serde_json::json!([{
+                "uid": {"type": contract.resource_type, "id": contract.resource_id},
+                "attrs": {"tool_name": contract.name, "version": contract.version, "contract_hash": contract.digest, "call_fingerprint": prepared.fingerprint()},
+                "parents": [],
+            }]);
+            entities = match Entities::from_json_value(value, None) {
+                Ok(entities) => entities,
+                Err(e) => {
+                    return LoopDecision::Deny {
+                        reason: format!("invalid prepared resource: {e}"),
+                    }
+                }
+            };
+        }
+        let context = match build_context(&trusted) {
+            Ok(context) => context,
+            Err(reason) => return LoopDecision::Deny { reason },
+        };
         let request = match Request::new(principal, cedar_action, resource, context, None) {
             Ok(r) => r,
             Err(e) => {
@@ -263,7 +315,7 @@ impl CedarPolicyGate {
 
         // Run the Cedar Authorizer
         let authorizer = Authorizer::new();
-        let response = authorizer.is_authorized(&request, &policy_set, &Entities::empty());
+        let response = authorizer.is_authorized(&request, &policy_set, &entities);
 
         match response.decision() {
             Decision::Allow => LoopDecision::Allow,
@@ -294,6 +346,22 @@ impl CedarPolicyGate {
 
 #[async_trait::async_trait]
 impl ReasoningPolicyGate for CedarPolicyGate {
+    async fn evaluate_prepared(
+        &self,
+        agent_id: &AgentId,
+        prepared: &super::prepared::PreparedAction,
+        state: &LoopState,
+    ) -> LoopDecision {
+        let policies = self.policies.read().await;
+        self.evaluate_against_policies(
+            &policies,
+            agent_id,
+            prepared.action(),
+            state,
+            Some(prepared),
+        )
+    }
+
     async fn evaluate_action(
         &self,
         agent_id: &AgentId,
@@ -301,7 +369,7 @@ impl ReasoningPolicyGate for CedarPolicyGate {
         state: &LoopState,
     ) -> LoopDecision {
         let policies = self.policies.read().await;
-        self.evaluate_against_policies(&policies, agent_id, action, state)
+        self.evaluate_against_policies(&policies, agent_id, action, state, None)
     }
 }
 

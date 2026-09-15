@@ -24,6 +24,11 @@ pub fn verify_slack_signature(
     body: &[u8],
     signature: &str,
 ) -> Result<(), ChannelAdapterError> {
+    if signing_secret.trim().is_empty() {
+        return Err(ChannelAdapterError::SignatureInvalid(
+            "signing secret required".into(),
+        ));
+    }
     // Validate timestamp freshness to prevent replay attacks
     let ts: i64 = timestamp
         .parse()
@@ -40,11 +45,10 @@ pub fn verify_slack_signature(
     }
 
     // Compute expected signature: v0=HMAC-SHA256(secret, "v0:{timestamp}:{body}")
-    let sig_basestring = format!("v0:{}:{}", timestamp, String::from_utf8_lossy(body));
-
     let mut mac = HmacSha256::new_from_slice(signing_secret.as_bytes())
         .map_err(|e| ChannelAdapterError::Internal(format!("HMAC init failed: {}", e)))?;
-    mac.update(sig_basestring.as_bytes());
+    mac.update(format!("v0:{timestamp}:").as_bytes());
+    mac.update(body);
     let computed = mac.finalize().into_bytes();
     let computed_hex = format!("v0={}", hex::encode(computed));
 
@@ -139,5 +143,24 @@ mod tests {
             }
             other => panic!("expected SignatureInvalid, got: {:?}", other),
         }
+    }
+    #[test]
+    fn signature_binds_exact_body_bytes_without_lossy_utf8_conversion() {
+        let timestamp = chrono::Utc::now().timestamp().to_string();
+        let secret = "synthetic-byte-fixture";
+        let body = b"value=\xff";
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(format!("v0:{timestamp}:").as_bytes());
+        mac.update(body);
+        let signature = format!("v0={}", hex::encode(mac.finalize().into_bytes()));
+        assert!(verify_slack_signature(secret, &timestamp, body, &signature).is_ok());
+        assert!(verify_slack_signature(
+            secret,
+            &timestamp,
+            String::from_utf8_lossy(body).as_bytes(),
+            &signature
+        )
+        .is_err());
+        assert!(verify_slack_signature("", &timestamp, body, &signature).is_err());
     }
 }

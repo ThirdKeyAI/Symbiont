@@ -5,9 +5,7 @@
 use async_trait::async_trait;
 use sha2::Digest;
 use std::collections::HashMap;
-use std::io::Write;
 use std::sync::Arc;
-use tempfile::NamedTempFile;
 use tokio::sync::RwLock;
 use tokio::time::{timeout, Duration};
 
@@ -16,7 +14,7 @@ use super::types::{
     ToolVerificationRequest, ToolVerificationResponse, VerificationStatus,
 };
 use crate::integrations::schemapin::{
-    LocalKeyStore, NativeSchemaPinClient, PinnedKey, SchemaPinClient, VerifyArgs,
+    LocalKeyStore, NativeSchemaPinClient, PinnedKey, SchemaPinClient,
 };
 use crate::integrations::tool_invocation::{
     DefaultToolInvocationEnforcer, InvocationContext, InvocationResult, ToolInvocationEnforcer,
@@ -68,8 +66,6 @@ pub struct SecureMcpClient {
     tools: Arc<RwLock<HashMap<String, McpTool>>>,
     /// Tool invocation enforcer
     enforcer: Arc<dyn ToolInvocationEnforcer>,
-    /// HTTP client for fetching provider public keys (HTTPS-only)
-    http_client: reqwest::Client,
 }
 
 impl SecureMcpClient {
@@ -80,18 +76,12 @@ impl SecureMcpClient {
         key_store: Arc<LocalKeyStore>,
     ) -> Self {
         let enforcer = Arc::new(DefaultToolInvocationEnforcer::new());
-        let http_client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(10))
-            .https_only(true)
-            .build()
-            .expect("Failed to build HTTPS-only reqwest client");
         Self {
             config,
             schema_pin,
             key_store,
             tools: Arc::new(RwLock::new(HashMap::new())),
             enforcer,
-            http_client,
         }
     }
 
@@ -102,18 +92,12 @@ impl SecureMcpClient {
         key_store: Arc<LocalKeyStore>,
         enforcer: Arc<dyn ToolInvocationEnforcer>,
     ) -> Self {
-        let http_client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(10))
-            .https_only(true)
-            .build()
-            .expect("Failed to build HTTPS-only reqwest client");
         Self {
             config,
             schema_pin,
             key_store,
             tools: Arc::new(RwLock::new(HashMap::new())),
             enforcer,
-            http_client,
         }
     }
 
@@ -125,143 +109,87 @@ impl SecureMcpClient {
         Ok(Self::new(config, schema_pin, key_store))
     }
 
-    /// Verify a tool's schema using SchemaPin
+    /// Verify the supplied schema with the exact trusted key, including a
+    /// bounded first-use key fetch. Failed signature results are never promoted
+    /// to Verified merely because the verification function returned Ok.
     async fn verify_schema(&self, tool: &McpTool) -> Result<VerificationStatus, McpClientError> {
-        // Create a temporary file for the schema
-        let mut temp_file =
-            NamedTempFile::new().map_err(|e| McpClientError::SerializationError {
-                reason: format!("Failed to create temp file: {}", e),
+        if self.config.verification_timeout_seconds == 0 {
+            return Err(McpClientError::Timeout);
+        }
+        let schema =
+            serde_json::to_vec(&tool.schema).map_err(|e| McpClientError::SerializationError {
+                reason: e.to_string(),
             })?;
-
-        // Write schema to temp file
-        let schema_json = serde_json::to_string_pretty(&tool.schema).map_err(|e| {
-            McpClientError::SerializationError {
-                reason: format!("Failed to serialize schema: {}", e),
-            }
-        })?;
-
-        temp_file.write_all(schema_json.as_bytes()).map_err(|e| {
-            McpClientError::SerializationError {
-                reason: format!("Failed to write schema to temp file: {}", e),
-            }
-        })?;
-
-        let temp_path = temp_file.path().to_string_lossy().to_string();
-
-        // Fetch and pin the provider's public key (TOFU)
-        self.fetch_and_pin_key(&tool.provider).await?;
-
-        // Verify the schema
-        let verify_args = VerifyArgs::new(temp_path, tool.provider.public_key_url.clone());
-
-        let verification_timeout = Duration::from_secs(self.config.verification_timeout_seconds);
-        let verification_result = timeout(
-            verification_timeout,
-            self.schema_pin.verify_schema(verify_args),
+        let result = timeout(
+            Duration::from_secs(self.config.verification_timeout_seconds),
+            async {
+                let key = self.fetch_and_pin_key(&tool.provider).await?;
+                self.schema_pin
+                    .verify_schema_bytes(&schema, &tool.name, &tool.provider.public_key_url, &key)
+                    .await
+                    .map_err(McpClientError::from)
+            },
         )
         .await
         .map_err(|_| McpClientError::Timeout)?;
-
-        match verification_result {
-            Ok(result) => Ok(VerificationStatus::Verified {
+        Ok(match result {
+            Ok(result) if result.success => VerificationStatus::Verified {
                 result: Box::new(result),
                 verified_at: chrono::Utc::now().to_rfc3339(),
-            }),
-            Err(e) => Ok(VerificationStatus::Failed {
-                reason: e.to_string(),
+            },
+            Ok(result) => VerificationStatus::Failed {
+                reason: result.message,
                 failed_at: chrono::Utc::now().to_rfc3339(),
-            }),
-        }
+            },
+            Err(error) => VerificationStatus::Failed {
+                reason: error.to_string(),
+                failed_at: chrono::Utc::now().to_rfc3339(),
+            },
+        })
     }
 
-    /// Fetch and pin a provider's public key using TOFU
-    ///
-    /// On first contact with a provider, fetches the public key from
-    /// `provider.public_key_url` over HTTPS, computes a SHA-256 fingerprint,
-    /// and pins it in the local key store. Subsequent calls for the same
-    /// provider identifier are no-ops (trust-on-first-use).
-    async fn fetch_and_pin_key(&self, provider: &ToolProvider) -> Result<(), McpClientError> {
-        // Check if we already have this key pinned
+    /// Use the saved TOFU key as the verification anchor. A provider cannot
+    /// replace that anchor by changing what its URL returns on a later fetch.
+    /// Rotation requires an explicit update to the protected key store.
+    async fn fetch_and_pin_key(&self, provider: &ToolProvider) -> Result<String, McpClientError> {
         if self.key_store.has_key(&provider.identifier)? {
-            tracing::debug!(
-                provider = %provider.identifier,
-                "Key already pinned, skipping fetch"
-            );
-            return Ok(());
+            let key = self.key_store.get_key(&provider.identifier)?;
+            if key.algorithm != "ES256" {
+                return Err(McpClientError::KeyRetrievalFailed {
+                    reason: "Pinned MCP key must use ES256".into(),
+                });
+            }
+            return Ok(key.public_key);
         }
-
-        // Fetch the real public key from the provider's HTTPS endpoint
-        tracing::info!(
-            provider = %provider.identifier,
-            url = %provider.public_key_url,
-            "Fetching provider public key for TOFU pinning"
-        );
-
-        let response = self
-            .http_client
-            .get(&provider.public_key_url)
-            .send()
-            .await
-            .map_err(|e| McpClientError::KeyFetchFailed {
+        let url = url::Url::parse(&provider.public_key_url).map_err(|e| {
+            McpClientError::KeyFetchFailed {
                 provider: provider.identifier.clone(),
-                reason: format!("HTTP request failed: {}", e),
-            })?;
-
-        if !response.status().is_success() {
+                reason: e.to_string(),
+            }
+        })?;
+        if url.scheme() != "https" {
             return Err(McpClientError::KeyFetchFailed {
                 provider: provider.identifier.clone(),
-                reason: format!(
-                    "Server returned HTTP {} from {}",
-                    response.status(),
-                    provider.public_key_url
-                ),
+                reason: "MCP key discovery requires HTTPS".into(),
             });
         }
-
-        let key_data = response
-            .text()
-            .await
-            .map_err(|e| McpClientError::KeyFetchFailed {
-                provider: provider.identifier.clone(),
-                reason: format!("Failed to read response body: {}", e),
-            })?;
-
-        if key_data.trim().is_empty() {
-            return Err(McpClientError::KeyFetchFailed {
-                provider: provider.identifier.clone(),
-                reason: "Server returned an empty key".to_string(),
-            });
-        }
-
-        // Compute SHA-256 fingerprint of the key material
-        let mut hasher = sha2::Sha256::new();
-        hasher.update(key_data.as_bytes());
-        let fingerprint = hex::encode(hasher.finalize());
-
-        let pinned_key = PinnedKey::new(
+        let key = NativeSchemaPinClient::new()
+            .fetch_public_key(&provider.public_key_url)
+            .await?;
+        let fingerprint = hex::encode(sha2::Sha256::digest(key.as_bytes()));
+        self.key_store.pin_key(PinnedKey::new(
             provider.identifier.clone(),
-            key_data,
-            "ES256".to_string(),
-            fingerprint.clone(),
-        );
-
-        // Pin the key (TOFU will prevent key substitution attacks)
-        self.key_store.pin_key(pinned_key)?;
-
-        tracing::info!(
-            provider = %provider.identifier,
-            url = %provider.public_key_url,
-            fingerprint = %fingerprint,
-            "Provider public key pinned successfully (TOFU)"
-        );
-
-        Ok(())
+            key.clone(),
+            "ES256".into(),
+            fingerprint,
+        ))?;
+        Ok(key)
     }
 
     /// Check if a tool should be allowed based on verification status
     fn should_allow_tool(&self, tool: &McpTool) -> bool {
         match &tool.verification_status {
-            VerificationStatus::Verified { .. } => true,
+            VerificationStatus::Verified { .. } => tool.verification_status.is_verified(),
             VerificationStatus::Failed { .. } => false,
             VerificationStatus::Pending => !self.config.enforce_verification,
             VerificationStatus::Skipped { .. } => self.config.allow_unverified_in_dev,
@@ -355,7 +283,12 @@ impl McpClient for SecureMcpClient {
         if !request.force_reverify && tool_exists {
             let tools = self.tools.read().await;
             if let Some(existing_tool) = tools.get(&request.tool.name) {
-                if existing_tool.verification_status.is_verified() {
+                if existing_tool.verification_status.is_verified()
+                    && existing_tool.schema == request.tool.schema
+                    && existing_tool.provider.identifier == request.tool.provider.identifier
+                    && existing_tool.provider.public_key_url == request.tool.provider.public_key_url
+                    && existing_tool.provider.version == request.tool.provider.version
+                {
                     warnings
                         .push("Tool already verified, use force_reverify to re-verify".to_string());
                     return Ok(ToolVerificationResponse {
@@ -374,6 +307,9 @@ impl McpClient for SecureMcpClient {
         if tool_exists {
             let mut tools = self.tools.write().await;
             if let Some(existing_tool) = tools.get_mut(&request.tool.name) {
+                // Store the exact contract that was verified, not a new status
+                // attached to an older schema under the same tool name.
+                *existing_tool = request.tool.clone();
                 existing_tool.verification_status = verification_status.clone();
             }
         }
@@ -621,6 +557,92 @@ mod tests {
         };
         let store = LocalKeyStore::with_config(config).unwrap();
         (store, temp_dir)
+    }
+
+    fn sign_test_tool(tool: &mut McpTool, private_key: &str) {
+        tool.schema.as_object_mut().unwrap().remove("signature");
+        let bytes = schemapin::canonicalize::canonicalize_schema(&tool.schema).into_bytes();
+        tool.schema["signature"] =
+            serde_json::json!(schemapin::crypto::sign_data(private_key, &bytes).unwrap());
+    }
+
+    #[tokio::test]
+    async fn native_verification_requires_a_signature_from_the_pinned_key() {
+        let key = schemapin::crypto::generate_key_pair().unwrap();
+        let substituted = schemapin::crypto::generate_key_pair().unwrap();
+        let (store, _directory) = create_temp_key_store();
+        store
+            .pin_key(PinnedKey::new(
+                "example.com".into(),
+                key.public_key_pem.clone(),
+                "ES256".into(),
+                hex::encode(sha2::Sha256::digest(key.public_key_pem.as_bytes())),
+            ))
+            .unwrap();
+        let client = SecureMcpClient::new(
+            McpClientConfig::default(),
+            Arc::new(NativeSchemaPinClient::new()),
+            Arc::new(store),
+        );
+        let mut tool = create_test_tool();
+        assert!(client.discover_tool(tool.clone()).await.is_err());
+        sign_test_tool(&mut tool, &substituted.private_key_pem);
+        assert!(client.discover_tool(tool.clone()).await.is_err());
+        sign_test_tool(&mut tool, &key.private_key_pem);
+        assert!(client
+            .discover_tool(tool.clone())
+            .await
+            .unwrap()
+            .tool
+            .verification_status
+            .is_verified());
+        tool.schema["properties"]["input"]["type"] = serde_json::json!("integer");
+        assert!(client.discover_tool(tool).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn verification_cache_and_registry_bind_status_to_the_exact_schema() {
+        let key = schemapin::crypto::generate_key_pair().unwrap();
+        let (store, _directory) = create_temp_key_store();
+        store
+            .pin_key(PinnedKey::new(
+                "example.com".into(),
+                key.public_key_pem.clone(),
+                "ES256".into(),
+                hex::encode(sha2::Sha256::digest(key.public_key_pem.as_bytes())),
+            ))
+            .unwrap();
+        let client = SecureMcpClient::new(
+            McpClientConfig::default(),
+            Arc::new(NativeSchemaPinClient::new()),
+            Arc::new(store),
+        );
+        let mut tool = create_test_tool();
+        sign_test_tool(&mut tool, &key.private_key_pem);
+        client.discover_tool(tool.clone()).await.unwrap();
+        tool.schema["properties"]["input"]["type"] = serde_json::json!("integer");
+        let response = client
+            .verify_tool(ToolVerificationRequest {
+                tool: tool.clone(),
+                force_reverify: false,
+            })
+            .await
+            .unwrap();
+        assert!(response.status.is_failed());
+        assert!(client.get_tool(&tool.name).await.is_err());
+        sign_test_tool(&mut tool, &key.private_key_pem);
+        let response = client
+            .verify_tool(ToolVerificationRequest {
+                tool: tool.clone(),
+                force_reverify: false,
+            })
+            .await
+            .unwrap();
+        assert!(response.status.is_verified());
+        assert_eq!(
+            client.get_tool(&tool.name).await.unwrap().schema,
+            tool.schema
+        );
     }
 
     #[tokio::test]

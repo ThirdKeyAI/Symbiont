@@ -1,162 +1,170 @@
-//! JWT validation for inbound Bot Framework requests.
-//!
-//! Validates the `Authorization: Bearer <jwt>` header on inbound activities
-//! from Microsoft Bot Framework. In production, this verifies the JWT against
-//! Microsoft's OpenID metadata and JWKS keys. A dev mode option allows
-//! skipping full JWKS verification for local testing.
-
-use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+//! Verify Bot Framework signatures and bind the inbound activity to its service URL.
+use crate::{error::ChannelAdapterError, transport};
+use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
 
-use crate::error::ChannelAdapterError;
-
-/// OpenID metadata endpoint for Bot Framework tokens.
 const OPENID_METADATA_URL: &str =
     "https://login.botframework.com/v1/.well-known/openidconfiguration";
-
-/// Expected issuer for Bot Framework tokens.
 const BOT_FRAMEWORK_ISSUER: &str = "https://api.botframework.com";
 
-/// JWT claims from a Bot Framework token.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BotFrameworkClaims {
-    /// Issuer — must be `https://api.botframework.com`.
     pub iss: String,
-    /// Audience — must match the bot's app ID (client_id).
     pub aud: String,
-    /// Expiry timestamp.
     pub exp: usize,
-    /// Not-before timestamp.
-    #[serde(default)]
     pub nbf: usize,
-    /// Service URL (optional).
-    #[serde(rename = "serviceurl", default)]
+    #[serde(rename = "serviceurl", alias = "serviceUrl")]
     pub service_url: Option<String>,
 }
 
-/// OpenID configuration response.
 #[derive(Debug, Deserialize)]
 struct OpenIdConfig {
     jwks_uri: String,
-    #[allow(dead_code)]
     issuer: String,
+    id_token_signing_alg_values_supported: Vec<String>,
 }
 
-/// JWKS key set response.
 #[derive(Debug, Deserialize)]
 struct JwksResponse {
     keys: Vec<JwkKey>,
 }
 
-/// A single JWK key.
 #[derive(Debug, Deserialize)]
 struct JwkKey {
-    #[allow(dead_code)]
     kty: String,
     kid: Option<String>,
     n: Option<String>,
     e: Option<String>,
+    alg: Option<String>,
+    #[serde(rename = "use")]
+    key_use: Option<String>,
+    #[serde(default)]
+    endorsements: Vec<String>,
 }
 
-/// Validate a Bot Framework JWT token.
-///
-/// In dev mode (`skip_jwks_verification = true`), only validates token structure
-/// and claims without verifying the cryptographic signature against JWKS.
-/// In production, fetches JWKS keys and fully verifies the signature.
+fn rejected(message: &str) -> ChannelAdapterError {
+    ChannelAdapterError::Auth(message.into())
+}
+
+/// The legacy bypass argument is retained to reject old insecure configurations.
+/// Every accepted request requires a current RSA signature from a Teams-endorsed key.
 pub async fn validate_bot_framework_token(
     token: &str,
     client_id: &str,
     skip_jwks_verification: bool,
 ) -> Result<BotFrameworkClaims, ChannelAdapterError> {
     if skip_jwks_verification {
-        // Dev mode: decode without signature verification, just validate claims
-        let token_data = jsonwebtoken::dangerous::insecure_decode::<BotFrameworkClaims>(token)
-            .map_err(|e| ChannelAdapterError::Auth(format!("JWT decode failed: {}", e)))?;
-
-        let claims = &token_data.claims;
-        if claims.iss != BOT_FRAMEWORK_ISSUER {
-            return Err(ChannelAdapterError::Auth(format!(
-                "Invalid issuer: {}",
-                claims.iss
-            )));
-        }
-        if claims.aud != client_id {
-            return Err(ChannelAdapterError::Auth(format!(
-                "Invalid audience: {}",
-                claims.aud
-            )));
-        }
-
-        return Ok(token_data.claims);
+        return Err(rejected("Teams signature verification cannot be disabled"));
     }
-
-    // Production: fetch JWKS and verify signature
-    let client = reqwest::Client::new();
-
-    // Fetch OpenID metadata to get JWKS URI
-    let openid_config: OpenIdConfig = client
+    if token.len() > 16 * 1024 || client_id.is_empty() {
+        return Err(rejected("invalid Teams token or audience"));
+    }
+    let header = decode_header(token).map_err(|_| rejected("invalid JWT header"))?;
+    if header.alg != Algorithm::RS256 {
+        return Err(rejected("Teams tokens require RS256"));
+    }
+    let kid = header
+        .kid
+        .filter(|id| !id.is_empty() && id.len() <= 256)
+        .ok_or_else(|| rejected("JWT missing or invalid key ID"))?;
+    let client = transport::client()?;
+    let response = client
         .get(OPENID_METADATA_URL)
         .send()
         .await
-        .map_err(|e| ChannelAdapterError::Auth(format!("Failed to fetch OpenID metadata: {}", e)))?
-        .json()
-        .await
-        .map_err(|e| {
-            ChannelAdapterError::Auth(format!("Failed to parse OpenID metadata: {}", e))
-        })?;
-
-    // Fetch JWKS keys
-    let jwks: JwksResponse = client
-        .get(&openid_config.jwks_uri)
+        .map_err(|_| rejected("failed to fetch Bot Framework metadata"))?;
+    let metadata: OpenIdConfig = transport::read_json(response, transport::METADATA_LIMIT).await?;
+    if metadata.issuer != BOT_FRAMEWORK_ISSUER
+        || !metadata
+            .id_token_signing_alg_values_supported
+            .iter()
+            .any(|alg| alg == "RS256")
+    {
+        return Err(rejected(
+            "untrusted Bot Framework issuer or signing algorithm",
+        ));
+    }
+    let keys_url = transport::base_url(&metadata.jwks_uri, false)?;
+    if keys_url.host_str() != Some("login.botframework.com")
+        || keys_url.port_or_known_default() != Some(443)
+    {
+        return Err(rejected(
+            "JWKS must remain on the Bot Framework metadata authority",
+        ));
+    }
+    let response = client
+        .get(keys_url)
         .send()
         .await
-        .map_err(|e| ChannelAdapterError::Auth(format!("Failed to fetch JWKS: {}", e)))?
-        .json()
-        .await
-        .map_err(|e| ChannelAdapterError::Auth(format!("Failed to parse JWKS: {}", e)))?;
-
-    // Decode token header to find the key ID
-    let header = jsonwebtoken::decode_header(token)
-        .map_err(|e| ChannelAdapterError::Auth(format!("Invalid JWT header: {}", e)))?;
-
-    let kid = header
-        .kid
-        .ok_or_else(|| ChannelAdapterError::Auth("JWT missing kid claim".to_string()))?;
-
-    // Find the matching key
-    let jwk = jwks
+        .map_err(|_| rejected("failed to fetch Bot Framework keys"))?;
+    let jwks: JwksResponse = transport::read_json(response, transport::METADATA_LIMIT).await?;
+    let mut matching = jwks
         .keys
         .iter()
-        .find(|k| k.kid.as_deref() == Some(&kid))
-        .ok_or_else(|| {
-            ChannelAdapterError::Auth(format!("No matching JWKS key for kid: {}", kid))
-        })?;
-
-    let n = jwk
+        .filter(|key| key.kid.as_deref() == Some(&kid));
+    let key = matching
+        .next()
+        .ok_or_else(|| rejected("no matching Bot Framework key"))?;
+    if matching.next().is_some()
+        || key.kty != "RSA"
+        || key.alg.as_deref().is_some_and(|alg| alg != "RS256")
+        || key.key_use.as_deref().is_some_and(|usage| usage != "sig")
+        || !key.endorsements.iter().any(|channel| channel == "msteams")
+    {
+        return Err(rejected(
+            "ambiguous, invalid or unendorsed Teams signing key",
+        ));
+    }
+    let n = key
         .n
-        .as_ref()
-        .ok_or_else(|| ChannelAdapterError::Auth("JWKS key missing 'n' component".to_string()))?;
-    let e = jwk
+        .as_deref()
+        .ok_or_else(|| rejected("missing RSA modulus"))?;
+    let e = key
         .e
-        .as_ref()
-        .ok_or_else(|| ChannelAdapterError::Auth("JWKS key missing 'e' component".to_string()))?;
-
-    let decoding_key = DecodingKey::from_rsa_components(n, e)
-        .map_err(|e| ChannelAdapterError::Auth(format!("Invalid RSA key components: {}", e)))?;
-
+        .as_deref()
+        .ok_or_else(|| rejected("missing RSA exponent"))?;
+    let key =
+        DecodingKey::from_rsa_components(n, e).map_err(|_| rejected("invalid RSA components"))?;
     let mut validation = Validation::new(Algorithm::RS256);
+    validation.set_required_spec_claims(&["exp", "nbf", "iss", "aud"]);
     validation.set_audience(&[client_id]);
     validation.set_issuer(&[BOT_FRAMEWORK_ISSUER]);
-
-    let token_data =
-        decode::<BotFrameworkClaims>(token, &decoding_key, &validation).map_err(|e| {
-            ChannelAdapterError::Auth(format!("JWT signature verification failed: {}", e))
-        })?;
-
-    Ok(token_data.claims)
+    validation.validate_nbf = true;
+    validation.leeway = 300;
+    let claims = decode::<BotFrameworkClaims>(token, &key, &validation)
+        .map_err(|_| rejected("Teams signature or claims validation failed"))?
+        .claims;
+    if claims.nbf >= claims.exp {
+        return Err(rejected("invalid Teams token validity interval"));
+    }
+    transport::base_url(
+        claims
+            .service_url
+            .as_deref()
+            .ok_or_else(|| rejected("missing signed service URL"))?,
+        false,
+    )?;
+    Ok(claims)
 }
 
-/// Extract the Bearer token from an Authorization header value.
+pub(super) fn validate_activity(
+    claims: &BotFrameworkClaims,
+    activity: &super::events::Activity,
+) -> Result<(), ChannelAdapterError> {
+    if activity.channel_id.as_deref() != Some("msteams") {
+        return Err(rejected("activity is not a Teams channel"));
+    }
+    let service = claims
+        .service_url
+        .as_deref()
+        .ok_or_else(|| rejected("missing signed service URL"))?;
+    transport::base_url(service, false)?;
+    if activity.service_url.as_deref() != Some(service) {
+        return Err(rejected("activity service URL does not match signed claim"));
+    }
+    Ok(())
+}
+
 pub fn extract_bearer_token(auth_header: &str) -> Option<&str> {
     auth_header.strip_prefix("Bearer ")
 }
@@ -164,6 +172,18 @@ pub fn extract_bearer_token(auth_header: &str) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn verification_bypass_and_oversized_tokens_are_refused_before_network() {
+        assert!(validate_bot_framework_token("", "fixture", true)
+            .await
+            .is_err());
+        assert!(
+            validate_bot_framework_token(&"x".repeat(16 * 1024 + 1), "fixture", false)
+                .await
+                .is_err()
+        );
+    }
 
     #[test]
     fn extract_bearer_token_valid() {

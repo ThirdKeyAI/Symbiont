@@ -55,11 +55,16 @@ export class AuditTrailPanel extends LitElement {
   }
 
   private async _fetchAll() {
+    const failures: string[] = [];
+    const failure = (label: string, error: unknown) => {
+      failures.push(`${label}: ${error instanceof Error ? error.message : String(error)}`);
+      return [];
+    };
     try {
       const [agentSummaries, schedules, channels] = await Promise.all([
-        listAgents(),
-        listSchedules(),
-        listChannels(),
+        listAgents().catch(e => failure('Agent listing', e)),
+        listSchedules().catch(e => failure('Schedule listing', e)),
+        listChannels().catch(e => failure('Channel listing', e)),
       ]);
 
       const entries: UnifiedAuditEntry[] = [];
@@ -80,7 +85,7 @@ export class AuditTrailPanel extends LitElement {
                 details: {} as Record<string, unknown>,
               })),
             )
-            .catch(() => []),
+            .catch(e => failure('Agent history', e)),
         ),
       );
       entries.push(...agentHistories.flat());
@@ -97,6 +102,9 @@ export class AuditTrailPanel extends LitElement {
                 sourceId: s.job_id,
                 sourceName: s.name,
                 eventType: 'scheduled_run',
+                audit: h.admission_audit,
+                executionAudit: h.execution?.audit ? { ...h.execution.audit, run_id: h.execution.run_id } : undefined,
+                resolution: h.resolution,
                 status: h.status,
                 details: {
                   ...(h.error ? { error: h.error } : {}),
@@ -104,7 +112,7 @@ export class AuditTrailPanel extends LitElement {
                 } as Record<string, unknown>,
               })),
             )
-            .catch(() => []),
+            .catch(e => failure('Schedule history', e)),
         ),
       );
       entries.push(...schedHistories.flat());
@@ -125,7 +133,7 @@ export class AuditTrailPanel extends LitElement {
                 details: e.details,
               })),
             )
-            .catch(() => []),
+            .catch(e => failure('Channel history', e)),
         ),
       );
       entries.push(...channelAudits.flat());
@@ -135,7 +143,7 @@ export class AuditTrailPanel extends LitElement {
 
       this._entries = entries;
       this._loading = false;
-      this._error = '';
+      this._error = failures.length ? `History is incomplete. ${failures.join('; ')}` : '';
     } catch (e) {
       this._error = e instanceof Error ? e.message : 'Failed to fetch audit data';
       this._loading = false;

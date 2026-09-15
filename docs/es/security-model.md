@@ -70,6 +70,13 @@ graph TB
 ```
 
 > **Los tres niveles de aislamiento del host — Docker, gVisor y Firecracker — vienen incluidos en el runtime OSS.** Los operadores eligen el nivel por agente mediante el bloque DSL `with { sandbox = ... }`, o establecen un valor predeterminado del proyecto via `[sandbox] tier = "..."` en `symbiont.toml`. E2B es habilitable unicamente via DSL (`with { sandbox = "e2b" }`) y deliberadamente no se expone como valor de `[sandbox] tier`.
+>
+> El aislamiento fuerte es una base, no una venta adicional. Los niveles permanecen
+> en el runtime de codigo abierto para que la comunidad pueda leer, auditar y
+> reproducir la frontera de la que depende. La atestacion del invitado es el caso mas
+> claro: una huella sobre fuentes que no se pueden leer no atestigua nada, por lo que
+> el servicio invitado es de codigo abierto precisamente porque es un control de
+> seguridad.
 
 ### Nivel 1: Aislamiento Docker
 
@@ -143,6 +150,16 @@ gvisor_security:
 - microVM por ejecucion con kernel + rootfs proporcionados por el operador
 - Sistema de archivos raiz de solo lectura por defecto
 - Sin superficie de kernel compartida con el host
+- **Atestacion del invitado:** el handshake verifica la version del protocolo y una
+  huella de las fuentes del servicio invitado, y rechaza una imagen obsoleta o que no
+  coincide antes de enviar cualquier comando
+- **Propiedad independiente del VMM:** un supervisor externo al bucle de razonamiento
+  posee el ciclo de vida de la VM, por lo que una VM no puede sobrevivir a su
+  supervisor, y una VM huerfana se recupera contra una identidad de proceso
+  verificada en lugar de un PID reutilizable
+- **Carga de trabajo invitada sin privilegios:** los comandos se ejecutan como
+  usuario invitado no root con `no_new_privs` y limites explicitos de procesos y
+  descriptores de archivo
 
 **Configuracion:** `[sandbox.firecracker]` en `symbiont.toml`:
 
@@ -328,10 +345,16 @@ use symbi_runtime::reasoning::cedar_gate::CedarPolicyGate;
 
 // Create a Cedar policy gate with deny-by-default stance
 let cedar_gate = CedarPolicyGate::deny_by_default();
+let agent_id = symbi_runtime::types::AgentId::new();
+let (journal, audit) = symbi_runtime::reasoning::run_audit::open_run_journal(
+    trusted_project, agent_id,
+).await?;
+println!("Audit: {}", serde_json::to_string(&audit)?);
 let runner = ReasoningLoopRunner::builder()
     .provider(provider)
     .executor(executor)
     .policy_gate(Arc::new(cedar_gate))
+    .journal(journal)
     .build();
 ```
 

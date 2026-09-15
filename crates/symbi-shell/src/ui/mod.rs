@@ -42,7 +42,13 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             .split(area);
         content::draw_live_tail(frame, app, chunks[0]);
         frame.render_widget(
-            widgets::gate_panel::GatePanel::new(&app.gate_items, app.gate_selected),
+            widgets::gate_panel::GatePanel::new(
+                &app.gate_items,
+                app.gate_selected,
+                app.gate_review.as_ref(),
+                &mut app.gate_detail_scroll,
+                &app.gate_message,
+            ),
             chunks[1],
         );
         footer::draw(frame, app, chunks[2]);

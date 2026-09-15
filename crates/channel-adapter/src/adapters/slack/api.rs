@@ -5,6 +5,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::error::ChannelAdapterError;
+use crate::transport::{self, PreparedPost};
 use crate::types::{ChatDeliveryReceipt, ChatPlatform, OutboundMessage};
 
 /// Slack Web API client.
@@ -60,10 +61,7 @@ impl SlackApiClient {
             ));
         }
 
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(15))
-            .build()
-            .map_err(|e| ChannelAdapterError::Internal(format!("HTTP client init: {}", e)))?;
+        let client = transport::client()?;
 
         Ok(Self {
             client,
@@ -81,10 +79,7 @@ impl SlackApiClient {
             .await
             .map_err(|e| ChannelAdapterError::Connection(format!("auth.test failed: {}", e)))?;
 
-        let auth: AuthTestResponse = resp
-            .json()
-            .await
-            .map_err(|e| ChannelAdapterError::ParseError(format!("auth.test parse: {}", e)))?;
+        let auth: AuthTestResponse = transport::read_json(resp, transport::RECEIPT_LIMIT).await?;
 
         if !auth.ok {
             return Err(ChannelAdapterError::Auth(format!(
@@ -96,11 +91,10 @@ impl SlackApiClient {
         Ok(auth)
     }
 
-    /// Send a message to a Slack channel via `chat.postMessage`.
-    pub async fn post_message(
+    pub(crate) fn prepare_post(
         &self,
         message: &OutboundMessage,
-    ) -> Result<ChatDeliveryReceipt, ChannelAdapterError> {
+    ) -> Result<PreparedPost, ChannelAdapterError> {
         let mut payload = serde_json::json!({
             "channel": message.channel_id,
             "text": message.content,
@@ -114,20 +108,35 @@ impl SlackApiClient {
             payload["blocks"] = blocks.clone();
         }
 
+        Ok(PreparedPost::new(
+            transport::base_url("https://slack.com/api/chat.postMessage", false)?,
+            payload,
+        ))
+    }
+
+    /// Send a message to a Slack channel via `chat.postMessage`.
+    pub async fn post_message(
+        &self,
+        message: &OutboundMessage,
+    ) -> Result<ChatDeliveryReceipt, ChannelAdapterError> {
+        let prepared = self.prepare_post(message)?;
+
         let resp = self
             .client
-            .post("https://slack.com/api/chat.postMessage")
+            .post(&prepared.url)
             .bearer_auth(&self.bot_token)
-            .json(&payload)
+            .json(&prepared.body)
             .send()
             .await
             .map_err(|e| {
                 ChannelAdapterError::SendFailed(format!("chat.postMessage failed: {}", e))
             })?;
 
-        let post_resp: PostMessageResponse = resp.json().await.map_err(|e| {
-            ChannelAdapterError::ParseError(format!("chat.postMessage parse: {}", e))
-        })?;
+        let post_resp: PostMessageResponse =
+            transport::read_json(resp, transport::RECEIPT_LIMIT).await?;
+        let confirmed = post_resp.ok
+            && post_resp.channel.as_deref() == Some(&message.channel_id)
+            && post_resp.ts.as_ref().is_some_and(|id| !id.is_empty());
 
         Ok(ChatDeliveryReceipt {
             platform: ChatPlatform::Slack,
@@ -136,8 +145,10 @@ impl SlackApiClient {
                 .unwrap_or_else(|| message.channel_id.clone()),
             message_ts: post_resp.ts,
             delivered_at: chrono::Utc::now(),
-            success: post_resp.ok,
-            error: post_resp.error,
+            success: confirmed,
+            error: post_resp
+                .error
+                .or_else(|| (!confirmed).then(|| "Slack receipt is not confirmed".into())),
         })
     }
 }

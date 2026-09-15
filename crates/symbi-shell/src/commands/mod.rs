@@ -92,7 +92,7 @@ fn intercept_help(command: &str, args: &str) -> Option<CommandResult> {
         "/logs" => "/logs [agent]\n  Show recent logs for the given agent (or all agents).",
         "/doctor" => "/doctor\n  Diagnose the local runtime environment.",
         "/audit" => "/audit [filter]\n  Show recent audit trail entries, optionally filtered.",
-        "/cron" => "/cron [list|add|remove|history] …\n  Manage cron-scheduled agent runs.",
+        "/cron" => "/cron [list|add|pause|resume|history] …\n  /cron run <job-id> [invocation-id] starts work or checks the supplied retry ID.",
         "/tools" => "/tools [list|add|remove] …\n  Manage ToolClad tools available to agents.",
         "/skills" => "/skills [list|install|remove] …\n  Manage skills available to agents.",
         "/channels" => "/channels\n  List registered channel adapters (Slack, Mattermost, …).",

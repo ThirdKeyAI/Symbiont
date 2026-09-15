@@ -52,6 +52,17 @@ impl BrowserScopeChecker {
         }
     }
 
+    /// Validate the entire rule set even before a destination is available.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.allowed_domains.len() + self.blocked_domains.len() > 256 {
+            return Err("browser scope has too many domain rules".into());
+        }
+        for rule in self.allowed_domains.iter().chain(&self.blocked_domains) {
+            canonical_domain(rule.strip_prefix("*.").unwrap_or(rule))?;
+        }
+        Ok(())
+    }
+
     /// Check if a URL is allowed by scope rules.
     pub fn check_url(&self, url: &str) -> Result<(), String> {
         let domain =
@@ -61,9 +72,24 @@ impl BrowserScopeChecker {
 
     /// Check if a domain is allowed.
     pub fn check_domain(&self, domain: &str) -> Result<(), String> {
+        let domain = canonical_domain(domain)?;
+        if self.allowed_domains.len() + self.blocked_domains.len() > 256 {
+            return Err("browser scope has too many domain rules".into());
+        }
+        let rules = |values: &[String]| {
+            values
+                .iter()
+                .map(|rule| match rule.strip_prefix("*.") {
+                    Some(domain) => canonical_domain(domain).map(|domain| format!("*.{domain}")),
+                    None => canonical_domain(rule),
+                })
+                .collect::<Result<Vec<_>, _>>()
+        };
+        let blocked_domains = rules(&self.blocked_domains)?;
+        let allowed_domains = rules(&self.allowed_domains)?;
         // Check blocked first
-        for blocked in &self.blocked_domains {
-            if domain_matches(domain, blocked) {
+        for blocked in &blocked_domains {
+            if domain_matches(&domain, blocked) {
                 return Err(format!(
                     "Domain '{}' is blocked by scope rule '{}'",
                     domain, blocked
@@ -72,7 +98,7 @@ impl BrowserScopeChecker {
         }
 
         // If no allowed list, check allow_external
-        if self.allowed_domains.is_empty() {
+        if allowed_domains.is_empty() {
             return if self.allow_external {
                 Ok(())
             } else {
@@ -81,8 +107,8 @@ impl BrowserScopeChecker {
         }
 
         // Check allowed
-        for allowed in &self.allowed_domains {
-            if domain_matches(domain, allowed) {
+        for allowed in &allowed_domains {
+            if domain_matches(&domain, allowed) {
                 return Ok(());
             }
         }
@@ -99,12 +125,55 @@ impl BrowserScopeChecker {
     }
 }
 
-/// Extract domain from a URL.
+/// Parse the same URL representation used by the browser and HTTP broker.
+/// This is a lexical check; the network broker must also enforce DNS/IP scope.
+pub(super) fn parse_browser_url(value: &str) -> Result<url::Url, String> {
+    if value.len() > 8192
+        || value
+            .bytes()
+            .any(|byte| byte.is_ascii_control() || byte == b'\\')
+        || value.trim() != value
+    {
+        return Err("browser URL contains ambiguous characters or exceeds its limit".into());
+    }
+    let parsed = url::Url::parse(value).map_err(|_| "invalid browser URL")?;
+    if !matches!(parsed.scheme(), "http" | "https")
+        || parsed.host().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+    {
+        return Err("browser URL requires HTTP(S), a host and no credentials".into());
+    }
+    canonical_domain(parsed.host_str().unwrap())?;
+    Ok(parsed)
+}
+
+fn canonical_domain(value: &str) -> Result<String, String> {
+    let host = url::Host::parse(value).map_err(|_| "invalid browser scope domain")?;
+    let value = host.to_string();
+    if let url::Host::Domain(_) = host {
+        let value = value.strip_suffix('.').unwrap_or(&value);
+        if value.is_empty()
+            || value.len() > 253
+            || value.split('.').any(|label| {
+                label.is_empty()
+                    || label.len() > 63
+                    || !label
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+            })
+        {
+            return Err("invalid browser scope domain".into());
+        }
+        Ok(value.into())
+    } else {
+        Ok(value)
+    }
+}
+
 fn extract_domain(url: &str) -> Option<String> {
-    let after_scheme = url.split("://").nth(1)?;
-    let domain = after_scheme.split('/').next()?;
-    let domain = domain.split(':').next()?; // strip port
-    Some(domain.to_string())
+    let parsed = parse_browser_url(url).ok()?;
+    canonical_domain(parsed.host_str()?).ok()
 }
 
 /// Check if a domain matches a pattern (supports wildcard *.example.com).
@@ -170,6 +239,36 @@ mod tests {
         let checker = BrowserScopeChecker::new(&scope);
         assert!(checker.check_url("https://app.example.com").is_ok());
         assert!(checker.check_url("https://admin.example.com").is_err());
+        assert!(checker.check_url("HTTPS://ADMIN.EXAMPLE.COM./").is_err());
+        assert!(checker.check_url("https://ADMIN%2eEXAMPLE.COM/").is_err());
+    }
+
+    #[test]
+    fn browser_url_and_scope_rules_use_canonical_hosts() {
+        let mut checker = BrowserScopeChecker::new(&BrowserScopeDef {
+            allowed_domains: vec!["EXAMPLE.COM.".into(), "bücher.example".into()],
+            blocked_domains: vec![],
+            allow_external: false,
+        });
+        assert!(checker
+            .check_url("https://example.com/?next=https://other.test")
+            .is_ok());
+        assert!(checker.check_url("https://xn--bcher-kva.example/").is_ok());
+        for url in [
+            "file://example.com/etc/passwd",
+            "javascript://example.com/1",
+            "https://example.com@evil.test/",
+            "https://user@example.com/",
+            "https://example.com\\@evil.test/",
+            " https://example.com/",
+            "https://exam\nple.com/",
+            "https://example.com../",
+        ] {
+            assert!(checker.check_url(url).is_err(), "{url}");
+        }
+        checker.allow_external = true;
+        checker.blocked_domains = vec!["example.com/path".into()];
+        assert!(checker.check_url("https://other.test/").is_err());
     }
 
     #[test]

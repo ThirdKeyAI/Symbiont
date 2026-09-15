@@ -38,6 +38,71 @@ impl KnowledgeAwareExecutor {
 
 #[async_trait]
 impl ActionExecutor for KnowledgeAwareExecutor {
+    fn prepare_action(
+        &self,
+        action: &ProposedAction,
+        config: &LoopConfig,
+    ) -> Result<super::prepared::PreparedAction, String> {
+        if matches!(action, ProposedAction::ToolCall { name, .. } if KnowledgeBridge::is_knowledge_tool(name))
+        {
+            super::executor::prepare_registered_action(
+                action,
+                config,
+                &self.bridge.tool_definitions(),
+            )
+        } else {
+            self.inner.prepare_action(action, config)
+        }
+    }
+
+    fn cancel_run(&self, run: &str, deadline: std::time::Instant) {
+        self.inner.cancel_run(run, deadline);
+    }
+
+    async fn close_run(&self, run: &str, deadline: std::time::Instant) -> Result<(), String> {
+        self.inner.close_run(run, deadline).await
+    }
+
+    async fn execute_authorized(
+        &self,
+        actions: Vec<super::prepared::AuthorizedAction>,
+        config: &LoopConfig,
+        circuit_breakers: &CircuitBreakerRegistry,
+    ) -> Vec<Observation> {
+        let mut regular = Vec::new();
+        let mut observations = Vec::new();
+        for grant in actions {
+            if matches!(grant.action(), ProposedAction::ToolCall { name, .. } if KnowledgeBridge::is_knowledge_tool(name))
+            {
+                let action = grant.action().clone();
+                match grant.into_prepared() {
+                    Ok(prepared) => observations.extend(
+                        self.execute_actions(
+                            &[prepared.action().clone()],
+                            config,
+                            circuit_breakers,
+                        )
+                        .await,
+                    ),
+                    Err(error) => {
+                        if let ProposedAction::ToolCall { name, call_id, .. } = action {
+                            observations
+                                .push(Observation::tool_error(name, error).with_call_id(call_id));
+                        }
+                    }
+                }
+            } else {
+                regular.push(grant);
+            }
+        }
+        observations.extend(
+            self.inner
+                .execute_authorized(regular, config, circuit_breakers)
+                .await,
+        );
+        observations
+    }
+
     async fn execute_actions(
         &self,
         actions: &[ProposedAction],
@@ -77,10 +142,11 @@ impl ActionExecutor for KnowledgeAwareExecutor {
 
             match result {
                 Ok(content) => {
-                    observations.push(Observation::tool_result(call_id, content));
+                    observations
+                        .push(Observation::tool_result(name, content).with_call_id(call_id));
                 }
                 Err(err) => {
-                    observations.push(Observation::tool_error(call_id, err));
+                    observations.push(Observation::tool_error(name, err).with_call_id(call_id));
                 }
             }
         }
@@ -104,13 +170,29 @@ mod tests {
     use crate::reasoning::executor::DefaultActionExecutor;
     use crate::reasoning::loop_types::LoopConfig;
 
-    /// A mock bridge needs a mock context manager. For unit tests we just
-    /// verify the partitioning logic with the real executor for non-knowledge tools.
     #[tokio::test]
-    async fn test_regular_actions_delegated() {
-        // We can't easily construct a KnowledgeBridge without a real ContextManager,
-        // so this test focuses on verifying that regular tool calls pass through.
-        let inner = Arc::new(DefaultActionExecutor::default());
+    async fn regular_actions_preserve_backend_failure_and_call_identity() {
+        let root = tempfile::tempdir().unwrap();
+        let agent_id = AgentId::new();
+        let context = crate::context::manager::StandardContextManager::new(
+            crate::context::manager::ContextManagerConfig {
+                enable_auto_archiving: false,
+                enable_persistence: false,
+                secrets_config: crate::SecretsConfig::file_json(
+                    root.path().join("fixture-secrets.json"),
+                ),
+                ..Default::default()
+            },
+            &agent_id.to_string(),
+        )
+        .await
+        .unwrap();
+        let bridge = Arc::new(KnowledgeBridge::new(Arc::new(context), Default::default()));
+        let executor = KnowledgeAwareExecutor::new(
+            Arc::new(DefaultActionExecutor::default()),
+            bridge,
+            agent_id,
+        );
         let config = LoopConfig::default();
         let circuit_breakers = CircuitBreakerRegistry::default();
 
@@ -121,11 +203,14 @@ mod tests {
             arguments: r#"{"q":"test"}"#.into(),
         }];
 
-        let obs = inner
+        let obs = executor
             .execute_actions(&actions, &config, &circuit_breakers)
             .await;
         assert_eq!(obs.len(), 1);
-        assert!(!obs[0].is_error);
+        assert!(obs[0].is_error);
+        assert_eq!(obs[0].call_id.as_deref(), Some("c1"));
+        assert_eq!(obs[0].source, "web_search");
+        assert!(obs[0].content.contains("no tool backend"));
     }
 
     #[test]

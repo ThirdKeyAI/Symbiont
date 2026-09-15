@@ -1,7 +1,8 @@
 //! ToolClad argument validation
 //!
 //! Validates tool arguments against their declared types.
-//! All types reject shell metacharacters by default.
+//! `literal_text` preserves bounded UTF-8 for argv-based contracts. Other text
+//! types keep their existing metacharacter restrictions.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -25,6 +26,21 @@ pub fn validate_arg_with_custom(
     value: &str,
     custom_types: Option<&HashMap<String, ArgDef>>,
 ) -> Result<String, String> {
+    let (def, _) = resolve_definition(def, custom_types)?;
+    // Content is data in a pre-tokenized argv slot. Do not trim, interpolate,
+    // or reject source syntax; an operator-selected interpreter is explicit.
+    if def.type_name == "literal_text" {
+        if value.len() > 32768 || value.contains('\0') {
+            return Err("literal_text exceeds 32768 bytes or contains NUL".into());
+        }
+        if let Some(pattern) = &def.pattern {
+            let pattern = regex::Regex::new(pattern).map_err(|error| error.to_string())?;
+            if !pattern.is_match(value) {
+                return Err("literal_text does not match its declared pattern".into());
+            }
+        }
+        return Ok(value.to_owned());
+    }
     let value = value.trim();
 
     match def.type_name.as_str() {
@@ -43,15 +59,54 @@ pub fn validate_arg_with_custom(
         "duration" => validate_duration(value),
         "regex_match" => validate_regex_match(def, value),
         "agent_summary" => validate_agent_summary(value),
-        other => {
-            // Check custom types
-            if let Some(types) = custom_types {
-                if let Some(base_def) = types.get(other) {
-                    return validate_arg_with_custom(base_def, value, custom_types);
-                }
-            }
-            Err(format!("Unknown type: {}", other))
+        other => Err(format!("Unknown type: {}", other)),
+    }
+}
+
+/// Scope requirements survive aliases, and cyclic custom types fail before
+/// recursive validation can exhaust the runtime stack.
+pub(super) fn requires_scope(
+    def: &ArgDef,
+    custom: Option<&HashMap<String, ArgDef>>,
+) -> Result<bool, String> {
+    resolve_definition(def, custom).map(|(_, scoped)| scoped)
+}
+
+fn resolve_definition<'a>(
+    mut def: &'a ArgDef,
+    custom: Option<&'a HashMap<String, ArgDef>>,
+) -> Result<(&'a ArgDef, bool), String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut scoped = false;
+    loop {
+        scoped |= def.scope_check || def.type_name == "scope_target";
+        if matches!(
+            def.type_name.as_str(),
+            "string"
+                | "literal_text"
+                | "integer"
+                | "port"
+                | "boolean"
+                | "enum"
+                | "scope_target"
+                | "url"
+                | "path"
+                | "ip_address"
+                | "cidr"
+                | "msf_options"
+                | "credential_file"
+                | "duration"
+                | "regex_match"
+                | "agent_summary"
+        ) {
+            return Ok((def, scoped));
         }
+        if !seen.insert(def.type_name.as_str()) {
+            return Err("cyclic custom argument type".into());
+        }
+        def = custom
+            .and_then(|types| types.get(&def.type_name))
+            .ok_or_else(|| format!("Unknown type: {}", def.type_name))?;
     }
 }
 
@@ -156,6 +211,9 @@ fn validate_scope_target(value: &str) -> Result<String, String> {
     if value.contains('*') {
         return Err("Wildcards are not allowed in scope targets".to_string());
     }
+    if value.starts_with('-') {
+        return Err("Scope targets cannot begin with an option prefix".to_string());
+    }
     // Basic format check: IP, CIDR, or hostname
     if value.contains('/') {
         // CIDR
@@ -194,19 +252,15 @@ fn validate_url(def: &ArgDef, value: &str) -> Result<String, String> {
 
 fn validate_path(value: &str) -> Result<String, String> {
     check_injection(value)?;
-    if value.contains("..") {
-        return Err("Path traversal (..) is not allowed".to_string());
+    // Use a portable lexical contract. Resolving against the controller's
+    // filesystem can change the argument's meaning in the selected worker.
+    if value.starts_with(['/', '\\']) || value.as_bytes().get(1) == Some(&b':') {
+        return Err("Path must be relative, not absolute or rooted".into());
     }
-    // Canonicalize to resolve symlinks and prevent path traversal via symlink
-    let path = Path::new(value);
-    if path.exists() {
-        let canonical = path
-            .canonicalize()
-            .map_err(|e| format!("Failed to resolve path '{}': {}", value, e))?;
-        Ok(canonical.to_string_lossy().to_string())
-    } else {
-        Ok(value.to_string())
+    if value.split(['/', '\\']).any(|component| component == "..") {
+        return Err("Path traversal (..) is not allowed".into());
     }
+    Ok(value.to_string())
 }
 
 fn validate_ip_address(value: &str) -> Result<String, String> {
@@ -265,15 +319,17 @@ fn validate_msf_options(_def: &ArgDef, value: &str) -> Result<String, String> {
     Ok(value.to_string())
 }
 
-/// Validate a credential file path: must be a valid path that exists on disk.
-/// Canonicalizes the path to resolve symlinks.
+/// Controller-side preflight for a relative credential file. This does not
+/// resolve the worker's filesystem or rewrite the value sent to policy/argv.
 fn validate_credential_file(_def: &ArgDef, value: &str) -> Result<String, String> {
     let validated = validate_path(value)?;
     let path = Path::new(&validated);
-    if !path.exists() {
-        return Err(format!("Credential file '{}' does not exist", value));
+    if !path.is_file() {
+        return Err(format!(
+            "Credential file '{}' must be an existing regular file",
+            value
+        ));
     }
-    // Return the canonicalized path from validate_path
     Ok(validated)
 }
 
@@ -387,6 +443,17 @@ mod tests {
     }
 
     #[test]
+    fn literal_text_preserves_source_bytes_and_rejects_nul_or_excess() {
+        let def = make_arg("literal_text");
+        for value in ["", "  ", "\n$(touch /tmp/fixture); 'quoted' & {source}\r\n"] {
+            assert_eq!(validate_arg(&def, value).unwrap(), value);
+        }
+        assert!(validate_arg(&def, "a\0b").is_err());
+        assert!(validate_arg(&def, &"x".repeat(32769)).is_err());
+        assert!(validate_arg(&make_arg("string"), "a;b").is_err());
+    }
+
+    #[test]
     fn test_string_valid() {
         let def = make_arg("string");
         assert!(validate_arg(&def, "hello").is_ok());
@@ -434,6 +501,15 @@ mod tests {
         def.allowed = Some(vec!["ping".into(), "service".into()]);
         assert!(validate_arg(&def, "ping").is_ok());
         assert!(validate_arg(&def, "exploit").is_err());
+    }
+
+    #[test]
+    fn scope_targets_cannot_be_command_options() {
+        let def = make_arg("scope_target");
+        for value in ["-sV", "--help", "-Pn"] {
+            assert!(validate_arg(&def, value).is_err(), "accepted {value}");
+        }
+        assert!(validate_arg(&def, "demo-host.example").is_ok());
     }
 
     #[test]
@@ -501,6 +577,52 @@ mod tests {
         let def = make_arg("msf_options");
         assert!(validate_arg(&def, "RHOSTS 10.0.0.1").is_err());
         assert!(validate_arg(&def, "").is_err());
+    }
+
+    #[test]
+    fn path_contract_preserves_relative_values_without_host_resolution() {
+        let def = make_arg("path");
+        assert!(Path::new("Cargo.toml").is_file());
+        for value in [
+            "Cargo.toml",
+            "./Cargo.toml",
+            "output/report..csv",
+            "data//input.txt",
+        ] {
+            assert_eq!(validate_arg(&def, value).unwrap(), value);
+        }
+    }
+
+    #[test]
+    fn path_contract_rejects_portable_absolute_and_traversal_forms() {
+        for kind in ["path", "credential_file"] {
+            let def = make_arg(kind);
+            for value in [
+                "/workspace/file",
+                r"C:\file",
+                "C:file",
+                r"\file",
+                r"\\host\share",
+                "..",
+                "data/..",
+                "data/../file",
+                r"data\..",
+                r"data/..\file",
+            ] {
+                assert!(
+                    validate_arg(&def, value).is_err(),
+                    "accepted {kind}: {value}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn credential_file_contract_requires_regular_file_and_preserves_relative_value() {
+        let def = make_arg("credential_file");
+        assert_eq!(validate_arg(&def, "Cargo.toml").unwrap(), "Cargo.toml");
+        assert!(validate_arg(&def, "src").is_err());
+        assert!(validate_arg(&def, "missing-credential-fixture.key").is_err());
     }
 
     #[test]
