@@ -675,8 +675,8 @@ pub struct ErrorResponse {
 
 #[cfg(feature = "http-api")]
 pub struct ResourceUsage {
-    pub memory_bytes: u64,
-    pub cpu_percent: f64,
+    pub memory_bytes: Option<u64>,
+    pub cpu_percent: Option<f64>,
     pub active_tasks: u32,
 }
 ```
@@ -737,8 +737,8 @@ curl http://localhost:8080/api/v1/agents
   "state": "Running",
   "last_activity": "2025-07-18T06:45:00Z",
   "resource_usage": {
-    "memory_bytes": 104857600,
-    "cpu_percent": 15.5,
+    "memory_bytes": null,
+    "cpu_percent": null,
     "active_tasks": 3
   }
 }
@@ -748,6 +748,14 @@ curl http://localhost:8080/api/v1/agents
 ```bash
 curl http://localhost:8080/api/v1/agents/agent-id-1/status
 ```
+
+CPU and memory are nullable measurements. The scheduler currently has no
+per-agent sampler and returns `null` for both internal and external agents;
+`last_activity` is not a resource sample timestamp. `active_tasks` counts tasks
+owned by this scheduler, so it remains a known number. Clients must accept null
+and must not convert unavailable measurements to zero. Fleet Overview displays
+**Not sampled**. Administrative worker measurements and reservations are available
+separately through [worker capacity inspection](#worker-capacity-inspection).
 
 #### Execute Workflow
 
@@ -933,7 +941,14 @@ provider-request replay. See [inference budget recovery](../../docs/provider-bud
 
 `GET /api/v1/sandbox/capacity` returns the running supervisor's retained worker,
 memory and CPU reservations, pool limits, remaining capacity and unknown resource
-metadata count. `GET /api/v1/sandbox/workers/{lease_uuid}/usage` separately samples
+metadata count. Attributed workers include the originating run, signing public
+key, tool, iteration, dispatch ID and call fingerprint in nullable `origin`.
+The Inspector verifies that run separately; retained metadata is not signed proof.
+On Unix, nullable `staging` reports snapshot slots/bytes, remaining capacity and
+ownership references. A staging inspection error leaves worker totals available
+and populates `staging_error` without initializing or reconciling staging state.
+Landlock host workers currently bypass this supervisor and are absent from totals.
+`GET /api/v1/sandbox/workers/{lease_uuid}/usage` separately samples
 one retained worker. Both require an administrative bearer key and never start a
 missing helper or release capacity. Scoped keys receive 403; unavailable or busy
 inspection receives 503 with `CAPACITY_UNAVAILABLE`. Unknown values remain null,

@@ -20,6 +20,13 @@ pub const MAX_RECORDS: usize = crate::admission::MAX_WORKERS;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "phase", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Phase {
+    HostCreating {
+        parent: crate::protocol::CgroupIdentity,
+    },
+    HostCreated {
+        parent: crate::protocol::CgroupIdentity,
+        cgroup: crate::protocol::CgroupIdentity,
+    },
     Creating,
     Created {
         container_id: String,
@@ -49,6 +56,8 @@ pub struct Record {
     pub jail: Option<crate::host::JailLease>,
     #[serde(default)]
     pub staging: Vec<uuid::Uuid>,
+    #[serde(default)]
+    pub origin: Option<crate::origin::WorkerOrigin>,
 }
 impl Record {
     pub fn from_request(request: &Create) -> Self {
@@ -61,6 +70,7 @@ impl Record {
             resources: Some(request.resources),
             jail: None,
             staging: request.staging.clone(),
+            origin: request.origin.clone(),
         }
     }
     pub fn from_vm(request: &crate::protocol::CreateVm) -> Self {
@@ -78,9 +88,33 @@ impl Record {
             )),
             jail: None,
             staging: Vec::new(),
+            origin: request.origin.clone(),
         }
     }
     pub fn validate(&self) -> anyhow::Result<()> {
+        match &self.state {
+            Phase::HostCreating { parent } | Phase::HostCreated { parent, .. } => {
+                parent.validate()?;
+                anyhow::ensure!(
+                    self.resources.is_some()
+                        && self.docker_environment.is_empty()
+                        && self.jail.is_none(),
+                    "invalid delegated worker record"
+                );
+                if let Phase::HostCreated { cgroup, .. } = &self.state {
+                    cgroup.validate()?;
+                    anyhow::ensure!(
+                        cgroup.path == parent.path.join(format!("worker-{}", self.lease))
+                            && cgroup.boot_id == parent.boot_id,
+                        "delegated child identity mismatch"
+                    );
+                }
+            }
+            _ => {}
+        }
+        if let Some(origin) = &self.origin {
+            origin.validate()?;
+        }
         crate::protocol::validate_staging_ids(&self.staging)?;
         if let Some(jail) = &self.jail {
             jail.validate()?;
@@ -317,8 +351,12 @@ pub(crate) fn read_records(root: &Path, directory: &File) -> anyhow::Result<Vec<
         if id != lease.to_string() {
             anyhow::bail!("non-canonical lease filename");
         }
-        let file = open_at(directory, name, libc::O_RDONLY, 0)?;
-        validate_private(&file, false)?;
+        let Some(file) = open_record_file(directory, name)? else {
+            continue;
+        };
+        let Some(file) = current_record_file(directory, name, file)? else {
+            continue;
+        };
         let mut bytes = Vec::new();
         file.take((MAX_RECORD + 1) as u64).read_to_end(&mut bytes)?;
         if bytes.len() > MAX_RECORD {
@@ -336,6 +374,41 @@ pub(crate) fn read_records(root: &Path, directory: &File) -> anyhow::Result<Vec<
         }
     }
     Ok(records)
+}
+
+fn open_record_file(directory: &File, name: &str) -> std::io::Result<Option<File>> {
+    match open_at(directory, name, libc::O_RDONLY, 0) {
+        Ok(file) => Ok(Some(file)),
+        // Staging readers do not hold the supervisor's lease-store lock. A
+        // completed worker may disappear after directory enumeration.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+fn current_record_file(
+    directory: &File,
+    name: &str,
+    mut file: File,
+) -> anyhow::Result<Option<File>> {
+    for _ in 0..3 {
+        match validate_private(&file, false) {
+            Ok(()) => return Ok(Some(file)),
+            Err(error) => {
+                if file.metadata()?.nlink() != 0 {
+                    return Err(error);
+                }
+                // An atomic state update also unlinks the opened inode. Reopen
+                // the current record instead of treating that live worker as
+                // absent and releasing its staging reservation.
+                let Some(current) = open_record_file(directory, name)? else {
+                    return Ok(None);
+                };
+                file = current;
+            }
+        }
+    }
+    anyhow::bail!("lease record changed repeatedly during inspection; retry")
 }
 
 pub(crate) fn validate_private(file: &File, directory: bool) -> anyhow::Result<()> {
@@ -394,6 +467,7 @@ mod tests {
     fn record() -> Record {
         let lease = uuid::Uuid::new_v4();
         Record {
+            origin: None,
             lease,
             name: format!("symbi-{lease}"),
             docker_binary: "/usr/bin/docker".into(),
@@ -412,6 +486,15 @@ mod tests {
         let store = Store::open(dir.path()).unwrap().unwrap();
         assert!(Store::open(dir.path()).unwrap().is_none());
         let mut record = record();
+        record.origin = Some(crate::origin::WorkerOrigin {
+            agent_id: uuid::Uuid::new_v4(),
+            run_id: uuid::Uuid::new_v4(),
+            public_key: "a".repeat(64),
+            dispatch_id: uuid::Uuid::new_v4(),
+            call_fingerprint: format!("sha256:{}", "b".repeat(64)),
+            tool_name: "calculate".into(),
+            iteration: 1,
+        });
         store.insert(&record).unwrap();
         assert!(store.insert(&record).is_err());
         record.state = Phase::Created {
@@ -420,6 +503,12 @@ mod tests {
         store.write(&record).unwrap();
         drop(store);
         let store = Store::open(dir.path()).unwrap().unwrap();
+        assert_eq!(store.records().unwrap()[0].origin, record.origin);
+        let mut legacy = serde_json::to_value(&record).unwrap();
+        legacy.as_object_mut().unwrap().remove("origin");
+        let legacy: Record = serde_json::from_value(legacy).unwrap();
+        assert!(legacy.origin.is_none());
+        legacy.validate().unwrap();
         assert!(
             matches!(&store.records().unwrap()[0].state, Phase::Created { container_id } if container_id == &"a".repeat(64))
         );
@@ -452,6 +541,30 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_record_replacement_is_reopened_and_completed_records_are_absent() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let store = Store::open(dir.path()).unwrap().unwrap();
+        let mut record = record();
+        store.insert(&record).unwrap();
+        let name = format!("{}.json", record.lease);
+        let previous = open_record_file(&store.directory, &name).unwrap().unwrap();
+        record.state = Phase::Uncertain;
+        store.write(&record).unwrap();
+        assert_eq!(previous.metadata().unwrap().nlink(), 0);
+        let current = current_record_file(&store.directory, &name, previous)
+            .unwrap()
+            .unwrap();
+        let loaded: Record = serde_json::from_reader(&current).unwrap();
+        assert!(matches!(loaded.state, Phase::Uncertain));
+        store.remove(record.lease).unwrap();
+        assert!(current_record_file(&store.directory, &name, current)
+            .unwrap()
+            .is_none());
+        assert!(open_record_file(&store.directory, &name).unwrap().is_none());
+    }
+
+    #[test]
     fn recovery_removes_private_temporary_secrets_but_preserves_leases() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -471,6 +584,7 @@ mod tests {
     fn durable_records_exclude_payload_and_worker_environment() {
         let record = record();
         let request = Create {
+            origin: None,
             staging: Vec::new(),
             version: crate::protocol::VERSION,
             implementation: crate::protocol::IMPLEMENTATION.into(),

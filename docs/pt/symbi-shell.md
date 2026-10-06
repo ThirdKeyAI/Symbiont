@@ -30,6 +30,8 @@ symbi shell --resume <id>      # reabre uma sessão por UUID
 
 ## Layout
 
+O [guia da branch de contenção](/containment-branch-guide#tui-a-separate-complete-review) descreve o novo fluxo de aprovação. Os turnos do orquestrador local e de frota agora exigem auditoria protegida, e as ferramentas de arquivo/comando usam o limite de contêiner selecionado. Configure montagens explícitas de workspace conforme descrito em [workspace de shell governado](/shell-containment). Os demais caminhos de runtime e do DSL canônico seguem em andamento.
+
 O shell usa uma viewport inline que compartilha o terminal com o scrollback existente. De cima para baixo, você verá:
 
 - **Barra lateral de estrutura do projeto** (alternável) — árvore de arquivos do projeto atual, destacando agentes, políticas e ferramentas.
@@ -39,6 +41,10 @@ O shell usa uma viewport inline que compartilha o terminal com o scrollback exis
 
 O destaque de sintaxe cobre o DSL do Symbiont, Cedar e manifestos ToolClad via gramáticas tree-sitter.
 
+Sob o Zellij, o shell avisa que o scrollback acima da viewport inline pode não ser
+renderizado. Use um terminal nativo ou o tmux para fidelidade completa; atualmente
+não existe flag `--full-screen`.
+
 ### Atalhos de teclado
 
 | Atalho | Ação |
@@ -47,12 +53,26 @@ O destaque de sintaxe cobre o DSL do Symbiont, Cedar e manifestos ToolClad via g
 | `/` ou `@` | Abrir automaticamente o popup de autocompletar |
 | `↑` / `↓` | Navegar pelo histórico de entrada ou pelas entradas do popup |
 | `Ctrl+R` | Busca reversa no histórico |
+| `Ctrl+G` | Abrir o painel Gate, inclusive durante um turno ocupado |
 | `Tab` | Aceitar a sugestão destacada |
 | `Esc` | Fechar o popup / cancelar uma chamada de LLM em andamento |
 | `Ctrl+L` | Limpar o buffer de saída visível |
 | `Ctrl+D` | Sair do shell |
 
-Sob o Zellij, o shell detecta o multiplexador e imprime um aviso de compatibilidade de viewport inline; use `--full-screen` se quiser rodar em um buffer de tela alternativo.
+### Revisando ações retidas
+
+Abra `/gate` ou pressione Ctrl+G. Selecione com ↑/↓ e então pressione Enter para
+abrir a requisição JSON escapada completa. Use ↑/↓ ou Page Up/Down para inspecionar
+argumentos longos. Pressione `a` para aprovar ou `d` para negar a requisição
+revisada. Esc volta para a lista e, em seguida, fecha o painel. Pressionar `a` em
+uma linha da lista pede primeiro uma revisão.
+
+A seleção acompanha o ID da requisição entre atualizações. Alterações, expiração,
+remoção ou uma leitura de fila malsucedida invalidam a revisão. O painel mantém a
+resolução pendente até receber o resultado; um timeout reporta um desfecho
+desconhecido. Mudanças de conexão descartam revisões antigas e aguardam qualquer
+resolução pendente. Uma fila local configurada tem precedência sobre uma API de
+runtime conectada. Veja [ciclo de vida de aprovação](/approval-lifecycle).
 
 ## Catálogo de comandos
 
@@ -107,10 +127,20 @@ Os comandos de autoria gravam em disco apenas após a validação passar. Viola�
 | Comando | O que faz |
 |---------|-----------|
 | `/cron list` | Listar jobs agendados de agentes. |
-| `/cron add` / `/cron remove` | Criar ou excluir jobs agendados. |
+| `/cron add <description>` | Rascunhar um agendamento para revisão. |
+| `/cron pause <job-id>` / `/cron resume <job-id>` | Pausar ou retomar um agendamento remoto. |
+| `/cron run <job-id> [invocation-id]` | Iniciar o trabalho, ou reutilizar um ID explícito para verificar/repetir aquela invocação. |
 | `/cron history` | Mostrar execuções recentes. |
 
-`/cron` funciona tanto localmente quanto sobre um attach remoto (ver abaixo). Consulte o [guia de Agendamento](/scheduling) para o motor cron completo.
+`/cron` exige um attach remoto (ver abaixo). Os resultados do disparo mostram o
+UUID da invocação, o comando exato de repetição e o estado
+enfileirado/salvo/em andamento/não resolvido. Resultados salvos incluem uma prévia
+limitada da saída, os tokens reportados, o orçamento
+disponível/reservado/incerto e a referência do journal protegido. O histórico
+retém os detalhes completos. Guarde o UUID: omiti-lo solicita um novo trabalho.
+Uma resposta perdida não comprova falha; use o comando de repetição exibido ou
+inspecione `/cron history <job-id>` após reiniciar o shell. Efeitos desconhecidos
+exigem reconciliação. Veja [recuperação de cron](/cron-recovery).
 
 ### Canais
 

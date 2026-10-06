@@ -347,6 +347,24 @@ impl SqliteJobStore {
         Ok(true)
     }
 
+    /// Preserve a refusal before the invocation claim is released. The later
+    /// terminal transition keeps the identity closed to automatic replay.
+    /// `finish_occurrence` coalesces rather than overwrites, so a later
+    /// finisher carrying no reason of its own cannot erase this one.
+    pub async fn note_run_refusal(
+        &self,
+        run_id: uuid::Uuid,
+        reason: &str,
+    ) -> Result<(), JobStoreError> {
+        let conn = self.conn.lock().await;
+        conn.execute(
+            "UPDATE job_run_log SET error=?1 WHERE run_id=?2 AND (error IS NULL OR error='')",
+            params![reason, run_id.to_string()],
+        )
+        .map_err(sql)?;
+        Ok(())
+    }
+
     /// Reconcile bookkeeping from the retained execution result, without dispatch.
     /// Unknown outcomes stop future timer occurrences until operator review.
     pub async fn finish_occurrence(
@@ -378,7 +396,7 @@ impl SqliteJobStore {
         }
         let now = Utc::now();
         let elapsed = (now - occurrence.created_at).num_milliseconds().max(0);
-        let history_changed = tx.execute("UPDATE job_run_log SET status=?1,completed_at=?2,error=?3,exec_time_ms=?4,execution_json=?5,admission_audit_json=COALESCE(?6,admission_audit_json) WHERE run_id=?7 AND status IN ('pending','running')",
+        let history_changed = tx.execute("UPDATE job_run_log SET status=?1,completed_at=?2,error=COALESCE(error,?3),exec_time_ms=?4,execution_json=?5,admission_audit_json=COALESCE(?6,admission_audit_json) WHERE run_id=?7 AND status IN ('pending','running')",
             params![status,now.to_rfc3339(),error.or_else(||completion.and_then(|c|c.error.as_deref())),elapsed,
                 completion.map(serde_json::to_string).transpose().map_err(data)?,audit.map(serde_json::to_string).transpose().map_err(data)?,id]).map_err(sql)?;
         if history_changed != 1 {

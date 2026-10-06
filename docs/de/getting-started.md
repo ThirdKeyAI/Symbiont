@@ -1,5 +1,7 @@
 # Erste Schritte
 
+> Fuehren Sie Agenten unter Containment aus? Beginnen Sie mit dem [Containment-Betreiberleitfaden](/containment-branch-guide) fuer Ausfuehrungsvoraussetzungen, Aenderungen bei Genehmigungen und die aktuelle Abdeckung.
+
 Dieser Leitfaden fuehrt Sie durch die Einrichtung von Symbi und die Erstellung Ihres ersten KI-Agenten.
 
 ▶ **Zum Einstieg das Walkthrough-Video ansehen:**
@@ -148,7 +150,15 @@ symbi init
 Dies startet einen interaktiven Assistenten, der Sie durch Folgendes fuehrt:
 - **Profilauswahl**: `minimal`, `assistant`, `dev-agent` oder `multi-agent`
 - **SchemaPin-Modus**: `tofu` (Trust-On-First-Use), `strict` oder `disabled`
-- **Sandbox-Stufe**: `tier0` (keine, nur Entwicklung), `tier1` (Docker), `tier2` (gVisor / `runsc`) oder `tier3` (Firecracker microVM)
+- **Sandbox-Stufe**: `landlock` (natives Linux), `tier0` (keine, nur Entwicklung), `tier1` (Docker), `tier2` (gVisor / `runsc`) oder `tier3` (Firecracker microVM)
+
+Mit `--sandbox landlock --profile dev-agent` fragt der Assistent zusaetzlich nach
+dem Quell-Repository, der installierten Claude-Code-Binaerdatei, der
+Messages-kompatiblen Inferenz-URL, dem Modell und dem Namen der
+Anmeldedaten-Umgebungsvariablen. Er erzeugt ein schreibgeschuetztes Review-Setup in
+einem separaten, leeren Steuerverzeichnis. Nichtinteraktive Aufrufer muessen
+`--source`, `--managed-executable`, `--inference-url`, `--inference-model` und
+`--inference-key-env` angeben. Siehe [Linux-Entwickler-Onboarding](/landlock-development).
 
 ### Was `init` erzeugt
 
@@ -164,7 +174,7 @@ Jeder Durchlauf schreibt:
 | `.gitignore` | Ergaenzt um Symbiont-spezifische Eintraege, einschliesslich `.env` |
 | `.env` | `SYMBIONT_MASTER_KEY` aus `/dev/urandom` generiert (0600-Berechtigungen) |
 | `.env.example` | Zum Commit geeignete Vorlage mit den benoetigten Umgebungsvariablen |
-| `docker-compose.yml` | Sofort lauffaehige Compose-Datei mit korrekten Volume-Mounts und Env-Verdrahtung |
+| `docker-compose.yml` | Compose-Datei mit Volume-Mounts und Env-Verdrahtung; entfaellt bei Landlock |
 
 Mit `--no-docker-compose` ueberspringen Sie die Compose-Datei, und mit `--dir <PATH>` schreiben Sie in ein anderes als das aktuelle Verzeichnis (unverzichtbar innerhalb eines Docker-Containers — siehe unten).
 
@@ -193,12 +203,14 @@ Das fuellt das aktuelle Verzeichnis des Hosts mit dem vollstaendigen Projektbaum
 |--------|------------------|
 | `minimal` | `symbiont.toml` + Standard-Cedar-Richtlinie |
 | `assistant` | + einzelner verwalteter Assistenten-Agent |
-| `dev-agent` | + CliExecutor-Agent mit Sicherheitsrichtlinien |
+| `dev-agent` | + verwalteter CLI-Agent; Landlock ergaenzt konfigurierte Lese-, Listen- und Suchwerkzeuge, eingegrenzte Richtlinien und `DEVELOPMENT.md` |
 | `multi-agent` | + Koordinator-/Worker-Agenten mit Inter-Agent-Richtlinien |
 
 ### Aus dem Katalog importieren
 
-Vorgefertigte Agenten neben jedem Profil importieren:
+Vorgefertigte Agenten neben allgemeinen Profilen importieren (der
+schreibgeschuetzte Landlock-Entwicklungsinitialisierer kombiniert keine
+Katalogimporte):
 
 ```bash
 symbi init --profile minimal --no-interact
@@ -234,6 +246,15 @@ Der Befehl loest Agentennamen auf, indem er zuerst den direkten Pfad und dann da
 symbi run assistant -i 'Summarize this document'
 symbi run agents/recon.symbi -i '{"target": "10.0.1.5"}' --max-iterations 5
 ```
+
+Tool-Befehle, Parser, MCP und PTY-Ausfuehrung erfordern das ausgewaehlte
+Container-Backend, ein zwischengespeichertes Image mit den deklarierten
+Binaerdateien sowie explizite Daten-Mounts. Nicht verfuegbare Backends koennen
+nicht auf Host-Ausfuehrung zurueckfallen. Ausgewaehlte Agenteneinstellungen und
+Projektstandards werden vor der Inferenz geprueft. Durchlaeufe benoetigen zudem
+geschuetzten `.symbiont/governed/`-Speicher und geben ihre oeffentliche
+Audit-Referenz aus. Siehe [Befehlskonfiguration](/toolclad-command-boundary) und
+[Durchlauf-Audit](/run-audit).
 
 ### Ein lokales Modell verwenden
 
@@ -542,45 +563,45 @@ Siehe [symbi-claude-code](https://github.com/thirdkeyai/symbi-claude-code) fuer 
 
 #### Mode B: verwalteter Claude-Code-Subprozess
 
-Ueber die In-Editor-Hooks hinaus kann Symbiont Claude Code als *verwalteten
-Subprozess* ausfuehren — den "Mode B"-Pfad (ORGA-verwaltet). Ein Agent, dessen
-Metadaten `executor = "claude_code"` deklarieren, laeuft, indem Claude Code unter
-dem `CliExecutor` der Runtime gestartet wird, anstatt die LLM-Reasoning-Schleife
-zu verwenden. Der mitgelieferte `code_reviewer`-Agent ist das Referenzbeispiel:
+Ein Agent mit `metadata { executor = "claude_code" }` fuehrt sein CLI-Kindprozess
+im ausgewaehlten Docker-/gVisor-Container mit Scratch-Speicher und privaten
+Inferenz- und Tool-Kanaelen der Runtime aus. Der mitgelieferte `code_reviewer` ist
+der Referenzagent. Konfigurieren Sie zuerst ein zwischengespeichertes
+CLI-/Python-Image, explizite Backend-Quell-Mounts, registrierte ToolClad-Tools und
+Cedar-Richtlinien sowie `[managed_cli.inference]`. Siehe
+[Managed-CLI-Containment](/managed-cli-containment) fuer ein vollstaendiges Beispiel.
 
 ```bash
-# Review a working tree with a governed Claude Code subprocess
-symbi run code_reviewer --target /path/to/repo
+# /srv/source must map to an explicit backend mount in the control project.
+symbi run code_reviewer --target /srv/source --max-turns 12 --budget-timeout 15m
 
-# Bounds: --max-turns is the primary (cooperative) limit; --budget-timeout is a
-# hard wall-clock backstop (graceful SIGTERM -> SIGKILL).
-symbi run code_reviewer --target . --max-turns 12 --budget-timeout 15m
+# Add operator review for tools that require approval.
+symbi run code_reviewer --target /srv/source --approval-terminal
 ```
 
-Bei jedem Durchlauf macht Symbiont Folgendes:
+Der Kindprozess erhaelt keinen direkten Quell-Mount, keinen externen
+Netzwerkzugriff, keinen Host-Anmeldezustand und keine Anbieter-Anmeldedaten.
+Registrierte Tools vermitteln den erlaubten Datei- und Git-Zugriff. Eingebaute
+Tools und automatische Erkennung sind deaktiviert. Jede Aktion erfordert eine
+Autorisierung durch die Runtime; eine Start-Genehmigung autorisiert keine
+nachfolgenden Aktionen. Plugins werden nicht geladen und `--plugin-dir` wird
+abgelehnt.
 
-- es wertet den Start ueber das Policy-**Gate** aus (fail-closed — erlauben Sie ihn
-  ueber eine Cedar-Richtlinie oder mit `SYMBI_INSECURE_ALLOW_ALL=1` fuer die lokale
-  Entwicklung);
-- es setzt den Env-Handshake (`SYMBIONT_MANAGED=true`, `SYMBIONT_SESSION_ID`,
-  `SYMBIONT_BUDGET_TOKENS`, `SYMBIONT_BUDGET_TIMEOUT`, `CLAUDE_PROJECT_DIR`), damit das
-  symbi-claude-code-Plugin seine Hooks an das aeussere Gate **delegiert**;
-- es laedt das Plugin ueber `--plugin-dir` und verdrahtet den stdio-`symbi mcp`-Rueckkanal
-  ueber `--mcp-config --strict-mcp-config`;
-- es fuehrt Claude Code headless aus (`--print --output-format json --permission-mode dontAsk`).
+| Flag / Einstellung | Zweck |
+|---|---|
+| `--target` | Quellverzeichnis, das auf einen expliziten Backend-Mount abgebildet wird |
+| `--max-turns` | Schranke fuer den Dialog; Standard 12 |
+| `--budget-timeout` | Wall-clock-Schranke einschliesslich Initialisierung; Standard `15m` |
+| `--budget-tokens` | Reserviertes Kontingent an Inferenz-Ausgabetokens; Standard 100000, nicht die insgesamt abgerechneten Tokens |
+| `--approval-terminal` | Optionale Pruefung ueber das steuernde Terminal fuer verpflichtende Genehmigungen |
+| `[managed_cli.inference]` | Expliziter Anbieter-Endpunkt, Modell und Anmeldedaten-Variable; die Anmeldedaten verbleiben in der Runtime |
 
-| Variable / flag | Zweck | Standard |
-|---|---|---|
-| `SYMBIONT_CLAUDE_PLUGIN_DIR` | Pfad zum symbi-claude-code-Plugin | autodetect sibling repo |
-| `--plugin-dir` | Plugin-Pfad fuer einen Durchlauf ueberschreiben | — |
-| `--target` | Arbeitsverzeichnis, auf dem operiert wird | current dir |
-| `--max-turns` | Primaere kooperative Schranke (agentische Turns) | 12 |
-| `--budget-timeout` | Wall-clock-Backstop, z. B. `15m` / `900s` | 15m |
-| `--budget-tokens` | An den Subprozess uebergebener Token-Budget-Hinweis (zur Information) | 100000 |
-
-> **Auth:** Der Subprozess verwendet die eigene Authentifizierung von Claude Code — eine
-> angemeldete Sitzung (`claude /login`) oder `ANTHROPIC_API_KEY`. Das `cli-executor`-Feature
-> ist standardmaessig aktiviert.
+Erforderliche signierte Sitzungsjournale liegen im privaten
+`.symbiont/governed/`-Speicher. Die Runtime gibt den oeffentlichen
+Verifizierungsschluessel aus. Eine fehlende Genehmigung, unsicherer Audit-Speicher,
+ein nicht verfuegbares Backend oder eine fehlgeschlagene Bereinigung koennen
+keinen stillen Erfolg melden. Inferenz-Antworten werden gepuffert, auch SSE,
+sodass sich gestreamte Ausgabe verzoegert.
 
 ### Gemini CLI
 
@@ -654,6 +675,51 @@ enabled = true
 backend = "lancedb"              # Standard; unterstuetzt auch "qdrant"
 collection_name = "symbi_knowledge"
 # url = "http://localhost:6333"  # nur erforderlich bei backend = "qdrant"
+```
+
+### Human-in-the-Loop-Genehmigungen
+
+Genehmigungspflichten aus Manifest und Subcommand bleiben verbindlich, auch wenn
+Cedar einen Aufruf erlaubt. Die gemeinsame Warteschlange haelt jede Anfrage bis zu
+einer autorisierten Entscheidung, zum Ablauf oder zum Abbruch. Ein blockierter
+Notifier kann keine andere Genehmigungsoberflaeche blockieren.
+
+- **Gewoehnliche/verwaltete CLI:** Fuegen Sie `--approval-terminal` hinzu, optional
+  mit `--approval-timeout 120` (1–3600 Sekunden). Pruefen Sie das vollstaendige
+  escapte JSON und geben Sie `approve <request-id>` exakt auf dem steuernden
+  Terminal ein. Ohne das Flag schlagen genehmigungspflichtige Aufrufe
+  fail-closed fehl.
+- **REST:** Authentifiziertes `GET /api/v1/approvals`,
+  `POST /api/v1/approvals/{id}/approve` und `.../deny` loesen ausstehende Anfragen auf.
+- **Shell:** Ctrl+G oeffnet das Gate-Panel auch waehrend eines laufenden Turns.
+  Waehlen Sie mit ↑/↓, druecken Sie Enter, um die vollstaendige Anfrage zu pruefen,
+  scrollen Sie, und druecken Sie dann `a` oder `d`. `/gate` oeffnet das Panel
+  ebenfalls. Eine Listenzeile allein kann nicht genehmigen.
+- **Chat:** Ein auf der Allowlist stehender Absender verwendet
+  `/symbi gate show <id>` und kopiert dann `/symbi gate approve <id> <review-digest>`
+  aus der vollstaendigen Pruefung, oder sendet `/symbi gate deny <id>`.
+  Genehmigungen nur per ID werden abgelehnt. Uebergrosse Nachrichten benoetigen
+  eine weitere angebundene Pruefoberflaeche.
+
+Geaenderte, abgelaufene oder entfernte Anfragen erfordern eine neue Pruefung. Die
+TUI meldet Aufloesungsfehler und unbekannte Ergebnisse explizit. Eine Genehmigung
+ist die Erlaubnis, das Gate zu passieren; pruefen Sie die tatsaechliche Ausfuehrung
+im signierten Durchlauf-Audit. Slack erfordert in jeder Umgebung ein nicht leeres
+Signing Secret und gueltige Callback-Signaturen. Die frueher moegliche
+Umgehung unsignierter Callbacks wird nicht mehr unterstuetzt. Siehe
+[Genehmigungslebenszyklus](/approval-lifecycle) fuer Grenzen und
+Vertrauensannahmen.
+
+Konfigurieren Sie das Timeout und die Chat-Genehmigungskanaele in `symbiont.toml`:
+
+```toml
+[escalation]
+timeout_seconds = 120
+
+[[escalation.approval_channels]]
+platform   = "slack"
+channel_id = "C0APPROVERS"
+approvers  = ["U0ALICE", "U0BOB"]   # allowlisted sender ids; empty = nobody may approve via chat
 ```
 
 ---

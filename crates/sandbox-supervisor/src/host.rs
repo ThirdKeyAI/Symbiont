@@ -580,6 +580,7 @@ mod tests {
             rootfs: artifact("rootfs"),
         };
         let request = CreateVm {
+            origin: None,
             version: crate::protocol::VERSION,
             implementation: crate::protocol::IMPLEMENTATION.into(),
             lease: uuid::Uuid::new_v4(),

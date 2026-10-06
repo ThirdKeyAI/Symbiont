@@ -3641,6 +3641,9 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    // Builds a real embedding service, so it reads the same process-global
+    // env the embedding suite mutates. Share that suite's serial group.
+    #[serial_test::serial(embedding_env)]
     async fn check_and_compact_noop_when_below_threshold() {
         use super::super::compaction::CompactionConfig;
         use super::super::token_counter::HeuristicTokenCounter;

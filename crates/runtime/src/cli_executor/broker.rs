@@ -34,6 +34,79 @@ const FRAME_LIMIT: usize = 1024 * 1024;
 const SESSION_IO_LIMIT: usize = 64 * 1024 * 1024;
 const CHILD_CHANNEL: &str = "/opt/symbi-broker";
 
+pub fn managed_executable(
+    project: &std::path::Path,
+    boundary: &CommandBoundary,
+) -> Result<String, String> {
+    resolve_managed_executable(&managed_configuration(project)?, boundary)
+}
+
+/// Doctor checks only an explicitly configured managed CLI installation.
+/// A project without this section can still use ordinary native tools.
+pub fn configured_managed_executable(
+    project: &Path,
+    boundary: &CommandBoundary,
+) -> Result<Option<String>, String> {
+    let root = managed_configuration(project)?;
+    if root.get("managed_cli").is_none() {
+        return Ok(None);
+    }
+    resolve_managed_executable(&root, boundary).map(Some)
+}
+
+fn managed_configuration(project: &Path) -> Result<toml::Value, String> {
+    use std::io::Read;
+    let file = std::fs::File::open(project.join("symbiont.toml")).map_err(|e| e.to_string())?;
+    let mut text = String::new();
+    file.take(1024 * 1024 + 1)
+        .read_to_string(&mut text)
+        .map_err(|e| e.to_string())?;
+    if text.len() > 1024 * 1024 {
+        return Err("managed CLI configuration exceeds its size bound".into());
+    }
+    toml::from_str(&text).map_err(|e| e.to_string())
+}
+
+fn resolve_managed_executable(
+    root: &toml::Value,
+    boundary: &CommandBoundary,
+) -> Result<String, String> {
+    let setting = root
+        .get("managed_cli")
+        .and_then(|value| value.get("executable"));
+    if boundary.tier != CommandTier::Landlock {
+        if setting.is_some() {
+            return Err("managed_cli.executable currently applies only to Landlock".into());
+        }
+        return Ok("claude".into());
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let path = match setting {
+            Some(value) => PathBuf::from(
+                value
+                    .as_str()
+                    .ok_or("managed_cli.executable must be a path string")?,
+            ),
+            None => ["/usr/local/bin/claude", "/usr/bin/claude", "/bin/claude"]
+                .iter()
+                .map(PathBuf::from)
+                .find(|path| path.is_file())
+                .ok_or("configure [managed_cli] executable with the absolute CLI path")?,
+        };
+        let mut profile = boundary.landlock.clone();
+        profile.allow_executable(&path)?;
+        Ok(profile
+            .executable()
+            .ok_or("missing managed executable")?
+            .to_str()
+            .ok_or("invalid executable encoding")?
+            .into())
+    }
+    #[cfg(not(target_os = "linux"))]
+    Err("managed Landlock requires Linux".into())
+}
+
 /// Own the listener, connection tasks and the governed session until close.
 /// Dropping this handle signals an independently owned cleanup task.
 pub struct McpToolBroker {
@@ -127,6 +200,24 @@ impl McpToolBroker {
         child.tier = selected.tier.clone();
         child.docker = selected.docker.clone();
         child.gvisor = selected.gvisor.clone();
+        #[cfg(target_os = "linux")]
+        if child.tier == CommandTier::Landlock {
+            if !self.has_inference {
+                return Err("managed inference broker is not configured".into());
+            }
+            child.landlock = selected.landlock.clone();
+            child.landlock.require_network = true;
+            child.landlock.workspace = Some(
+                crate::sandbox::landlock::workspace::Workspace::managed(
+                    &child.landlock,
+                    self.socket_path(),
+                    self.channel.join("inference.sock"),
+                )
+                .map_err(|e| e.to_string())?,
+            );
+            child.validate()?;
+            return Ok(child);
+        }
         if child.tier == CommandTier::Firecracker {
             let mut config = selected
                 .firecracker
@@ -146,12 +237,10 @@ impl McpToolBroker {
         let config = match child.tier {
             CommandTier::Docker => &mut child.docker,
             CommandTier::GVisor => &mut child.gvisor.docker,
-            _ => {
-                return Err(
-                    "managed broker requires Docker, gVisor or Firecracker; no host fallback"
-                        .into(),
-                )
-            }
+            _ => return Err(
+                "managed broker requires Landlock, Docker, gVisor or Firecracker; no host fallback"
+                    .into(),
+            ),
         };
         config.volumes = vec![format!("{}:{CHILD_CHANNEL}:ro", self.channel.display())];
         config.network_mode = "none".into();
@@ -168,6 +257,10 @@ impl McpToolBroker {
     /// Build the bridge invocation for the selected worker. The code and exact
     /// endpoint become part of the immutable managed launch contract.
     pub fn mcp_config_for(&self, boundary: &CommandBoundary) -> Value {
+        if boundary.tier == CommandTier::Landlock {
+            return json!({"mcpServers": {"symbi": {"type": "stdio", "command": "python3",
+                "args": ["-c", include_str!("broker_bridge.py"), "tcp:127.0.0.1:8766"]}}});
+        }
         if boundary.tier != CommandTier::Firecracker {
             return self.mcp_config();
         }
@@ -186,6 +279,12 @@ impl McpToolBroker {
                 "-c".into(),
                 include_str!("inference_bridge.py").into(),
                 "--vsock".into(),
+            ]
+        } else if boundary.tier == CommandTier::Landlock {
+            vec![
+                "-c".into(),
+                include_str!("inference_bridge.py").into(),
+                "--inherited".into(),
             ]
         } else {
             vec![format!("{CHILD_CHANNEL}/inference_bridge.py")]

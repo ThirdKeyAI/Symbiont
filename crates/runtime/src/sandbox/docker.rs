@@ -566,6 +566,7 @@ impl DockerRunner {
             .collect::<anyhow::Result<Vec<_>>>()?;
         let now = std::time::Instant::now();
         let request = protocol::Create {
+            origin: super::worker_origin::current(),
             staging: self.config.staging.clone(),
             version: protocol::VERSION,
             implementation: protocol::IMPLEMENTATION.into(),
@@ -702,7 +703,7 @@ impl DockerRunner {
             .min(deadline);
         let runner = self.clone();
         let (keep_alive, mut cancelled) = oneshot::channel::<()>();
-        let task = tokio::spawn(async move {
+        let task = tokio::spawn(super::worker_origin::inherit(async move {
             let mut lease = runner
                 .create_container(&code, &env, startup_deadline, deadline, terminal)
                 .await?;
@@ -757,7 +758,7 @@ impl DockerRunner {
                     output_limit: runner.config.max_output_bytes,
                 },
             })
-        });
+        }));
         let result = task
             .await
             .map_err(|e| anyhow::anyhow!("Docker stdio initialization failed: {e}"))?;
@@ -864,11 +865,11 @@ impl DockerRunner {
         let code = code.to_owned();
         // Dropping the caller closes keep_alive. The supervisor remains alive
         // to stop/remove the container and reap the Docker CLI before exiting.
-        let task = tokio::spawn(async move {
+        let task = tokio::spawn(super::worker_origin::inherit(async move {
             runner
                 .supervise(code, env, cancelled, registration, input)
                 .await
-        });
+        }));
         let result = task
             .await
             .map_err(|e| anyhow::anyhow!("Docker supervisor failed: {e}"))?;

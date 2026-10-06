@@ -1,0 +1,5 @@
+agent receipt {
+    // Handle only the supplied synthetic receipt request with record_receipt.
+    // Respect operator approval; a receipt does not approve a business request.
+    // /no_think
+}

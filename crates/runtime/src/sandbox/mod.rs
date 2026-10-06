@@ -20,6 +20,7 @@ mod source_git;
 #[cfg(any(feature = "mcp-client", feature = "toolclad-session"))]
 pub(crate) mod streams;
 pub mod supervisor;
+pub(crate) mod worker_origin;
 pub mod workspace;
 
 use async_trait::async_trait;

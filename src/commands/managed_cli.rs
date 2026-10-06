@@ -143,22 +143,29 @@ mod platform {
             if !target.is_dir() {
                 return Err("managed CLI target must be a directory".into());
             }
-            let config = match boundary.tier {
+            let worker_target = if boundary.tier == CommandTier::Landlock {
+                mounted_path(&boundary.roots.source_roots, &target, false)?
+            } else {
+                let config = match boundary.tier {
                 CommandTier::Docker => &mut boundary.docker,
                 CommandTier::GVisor => &mut boundary.gvisor.docker,
                 _ => {
                     return Err(
-                        "managed CLI requires Docker, gVisor or Firecracker; no host fallback"
+                        "managed CLI requires Landlock, Docker, gVisor or Firecracker; no host fallback"
                             .into(),
                     )
                 }
             };
-            let worker_target = mounted_path(&config.volumes, &target, false)?;
-            config.working_dir = worker_target.to_str().ok_or("target must be UTF-8")?.into();
+                let worker_target = mounted_path(&config.volumes, &target, false)?;
+                config.working_dir = worker_target.to_str().ok_or("target must be UTF-8")?.into();
+                worker_target
+            };
             (target, worker_target)
         };
         boundary.validate()?;
         let inference_config = InferenceBrokerConfig::from_project(&project)?;
+        let executable =
+            symbi_runtime::cli_executor::broker::managed_executable(&project, &boundary)?;
         if meta_str(meta, "model").is_some_and(|model| model != inference_config.model) {
             return Err(
                 "agent model differs from the protected inference model in symbiont.toml".into(),
@@ -201,7 +208,7 @@ mod platform {
         let gate = build_policy_gate(matches).await?;
         let details = serde_json::json!({"agent":agent_name, "target":target,
             "working_directory":worker_target, "tool_sandbox":boundary.descriptor()?,
-            "inference":inference_config, "tools":tools, "max_turns":max_turns,
+            "inference":inference_config, "executable":executable, "tools":tools, "max_turns":max_turns,
             "max_tool_calls":max_tool_calls, "timeout_seconds":budget_secs,
             "reserved_output_tokens":budget_tokens});
         // Create required protected storage before accepting any worker request.
@@ -245,10 +252,15 @@ mod platform {
             )?;
             broker = Some(McpToolBroker::start_with_inference(session.clone(), &private, Some(inference)).await?);
             let broker = broker.as_ref().ok_or("managed broker was not created")?;
-            let child_boundary = broker.child_boundary(&boundary)?;
-            let directory = if child_boundary.tier == symbi_runtime::sandbox::command::CommandTier::Firecracker { "/tmp" } else { "/workspace" };
+            let mut child_boundary = broker.child_boundary(&boundary)?;
+            #[cfg(target_os = "linux")]
+            if child_boundary.tier == CommandTier::Landlock {
+                child_boundary.landlock.allow_executable(std::path::Path::new(&executable))?;
+            }
+            let directory = match child_boundary.tier { CommandTier::Firecracker => "/tmp", CommandTier::Landlock => "/tmp/symbi-workspace", _ => "/workspace" };
             let adapter = BrokeredAdapter {
                 inner: ClaudeCodeAdapter {
+                    executable_path: executable.clone(),
                     max_turns: Some(max_turns),
                     model: Some(model.clone()),
                     allowed_tools: tools

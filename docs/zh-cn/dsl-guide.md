@@ -97,9 +97,8 @@ metadata {
 | `system_prompt` | String | 为子进程追加的额外系统提示 |
 | `permission_mode` | String | 可选。作为 `--permission-mode` 透传。未设置时将省略该标志，子进程保留自身默认值；该默认值对 `allowed_tools` 之外的任何操作仍会请求确认。需要无人值守运行的智能体请设为 `"dontAsk"` |
 
-启动本身会作为 `tool_call::claude_code` 经过一次策略门控，但此后没有任何机制约束子进程 —— `allowed_tools` 与 `permission_mode` 的最终取值将在整个会话期间生效。这正是 `allowed_tools` 为必填、而 `permission_mode` 采用选择加入的原因：一次门控决策应当授权一个受限会话，而非不受限的会话。
-
-这一次门控决策读取自 `policies/managed-cli/` —— **而非** `policies/run/`。启动子进程
+启动会作为 `tool_call::claude_code` 经过策略门控，该决策读取自
+`policies/managed-cli/` —— **而非** `policies/run/`。启动子进程
 与进程内推理循环的影响范围不同，因此这两个界面不共享策略目录。最小的 permit 如下：
 
 ```cedar
@@ -107,13 +106,20 @@ metadata {
 permit(principal, action == Action::"tool_call::claude_code", resource);
 ```
 
-由于门控无法看到子进程随后的行为，因此改为对每次运行进行日志记录。子进程以
-`--output-format stream-json` 运行，其每次工具调用都会在发生的同时追加到
-`.symbiont/audit/mode-b-<session>.jsonl` —— 包括工具名称、参数、结果是否出错，
-以及一条包含轮次数和权限拒绝记录的收尾条目。这些记录是实时写入而非退出时写入，
-因此即使运行被超时终止也仍会留下痕迹。`token`、`api_key`、`password` 等键对应的
-值会被脱敏，超长参数会被截断，从而让日志既能说明子进程做了什么，又不会变成
-负载数据的第二份副本。
+启动决策并不是唯一的决策。子进程运行在所选的 Docker、gVisor 或 Firecracker
+工作进程内，只有临时暂存存储以及私有的推理和工具通道 —— 没有源码挂载，没有
+外部网络，没有主机登录状态，也没有主机凭据。CLI 内置工具以及项目/插件的自动
+发现均被禁用，`--plugin-dir` 会被拒绝。对源码的访问由一组已注册的 ToolClad
+工具提供，并且**子进程发起的每一次工具调用都会经由运行时代为中转**：准备与
+规范化调用、取得任何强制性的精确审批、评估 Cedar、持久化必需的作用前记录、
+派发，然后记录结果。`allowed_tools` 指定的是已注册工具的一个精确子集；通配符
+权限表达式和 CLI 内置工具名不会被接受为注册项。
+
+这正是 `allowed_tools` 为必填、而 `permission_mode` 采用选择加入的原因：
+它们限定子进程可以*请求*什么，而实际发生什么则由运行时决定，而不是由子进程
+决定。每个托管 CLI 会话都保留自己的签名日志。镜像、挂载、策略和
+`[managed_cli.inference]` 的配置参见[托管 CLI 收容](/managed-cli-containment)，
+中转契约参见[受治理工具中转器](/governed-tool-broker)。
 
 
 ---

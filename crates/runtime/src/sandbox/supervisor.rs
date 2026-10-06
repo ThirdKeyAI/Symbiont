@@ -9,7 +9,19 @@ use symbi_sandbox_supervisor::protocol::{
     self, Create, CreateVm, Reply, Request, IMPLEMENTATION, VERSION,
 };
 
+#[cfg(target_os = "linux")]
+use symbi_sandbox_supervisor::protocol::CreateHost;
+
 static EMBEDDED: OnceLock<PathBuf> = OnceLock::new();
+
+#[cfg(target_os = "linux")]
+pub(crate) fn native_worker_binary() -> anyhow::Result<PathBuf> {
+    let binary = std::env::var_os("SYMBIONT_LANDLOCK_WORKER")
+        .map(PathBuf::from)
+        .or_else(|| EMBEDDED.get().cloned())
+        .unwrap_or_else(|| "symbi".into());
+    resolve_binary(&binary)
+}
 
 /// An authenticated supervisor refused the request before registering or
 /// starting this worker. Transport loss is never classified as a refusal.
@@ -53,6 +65,17 @@ impl Default for SupervisorConfig {
     }
 }
 impl SupervisorConfig {
+    /// Stable per-pool unit name, including while upgrading the executable.
+    #[cfg(target_os = "linux")]
+    pub fn delegated_unit(&self) -> anyhow::Result<String> {
+        use sha2::{Digest, Sha256};
+        use std::os::unix::ffi::OsStrExt;
+        let root = self.resolved_state_dir()?;
+        Ok(format!(
+            "symbi-workers-{:x}.service",
+            Sha256::digest(root.as_os_str().as_bytes())
+        ))
+    }
     #[cfg(unix)]
     fn peer_uid(&self) -> u32 {
         // SAFETY: geteuid has no memory preconditions.
@@ -206,13 +229,21 @@ mod client {
         .await
         .context("sandbox inspection timed out")?
     }
-    async fn ping(stream: UnixStream, deadline: Instant, require_jail: bool) -> anyhow::Result<()> {
+    async fn ping(
+        stream: UnixStream,
+        deadline: Instant,
+        require_jail: bool,
+        require_delegated: bool,
+    ) -> anyhow::Result<()> {
         let (reader, mut writer) = stream.into_split();
         let mut reader = BufReader::new(reader);
         timeout_at(deadline.into(),async {
             protocol::write_frame(&mut writer,&Request::Ping { version: VERSION, implementation: IMPLEMENTATION.into() }).await?;
             match protocol::read_frame::<Reply>(&mut reader).await? {
-                Some(Reply::Ready { version,implementation,jailed_vms }) if version==VERSION && implementation==IMPLEMENTATION && (!require_jail || jailed_vms)=>Ok(()),
+                Some(Reply::Ready { version,implementation,jailed_vms,delegated_workers }) if version==VERSION && implementation==IMPLEMENTATION && (!require_jail || jailed_vms)=> {
+                    anyhow::ensure!(!require_delegated || delegated_workers, "existing sandbox supervisor does not support delegated Landlock workers; drain and stop it before retrying");
+                    Ok(())
+                },
                 _=>anyhow::bail!("sandbox supervisor protocol or implementation mismatch; drain the older service before upgrading"),
             }
         }).await.context("sandbox supervisor handshake timed out")?
@@ -221,6 +252,7 @@ mod client {
     async fn ensure_service(
         config: &SupervisorConfig,
         deadline: Instant,
+        require_delegated: bool,
     ) -> anyhow::Result<std::path::PathBuf> {
         let root = config.resolved_state_dir()?;
         let socket = protocol::socket_path(&root)?;
@@ -229,7 +261,13 @@ mod client {
                 if stream.peer_cred()?.uid() != config.peer_uid() {
                     anyhow::bail!("sandbox supervisor peer has another owner");
                 }
-                ping(stream, deadline, config.service_uid == Some(0)).await?;
+                ping(
+                    stream,
+                    deadline,
+                    config.service_uid == Some(0),
+                    require_delegated,
+                )
+                .await?;
                 return Ok(socket);
             }
             Err(e)
@@ -244,6 +282,11 @@ mod client {
         }
         let binary =
             resolve_binary(&config.binary).context("sandbox supervisor executable unavailable")?;
+        #[cfg(target_os = "linux")]
+        if require_delegated {
+            return start_delegated(config, &binary, &root, &socket, deadline).await;
+        }
+        anyhow::ensure!(!require_delegated, "delegated workers require Linux");
         let mut command = tokio::process::Command::new(binary);
         command
             .arg(INTERNAL_COMMAND)
@@ -268,8 +311,72 @@ mod client {
                 anyhow::bail!("sandbox supervisor unavailable before startup deadline; verify helper and private state permissions");
             }
             if let Ok(stream) = connect(&socket, config.peer_uid()).await {
-                ping(stream, deadline, false).await?;
+                ping(stream, deadline, false, false).await?;
                 return Ok(socket);
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    async fn start_delegated(
+        config: &SupervisorConfig,
+        binary: &Path,
+        root: &Path,
+        socket: &Path,
+        deadline: Instant,
+    ) -> anyhow::Result<PathBuf> {
+        let unit = config.delegated_unit()?;
+        let mut command = tokio::process::Command::new("/usr/bin/systemd-run");
+        command
+            .args(["--user", "--collect", "--quiet", "--expand-environment=no"])
+            .arg(format!("--unit={unit}"))
+            .args([
+                "--property=Type=notify",
+                "--property=WatchdogSec=5s",
+                "--property=TimeoutStartSec=8s",
+                "--property=TimeoutStopSec=5s",
+                "--property=KillMode=control-group",
+                "--property=SendSIGKILL=yes",
+                "--property=Delegate=cpu memory pids",
+                "--property=DelegateSubgroup=manager",
+                "--property=Restart=on-failure",
+                "--property=RestartSec=1s",
+                "--property=NoNewPrivileges=yes",
+            ])
+            .arg(binary)
+            .arg(INTERNAL_COMMAND)
+            .arg("--state-dir")
+            .arg(root)
+            .arg("--delegated-workers")
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .env("LANG", "C.UTF-8")
+            .stdin(Stdio::null())
+            .kill_on_drop(true);
+        // Only the user-manager connection settings cross into the launcher.
+        // The service is started by systemd, outside the caller's lifetime.
+        for name in ["HOME", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"] {
+            if let Some(value) = std::env::var_os(name) {
+                command.env(name, value);
+            }
+        }
+        let output = timeout_at(deadline.into(), command.output())
+            .await
+            .context("automatic Landlock supervisor startup timed out")?
+            .context("automatic Landlock supervision requires /usr/bin/systemd-run and a running systemd user manager")?;
+        // Concurrent callers may lose the unit-creation race. Only an
+        // authenticated, compatible delegated service makes that a success.
+        loop {
+            if let Ok(stream) = connect(socket, config.peer_uid()).await {
+                ping(stream, deadline, false, true).await?;
+                return Ok(socket.to_path_buf());
+            }
+            if Instant::now() >= deadline {
+                anyhow::bail!(
+                    "Landlock supervisor {unit} unavailable: {}. Check systemctl --user status {unit} and journalctl --user -u {unit}; cgroup v2 CPU/memory/PID delegation and DelegateSubgroup support are required",
+                    String::from_utf8_lossy(&output.stderr).trim()
+                );
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
@@ -278,6 +385,8 @@ mod client {
     enum Worker {
         Container(String),
         VirtualMachine(u32, PathBuf),
+        #[cfg(target_os = "linux")]
+        Host(protocol::CgroupIdentity),
     }
     type Completion = Option<Result<Option<String>, String>>;
     pub(crate) struct Lease {
@@ -302,30 +411,45 @@ mod client {
         ) -> anyhow::Result<Self> {
             Self::register_request(config, Request::CreateVm(Box::new(request)), deadline).await
         }
+        #[cfg(target_os = "linux")]
+        pub async fn register_host(
+            config: &SupervisorConfig,
+            request: CreateHost,
+            deadline: Instant,
+        ) -> anyhow::Result<Self> {
+            Self::register_request(config, Request::CreateHost(Box::new(request)), deadline).await
+        }
         async fn register_request(
             config: &SupervisorConfig,
             mut request: Request,
             deadline: Instant,
         ) -> anyhow::Result<Self> {
             let started = Instant::now();
-            let socket = ensure_service(config, deadline).await?;
+            let socket =
+                ensure_service(config, deadline, matches!(request, Request::CreateHost(_))).await?;
             let stream = timeout_at(deadline.into(), connect(&socket, config.peer_uid()))
                 .await
                 .context("sandbox supervisor connection timed out")??;
             let (reader, mut writer) = stream.into_split();
             let elapsed = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
-            let (lease, lifetime, is_vm) = match &mut request {
+            let (lease, lifetime, kind) = match &mut request {
                 Request::Create(spec) => {
                     spec.lifetime_ms = spec.lifetime_ms.saturating_sub(elapsed);
                     spec.startup_ms = spec.startup_ms.saturating_sub(elapsed);
                     spec.validate()?;
-                    (spec.lease, spec.lifetime_ms, false)
+                    (spec.lease, spec.lifetime_ms, "container")
                 }
                 Request::CreateVm(spec) => {
                     spec.lifetime_ms = spec.lifetime_ms.saturating_sub(elapsed);
                     spec.startup_ms = spec.startup_ms.saturating_sub(elapsed);
                     spec.validate()?;
-                    (spec.lease, spec.lifetime_ms, true)
+                    (spec.lease, spec.lifetime_ms, "vm")
+                }
+                Request::CreateHost(spec) => {
+                    spec.lifetime_ms = spec.lifetime_ms.saturating_sub(elapsed);
+                    spec.startup_ms = spec.startup_ms.saturating_sub(elapsed);
+                    spec.validate()?;
+                    (spec.lease, spec.lifetime_ms, "host")
                 }
                 _ => anyhow::bail!("invalid lease registration request"),
             };
@@ -351,22 +475,29 @@ mod client {
                     let mut seen_registration = false;
                     let mut seen_creation = false;
                     let mut operation_failed = false;
-                    let mut vm_failure = None;
+                    let mut worker_failure = None;
                     loop {
                         match protocol::read_frame::<Reply>(&mut reader).await? {
                             Some(Reply::Registered { lease: received }) if received==lease && !seen_registration=>{
                                 seen_registration=true;
                                 if let Some(sender)=registered.take() { let _=sender.send(Ok(())); }
                             }
-                            Some(Reply::Created { id }) if !is_vm && seen_registration && !seen_creation && !operation_failed=>{
+                            Some(Reply::Created { id }) if kind=="container" && seen_registration && !seen_creation && !operation_failed=>{
                                 if id.len()!=64 || !id.bytes().all(|b|b.is_ascii_hexdigit()) { anyhow::bail!("invalid supervised container identity"); }
                                 seen_creation=true;
                                 if let Some(sender)=created.take() { let _=sender.send(Ok(Worker::Container(id))); }
                             }
-                            Some(Reply::VmCreated {pid,vsock_path}) if is_vm && seen_registration && !seen_creation && !operation_failed=>{
+                            Some(Reply::VmCreated {pid,vsock_path}) if kind=="vm" && seen_registration && !seen_creation && !operation_failed=>{
                                 if pid<=1 || vsock_path!=expected_vsock {anyhow::bail!("invalid supervised VM identity");}
                                 seen_creation=true;
                                 if let Some(sender)=created.take() {let _=sender.send(Ok(Worker::VirtualMachine(pid,vsock_path)));}
+                            }
+                            #[cfg(target_os = "linux")]
+                            Some(Reply::HostCreated {cgroup}) if kind=="host" && seen_registration && !seen_creation && !operation_failed=>{
+                                cgroup.validate()?;
+                                if cgroup.path.file_name().and_then(|v|v.to_str()) != Some(format!("worker-{lease}").as_str()) { anyhow::bail!("invalid delegated worker identity"); }
+                                seen_creation=true;
+                                if let Some(sender)=created.take() {let _=sender.send(Ok(Worker::Host(cgroup)));}
                             }
                             Some(Reply::Failed { message })=>{
                                 if !seen_registration {
@@ -376,9 +507,9 @@ mod client {
                                 }
                                 operation_failed=true;
                                 if let Some(sender)=created.take() { let _=sender.send(Err(message.clone())); }
-                                if is_vm {vm_failure=Some(message);} else if seen_creation { return Err(anyhow::anyhow!(message)); }
+                                if kind!="container" {worker_failure=Some(message);} else if seen_creation { return Err(anyhow::anyhow!(message)); }
                             }
-                            Some(Reply::Closed {}) if seen_registration=>return Ok(vm_failure),
+                            Some(Reply::Closed {}) if seen_registration=>return Ok(worker_failure),
                             None=>anyhow::bail!("supervisor connection ended without cleanup acknowledgement; durable recovery is required"),
                             _=>anyhow::bail!("unexpected supervisor lifecycle response"),
                         }
@@ -438,6 +569,16 @@ mod client {
             match self.worker(deadline).await? {
                 Worker::VirtualMachine(pid, path) => Ok((pid, path)),
                 _ => anyhow::bail!("expected a supervised VM"),
+            }
+        }
+        #[cfg(target_os = "linux")]
+        pub async fn host_created(
+            &mut self,
+            deadline: Instant,
+        ) -> anyhow::Result<protocol::CgroupIdentity> {
+            match self.worker(deadline).await? {
+                Worker::Host(identity) => Ok(identity),
+                _ => anyhow::bail!("expected a delegated worker cgroup"),
             }
         }
         pub async fn finish(&mut self) -> anyhow::Result<()> {

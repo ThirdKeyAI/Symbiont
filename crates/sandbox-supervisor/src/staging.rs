@@ -47,6 +47,124 @@ struct Reservation {
     reserved_bytes: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Totals {
+    pub snapshots: usize,
+    pub reserved_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Entry {
+    pub id: Uuid,
+    pub reserved_bytes: u64,
+    /// A live caller or a registration pin held the reservation at observation.
+    pub active_hold: bool,
+    pub worker_leases: Vec<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Snapshot {
+    pub initialized: bool,
+    pub limits: Limits,
+    pub reserved: Totals,
+    pub available: Totals,
+    pub admission_blocked: bool,
+    pub reservations: Vec<Entry>,
+}
+
+/// Read without creating state, initializing configuration or reconciling data.
+/// A busy allocation/reaper returns unavailable instead of blocking supervision.
+pub(crate) fn inspect(root: &Path, workers: &[crate::store::Record]) -> anyhow::Result<Snapshot> {
+    crate::protocol::socket_path(root)?;
+    let state = private_directory(root)?;
+    let mut entries = Vec::new();
+    let mutex = match open_at(&state, "staging.lock", libc::O_RDONLY, 0) {
+        Ok(file) => Some(file),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.into()),
+    };
+    let initialized = mutex.is_some();
+    let limits;
+    if let Some(mutex) = mutex {
+        validate_private(&mutex, false)?;
+        lock(&mutex, libc::LOCK_SH | libc::LOCK_NB)?;
+        let path = root.join("staging");
+        let pool = Pool {
+            root: root.to_owned(),
+            state,
+            directory: private_directory(&path)?,
+            path,
+            _lock: mutex,
+        };
+        limits = read_limits(&pool.state)?;
+        for (id, record) in pool.reservations()? {
+            let directory = private_directory(&pool.path.join(id.to_string()))?;
+            let held = open_at(&directory, "reservation", libc::O_RDONLY, 0)?;
+            validate_private(&held, false)?;
+            let mut worker_leases: Vec<_> = workers
+                .iter()
+                .filter(|worker| worker.staging.contains(&id))
+                .map(|worker| worker.lease)
+                .collect();
+            worker_leases.sort();
+            entries.push(Entry {
+                id,
+                reserved_bytes: record.reserved_bytes,
+                active_hold: !try_exclusive(&held)?,
+                worker_leases,
+            });
+        }
+    } else {
+        anyhow::ensure!(
+            matches!(std::fs::symlink_metadata(root.join("staging")), Err(e) if e.kind() == std::io::ErrorKind::NotFound),
+            "staging data exists without its accounting lock"
+        );
+        anyhow::ensure!(
+            workers.iter().all(|worker| worker.staging.is_empty()),
+            "worker references missing staging accounting"
+        );
+        limits = read_limits(&state)?;
+    }
+    entries.sort_by_key(|entry| entry.id);
+    anyhow::ensure!(
+        workers
+            .iter()
+            .flat_map(|worker| &worker.staging)
+            .all(|id| entries.iter().any(|entry| entry.id == *id)),
+        "worker references missing staging reservation"
+    );
+    let bytes = entries.iter().try_fold(0u64, |sum, entry| {
+        sum.checked_add(entry.reserved_bytes)
+            .context("staging accounting overflow")
+    })?;
+    Ok(Snapshot {
+        initialized,
+        admission_blocked: entries.len() >= limits.max_snapshots || bytes >= limits.reserved_bytes,
+        reserved: Totals {
+            snapshots: entries.len(),
+            reserved_bytes: bytes,
+        },
+        available: Totals {
+            snapshots: limits.max_snapshots.saturating_sub(entries.len()),
+            reserved_bytes: limits.reserved_bytes.saturating_sub(bytes),
+        },
+        limits,
+        reservations: entries,
+    })
+}
+
+fn read_limits(state: &File) -> anyhow::Result<Limits> {
+    let file = match open_at(state, "staging.conf", libc::O_RDONLY, 0) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Limits::default()),
+        Err(error) => return Err(error.into()),
+    };
+    validate_private(&file, false)?;
+    let limits: Limits = read_json(&file)?;
+    limits.validate()?;
+    Ok(limits)
+}
+
 /// Runtime ownership is not serialized into project configuration. Dropping it
 /// attempts cleanup; a worker reference or failed removal keeps the reservation.
 #[derive(Debug)]
@@ -364,6 +482,35 @@ mod tests {
     use crate::store::{Phase, Record, Store};
     use std::os::unix::fs::{symlink, PermissionsExt};
 
+    #[test]
+    fn inspection_never_initializes_reaps_or_refunds_unreferenced_data() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let empty = inspect(root.path(), &[]).unwrap();
+        assert!(!empty.initialized);
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
+        limits(root.path(), 100, 1);
+        let mut lease = Lease::reserve(root.path(), 75).unwrap();
+        std::fs::write(lease.path().join("retained"), b"original").unwrap();
+        let live = inspect(root.path(), &[]).unwrap();
+        assert!(live.admission_blocked && live.reservations[0].active_hold);
+        assert_eq!(live.available.reserved_bytes, 25);
+        drop(lease.owner.take());
+        let unreferenced = inspect(root.path(), &[]).unwrap();
+        assert!(!unreferenced.reservations[0].active_hold);
+        assert_eq!(unreferenced.reserved.reserved_bytes, 75);
+        assert_eq!(
+            std::fs::read(lease.path().join("retained")).unwrap(),
+            b"original"
+        );
+        let locked = Pool::open(root.path()).unwrap();
+        assert!(inspect(root.path(), &[]).is_err());
+        drop(locked);
+        std::fs::write(lease.path.parent().unwrap().join("reservation"), b"partial").unwrap();
+        assert!(inspect(root.path(), &[]).is_err());
+        assert!(lease.path().join("retained").exists());
+    }
+
     fn limits(root: &Path, bytes: u64, slots: usize) {
         std::fs::write(
             root.join("staging.conf"),
@@ -419,6 +566,7 @@ mod tests {
         let worker = Uuid::new_v4();
         store
             .insert(&Record {
+                origin: None,
                 lease: worker,
                 name: format!("symbi-{worker}"),
                 docker_binary: "/usr/bin/docker".into(),

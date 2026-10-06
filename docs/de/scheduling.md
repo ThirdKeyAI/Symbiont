@@ -7,6 +7,19 @@
 
 ## Ueberblick
 
+Der [Leitfaden zur kontrollierten Ausfuehrung](/scheduled-execution) beschreibt
+das Laufzeitverhalten dieses Branches: Die Registrierung speichert die
+Konfiguration, ohne einen Agenten auszufuehren; API-, manuelle und
+Timer-Aufrufe erhalten eigene Lauf-IDs und echte Endergebnisse. Die Historie
+erreicht `succeeded` nach Ausfuehrung und Bereinigung und enthaelt Ausgabe,
+Fehler und geschuetzte Audit-Referenzen. Managed-CLI-Scheduling, geroutete
+Modelle und der Transport fuer externe Agenten bleiben im Standarddienst nicht
+verfuegbar. Die ausgewaehlte Befehlsgrenze kann [Firecracker](/firecracker-setup)
+fuer Oneshot-Tools, Parser, MCP-stdio und PTY-Sitzungen nutzen, sofern passende
+Guest-Artefakte bereitgestellt sind. Siehe den
+[Branch-Leitfaden](/containment-branch-guide) fuer betreibersichtbare
+Unterschiede und die verbleibende Abdeckung.
+
 Das Scheduling-System von Symbiont bietet produktionsreife Cron-basierte Aufgabenausfuehrung fuer KI-Agenten. Das System unterstuetzt:
 
 - **Cron-Zeitplaene**: Traditionelle Cron-Syntax fuer wiederkehrende Aufgaben

@@ -404,14 +404,16 @@ pub(crate) async fn connection(
     stream: UnixStream,
     inference: Arc<ProtectedInference>,
 ) -> Result<(), String> {
-    let timeout = Duration::from_secs(inference.config.request_timeout_seconds)
-        .min(inference.deadline.saturating_duration_since(Instant::now()));
-    tokio::time::timeout(timeout, async {
-        let mut reader = BufReader::new(stream);
+    let mut reader = BufReader::new(stream);
+    for _ in 0..64 {
+        let timeout = Duration::from_secs(inference.config.request_timeout_seconds)
+            .min(inference.deadline.saturating_duration_since(Instant::now()));
+        let keep_alive = tokio::time::timeout(timeout, async {
         let mut headers = Vec::new();
         loop {
             let start = headers.len();
             let read = (&mut reader).take(16385u64.saturating_sub(headers.len() as u64)).read_until(b'\n', &mut headers).await.map_err(|_| "inference header read failed")?;
+            if read == 0 && headers.is_empty() { return Ok(false); }
             if read == 0 || headers.len() > 16384 { return Err("invalid or oversized inference headers".into()); }
             if &headers[start..] == b"\r\n" { break; }
         }
@@ -420,9 +422,11 @@ pub(crate) async fn connection(
         let request: Vec<_> = lines.next().unwrap_or_default().split(' ').collect();
         if request.len() != 3 || request[0] != "POST" || request[2] != "HTTP/1.1" { return Err("inference requires a POST request".into()); }
         let mut length = None;
+        let mut keep_alive = false;
         for line in lines.filter(|line| !line.is_empty()) {
             let (name, value) = line.split_once(':').ok_or("invalid inference header")?;
             if name.eq_ignore_ascii_case("transfer-encoding") || name.eq_ignore_ascii_case("expect") { return Err("unsupported inference framing".into()); }
+            if name.eq_ignore_ascii_case("connection") { keep_alive = value.trim().eq_ignore_ascii_case("keep-alive"); }
             if name.eq_ignore_ascii_case("content-length") {
                 if length.is_some() { return Err("duplicate inference content length".into()); }
                 length = Some(value.trim().parse::<usize>().map_err(|_| "invalid inference content length")?);
@@ -435,9 +439,14 @@ pub(crate) async fn connection(
             Ok(response) => response,
             Err(error) => (400, "application/json", serde_json::to_vec(&json!({"type":"error","error":{"type":"invalid_request_error","message":error}})).unwrap()),
         };
-        let headers = format!("HTTP/1.1 {status} Broker response\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+        let headers = format!("HTTP/1.1 {status} Broker response\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: {}\r\n\r\n", body.len(), if keep_alive { "keep-alive" } else { "close" });
         reader.get_mut().write_all(headers.as_bytes()).await.map_err(|_| "inference response write failed")?;
         reader.get_mut().write_all(&body).await.map_err(|_| "inference response write failed")?;
-        Ok(())
-    }).await.map_err(|_| "inference request deadline exceeded")?
+        Ok::<bool, String>(keep_alive)
+    }).await.map_err(|_| "inference request deadline exceeded")??;
+        if !keep_alive {
+            return Ok(());
+        }
+    }
+    Err("inference connection request budget exhausted".into())
 }

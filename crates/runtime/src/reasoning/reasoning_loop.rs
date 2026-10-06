@@ -308,17 +308,18 @@ impl ReasoningLoopRunner {
             _ = cancellation.cancelled() => None,
             result = tokio::time::timeout(timeout, self.run_inner(state, config)) => Some(result),
         };
-        // A timeout drops the future still holding its inference reservation,
-        // and a dropped future cannot await settlement, so settle from out
-        // here. The loop itself abandoned this run and recorded a terminal
-        // reason for it, so the reservation is resolved.
+        // A timeout drops this scope's inference future. Record only its
+        // abandoned requests; siblings may still be running and a pending
+        // settlement append may still reach durable storage after cancellation.
         //
         // Cancellation is deliberately excluded. There the caller disconnected
         // while work may still be in flight, which is genuinely unresolved;
         // settling it would claim knowledge we do not have.
-        if matches!(execution, Some(Err(_))) {
-            budget.settle_outstanding().await;
-        }
+        let timeout_settlement = if matches!(execution, Some(Err(_))) {
+            budget.settle_outstanding().await
+        } else {
+            Ok(())
+        };
         let mut result = match execution {
             Some(Ok(result)) => result,
             None => LoopResult {
@@ -345,6 +346,11 @@ impl ReasoningLoopRunner {
                 }
             }
         };
+        if let Err(error) = timeout_settlement {
+            result.termination_reason = TerminationReason::Error {
+                message: format!("Required inference timeout settlement failed: {error}"),
+            };
+        }
         if let Err(error) = delegated_cleanup.close().await {
             result.output.clear();
             result.termination_reason = TerminationReason::Error {
@@ -681,6 +687,9 @@ impl ReasoningLoopRunner {
                 })
                 .await?;
         }
+        self.journal
+            .record_final_output(agent_id, result.iterations, &result.output)
+            .await?;
         let event = LoopEvent::Terminated {
             reason: result.termination_reason.clone(),
             iterations: result.iterations,
@@ -1632,19 +1641,65 @@ format = "text"
             }
         }
 
-        let runner = make_runner(Arc::new(SlowProvider));
-        let conv = Conversation::with_system("Timeout test");
-
-        let config = LoopConfig {
-            timeout: std::time::Duration::from_millis(100),
-            ..Default::default()
-        };
-
-        let result = runner.run(AgentId::new(), conv, config).await;
-        assert!(matches!(
-            result.termination_reason,
-            TerminationReason::Timeout
-        ));
+        struct TimeoutJournal {
+            inner: BufferedJournal,
+            fail_finish: bool,
+        }
+        #[async_trait::async_trait]
+        impl JournalWriter for TimeoutJournal {
+            async fn append(&self, entry: JournalEntry) -> Result<(), JournalError> {
+                if self.fail_finish
+                    && matches!(entry.event, LoopEvent::BudgetReservationFinished { .. })
+                {
+                    return Err(JournalError::WriteFailed(
+                        "timeout settlement outage".into(),
+                    ));
+                }
+                self.inner.append(entry).await
+            }
+            async fn next_sequence(&self) -> u64 {
+                self.inner.next_sequence().await
+            }
+        }
+        for fail_finish in [false, true] {
+            let writer = Arc::new(TimeoutJournal {
+                inner: BufferedJournal::new(100),
+                fail_finish,
+            });
+            let mut runner = make_runner(Arc::new(SlowProvider));
+            runner.journal = writer.clone();
+            let config = LoopConfig {
+                timeout: std::time::Duration::from_millis(100),
+                ..Default::default()
+            };
+            let result = runner
+                .run(
+                    AgentId::new(),
+                    Conversation::with_system("Timeout test"),
+                    config,
+                )
+                .await;
+            if fail_finish {
+                assert!(
+                    matches!(&result.termination_reason, TerminationReason::Error { message }
+                    if message.contains("timeout settlement outage"))
+                );
+            } else {
+                assert!(matches!(
+                    result.termination_reason,
+                    TerminationReason::Timeout
+                ));
+            }
+            let recovered = super::super::budget::journal::recover(&writer.inner.entries().await)
+                .unwrap()
+                .unwrap();
+            assert_eq!(recovered.reservations.len(), 1);
+            assert_eq!(
+                recovered.reservations[0].finish_sequence.is_some(),
+                !fail_finish
+            );
+            assert!(recovered.scopes[0].uncertain_tokens > 0);
+        }
     }
 
     #[tokio::test]

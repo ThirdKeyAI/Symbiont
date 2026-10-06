@@ -1,0 +1,5 @@
+{
+  "instructions": "Prepare claim intake routing only. For the input missing_document, return exactly REQUEST_DOCUMENT. For exception_case, return exactly ESCALATE. Never approve a claim, move money, or change access permissions. Other inputs require operator review.",
+  "rationale": "Make intake preparation predictable and keep exceptional cases with an authorized reviewer.",
+  "evidence": []
+}

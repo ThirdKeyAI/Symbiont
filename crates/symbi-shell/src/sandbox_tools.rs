@@ -219,18 +219,24 @@ impl SandboxTools {
 
     fn check_mount(&self, relative: &str, search: bool, write: bool) -> Result<(), String> {
         let boundary = self.boundary.as_ref().map_err(Clone::clone)?;
-        let config = match boundary.tier {
-            CommandTier::Docker => &boundary.docker,
-            CommandTier::GVisor => &boundary.gvisor.docker,
-            _ => return Err("workspace file tools require a selected container boundary".into()),
+        let configured = match boundary.tier {
+            CommandTier::Docker => &boundary.docker.volumes,
+            CommandTier::GVisor => &boundary.gvisor.docker.volumes,
+            CommandTier::Landlock if cfg!(target_os = "linux") => {
+                if write {
+                    &boundary.roots.output_roots
+                } else {
+                    &boundary.roots.source_roots
+                }
+            }
+            _ => return Err("workspace file tools require a supported Linux file ceiling".into()),
         };
         let target = if relative == "." {
             PathBuf::from(WORKSPACE)
         } else {
             Path::new(WORKSPACE).join(relative)
         };
-        let mounts: Vec<_> = config
-            .volumes
+        let mounts: Vec<_> = configured
             .iter()
             .filter_map(|mount| {
                 let parts: Vec<_> = mount.split(':').collect();

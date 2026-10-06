@@ -10,6 +10,20 @@ Arquitetura de segurança abrangente garantindo proteção de confiança zero e 
 
 ## Visão Geral
 
+**Cobertura de contenção:** a 1.21.0 acrescenta limites de efeito Docker/gVisor
+selecionados, aprovações exatas de chamadas preparadas, journals protegidos nos
+pontos de entrada cobertos e propriedade independente dos workers. Veja o
+[guia de contenção](/containment-branch-guide) para os caminhos implementados e as
+premissas de implantação. A arquitetura e a configuração de camadas descritas
+abaixo não são evidência de aplicação completa em todos os caminhos. Os comandos
+oneshot do Firecracker, os parsers, o MCP stdio, as sessões PTY e os workers de
+CLI gerenciada usam um transporte de convidado versionado e propriedade
+independente do VMM. As VMs gerenciadas recebem apenas as capacidades de
+ferramentas/inferência emitidas pelo runtime. A execução isolada de navegador
+continua indisponível. A [configuração do Firecracker](/firecracker-setup) descreve
+os requisitos de implantação no convidado e no host; os testes com Docker não
+validam uma implantação em VM.
+
 O Symbiont implementa uma arquitetura de segurança em primeiro lugar projetada para ambientes regulamentados e de alta garantia. O modelo de segurança é construído sobre princípios de confiança zero com aplicação abrangente de políticas, sandboxing de várias camadas e auditabilidade criptográfica.
 
 ### Princípios de Segurança
@@ -69,13 +83,125 @@ graph TB
     H --> H1
 ```
 
-> **As três camadas de isolamento no host — Docker, gVisor e Firecracker — são todas entregues no runtime OSS.** Operadores escolhem a camada por agente via o bloco DSL `with { sandbox = ... }`, ou definem um padrão de projeto via `[sandbox] tier = "..."` em `symbiont.toml`. O E2B é opt-in apenas via DSL (`with { sandbox = "e2b" }`) e intencionalmente não é exposto como um valor de `[sandbox] tier`.
+> **Toda camada de isolamento no host — landlock, Docker, gVisor e Firecracker — é entregue no runtime OSS.** Operadores escolhem a camada por agente via o bloco DSL `with { sandbox = ... }`, ou definem um padrão de projeto via `[sandbox] tier = "..."` em `symbiont.toml`. O E2B é opt-in apenas via DSL (`with { sandbox = "e2b" }`) e intencionalmente não é exposto como um valor de `[sandbox] tier`.
 >
 > Isolamento forte é uma base, não um upsell. As camadas permanecem no runtime de
 > código aberto para que a comunidade possa ler, auditar e reproduzir o limite do
 > qual depende. A atestação do convidado é o caso mais claro: uma impressão digital
 > sobre fontes que você não pode ler não atesta nada, por isso o serviço convidado é
 > de código aberto justamente por ser um controle de segurança.
+
+<a id="landlock-daemon-free"></a>
+
+### Landlock (workers nativos)
+
+Chamada de `landlock`, sem número. Este backend opcional do Linux usa processos
+nativos e um supervisor delegado gerenciado externamente. Ele não precisa de
+imagem nem de daemon de contêiner. O Docker continua sendo o padrão. Veja
+[configuração e migração do serviço](/landlock-supervision).
+
+**Configuração:** `[sandbox] tier = "landlock"` em `symbiont.toml`. Os tetos de
+somente leitura e de escrita vêm de `[sandbox.roots]`, compartilhado com os demais
+backends. `[sandbox.landlock]` carrega `abi_floor`, `require_network`, os limites
+de memória, CPU, PIDs, tempo de vida e saída, além da configuração de
+`supervisor` dele. A ABI padrão e mínima suportada agora é a 6, mesmo quando uma
+configuração antiga define um piso menor. Um piso configurado mais alto continua
+valendo. São exigidos x86_64 ou aarch64 nativos little-endian e filtragem seccomp
+funcional.
+
+**Casos de uso:**
+- Uma estação de trabalho ou desktop onde executar um daemon de contêiner por
+  agente não é razoável
+- Confinar o alcance de sistema de arquivos, os sockets e os sinais de saída de um
+  processo local sem provisionar uma imagem
+
+**Recursos de segurança:**
+- Confinamento do sistema de arquivos às raízes declaradas, aplicado pelo kernel
+- Os escopos da ABI 6 do Landlock impedem sinais e conexões a sockets Unix
+  abstratos para processos fora do domínio do worker. Sinais dentro do domínio
+  continuam utilizáveis.
+- Com o padrão `require_network = true`, o seccomp nega novos sockets, cobrindo
+  TCP, UDP e sockets Unix com pathname. Pares privados de sockets Unix de
+  **stream** continuam utilizáveis. Pares de datagrama são negados porque podem
+  enviar a sockets com pathname não relacionados. Operações `io_uring` e ABIs
+  alternativas de syscall são recusadas para que não contornem essa restrição.
+- `require_network = false` permite explicitamente novos sockets IPv4/IPv6. Ele
+  não permite sockets Unix do host, outras famílias de socket, pares de datagrama
+  nem `io_uring`. Essa opção concede acesso à rede IP, inclusive ao loopback; não
+  é uma allowlist de egresso.
+- Uma concessão básica de leitura/execução para os diretórios de executáveis e
+  bibliotecas do sistema, necessária antes que qualquer programa com ligação
+  dinâmica possa iniciar. Ela não carrega nenhum caminho de escrita, nada sob um
+  diretório home e nenhuma concessão ampla de `/etc`.
+- Os rulesets exigem aplicação integral. O padrão da crate é o de melhor esforço,
+  que ignora silenciosamente o que o kernel não suporta; esse padrão não é usado.
+- As regras e o filtro de syscalls são construídos no processo pai contra objetos
+  de sistema de arquivos abertos. Substituir uma raiz após a preparação não
+  consegue redirecionar a concessão dela. O filho instala as restrições e marca os
+  descritores acima do stderr como close-on-exec usando syscalls brutas. Raízes
+  declaradas ausentes fazem a preparação falhar; caminhos de sistema opcionais
+  ausentes podem ser omitidos. Uma instalação malsucedida aborta o spawn.
+- Descritores extras herdados de arquivos, sockets e rings são fechados no exec.
+  Stdin, stdout e stderr permanecem capacidades explícitas: quem chama pelo SDK
+  deve fornecer apenas os canais pretendidos. O caminho MCP entregue usa pipes.
+  Isso não revoga capacidades que um operador repasse deliberadamente via stdio ou
+  conceda através de raízes legíveis.
+
+**Migração.** Hosts com ABI 4 ou 5 agora falham de forma fechada; baixar o
+`abi_floor` não restaura o limite mais fraco. Cargas de trabalho que exigem
+serviços Unix, pares de datagrama, `io_uring` ou executáveis de compatibilidade
+precisam usar um backend supervisionado adequado. Os descritores de auditoria
+incluem a versão 3 do limite, a admissão compartilhada e a supervisão por cgroup,
+o requisito efetivo de ABI, os escopos de sinal/socket, a política de sockets, a
+recusa de rings e a política de descritores herdados.
+
+**Cobertura atual.** O MCP stdio sem arquivos declarados e o caminho de baixo
+nível de lançamento do `CliExecutor` do SDK usam este backend. Comandos públicos
+de execução única, parsers de saída personalizados, PTYs interativas, a preparação
+de arquivos declarados e a configuração entregue de CLI gerenciada ainda não o
+suportam. Selecionar o Landlock nesses caminhos falha, em vez de passar para a
+execução irrestrita.
+
+**Tempo de vida da concessão.** Um domínio não pode ser relaxado depois de
+aplicado. O filho de CLI do SDK recebe o domínio dele uma vez, no spawn, incluindo
+acesso de escrita ao próprio diretório de trabalho. As raízes diretas autorizam a
+hierarquia configurada por esse tempo de vida; elas não tiram um snapshot do
+conteúdo dos arquivos nem restringem as escritas à publicação de arquivos novos. A
+descoberta e as chamadas MCP sem arquivos declarados limpam as raízes de host
+configuradas. Os workers de MCP governado e de CLI de baixo nível do SDK mantêm
+reservas duráveis e compartilhadas de CPU/memória/workers até a remoção do cgroup.
+Os cgroups delegados aplicam os limites de recursos e param os descendentes mesmo
+quando estes deixam o grupo de processos. O gerenciador de serviços independente
+lida com a falha do supervisor e a expiração do watchdog. A primitiva bruta
+`PreparedDomain` apenas aplica os controles de acesso do kernel e não adquire um
+lease.
+
+**Falha fechada.** A ABI Landlock exigida e a arquitetura nativa são verificadas
+antes da autorização. Falhas na construção ou na instalação do ruleset, inclusive
+a indisponibilidade da filtragem seccomp, abortam o spawn antes de o executável do
+worker iniciar. Não há aplicação parcial nem fallback para execução irrestrita no
+host.
+
+**Indisponível para agentes registrados.** Nenhum `SecurityTier` nomeia o
+landlock, então um agente agendado ou registrado via HTTP não pode declará-lo;
+esses caminhos o recusam em vez de mapeá-lo para uma camada vizinha e reportar
+incorretamente o isolamento em uso. Selecione-o em `[sandbox]` para execuções
+diretas.
+
+**Validação.** `crates/runtime/tests/landlock_sandbox.rs` exercita filhos
+restritos reais, incluindo raízes de leitura/escrita substituídas e o acesso
+legítimo através dos objetos originais, restrições de socket e de sinal,
+descritores herdados, IPC privado por stream, acesso IP explícito e a recusa de
+ABIs alternativas de syscall. O `scripts/test-landlock-boundary.py --binary
+/path/to/symbi --report /path/to/report.json` exercita o dispatch MCP assinado tal
+como entregue, a saída útil, as negações de sistema de arquivos/TCP/UDP/sockets
+Unix e de sinais, a auditoria obrigatória e a recusa em kernels não suportados,
+com fixtures sintéticas locais. Observadores protegidos verificam de forma
+independente a entrega de mensagens e de sinais. Essas verificações não
+estabelecem resistência adaptativa a escapes. O
+`scripts/test-landlock-supervision.py`, à parte, exercita falhas reais no ciclo de
+vida dos cgroups. Veja o
+[contrato Landlock do kernel](https://docs.kernel.org/userspace-api/landlock.html).
 
 ### Camada 1: Isolamento Docker
 
@@ -174,7 +300,7 @@ mem_mib           = 512
 rootfs_read_only  = true
 ```
 
-**Pré-requisitos:** O operador deve fornecer (a) uma imagem de kernel compatível com Firecracker e (b) uma imagem de sistema de arquivos raiz com um script de init que leia o payload do agente. **Veja [`docs/firecracker-setup.md`](firecracker-setup.md) para um guia rápido passo a passo, o contrato de init dentro da VM e uma checklist de hardening.** `symbi doctor` reporta se o binário `firecracker` está acessível.
+**Pré-requisitos:** O operador deve fornecer (a) uma imagem de kernel compatível com Firecracker e (b) uma imagem de sistema de arquivos raiz com o serviço convidado compilado correspondente. **Veja [`docs/firecracker-setup.md`](firecracker-setup.md) para um guia rápido passo a passo, o contrato de init dentro da VM e uma checklist de hardening.** `symbi doctor` reporta se o binário `firecracker` está acessível.
 
 Uma vez que você tenha ambos os artefatos, faça scaffolding de um projeto tier3 com:
 
@@ -512,7 +638,29 @@ pub fn encrypt_message(
 
 ### Trilha de Auditoria Criptográfica
 
-Cada operação relevante para segurança gera um evento de auditoria imutável:
+Dois subsistemas mantêm um registro assinado e encadeado por hash: a cadeia de
+auditoria do crítico (`crates/runtime/src/reasoning/critic_audit.rs`, verificada
+com `verify_chain` / `verify_chain_anchored`) e os transcripts de sessão
+(`crates/runtime/src/session/transcript.rs`). A estrutura abaixo descreve essas
+cadeias.
+
+Esta branch também acrescenta journals de execução protegidos obrigatórios para a
+CLI comum/gerenciada, o HTTP, o ORGA agendado e a execução padrão de
+`reason()`/`tool_call()` no DSL. Eles são privados, acrescentados de forma
+durável, assinados com Ed25519 e encadeados por hash; os registros vinculados a
+uma invocação incluem o ID da execução. Veja
+[auditoria de execução](/run-audit) para o formato real, a custódia das chaves, a
+verificação e os desfechos terminais incompletos.
+
+Isso ainda fica aquém de um log de auditoria de todo o sistema. A interface
+subjacente `JournalWriter` continua permitindo um writer em memória com buffer em
+outros caminhos ou a injeção explícita pelo SDK; nem todos os journals internos
+delegados são expostos ao operador. Os caminhos diretos de LLM/composição e outros
+caminhos de raciocínio do shell ainda precisam ser migrados. A estrutura de evento
+ilustrativa abaixo descreve as cadeias de crítico/transcript, não o formato de
+transmissão do journal de execução protegido.
+
+Um evento nessas cadeias se parece com:
 
 ```rust
 pub struct AuditEvent {

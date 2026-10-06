@@ -207,6 +207,7 @@ impl FirecrackerRunner {
     }
     fn specification(&self, id: uuid::Uuid, lifetime: Duration) -> CreateVm {
         CreateVm {
+            origin: super::worker_origin::current(),
             version: VERSION,
             implementation: IMPLEMENTATION.into(),
             lease: id,

@@ -97,28 +97,39 @@ Los agentes gestionados por CLI (Modo B) reconocen estas claves de metadatos adi
 | `system_prompt` | String | Prompt de sistema adicional anexado para el subproceso |
 | `permission_mode` | String | Opcional. Se pasa como `--permission-mode`. Si no se indica, la bandera se omite y el subproceso conserva su valor por defecto, que sigue pidiendo confirmacion para cualquier cosa fuera de `allowed_tools`. Usa `"dontAsk"` para agentes que deban ejecutarse sin supervision |
 
-El arranque se somete una vez a la politica, como `tool_call::claude_code`, pero despues nada gobierna al subproceso: lo que resulte de `allowed_tools` y `permission_mode` rige toda la sesion. Por eso `allowed_tools` es obligatorio y `permission_mode` es opt-in: una sola decision del gate debe autorizar una sesion acotada, no una sin restricciones.
-
-Esa unica decision del gate se lee de `policies/managed-cli/` — **no** de
-`policies/run/`. Lanzar un subproceso tiene un radio de impacto distinto al del
-bucle de razonamiento en proceso, asi que las dos superficies no comparten
-directorio de politicas. Un permit minimo:
+El arranque se somete a la politica como `tool_call::claude_code`, y esa decision
+se lee de `policies/managed-cli/` — **no** de `policies/run/`. Lanzar un
+subproceso tiene un radio de impacto distinto al del bucle de razonamiento en
+proceso, asi que las dos superficies no comparten directorio de politicas. Un
+permit minimo:
 
 ```cedar
 // policies/managed-cli/claude_code.cedar
 permit(principal, action == Action::"tool_call::claude_code", resource);
 ```
 
-Como el gate no puede ver lo que hace el subproceso despues, cada ejecucion se
-registra. El hijo corre con `--output-format stream-json` y cada llamada a
-herramienta se anexa a `.symbiont/audit/mode-b-<session>.jsonl` a medida que
-ocurre: nombre de la herramienta, argumentos, si el resultado fallo, y un
-registro final con el numero de turnos y las denegaciones de permisos. Se
-escriben en vivo y no al salir, de modo que una ejecucion cortada por su tiempo
-limite igual deja rastro. Los valores bajo claves como `token`, `api_key` o
-`password` se redactan, y los argumentos demasiado grandes se truncan, para que
-el registro identifique que hizo el hijo sin convertirse en una segunda copia
-de la carga util.
+La decision de arranque no es la unica decision. El hijo corre dentro del worker
+Docker, gVisor o Firecracker seleccionado, con almacenamiento efimero y canales
+privados de inferencia y de herramientas: sin montaje del codigo fuente, sin red
+externa, sin estado de sesion del host y sin credenciales del host. Las
+herramientas integradas de la CLI y el descubrimiento automatico de proyectos y
+plugins estan desactivados, y `--plugin-dir` se rechaza. El acceso al codigo
+fuente es un conjunto de herramientas ToolClad registradas, y **cada llamada a
+herramienta que hace el hijo se intermedia de vuelta a traves del runtime**:
+preparar y normalizar, obtener cualquier aprobacion exacta obligatoria, evaluar
+Cedar, persistir el registro previo al efecto que se exige, despachar y despues
+registrar el resultado. `allowed_tools` nombra un subconjunto exacto de las
+herramientas registradas; las expresiones de permiso con comodines y los nombres
+de las herramientas integradas de la CLI no se aceptan como entradas del
+registro.
+
+Por eso `allowed_tools` es obligatorio y `permission_mode` es opt-in: acotan lo
+que el hijo puede *pedir*, mientras que el runtime — y no el hijo — decide que
+ocurre realmente. Cada sesion de CLI administrada conserva su propio diario
+firmado. Consulte [Contencion de la CLI administrada](/managed-cli-containment)
+para la configuracion de imagen, montajes, politicas y `[managed_cli.inference]`,
+y el [intermediario de herramientas gobernado](/governed-tool-broker) para el
+contrato de intermediacion.
 
 
 ---

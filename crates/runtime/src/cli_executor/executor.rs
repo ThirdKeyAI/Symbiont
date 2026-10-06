@@ -189,19 +189,20 @@ impl CliExecutor {
         crate::sandbox::command::literal_command(&argv).map_err(anyhow::Error::msg)?;
         let deadline = started + self.config.max_runtime;
         #[cfg(target_os = "linux")]
-        let landlock_domain = if boundary.tier == CommandTier::Landlock {
-            // The child works in its own directory, so that path is granted
-            // alongside the operator's declared roots. Without it the child
-            // could not even enter its workspace.
-            let mut roots = boundary.roots.clone();
-            roots.output_roots.push(working_dir.display().to_string());
-            Some(
-                crate::sandbox::landlock::prepare(&boundary.landlock, &roots)
-                    .map_err(anyhow::Error::msg)?,
-            )
-        } else {
-            None
-        };
+        let landlock_domain =
+            if boundary.tier == CommandTier::Landlock && boundary.landlock.workspace.is_none() {
+                // The child works in its own directory, so that path is granted
+                // alongside the operator's declared roots. Without it the child
+                // could not even enter its workspace.
+                let mut roots = boundary.roots.clone();
+                roots.output_roots.push(working_dir.display().to_string());
+                Some(
+                    crate::sandbox::landlock::prepare(&boundary.landlock, &roots)
+                        .map_err(anyhow::Error::msg)?,
+                )
+            } else {
+                None
+            };
         let mut worker = if boundary.tier == CommandTier::DevelopmentHost {
             let mut command = Command::new(executable);
             command
@@ -218,27 +219,50 @@ impl CliExecutor {
             let child = command
                 .spawn()
                 .map_err(|e| anyhow::anyhow!("failed to spawn development CLI: {e}"))?;
-            Worker { child, guard: None }
+            Worker {
+                child,
+                guard: None,
+                #[cfg(target_os = "linux")]
+                host: None,
+            }
         } else if cfg!(target_os = "linux") && boundary.tier == CommandTier::Landlock {
             #[cfg(target_os = "linux")]
             {
-                let domain = landlock_domain.expect("domain prepared for the landlock tier");
-                let mut command = Command::new(executable);
-                command
-                    .args(args)
-                    .current_dir(working_dir)
-                    .env_clear()
-                    .envs(env)
-                    .kill_on_drop(true)
-                    .stdin(Stdio::piped())
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped());
-                command.process_group(0);
-                domain.apply_to(&mut command);
-                let child = command
-                    .spawn()
-                    .map_err(|e| anyhow::anyhow!("failed to spawn contained CLI: {e}"))?;
-                Worker { child, guard: None }
+                let (child, lease) = if boundary.landlock.workspace.is_some() {
+                    crate::sandbox::landlock::workspace::spawn(
+                        &boundary.landlock,
+                        &argv,
+                        env,
+                        deadline.saturating_duration_since(std::time::Instant::now()),
+                    )
+                    .await?
+                } else {
+                    let domain = landlock_domain.expect("domain prepared for the landlock tier");
+                    let mut command = Command::new(executable);
+                    command
+                        .args(args)
+                        .current_dir(working_dir)
+                        .env_clear()
+                        .envs(env)
+                        .kill_on_drop(true)
+                        .stdin(Stdio::piped())
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::piped());
+                    command.process_group(0);
+                    let (child, lease) = crate::sandbox::landlock::spawn(
+                        &boundary.landlock,
+                        domain,
+                        &mut command,
+                        deadline.saturating_duration_since(std::time::Instant::now()),
+                    )
+                    .await?;
+                    (child, lease)
+                };
+                Worker {
+                    child,
+                    guard: None,
+                    host: Some(lease),
+                }
             }
             #[cfg(not(target_os = "linux"))]
             unreachable!("the landlock tier is refused during validation off Linux")
@@ -264,6 +288,8 @@ impl CliExecutor {
             Worker {
                 child: container.child,
                 guard: Some(container.guard),
+                #[cfg(target_os = "linux")]
+                host: None,
             }
         };
         let output_limit = worker
@@ -272,6 +298,12 @@ impl CliExecutor {
             .map_or(self.config.max_output_bytes, |guard| {
                 guard.output_limit.min(self.config.max_output_bytes)
             });
+        #[cfg(target_os = "linux")]
+        let output_limit = if worker.host.is_some() {
+            output_limit.min(boundary.landlock.max_output_bytes)
+        } else {
+            output_limit
+        };
         let input = InputTask::start(worker.child.stdin.take(), stdin_strategy);
         let result = super::monitor::monitor(
             &mut worker.child,
@@ -373,6 +405,15 @@ pub(crate) fn configure_boundary(
             config.working_dir = directory.into();
             config.max_output_bytes = config.max_output_bytes.min(output);
         }
+        #[cfg(target_os = "linux")]
+        CommandTier::Landlock => {
+            if boundary.landlock.workspace.is_none()
+                || directory != crate::sandbox::landlock::workspace::WORKSPACE
+            {
+                return Err("managed Landlock requires its private workspace".into());
+            }
+            boundary.landlock.max_output_bytes = boundary.landlock.max_output_bytes.min(output);
+        }
         _ => return Err("selected CLI transport is unavailable; no host fallback".into()),
     }
     boundary.validate()
@@ -435,10 +476,19 @@ pub(crate) fn worker_environment(
 struct Worker {
     child: tokio::process::Child,
     guard: Option<StdioContainerGuard>,
+    #[cfg(target_os = "linux")]
+    host: Option<crate::sandbox::supervisor::Lease>,
 }
 impl Worker {
+    fn is_development(&self) -> bool {
+        #[cfg(target_os = "linux")]
+        if self.host.is_some() {
+            return false;
+        }
+        self.guard.is_none()
+    }
     async fn finish(&mut self) -> anyhow::Result<()> {
-        if self.guard.is_none() {
+        if self.is_development() {
             #[cfg(unix)]
             if let Some(id) = self.child.id() {
                 // SAFETY: this still-unreaped child leads the development-only
@@ -449,6 +499,14 @@ impl Worker {
             }
         }
         let _ = self.child.start_kill();
+        #[cfg(target_os = "linux")]
+        if let Some(host) = &mut self.host {
+            let cleanup = host.finish().await;
+            let reaped = tokio::time::timeout(Duration::from_secs(3), self.child.wait()).await;
+            cleanup?;
+            reaped.map_err(|_| anyhow::anyhow!("Landlock CLI reaping timed out"))??;
+            return Ok(());
+        }
         let cleanup = match &mut self.guard {
             Some(guard) => guard.finish().await,
             None => Ok(()),
@@ -464,7 +522,7 @@ impl Worker {
 impl Drop for Worker {
     fn drop(&mut self) {
         #[cfg(unix)]
-        if self.guard.is_none() {
+        if self.is_development() {
             if let Some(id) = self.child.id() {
                 // SAFETY: same unreaped development child as in finish.
                 unsafe {
@@ -553,8 +611,12 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[tokio::test]
     async fn the_managed_cli_child_cannot_read_outside_its_grants() {
-        if crate::sandbox::landlock::detect_abi() < 4 {
-            eprintln!("skipped: kernel Landlock ABI below 4");
+        if std::env::var_os("SYMBIONT_TEST_DELEGATED_SERVICE").is_none() {
+            eprintln!("skipped: requires explicit delegated service fixture");
+            return;
+        }
+        if crate::sandbox::landlock::detect_abi() < 6 {
+            eprintln!("skipped: kernel Landlock ABI below 6");
             return;
         }
         let workspace = tempfile::tempdir().unwrap();

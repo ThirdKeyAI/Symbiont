@@ -50,8 +50,9 @@ pub struct AgentStatus {
     pub agent_id: AgentId,
     pub state: AgentState,
     pub last_activity: SystemTime,
-    pub memory_usage: u64,
-    pub cpu_usage: f64,
+    /// Per-agent measurement, absent when no sampler supplies one.
+    pub memory_usage: Option<u64>,
+    pub cpu_usage: Option<f64>,
     pub active_tasks: u32,
     pub scheduled_at: SystemTime,
 }
@@ -809,8 +810,8 @@ impl AgentScheduler for DefaultAgentScheduler {
                 agent_id,
                 state: ext.reported_state.clone(),
                 last_activity,
-                memory_usage: 0,
-                cpu_usage: 0.0,
+                memory_usage: None,
+                cpu_usage: None,
                 active_tasks: 0,
                 scheduled_at: SystemTime::now(),
             });
@@ -851,8 +852,8 @@ impl AgentScheduler for DefaultAgentScheduler {
                 .as_ref()
                 .map_or_else(SystemTime::now, |h| h.last_activity),
             scheduled_at: SystemTime::now(),
-            memory_usage: 0,
-            cpu_usage: 0.0,
+            memory_usage: None,
+            cpu_usage: None,
         })
     }
 

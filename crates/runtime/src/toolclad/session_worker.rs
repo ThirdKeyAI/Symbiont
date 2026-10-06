@@ -132,7 +132,7 @@ impl SessionManager {
                 let (stop, stopped) = watch::channel(false);
                 let (finished, done) = watch::channel(None);
                 let transcript = Arc::new(Mutex::new(SessionTranscript::default()));
-                tokio::spawn(run_actor(
+                tokio::spawn(crate::sandbox::worker_origin::inherit(run_actor(
                     settings,
                     call.boundary.clone(),
                     call.files.with_journal(None),
@@ -140,7 +140,7 @@ impl SessionManager {
                     stopped,
                     finished,
                     transcript.clone(),
-                ));
+                )));
                 registry.slots.insert(
                     key,
                     Slot {

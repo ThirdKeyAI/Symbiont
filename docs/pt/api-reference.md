@@ -116,28 +116,31 @@ GET /api/v1/agents/{id}/status
 Authorization: Bearer <your-token>
 ```
 
-Obtém informações detalhadas de status para um agente específico, incluindo métricas de execução em tempo real.
+Obtém o status do agendador para um agente específico. CPU e memória são
+anuláveis; o agendador atual não possui um amostrador por agente e retorna `null`
+para agentes internos e externos. Os clientes não devem apresentar esses valores
+como uso zero.
 
 **Resposta (200 OK):**
 ```json
 {
   "agent_id": "uuid",
-  "state": "running|ready|waiting|failed|completed|terminated",
+  "state": "Running",
   "last_activity": "2024-01-15T10:30:00Z",
-  "scheduled_at": "2024-01-15T10:00:00Z",
   "resource_usage": {
-    "memory_usage": 268435456,
-    "cpu_usage": 15.5,
+    "memory_bytes": null,
+    "cpu_percent": null,
     "active_tasks": 1
   },
-  "execution_context": {
-    "execution_mode": "ephemeral|persistent|scheduled|event_driven",
-    "process_id": 12345,
-    "uptime": "00:15:30",
-    "health_status": "healthy|unhealthy"
-  }
+  "execution_mode": "Ephemeral"
 }
 ```
+
+`active_tasks` conta as tarefas pertencentes ao agendador. `last_activity` não é
+um carimbo de tempo de amostragem de recursos. A Visão Geral da Frota exibe **Não
+amostrado** para CPU e memória ausentes; [Capacidade de worker](/worker-capacity)
+fornece o uso do worker e a capacidade reservada, amostrados separadamente. Esses
+valores de worker não são totais por agente.
 
 **Novos Estados de Agente:**
 - `running`: Agente está executando ativamente com um processo em execução
@@ -218,7 +221,10 @@ Idempotency-Key: <UUID retained for retries>
 Authorization: Bearer <your-token>
 ```
 
-Aciona a execução de um agente específico.
+Envia uma invocação do agente selecionado. Reutilize o UUID e a requisição para
+recuperar uma conclusão salva ou um resultado explícito de
+ativo/não resolvido/reconciliado/conflito. Veja
+[estados de repetição do agendador](/scheduler-idempotency).
 
 **Corpo da Solicitação:**
 ```json
@@ -686,7 +692,7 @@ Authorization: Bearer <your-token>
 Idempotency-Key: <invocation-uuid>
 ```
 
-O acionamento manual exige um token administrativo e um UUID em `Idempotency-Key`. Retorna `queued`, um resultado salvo ou `in_progress` / `unresolved` / `conflict`. Reutilize o UUID nas tentativas seguintes. Pausar e retomar mantêm a resposta abaixo; execuções não resolvidas impedem a retomada. Veja [recuperação do cron](../cron-recovery.md).
+O acionamento manual exige um token administrativo e um UUID em `Idempotency-Key`. Retorna `queued`, um resultado salvo ou um estado explícito `in_progress` / `unresolved` / `reconciled` / `conflict`. Reutilize o UUID nas tentativas seguintes. Pausar e retomar mantêm a resposta abaixo; execuções não resolvidas impedem a retomada. Veja [recuperação do cron](/cron-recovery).
 
 **Resposta (200 OK):**
 ```json
@@ -1324,3 +1330,9 @@ Para suporte de API e questões:
 - Revise a [documentação de Arquitetura do Runtime](runtime-architecture.md)
 - Consulte a [documentação do Modelo de Segurança](security-model.md)
 - Registre problemas no repositório GitHub do projeto
+
+Uma invocação reconciliada retorna HTTP 409 e a `resolution` do operador,
+assinada separadamente; ela nunca retorna uma conclusão de runtime fabricada. O
+histórico do cron retém o status `Reconciled`, o erro e a auditoria originais e o
+objeto de resolução. O job permanece pausado até a retomada explícita. Veja
+[reconciliação pelo operador](/invocation-reconciliation).

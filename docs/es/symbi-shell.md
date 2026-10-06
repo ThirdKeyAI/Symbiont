@@ -26,6 +26,8 @@ symbi shell --resume <id>      # reabrir una sesion por UUID
 
 ## Disposicion
 
+La [guia de la rama de contencion](/containment-branch-guide#tui-a-separate-complete-review) describe el nuevo flujo de aprobacion. Los turnos del orquestador local y de la flota ahora requieren auditoria protegida, y las herramientas de archivos y de comandos usan el limite de contenedor seleccionado. Configura montajes de workspace explicitos como se describe en [workspace de shell gobernado](/shell-containment). Las demas rutas del runtime y del DSL canonico siguen en curso.
+
 La shell usa un viewport en linea que comparte la terminal con tu scrollback existente. Veras, de arriba hacia abajo:
 
 - **Barra lateral de estructura del proyecto** (conmutable) — arbol de archivos del proyecto actual, resaltando agentes, politicas y herramientas.
@@ -35,6 +37,10 @@ La shell usa un viewport en linea que comparte la terminal con tu scrollback exi
 
 El resaltado de sintaxis cubre el DSL de Symbiont, Cedar y los manifiestos de ToolClad a traves de gramaticas tree-sitter.
 
+Bajo Zellij, la shell advierte que el scrollback situado por encima del viewport
+en linea puede no renderizarse. Usa una terminal nativa o tmux para una fidelidad
+completa; por ahora no existe una bandera `--full-screen`.
+
 ### Atajos de teclado
 
 | Atajo | Accion |
@@ -43,12 +49,27 @@ El resaltado de sintaxis cubre el DSL de Symbiont, Cedar y los manifiestos de To
 | `/` o `@` | Abrir automaticamente el popup de autocompletado |
 | `↑` / `↓` | Navegar el historial de entrada o las entradas del popup |
 | `Ctrl+R` | Busqueda inversa en el historial |
+| `Ctrl+G` | Abrir el panel Gate, incluso durante un turno ocupado |
 | `Tab` | Aceptar el autocompletado resaltado |
 | `Esc` | Cerrar el popup / cancelar una llamada al LLM en curso |
 | `Ctrl+L` | Limpiar el buffer visible de salida |
 | `Ctrl+D` | Salir de la shell |
 
-Bajo Zellij, la shell detecta el multiplexor e imprime una advertencia de compatibilidad del viewport en linea; usa `--full-screen` si prefieres ejecutar en un buffer de pantalla alternativa.
+### Revisar acciones retenidas
+
+Abre `/gate` o pulsa Ctrl+G. Selecciona con ↑/↓ y luego pulsa Enter para abrir la
+peticion JSON escapada completa. Usa ↑/↓ o Page Up/Down para inspeccionar
+argumentos largos. Pulsa `a` para aprobar o `d` para denegar la peticion revisada.
+Esc vuelve a la lista y despues cierra el panel. Pulsar `a` sobre una fila de la
+lista pide primero una revision.
+
+La seleccion sigue al ID de la peticion a traves de las actualizaciones. Los
+cambios, la expiracion, la eliminacion o una lectura fallida de la cola invalidan
+la revision. El panel mantiene la resolucion pendiente hasta recibir el resultado;
+un tiempo de espera agotado reporta un desenlace desconocido. Los cambios de
+conexion descartan las revisiones antiguas y esperan cualquier resolucion
+pendiente. Una cola local configurada tiene precedencia sobre una API de runtime
+conectada. Consulta el [ciclo de vida de aprobaciones](/approval-lifecycle).
 
 ## Catalogo de comandos
 
@@ -103,10 +124,21 @@ Los comandos de autoria escriben a disco solo despues de que pasa la validacion.
 | Comando | Que hace |
 |---------|----------|
 | `/cron list` | Lista los trabajos de agente programados. |
-| `/cron add` / `/cron remove` | Crea o elimina trabajos programados. |
+| `/cron add <description>` | Redacta una programacion para revisarla. |
+| `/cron pause <job-id>` / `/cron resume <job-id>` | Pausa o reanuda una programacion remota. |
+| `/cron run <job-id> [invocation-id]` | Inicia el trabajo, o reutiliza un ID explicito para consultar o reintentar esa invocacion. |
 | `/cron history` | Muestra ejecuciones recientes. |
 
-`/cron` funciona tanto localmente como sobre una conexion remota (ver abajo). Consulta la [guia de Programacion](/scheduling) para el motor cron completo.
+`/cron` requiere una conexion remota (ver abajo). Los resultados del disparo
+muestran el UUID de la invocacion, el comando exacto de reintento y el estado
+en cola / guardado / en curso / sin resolver. Los resultados guardados incluyen
+una vista previa acotada de la salida, los tokens reportados, el presupuesto
+disponible / reservado / incierto y la referencia al diario protegido. El
+historial conserva todos los detalles. Conserva el UUID: omitirlo solicita
+trabajo nuevo. Una respuesta perdida no acredita un fallo; usa el comando de
+reintento mostrado o inspecciona `/cron history <job-id>` tras reiniciar la
+shell. Los efectos desconocidos exigen reconciliacion. Consulta la
+[recuperacion de cron](/cron-recovery).
 
 ### Canales
 

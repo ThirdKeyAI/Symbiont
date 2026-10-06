@@ -276,7 +276,7 @@ impl ActionExecutor for ManagedCliActionExecutor {
                 continue;
             }
             let deadline = grant.deadline();
-            let result = async {
+            let result = crate::sandbox::worker_origin::scope(grant.worker_origin(), async {
                 let owner = self.owners.admit(grant.run_key(), grant.run_deadline())?;
                 let _prepared = grant.into_prepared()?;
                 let mut limits = self.limits.clone();
@@ -298,7 +298,7 @@ impl ActionExecutor for ManagedCliActionExecutor {
                         .map_err(|error| error.to_string())
                     })
                     .await
-            }
+            })
             .await;
             let observation = match &result {
                 Ok(result) => {

@@ -22,6 +22,12 @@ settlement discards the response and closes further allowance. Cancellation whil
 a required write is pending retains the reservation because the write may still
 reach durable storage.
 
+Timeout cleanup records unknown usage only for abandoned requests in the
+terminating scope. Live requests and other family scopes remain open. A finish
+append that was interrupted may still reach durable storage; timeout cleanup
+does not append another finish for it. Failed required timeout settlement closes
+the allowance and reports a run error. Neither case refunds uncertain usage.
+
 ## Inspecting an interrupted request
 
 Run inspection reconstructs balances from authenticated reservation and settlement

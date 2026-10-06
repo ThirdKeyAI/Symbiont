@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"id": "missing", "input": "missing_document", "expected_output": "REQUEST_DOCUMENT"},
+    {"id": "exception", "input": "exception_case", "expected_output": "ESCALATE"}
+  ],
+  "minimum_passed": 2,
+  "maximum_tokens_per_case": 4000,
+  "maximum_denied_calls": 0
+}

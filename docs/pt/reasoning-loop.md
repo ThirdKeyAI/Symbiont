@@ -64,7 +64,7 @@ println!("Iterations: {}", result.iterations);
 println!("Tokens used: {}", result.total_usage.total_tokens);
 ```
 
-Configure um novo diário protegido para cada execução e use o mesmo ID de agente. Sem `.journal(...)`, o construtor recusa a execução antes da inferência. Um `BufferedJournal` explícito serve para testes e exibição, mas não fornece evidência de auditoria persistente.
+Este exemplo permite respostas de texto e não anuncia nenhuma ferramenta. A execução de ferramentas exige um executor com um limite selecionado e um portão de políticas apropriado. Abra um novo armazenamento protegido para cada invocação e guarde o seu ID de execução, caminho e chave pública. Um diário omitido no construtor falha antes da inferência. A injeção explícita de um `BufferedJournal` continua disponível para testes controlados e exibição, mas não constitui evidência de auditoria durável. Veja [auditoria de execução protegida](/run-audit).
 
 ### Com Definições de Ferramentas
 

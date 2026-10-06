@@ -10,6 +10,14 @@
 
 ## 概述
 
+**收容覆盖范围：** 1.21.0 增加了所选的 Docker/gVisor 作用边界、精确的预备调用审批、
+覆盖入口点上的受保护日志，以及独立的工作进程所有权。已实现的路径和部署假设参见
+[收容指南](/containment-branch-guide)。下文的架构和层级配置并不能证明所有路径上
+都已完整强制执行。Firecracker 的一次性命令、解析器、MCP stdio、PTY 会话和托管 CLI
+工作进程使用带版本的来宾传输协议和独立的 VMM 所有权。托管 VM 只会获得由运行时
+签发的工具/推理能力。隔离的浏览器执行仍不可用。[Firecracker 设置](/firecracker-setup)
+说明了来宾和主机的部署要求；Docker 测试不能验证 VM 部署。
+
 Symbiont 实现了专为受监管和高保障环境设计的安全优先架构。该安全模型建立在零信任原则之上，具有全面的策略执行、多层沙箱和密码学可审计性。
 
 ### 安全原则
@@ -69,9 +77,86 @@ graph TB
     H --> H1
 ```
 
-> **三个主机隔离层 —— Docker、gVisor 和 Firecracker —— 全部包含在 OSS 运行时中。** 运维方可在 DSL 的 `with { sandbox = ... }` 块中按智能体选择层级，或通过 `symbiont.toml` 的 `[sandbox] tier = "..."` 设置项目默认值。E2B 仅可通过 DSL（`with { sandbox = "e2b" }`）显式启用，并且故意不作为 `[sandbox] tier` 的取值暴露。
+> **每一个主机隔离层 —— landlock、Docker、gVisor 和 Firecracker —— 都包含在 OSS 运行时中。** 运维方可在 DSL 的 `with { sandbox = ... }` 块中按智能体选择层级，或通过 `symbiont.toml` 的 `[sandbox] tier = "..."` 设置项目默认值。E2B 仅可通过 DSL（`with { sandbox = "e2b" }`）显式启用，并且故意不作为 `[sandbox] tier` 的取值暴露。
 >
 > 强隔离是基线，而非增值销售项。这些层级保留在开源运行时中，以便社区能够阅读、审计并复现自己所依赖的边界。来宾证明是最清晰的例子：针对无法阅读的源码计算的指纹并不能证明任何事情，因此来宾服务正是因为它是一项安全控制才必须开源。
+
+<a id="landlock-daemon-free"></a>
+
+### Landlock（原生工作进程）
+
+它的名称是 `landlock`，而不是编号层级。这个可选的 Linux 后端使用原生进程和一个由
+外部管理的委派监督进程。它不需要容器镜像，也不需要容器守护进程。Docker 仍是默认
+选项。参见[服务配置与迁移](/landlock-supervision)。
+
+**配置：** 在 `symbiont.toml` 中设置 `[sandbox] tier = "landlock"`。只读和可写的
+上限来自 `[sandbox.roots]`，与其他后端共用。`[sandbox.landlock]` 包含 `abi_floor`、
+`require_network`、内存、CPU、PID、生命周期和输出限制，以及它的 `supervisor` 配置。
+默认且最低支持的 ABI 现在是 6，即使旧配置设置了更低的下限也是如此。配置更高的下限
+仍然有效。要求原生的小端 x86_64 或 aarch64，并且 seccomp 过滤可用。
+
+**使用场景：**
+- 为每个智能体运行一个容器守护进程并不现实的工作站或桌面环境
+- 在不准备镜像的情况下限制本地进程可触及的文件系统、套接字和对外发送的信号
+
+**安全特性：**
+- 由内核强制执行的文件系统限制，只允许访问已声明的根目录
+- Landlock ABI-6 的 scope 机制可阻止向工作进程所属域之外的进程发送信号和连接抽象
+  Unix 套接字。域内的信号仍可使用。
+- 在默认的 `require_network = true` 下，seccomp 会拒绝新建套接字，涵盖 TCP、UDP 和
+  路径名 Unix 套接字。私有的 Unix **流**套接字对仍可使用。数据报套接字对会被拒绝，
+  因为它们可以向无关的路径名套接字发送数据。`io_uring` 操作和替代的系统调用 ABI
+  也会被拒绝，以免绕过这项限制。
+- `require_network = false` 显式允许新建 IPv4/IPv6 套接字。它不会允许主机 Unix
+  套接字、其他套接字族、数据报套接字对或 `io_uring`。该选项授予的是 IP 网络访问
+  （包括回环），它不是一份出站允许列表。
+- 对系统可执行文件和库目录授予基础的读/执行权限，任何动态链接的程序启动前都需要它。
+  它不包含任何可写路径，不包含家目录下的任何内容，也不包含对 `/etc` 的宽泛授权。
+- Ruleset 要求完整强制执行。该 crate 的默认行为是尽力而为，会静默忽略内核不支持的
+  部分；这里不使用该默认值。
+- 规则和系统调用过滤器在父进程中针对已打开的文件系统对象构建。在准备完成之后替换
+  某个根目录无法改变其授权指向。子进程使用原始系统调用安装这些限制，并把 stderr
+  以上的描述符标记为 close-on-exec。已声明的根目录缺失会导致准备失败；可选的系统
+  路径缺失时可以省略。安装失败会中止启动。
+- 额外继承的文件、套接字和 ring 描述符会在 exec 时关闭。stdin、stdout 和 stderr
+  仍然是显式的能力：SDK 调用方必须只提供预期的通道。随产品发布的 MCP 路径使用管道。
+  这并不会撤销运维方有意通过 stdio 传入、或通过可读根目录授予的能力。
+
+**迁移。** ABI 为 4 或 5 的主机现在会失败关闭；调低 `abi_floor` 无法恢复更弱的边界。
+需要 Unix 服务、数据报套接字对、`io_uring` 或兼容性可执行文件的工作负载，必须改用
+合适的受监督后端。审计描述符包含边界版本 3、共享准入与 cgroup 监督、生效的 ABI
+要求、信号/套接字 scope、套接字策略、ring 拒绝策略和继承描述符策略。
+
+**当前覆盖范围。** 未声明文件的 MCP stdio，以及 SDK 的底层 `CliExecutor` 启动路径
+使用该后端。公开的一次性命令、自定义输出解析器、交互式 PTY、已声明文件的暂存，以及
+随产品发布的托管 CLI 配置尚不支持它。在这些路径上选择 Landlock 会失败，而不会切换到
+不受限制的执行。
+
+**授权生命周期。** 域一经应用便无法放宽。SDK 的 CLI 子进程在启动时一次性获得其域，
+其中包含对其工作目录的写权限。直接根目录在该生命周期内授权所配置的目录层级；它们
+不会对文件内容做快照，也不会把写入限制为仅发布新文件。未声明文件的 MCP 发现和调用
+会清除已配置的主机根目录。受治理的 MCP 和底层 SDK CLI 工作进程会持有持久的共享
+CPU/内存/工作进程预留，直到 cgroup 被移除。委派的 cgroup 强制执行资源限制，并且
+即使子进程离开进程组也能将其停止。独立的服务管理器负责处理监督进程故障和 watchdog
+到期。原始的 `PreparedDomain` 原语只应用内核访问控制，不会获取租约。
+
+**失败关闭。** 所需的 Landlock ABI 和原生架构会在授权之前进行检查。Ruleset 构建或
+安装失败（包括 seccomp 过滤不可用）会在工作进程可执行文件启动之前中止启动。不存在
+部分应用，也不会回退到不受限制的主机执行。
+
+**不适用于已注册的智能体。** 没有任何 `SecurityTier` 的名称是 landlock，因此计划
+任务或通过 HTTP 注册的智能体无法声明它；这些路径会直接拒绝，而不是把它映射到相邻
+层级并错误上报实际使用的隔离方式。请在 `[sandbox]` 中为直接运行选择它。
+
+**验证。** `crates/runtime/tests/landlock_sandbox.rs` 会运行真实的受限子进程，覆盖
+被替换的读/写根目录以及通过原始对象进行的合法访问、套接字和信号限制、继承描述符、
+私有流 IPC、显式 IP 访问以及替代系统调用 ABI 的拒绝。
+`scripts/test-landlock-boundary.py --binary /path/to/symbi
+--report /path/to/report.json` 会用本地合成夹具，覆盖随产品发布的签名 MCP 派发、
+有效输出、文件系统/TCP/UDP/Unix 套接字和信号拒绝、必需审计，以及对不受支持内核的
+拒绝。受保护的观察者会独立检查是否有消息和信号被送达。这些检查并不能证明具备自适应
+的抗逃逸能力。另有 `scripts/test-landlock-supervision.py` 用于验证真实的 cgroup
+生命周期故障。参见[内核的 Landlock 契约](https://docs.kernel.org/userspace-api/landlock.html)。
 
 ### 第一层：Docker 隔离
 
@@ -163,7 +248,7 @@ mem_mib           = 512
 rootfs_read_only  = true
 ```
 
-**前置条件：** 运维方必须提供 (a) 一个与 Firecracker 兼容的内核映像，以及 (b) 一个带有读取智能体载荷的 init 脚本的根文件系统映像。**详见 [`docs/firecracker-setup.md`](firecracker-setup.md)，其中提供了分步快速指南、VM 内 init 契约以及加固清单。** `symbi doctor` 会报告 `firecracker` 二进制是否可用。
+**前置条件：** 运维方必须提供 (a) 一个与 Firecracker 兼容的内核映像，以及 (b) 一个带有与之匹配的、已编译来宾服务的根文件系统映像。**详见 [`docs/firecracker-setup.md`](/firecracker-setup)，其中提供了分步快速指南、VM 内 init 契约以及加固清单。** `symbi doctor` 会报告 `firecracker` 二进制是否可用。
 
 在准备好两个工件后，可以通过以下命令脚手架一个第 3 层项目：
 
@@ -501,7 +586,22 @@ pub fn encrypt_message(
 
 ### 密码学审计轨迹
 
-每个安全相关操作都会生成不可变的审计事件：
+有两个子系统保存签名的哈希链记录：critic 审计链
+（`crates/runtime/src/reasoning/critic_audit.rs`，通过 `verify_chain` /
+`verify_chain_anchored` 校验）和会话记录
+（`crates/runtime/src/session/transcript.rs`）。下文的结构描述的就是这两条链。
+
+此分支还为普通/托管 CLI、HTTP、计划中的 ORGA 以及默认 DSL `reason()`/`tool_call()`
+执行增加了必需的受保护运行日志。它们是私有的、持久追加的、使用 Ed25519 签名并构成
+哈希链；与调用绑定的记录包含运行 ID。实际格式、密钥保管、校验方式和不完整终态结果
+参见[运行审计](/run-audit)。
+
+这仍然不等于系统级审计日志。底层的 `JournalWriter` 接口在其他路径上或在 SDK 显式
+注入时，仍然允许使用带缓冲的内存写入器；被委派的内部日志也并非都会呈现给运维方。
+直接 LLM 调用/组合调用以及其他 shell 推理路径仍有待迁移。下文作为示意的事件结构
+描述的是 critic/会话记录链，而不是受保护运行日志的传输格式。
+
+这两条链中的事件形如：
 
 ```rust
 pub struct AuditEvent {

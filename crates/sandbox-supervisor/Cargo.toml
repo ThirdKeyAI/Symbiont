@@ -1,6 +1,6 @@
 [package]
 name = "symbi-sandbox-supervisor"
-version = "1.20.0"
+version = "1.21.0"
 edition = "2021"
 authors = ["Jascha Wanger / ThirdKey.ai"]
 description = "Independent container lifetime and recovery supervisor for Symbiont"

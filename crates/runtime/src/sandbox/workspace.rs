@@ -71,12 +71,9 @@ impl WorkspacePlan {
 #[cfg(target_os = "linux")]
 mod linux {
     use super::*;
-    use crate::sandbox::{
-        command::CommandTier,
-        files::{
-            linux::{directory, host_path, open_at},
-            resolve,
-        },
+    use crate::sandbox::files::{
+        linux::{ceiling, directory, host_path, open_at},
+        resolve,
     };
     use anyhow::Context;
     use sha2::{Digest, Sha256};
@@ -180,13 +177,9 @@ mod linux {
         path: &str,
         value: Option<&str>,
     ) -> anyhow::Result<WorkspacePlan> {
-        let config = match boundary.tier {
-            CommandTier::Docker => &boundary.docker,
-            CommandTier::GVisor => &boundary.gvisor.docker,
-            _ => anyhow::bail!("workspace file tools require a selected container boundary"),
-        };
+        let (working_dir, configured_roots) = ceiling(boundary, false)?;
         anyhow::ensure!(
-            config.working_dir == "/workspace",
+            working_dir == "/workspace",
             "workspace file tools require /workspace as working directory"
         );
         safe_path(path, operation == "search")?;
@@ -222,7 +215,7 @@ mod linux {
                 let mut search = Search::default();
                 let requested = Path::new("/workspace").join(path);
                 let mut roots = BTreeMap::new();
-                if config.volumes.iter().any(|mount| {
+                if configured_roots.iter().any(|mount| {
                     mount
                         .split(':')
                         .nth(1)
@@ -230,7 +223,7 @@ mod linux {
                 }) {
                     roots.insert(path.to_owned(), host_path(boundary, path, false)?);
                 }
-                for mount in &config.volumes {
+                for mount in configured_roots {
                     let parts: Vec<_> = mount.split(':').collect();
                     let guest = Path::new(parts[1]);
                     if guest.starts_with(&requested) && guest.starts_with("/workspace") {

@@ -123,6 +123,7 @@ Model output is never treated as execution authority. The runtime controls what 
 | **Reasoning loop** | Typestate-enforced Observe-Reason-Gate-Act cycle with policy gates and circuit breakers |
 | **Sandboxing** | Three OSS tiers — Docker (Tier 1), gVisor (Tier 2), Firecracker microVM (Tier 3) — selectable from the DSL with no Enterprise gating |
 | **Protected audit** | Private signed per-run journals under `.symbiont/governed/`; a required write failure stops dispatch |
+| **Optional governed improvements** | [Versioned workflow instructions](governed-improvements.md), signed trial evaluation, exact operator approval, explicit activation and per-run version pinning; disabled until explicitly initialized and selected |
 | **Secrets management** | Vault/OpenBao integration, AES-256-GCM encrypted storage, scoped per agent |
 | **MCP integration** | Native Model Context Protocol support with governed tool access |
 | **Governed managed CLI** | Run an external AI CLI as a contained child — no source mount, no external network, no host credentials; source access is registered ToolClad tools |

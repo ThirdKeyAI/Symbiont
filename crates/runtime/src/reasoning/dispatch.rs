@@ -226,6 +226,9 @@ pub(crate) async fn execute_tool_grants(
                     call_id.to_owned(),
                     (dispatch_id, grant.principal(), grant.iteration()),
                 );
+                grant
+                    .attach_worker_origin(writer.audit_reference(), dispatch_id)
+                    .map_err(JournalError::WriteFailed)?;
                 grant.attach_effect_journal(sender.clone());
                 effect_outcomes.insert(
                     action_call_id(grant.action()).unwrap().to_owned(),

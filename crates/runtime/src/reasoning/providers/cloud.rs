@@ -683,6 +683,20 @@ impl InferenceProvider for CloudInferenceProvider {
         self.client.model()
     }
 
+    fn configuration_identity(&self) -> Option<String> {
+        #[cfg(feature = "bedrock")]
+        let region = self.client.region();
+        #[cfg(not(feature = "bedrock"))]
+        let region = "";
+        crate::reasoning::prepared::digest_json(&serde_json::json!([
+            self.provider_name(),
+            self.client.model(),
+            self.client.base_url(),
+            region
+        ]))
+        .ok()
+    }
+
     fn supports_native_tools(&self) -> bool {
         true
     }

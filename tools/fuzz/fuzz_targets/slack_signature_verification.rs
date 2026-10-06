@@ -149,19 +149,18 @@ fn resolve_body(v: &BodyVariant) -> Vec<u8> {
 }
 
 fn compute_correct_signature(secret: &str, timestamp: &str, body: &[u8]) -> String {
-    let base = format!("v0:{}:{}", timestamp, String::from_utf8_lossy(body));
+    // Hash the raw body exactly as the verifier does. Routing it through
+    // from_utf8_lossy replaced invalid UTF-8 with U+FFFD, so any non-UTF-8
+    // body produced a different digest here than in production and the
+    // "correct" signature was not actually correct.
     let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).expect("hmac init");
-    mac.update(base.as_bytes());
+    mac.update(format!("v0:{timestamp}:").as_bytes());
+    mac.update(body);
     let digest = mac.finalize().into_bytes();
     format!("v0={}", hex::encode(digest))
 }
 
-fn resolve_signature(
-    v: &SignatureVariant,
-    secret: &str,
-    timestamp: &str,
-    body: &[u8],
-) -> String {
+fn resolve_signature(v: &SignatureVariant, secret: &str, timestamp: &str, body: &[u8]) -> String {
     match v {
         SignatureVariant::Correct => compute_correct_signature(secret, timestamp, body),
         SignatureVariant::Tampered => {
@@ -228,11 +227,16 @@ fuzz_target!(|input: Input| {
                 timestamp,
             );
             if let Err(ChannelAdapterError::SignatureInvalid(msg)) = &result {
-                assert!(
-                    msg.contains("timestamp"),
-                    "error message should mention 'timestamp', got: {}",
-                    msg,
-                );
+                // A missing signing secret is refused before the timestamp is
+                // examined, so the timestamp detail is only guaranteed when the
+                // timestamp is the actual defect.
+                if !secret.trim().is_empty() {
+                    assert!(
+                        msg.contains("timestamp"),
+                        "error message should mention 'timestamp', got: {}",
+                        msg,
+                    );
+                }
             }
         }
         // Stale, future, huge, and negative timestamps are numeric but outside
@@ -250,9 +254,23 @@ fuzz_target!(|input: Input| {
         // Valid and Boundary timestamps are within window; correctness depends
         // on the signature variant.
         TimestampVariant::Valid | TimestampVariant::Boundary => {
+            // A blank signing secret is refused outright: callbacks must be
+            // authenticated, so there is no "correct" signature without one.
+            // This condition was always stated in the comment below but never
+            // actually applied, which only went unnoticed while an empty key
+            // still verified.
+            if secret.trim().is_empty() {
+                assert!(
+                    result.is_err(),
+                    "a blank signing secret must never verify: ts={}",
+                    timestamp,
+                );
+            }
             // Only check correctness when secret is non-empty (HMAC accepts
             // empty keys, but let's be precise about what "correct" means).
-            if matches!(input.signature, SignatureVariant::Correct) && timestamp_is_fresh(&timestamp)
+            if matches!(input.signature, SignatureVariant::Correct)
+                && timestamp_is_fresh(&timestamp)
+                && !secret.trim().is_empty()
             {
                 assert!(
                     result.is_ok(),

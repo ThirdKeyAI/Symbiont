@@ -233,33 +233,36 @@ impl SharedBudget {
 }
 
 impl super::SharedBudget {
-    /// Journal a settlement for every reservation still open, so a run that was
-    /// cancelled or timed out mid-inference leaves a terminal record instead of
-    /// a gap. Usage is zero because it is genuinely unknown; what this
-    /// establishes is that the reservation is no longer outstanding, which is
-    /// the difference between a recorded failure and an unresolved run.
-    pub async fn settle_outstanding(&self) {
-        let (audit, open) = {
-            let mut ledger = self.lock();
-            (
-                ledger.audit.clone(),
-                std::mem::take(&mut ledger.outstanding),
-            )
-        };
-        let Some(audit) = audit else { return };
+    /// Record abandoned requests belonging to this timed-out scope. Live
+    /// requests, other scopes and uncertain settlement writes remain untouched.
+    /// Unknown usage keeps its full charge; this does not reconcile provider cost.
+    pub async fn settle_outstanding(&self) -> Result<(), String> {
+        let audit = self.lock().audit.clone();
+        let Some(audit) = audit else { return Ok(()) };
+        let _guard = audit.gate.lock().await;
+        let open: Vec<_> = self
+            .lock()
+            .outstanding
+            .iter()
+            .filter(|open| open.scope == self.scope && open.abandoned && !open.settlement_started)
+            .copied()
+            .collect();
         let root_id = self.lock().root_id;
-        for (id, iteration) in open {
-            let _guard = audit.gate.lock().await;
+        for open in open {
+            self.begin_settlement(open.id)?;
             let event = crate::reasoning::loop_types::LoopEvent::BudgetReservationFinished {
                 root_id,
-                reservation_id: id,
+                reservation_id: open.id,
                 usage: crate::reasoning::inference::Usage::default(),
                 outcome: AccountingOutcome::Unknown,
             };
-            if let Err(error) = audit.record(iteration, event).await {
-                tracing::error!(%error, %id, "outstanding inference reservation could not be settled");
+            if let Err(error) = audit.record(open.iteration, event).await {
+                self.close();
+                return Err(format!("required timeout settlement failed: {error}"));
             }
+            self.forget_outstanding(open.id);
         }
+        Ok(())
     }
 }
 
@@ -272,6 +275,10 @@ impl TokenReservation {
             .clone()
             .ok_or("inference budget journal unavailable")?;
         let _guard = audit.gate.lock().await;
+        if let Err(error) = self.budget.begin_settlement(self.id) {
+            self.budget.close();
+            return Err(error);
+        }
         let root_id = self.budget.lock().root_id;
         let event = LoopEvent::BudgetReservationFinished {
             root_id,

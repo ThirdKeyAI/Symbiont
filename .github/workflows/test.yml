@@ -35,6 +35,10 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - name: Validate release graph and offline release tooling
+        run: |
+          python3 scripts/test-release-tools.py
+          python3 scripts/publish-crates.py
       - run: cargo fmt --check
       # --all-targets so test and bench code is linted too. Without it a
       # warning inside a #[cfg(test)] module merges green and only surfaces

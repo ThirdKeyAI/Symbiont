@@ -1,6 +1,17 @@
 # Guia do REPL do Symbiont
 
-> Esta branch rejeita no registro os campos legados explícitos de `security.tier`, `security.sandbox`, recursos e políticas de execução, pois não consegue aplicá-los por agente. Os builtins suportados usam o isolamento do projeto configurado pelo operador. Blocos vazios e declarações apenas de capacidades mantêm suas verificações. Um módulo rejeitado não substitui agentes nem funções existentes.
+> **Status de execução desta branch:** Os builtins assíncronos preservam a
+> identidade de quem fez a chamada. A ponte congela a raiz do seu projeto, e as
+> chamadas padrão de `reason()`/`tool_call()` exigem journals de execução
+> protegidos e retornam referências públicas de auditoria. Chamadas diretas de
+> inferência também exigem journals; `:audit` lista as referências públicas delas.
+> Declarações de funções e de comportamentos persistem entre entradas, e
+> comportamentos em execução mantêm um snapshot de seus auxiliares. A sintaxe
+> legada do REPL não implementa a seleção canônica de sandbox por agente.
+> Requisitos explícitos não suportados de tier, sandbox, recursos e políticas de
+> execução agora falham no registro. Veja
+> [contexto de invocação do DSL](/dsl-invocation-context) e o
+> [guia da branch](/containment-branch-guide) para a cobertura atual.
 
 ## Outros idiomas
 
@@ -33,24 +44,47 @@ symbi repl --stdio
 
 ### Uso Básico
 
-```rust
-# Definir um agente
-metadata {
-  version = "1.0.0"
-  description = "A simple greeting agent"
-}
+Digite cada declaração em uma única linha:
 
-agent greeter(name: String) -> String {
-  capabilities = ["greet"]
+```text
+agent Greeter {}
+function greet(value: string) { return upper(value) }
+behavior Welcome { steps { return greet(args) } }
+:agents
+:agent start <id>
+:agent execute <id> Welcome hello
+```
 
-  policy safe {
-    allow: read(name) if true
-  }
+Substitua `<id>` pelo UUID impresso para `Greeter`. O último comando retorna
+`HELLO`. Declarar e iniciar não executam o comportamento. Argumentos opcionais de
+comando chegam como uma única string chamada `args`. As definições persistem;
+variáveis locais e argumentos não são levados para a próxima invocação. Um
+registro de módulo malsucedido não substitui definições anteriores. Erros de
+runtime permanecem visíveis e o cliente pode aceitar o próximo comando. Os
+diagnósticos de `print()` vão para o stderr, independentemente da resposta
+estruturada.
 
-  with memory = "ephemeral" {
-    return greet(name);
-  }
-}
+A linguagem canônica `agent name(...) { with ... }` usada por `symbi run` é um
+caminho de parsing separado. Os tiers de segurança e modos de sandbox legados do
+REPL não são as configurações de execução dela. O registro recusa modos legados
+explícitos de tier/sandbox, recursos preenchidos e políticas de execução, antes de
+publicar qualquer definição. Blocos de restrição e listas de capacidades
+duplicados também falham no parsing. Declarações apenas de capacidades mantêm
+suas verificações existentes. Os efeitos de ferramentas usam o limite do projeto e
+o despachante governado; sem um gate permissivo configurado, as requisições de
+ferramentas são negadas. Chamadas diretas de LLM, de composição e de padrões
+exigem um journal assinado para cada chamada ao provedor. Os tipos de resultado
+existentes permanecem inalterados; use `:audit` para as referências públicas. A
+comunicação exige um gate configurado e um destinatário registrado. O `send_to`
+confirma a inicialização durável, enquanto o journal terminal dele registra a
+conclusão posterior. O `race` retorna o primeiro sucesso e cancela as chamadas
+pendentes. Esses controles não estabelecem seleção canônica de fonte nem
+orçamentos agregados de inferência.
+
+Para reproduzir os smoke tests de RPC e de terminal após um build do workspace:
+
+```bash
+python3 scripts/test-repl-session.py --binary target/debug/repl-cli --report /tmp/repl-session.json
 ```
 
 ## Comandos do REPL
@@ -60,6 +94,7 @@ agent greeter(name: String) -> String {
 | Comando | Descrição |
 |---------|-----------|
 | `:agents` | Listar todos os agentes |
+| `:audit` | Listar as referências recentes de auditoria de inferência direta e a contagem de referências omitidas |
 | `:agent list` | Listar todos os agentes |
 | `:agent start <id>` | Iniciar um agente |
 | `:agent stop <id>` | Parar um agente |

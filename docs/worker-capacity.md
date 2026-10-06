@@ -2,8 +2,9 @@
 
 Open **Worker capacity** in the operations console with an administrative bearer
 token. The page reads the running supervisor selected by the runtime project's
-default sandbox profile. It shows one pool shared by all governed worker routes
-using that supervisor directory. Separate directories and hosts are separate
+default sandbox profile. It shows Docker, gVisor, Firecracker and Landlock workers
+registered with that supervisor directory. Landlock requires the
+[delegated worker service](landlock-supervision.md). Separate directories and hosts are separate
 pools; this is not an account-wide or cluster-wide dashboard.
 
 **Refresh capacity** obtains a new timestamped snapshot and clears earlier
@@ -40,6 +41,10 @@ applications inside the guest. The reader checks the recorded host boot identity
 PID and process start time, and refuses exited processes or changed lease records.
 The managed host cgroup path still requires actual privileged deployment validation.
 
+Landlock samples use the retained cgroup identity and report memory bytes and
+cumulative CPU microseconds for the worker and its descendants. The console labels
+these as worker cgroup counters. Empty or removed groups have unavailable usage.
+
 Unknown values are explicit. A legacy lease without resource metadata makes the
 aggregate memory and CPU balances unknown and blocks admission. An unavailable
 sample replaces an earlier sample with **Usage unavailable**. A failed capacity
@@ -48,8 +53,33 @@ Neither error is displayed as an empty pool or zero usage.
 
 The [Run Inspector](run-inspector.md) separately verifies signed historical
 budgets, permissions, parent/child references and outcomes. Capacity responses
-are live administrative observations, not signed audit evidence or per-run
-attribution. A worker lease cannot yet be navigated to its originating run.
+are live administrative observations, not signed audit evidence. Each newly
+attributed worker offers **Inspect originating run**, together with its launching
+tool, iteration, dispatch ID and call fingerprint. The link opens the Inspector,
+which verifies the journal in the current project; another project's journal
+requires that project's runtime. The reference is reported by the trusted runtime
+and retained by the supervisor. It is not an authorization credential or, by
+itself, proof of a signed dispatch. Verify the corresponding `ToolDispatchStarted`
+and policy checkpoint when correlating evidence.
+
+A persistent terminal's origin identifies its initial launch, not every later
+command. Legacy leases and launches outside protected tool dispatch display
+**Originating run unavailable**. Missing attribution does not erase their charge.
+
+## Snapshot storage
+
+The **Staging reservations** section shows snapshot slots, reserved bytes and
+remaining staging capacity. Entries identify active caller/registration holds
+and retained worker references. Select a worker reference to focus its row.
+An active hold is an observation of a lock, not proof of a running process; an
+entry without a worker reference may be in preparation, guest transfer or pending
+cleanup. All retained entries remain charged.
+
+A busy lock, malformed accounting or unsupported state ownership displays
+**Staging capacity unavailable** while preserving a valid worker-capacity snapshot.
+An uninitialized pool shows its configured/default limits without creating files.
+These are application reservations, not measured disk use or a filesystem quota.
+Refreshing does not reap data or return storage. See [staging capacity](staging-capacity.md).
 
 ## API and deployment
 
@@ -62,7 +92,15 @@ GET /api/v1/sandbox/workers/{lease_uuid}/usage
 
 The snapshot contains `observed_at_unix_ms`, `state_dir`, `limits`, `reserved`,
 `available`, `unknown_resource_leases`, `admission_blocked` and `workers`. Each
-worker contains `lease`, `backend`, `phase` and nullable `resources`. CPU
+worker contains `lease`, `backend`, `phase`, nullable `resources` and nullable
+`origin`. An origin contains `agent_id`, `run_id`, `public_key`, `dispatch_id`,
+`call_fingerprint`, `tool_name` and `iteration`.
+
+On Unix, `staging` contains `initialized`, `limits`, `reserved`, `available`,
+`admission_blocked` and `reservations`; each entry contains `id`, `reserved_bytes`,
+`active_hold` and `worker_leases`. Failed staging inspection returns `staging: null`
+and a `staging_error` string in the otherwise successful capacity response.
+A missing error is `null`. CPU
 reservations use `cpu_nanos`: 1,000,000,000 represents one CPU. Memory reservations
 use bytes. Unknown aggregate resource values are JSON `null`.
 
@@ -73,6 +111,7 @@ A measurement contains its `lease`, `observed_at_unix_ms` and `source`:
 | `docker_cli` | `cpu_percent`, `memory_usage` strings |
 | `vmm_process` | `cpu_time_micros`, `memory_bytes` numbers |
 | `vmm_cgroup` | `cpu_time_micros`, `memory_bytes` numbers |
+| `landlock_cgroup` | `cpu_time_micros`, `memory_bytes` numbers, including descendants |
 
 Fields not supplied by that measurement source are `null`. Missing authentication
 receives 401 and scoped keys receive 403. An unavailable, busy, mismatched or
@@ -86,7 +125,8 @@ runtime supervisor request has a six-second timeout. These requests also share
 the supervisor's connection limit with worker controllers, so saturation can make
 inspection unavailable. Do not interpret such a refusal as available capacity.
 
-Runtime and supervisor must have matching implementations. Drain active work
+Runtime and supervisor must both use supervisor protocol 6. This is a separate
+contract from the Firecracker guest protocol, which also currently uses version 5. Drain active work
 before upgrading, retain the durable state directory, and restart the helper with
 the matching build. See [shared admission](shared-budgets.md) for pool configuration.
 
@@ -94,7 +134,9 @@ the matching build. See [shared admission](shared-budgets.md) for pool configura
 
 The Docker shipping fixture checks real reservations and measured usage, useful
 signed output, failed sampling, cleanup failure, supervisor restart and unknown
-legacy metadata. It uses local scripted inference and synthetic credentials:
+legacy metadata. It also correlates retained origins with signed dispatches and
+checks staging charges, read-only inspection and busy/corrupt staging accounting.
+It uses local scripted inference and synthetic credentials:
 
 ```bash
 python3 scripts/test-worker-capacity.py --binary target/debug/symbi --report /tmp/capacity.json

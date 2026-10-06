@@ -8,8 +8,8 @@ Understanding the Symbi runtime system architecture and core components.
 
 ## Overview
 
-For the implemented changes on `fix/containment-boundary`, see the
-[branch operator and architecture guide](containment-branch-guide.md). The branch
+For the implemented containment changes, see the
+[containment operator and architecture guide](containment-branch-guide.md). The runtime
 binds prepared calls through validation, approval, Cedar, required audit and
 single-use dispatch; an independent supervisor owns contained workers. Covered
 CLI, HTTP, scheduler and DSL defaults use protected journals. The principles

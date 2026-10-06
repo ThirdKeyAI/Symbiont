@@ -101,9 +101,8 @@ Verwaltete-CLI-Agenten (Modus B) erkennen diese zusaetzlichen Metadaten-Schluess
 | `system_prompt` | String | Zusaetzlicher System-Prompt, der fuer den Subprozess angehaengt wird |
 | `permission_mode` | String | Optional. Wird als `--permission-mode` durchgereicht. Ohne Angabe entfaellt das Flag, und der Subprozess behaelt seinen eigenen Standard, der weiterhin fuer alles ausserhalb von `allowed_tools` nachfragt. Fuer unbeaufsichtigte Agenten `"dontAsk"` setzen |
 
-Der Start selbst wird einmalig per Policy als `tool_call::claude_code` geprueft, danach unterliegt der Subprozess keiner weiteren Kontrolle — was `allowed_tools` und `permission_mode` ergeben, gilt fuer die gesamte Sitzung. Deshalb ist `allowed_tools` verpflichtend und `permission_mode` opt-in: eine Gate-Entscheidung soll eine begrenzte Sitzung autorisieren, keine unbeschraenkte.
-
-Diese eine Gate-Entscheidung wird aus `policies/managed-cli/` gelesen — **nicht**
+Der Start wird per Policy als `tool_call::claude_code` geprueft, und diese
+Entscheidung wird aus `policies/managed-cli/` gelesen — **nicht**
 aus `policies/run/`. Einen Subprozess zu starten hat einen anderen Wirkungsradius
 als die interne Reasoning-Schleife, daher teilen sich die beiden Surfaces kein
 Policy-Verzeichnis. Ein minimales Permit:
@@ -113,16 +112,27 @@ Policy-Verzeichnis. Ein minimales Permit:
 permit(principal, action == Action::"tool_call::claude_code", resource);
 ```
 
-Da das Gate nicht sehen kann, was der Subprozess danach tut, wird stattdessen
-jeder Lauf protokolliert. Das Kind laeuft mit `--output-format stream-json`, und
-jeder Tool-Aufruf wird waehrend der Ausfuehrung an
-`.symbiont/audit/mode-b-<session>.jsonl` angehaengt — Tool-Name, Argumente, ob
-das Ergebnis fehlerhaft war, sowie ein Abschlusseintrag mit Anzahl der Turns und
-etwaigen Permission-Denials. Die Eintraege werden live geschrieben, nicht erst
-beim Beenden, damit auch ein per Timeout abgebrochener Lauf eine Spur
-hinterlaesst. Werte unter Schluesseln wie `token`, `api_key` oder `password`
-werden redigiert und uebergrosse Argumente gekuerzt, damit das Protokoll
-festhaelt, was das Kind getan hat, ohne zur zweiten Kopie der Nutzdaten zu werden.
+Die Start-Entscheidung ist nicht die einzige Entscheidung. Das Kind laeuft im
+ausgewaehlten Docker-, gVisor- oder Firecracker-Worker mit Scratch-Speicher und
+privaten Inferenz- und Tool-Kanaelen — kein Quellcode-Mount, kein externes
+Netzwerk, kein Login-Zustand des Hosts, keine Host-Credentials. Eingebaute
+CLI-Tools und die automatische Projekt-/Plugin-Erkennung sind deaktiviert, und
+`--plugin-dir` wird abgelehnt. Der Quellcode-Zugriff erfolgt ueber eine Menge
+registrierter ToolClad-Tools, und **jeder Tool-Aufruf des Kindes wird ueber die
+Runtime vermittelt**: vorbereiten und normalisieren, jede zwingend erforderliche
+exakte Genehmigung einholen, Cedar auswerten, den erforderlichen Eintrag vor dem
+Effekt persistieren, dispatchen und anschliessend das Ergebnis festhalten.
+`allowed_tools` benennt eine exakte Teilmenge registrierter Tools;
+Wildcard-Permission-Ausdruecke und eingebaute CLI-Namen werden nicht als
+Registry-Eintraege akzeptiert.
+
+Deshalb ist `allowed_tools` verpflichtend und `permission_mode` opt-in: sie
+begrenzen, worum das Kind *bitten* darf, waehrend die Runtime — nicht das Kind —
+entscheidet, was tatsaechlich geschieht. Jede Managed-CLI-Sitzung behaelt ihr
+eigenes signiertes Journal. Siehe
+[Managed-CLI-Eindaemmung](/managed-cli-containment) fuer Image-, Mount-, Policy-
+und `[managed_cli.inference]`-Konfiguration sowie den
+[kontrollierten Tool-Broker](/governed-tool-broker) fuer den Vermittlungsvertrag.
 
 
 ---

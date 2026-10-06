@@ -2,9 +2,12 @@
 //! The control socket and lease store belong to the operator, outside workers.
 
 pub mod admission;
+#[cfg(target_os = "linux")]
+pub mod delegated;
 #[cfg(unix)]
 pub mod host;
 pub mod inspection;
+pub mod origin;
 pub mod protocol;
 #[cfg(unix)]
 pub mod service;
@@ -27,6 +30,13 @@ pub async fn run(arguments: &[String]) -> anyhow::Result<()> {
     if arguments.len() == 2 && arguments[0] == "--host-profile" {
         let profile = host::HostProfile::load(std::path::Path::new(&arguments[1]))?;
         return service::serve_host(profile).await;
+    }
+    #[cfg(target_os = "linux")]
+    if arguments.len() == 3
+        && arguments[0] == "--state-dir"
+        && arguments[2] == "--delegated-workers"
+    {
+        return service::serve_delegated(std::path::Path::new(&arguments[1])).await;
     }
     let persistent = arguments.len() == 3 && arguments[2] == "--persistent";
     if (arguments.len() != 2 && !persistent) || arguments[0] != "--state-dir" {

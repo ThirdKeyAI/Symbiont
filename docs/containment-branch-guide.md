@@ -1,12 +1,12 @@
-# Containment branch: operator guide
+# Containment: operator guide
 
-This guide describes `fix/containment-boundary` relative to `main`, through the
-runtime changes in `0b30552`. These are branch behaviors, not a claim about a
-published release. Complete containment across all entry points remains unfinished.
+This guide describes the containment behavior shipped in 1.21.0, relative to
+1.20.0. Complete containment across all entry points remains unfinished; the
+coverage tables below state which surfaces are contained today.
 
 ## What changes for users
 
-| Surface | Earlier behavior | Behavior on this branch |
+| Surface | Behavior before 1.21.0 | Current behavior |
 |---|---|---|
 | Ordinary CLI tools | Some command, parser, MCP and terminal paths could execute on the host. | Selected Docker/gVisor workers run commands, parsers, MCP and PTY tools. Missing images, invalid configuration and unavailable backends fail explicitly. |
 | Managed CLI | The child could use host credentials, source access, native tools and plugin discovery. | The child gets scratch storage and private inference/tool channels. Registered tools provide allowed source access; credentials and decisions stay in the runtime. |
@@ -219,9 +219,34 @@ configuration and cleanup-aware release.
 The operations console now includes **Worker capacity** alongside **Run Inspector**.
 Refresh it to see the selected supervisor pool's reservations, remaining capacity
 and retained leases. Sample a worker for separately timestamped CPU/memory usage.
+Retained worker references now link to their originating signed run in the
+Inspector. Snapshot storage has separate reservation totals and worker links;
+busy or invalid staging accounting remains unavailable without discarding valid
+worker totals. Governed Landlock workers now appear in the same pool, with
+separately sampled cgroup usage including descendants.
+
+Landlock now requires ABI 6 and a native x86_64/aarch64 syscall filter. Its default
+blocks new network and host Unix sockets, outside-domain signals, `io_uring` and
+extra inherited descriptors. Private Unix stream pairs and stdio remain usable.
+Existing ABI-4/5 hosts fail closed. Explicit `require_network = false` permits IP
+networking while retaining host Unix socket restrictions. Audit records describe the
+effective requirements and resource reservations. Landlock now requires an
+externally managed delegated service, which owns whole-cgroup cleanup even after
+runtime or supervisor failure. Missing delegation fails closed. See
+[native worker setup and migration](landlock-supervision.md).
+
+Rules remain bound to the original filesystem objects if a root is replaced. A
+missing declared root produces a preparation error. See
+[Landlock coverage and limits](security-model.md#landlock-daemon-free).
 Missing service or measurement data produces an explicit unavailable state;
 unknown charges never appear as zero. See [worker capacity](worker-capacity.md)
 for units, authentication, backend scope and upgrade instructions.
+
+Fleet Overview now displays **Not sampled** for per-agent CPU and memory when
+the scheduler has no measurements. The agent status API returns `null` for
+those fields; clients must preserve this distinction from a measured zero.
+The task count still reports active tasks owned by the scheduler. Worker capacity
+continues to provide separate, timestamped worker measurements and reservations.
 
 Registering an agent stores configuration without executing it. API execution
 returns a distinct queued invocation ID; manual and timer triggers share governed
@@ -245,7 +270,7 @@ and helpers. See
 
 ## Architecture and remaining boundaries
 
-The branch retains ORGA, ToolClad, Cedar, SchemaPin and AgentPin. It adds an
+Symbiont retains ORGA, ToolClad, Cedar, SchemaPin and AgentPin. 1.21.0 adds an
 immutable prepared call binding the validated arguments, principal, contract,
 selected sandbox, context and deadline through approval, required audit and
 single-use dispatch. MCP discovery, signature verification and invocation share

@@ -8,6 +8,23 @@ mod mcp_server;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn main() {
+    #[cfg(target_os = "linux")]
+    if std::env::args_os().nth(1).as_deref()
+        == Some(std::ffi::OsStr::new(
+            symbi_runtime::sandbox::landlock::workspace::INTERNAL_COMMAND,
+        ))
+    {
+        let arguments: Vec<_> = std::env::args_os().skip(2).collect();
+        let result = if arguments.len() == 1 {
+            symbi_runtime::sandbox::landlock::workspace::run(std::path::Path::new(&arguments[0]))
+        } else {
+            Err(anyhow::anyhow!("expected one native launch contract"))
+        };
+        if let Err(error) = result {
+            eprintln!("native workspace setup failed: {error:#}");
+        }
+        std::process::exit(125);
+    }
     if std::env::args_os().nth(1).as_deref()
         == Some(std::ffi::OsStr::new(
             symbi_runtime::sandbox::supervisor::INTERNAL_COMMAND,
@@ -37,15 +54,51 @@ fn main() {
     app_main();
 }
 
+/// Locate a `.env` without letting the search escape the project.
+///
+/// `dotenvy::dotenv()` walks to the filesystem root, so running symbi anywhere
+/// picks up the nearest ancestor `.env` -- potentially one belonging to an
+/// unrelated tree, silently supplying credentials the caller never chose. Bound
+/// the search the way the runtime bounds everything else: to the project, named
+/// by the `symbiont.toml` that `symbi init` writes. With no project above the
+/// current directory, only that directory is considered.
+fn project_env_file() -> Option<std::path::PathBuf> {
+    let cwd = std::env::current_dir().ok()?;
+    let root = cwd
+        .ancestors()
+        .find(|dir| dir.join("symbiont.toml").is_file());
+    let mut search: Vec<&std::path::Path> = Vec::new();
+    match root {
+        Some(root) => {
+            for dir in cwd.ancestors() {
+                search.push(dir);
+                if dir == root {
+                    break;
+                }
+            }
+        }
+        None => search.push(cwd.as_path()),
+    }
+    search.into_iter().find_map(|dir| {
+        let candidate = dir.join(".env");
+        candidate.is_file().then_some(candidate)
+    })
+}
+
 #[tokio::main]
 async fn app_main() {
     // Load a project-local `.env` (e.g. the one `symbi init` generates with
     // SYMBIONT_MASTER_KEY) before anything reads the environment. Variables
-    // already set in the real environment take precedence — dotenvy never
-    // overrides them — so this is additive and safe. We announce it on stderr
-    // rather than loading secrets silently.
-    if let Ok(path) = dotenvy::dotenv() {
-        eprintln!("Loaded environment from {}", path.display());
+    // already set in the real environment take precedence -- from_path never
+    // overrides them -- so this is additive. We announce it on stderr rather
+    // than loading secrets silently.
+    if let Some(path) = project_env_file() {
+        match dotenvy::from_path(&path) {
+            Ok(()) => eprintln!("Loaded environment from {}", path.display()),
+            Err(error) => {
+                eprintln!("Ignored unreadable {}: {error}", path.display());
+            }
+        }
     }
 
     let matches = Command::new("symbi")
@@ -225,6 +278,7 @@ async fn app_main() {
                         .help("Expected invocation ID retained through a trusted channel"))),
         )
         .subcommand(commands::invocation::command())
+        .subcommand(commands::improvement::command())
         .subcommand(
             Command::new("logs")
                 .about("Show runtime logs")
@@ -276,7 +330,12 @@ async fn app_main() {
                 .display_order(0)
                 .arg(Arg::new("profile").long("profile").value_name("PROFILE").help("Project profile (minimal, assistant, dev-agent, multi-agent)"))
                 .arg(Arg::new("schemapin").long("schemapin").value_name("MODE").help("SchemaPin verification mode (tofu, strict, disabled)").default_value("tofu"))
-                .arg(Arg::new("sandbox").long("sandbox").value_name("TIER").help("Sandbox isolation tier: tier0 (none, dev only), tier1 (Docker), tier2 (gVisor), tier3 (Firecracker)").default_value("tier1"))
+                .arg(Arg::new("sandbox").long("sandbox").value_name("TIER").help("Sandbox isolation: landlock (Linux ABI 6+, systemd user delegation), tier0 (none, dev only), tier1 (Docker), tier2 (gVisor), tier3 (Firecracker)").default_value("tier1"))
+                .arg(Arg::new("source").long("source").value_name("PATH").help("Repository to grant read-only access (--profile dev-agent --sandbox landlock; separate from --dir)"))
+                .arg(Arg::new("managed-executable").long("managed-executable").value_name("PATH").help("Installed Claude Code executable for the Landlock dev-agent profile"))
+                .arg(Arg::new("inference-url").long("inference-url").value_name("URL").help("Explicit Anthropic Messages-compatible base URL for the Landlock dev-agent profile"))
+                .arg(Arg::new("inference-model").long("inference-model").value_name("MODEL").help("Model served by the managed inference endpoint"))
+                .arg(Arg::new("inference-key-env").long("inference-key-env").value_name("NAME").help("Host credential variable name, never its value, for managed inference"))
                 .arg(Arg::new("firecracker-kernel").long("firecracker-kernel").value_name("PATH").help("Path to a Firecracker-bootable vmlinux ELF (required when --sandbox=tier3). See docs/firecracker-setup.md."))
                 .arg(Arg::new("firecracker-rootfs").long("firecracker-rootfs").value_name("PATH").help("Path to a Firecracker root filesystem image (ext4) implementing the in-VM init contract (required when --sandbox=tier3). See docs/firecracker-setup.md."))
                 .arg(Arg::new("dir").long("dir").value_name("PATH").help("Target directory (default: current directory; useful inside Docker with -v $(pwd):/workspace --dir /workspace)"))
@@ -293,6 +352,10 @@ async fn app_main() {
         .subcommand(
             Command::new("run")
                 .about("Run a single agent and exit")
+                .arg(Arg::new("improvement").long("improvement").value_name("WORKFLOW")
+                    .help("Explicitly select an enabled, approved workflow instruction version"))
+                .arg(Arg::new("improvement-trial").long("improvement-trial").value_name("SHA256")
+                    .requires("improvement").help("Explicit evaluation run of this unpromoted candidate; normal execution controls still apply"))
                 .arg(
                     Arg::new("approval-terminal")
                         .long("approval-terminal")
@@ -840,6 +903,7 @@ async fn app_main() {
             commands::audit::run(sub_matches);
         }
         Some(("invocation", sub_matches)) => commands::invocation::run(sub_matches).await,
+        Some(("improvement", sub_matches)) => commands::improvement::run(sub_matches),
         Some(("logs", sub_matches)) => {
             commands::logs::run(sub_matches).await;
         }

@@ -9,8 +9,8 @@ export interface AgentSummary {
 }
 
 export interface ResourceUsage {
-  memory_bytes: number;
-  cpu_percent: number;
+  memory_bytes: number | null;
+  cpu_percent: number | null;
   active_tasks: number;
 }
 

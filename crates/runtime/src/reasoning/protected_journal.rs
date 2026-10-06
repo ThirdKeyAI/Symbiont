@@ -398,7 +398,7 @@ pub(crate) fn private_directory(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub(super) fn load_key(parent: &Path) -> Result<SigningKey, String> {
+pub(crate) fn load_key(parent: &Path) -> Result<SigningKey, String> {
     let path = parent.join("audit-signing.key");
     if !path.try_exists().map_err(|e| e.to_string())? {
         let mut bytes = Zeroizing::new([0u8; 32]);

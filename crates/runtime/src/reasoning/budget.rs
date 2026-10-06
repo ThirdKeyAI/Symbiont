@@ -62,11 +62,18 @@ struct Ledger {
     root_id: uuid::Uuid,
     scopes: Vec<Scope>,
     audit: Option<Arc<journal::BudgetJournal>>,
-    /// Reservations journalled as started but not yet settled, with the
-    /// iteration that opened them. A run cancelled or timed out mid-inference
-    /// drops the future holding its reservation, and a dropped future cannot
-    /// await settlement, so the loop settles these from outside.
-    outstanding: Vec<(uuid::Uuid, u32)>,
+    outstanding: Vec<OutstandingReservation>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct OutstandingReservation {
+    id: uuid::Uuid,
+    scope: usize,
+    iteration: u32,
+    abandoned: bool,
+    // An interrupted append may still become durable. Never append a second
+    // finish merely because its caller did not observe the first write return.
+    settlement_started: bool,
 }
 
 /// An unforgeable in-process reference to one scope in a shared ledger.
@@ -79,11 +86,31 @@ pub struct SharedBudget {
 
 impl SharedBudget {
     pub(crate) fn track_outstanding(&self, id: uuid::Uuid, iteration: u32) {
-        self.lock().outstanding.push((id, iteration));
+        self.lock().outstanding.push(OutstandingReservation {
+            id,
+            scope: self.scope,
+            iteration,
+            abandoned: false,
+            settlement_started: false,
+        });
     }
 
     pub(crate) fn forget_outstanding(&self, id: uuid::Uuid) {
-        self.lock().outstanding.retain(|(open, _)| *open != id);
+        self.lock().outstanding.retain(|open| open.id != id);
+    }
+
+    fn begin_settlement(&self, id: uuid::Uuid) -> Result<(), String> {
+        let mut ledger = self.lock();
+        let open = ledger
+            .outstanding
+            .iter_mut()
+            .find(|open| open.id == id && open.scope == self.scope)
+            .ok_or("inference reservation is not outstanding in this scope")?;
+        if open.settlement_started {
+            return Err("inference settlement was already attempted".into());
+        }
+        open.settlement_started = true;
+        Ok(())
     }
 
     pub fn new(limit: u32) -> Self {
@@ -281,6 +308,13 @@ impl Drop for TokenReservation {
             if self.dispatched {
                 scope.uncertain = scope.uncertain.saturating_add(self.amount);
             }
+        }
+        if let Some(open) = ledger
+            .outstanding
+            .iter_mut()
+            .find(|open| open.id == self.id)
+        {
+            open.abandoned = true;
         }
     }
 }

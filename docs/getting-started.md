@@ -1,6 +1,6 @@
 # Getting Started
 
-> On `fix/containment-boundary`, start with the [branch operator guide](containment-branch-guide.md) for execution prerequisites, approval changes and current coverage.
+> Running agents under containment? Start with the [containment operator guide](containment-branch-guide.md) for execution prerequisites, approval changes and current coverage.
 
 This guide will walk you through setting up Symbi and creating your first AI agent.
 
@@ -186,7 +186,14 @@ symbi init
 This launches an interactive wizard that guides you through:
 - **Profile selection**: `minimal`, `assistant`, `dev-agent`, or `multi-agent`
 - **SchemaPin mode**: `tofu` (Trust-On-First-Use), `strict`, or `disabled`
-- **Sandbox tier**: `tier0` (none, dev only), `tier1` (Docker), `tier2` (gVisor / `runsc`), or `tier3` (Firecracker microVM)
+- **Sandbox tier**: `landlock` (native Linux), `tier0` (none, dev only), `tier1` (Docker), `tier2` (gVisor / `runsc`), or `tier3` (Firecracker microVM)
+
+With `--sandbox landlock --profile dev-agent`, the wizard also asks for the source
+repository, installed Claude Code executable, Messages-compatible inference URL,
+model and credential environment variable name. It generates a read-only review
+setup in a separate, empty control directory. Noninteractive callers must supply
+`--source`, `--managed-executable`, `--inference-url`, `--inference-model` and
+`--inference-key-env`. See [Linux developer onboarding](landlock-development.md).
 
 ### What `init` produces
 
@@ -202,7 +209,7 @@ Every run writes:
 | `.gitignore` | Appended with Symbiont-specific entries, including `.env` |
 | `.env` | `SYMBIONT_MASTER_KEY` generated from `/dev/urandom` (0600 perms) |
 | `.env.example` | Safe-to-commit template showing required env vars |
-| `docker-compose.yml` | Ready-to-run compose file with correct volume mounts and env wiring |
+| `docker-compose.yml` | Compose file with volume mounts and env wiring; omitted for Landlock |
 
 Pass `--no-docker-compose` to skip the compose file, and `--dir <PATH>` to write into a directory other than the current one (essential inside a Docker container — see below).
 
@@ -231,12 +238,13 @@ That populates the host's current directory with the full project tree.
 |---------|----------------|
 | `minimal` | `symbiont.toml` + default Cedar policy |
 | `assistant` | + single governed assistant agent |
-| `dev-agent` | + CliExecutor agent with safety policies |
+| `dev-agent` | + managed CLI agent; Landlock adds configured read/list/search tools, scoped policies and `DEVELOPMENT.md` |
 | `multi-agent` | + coordinator/worker agents with inter-agent policies |
 
 ### Importing from the catalog
 
-Import pre-built agents alongside any profile:
+Import pre-built agents alongside general profiles (the read-only Landlock
+development initializer does not combine catalog imports):
 
 ```bash
 symbi init --profile minimal --no-interact

@@ -64,7 +64,7 @@ println!("Iterations: {}", result.iterations);
 println!("Tokens used: {}", result.total_usage.total_tokens);
 ```
 
-每次调用都应创建新的受保护日志，并使用相同的代理 ID 执行。缺少 `.journal(...)` 时，构建器会在推理前拒绝执行。显式指定的 `BufferedJournal` 可用于测试和展示，但不提供持久审计证据。
+此示例只允许文本响应，不公开任何工具。执行工具需要一个带有所选边界的执行器以及相应的策略门控。每次调用都应打开新的受保护存储，并保留其运行 ID、路径和公钥。构建器中省略日志会导致在推理前失败。显式注入 `BufferedJournal` 仍然可用于受控测试和展示，但它不是持久的审计证据。参见[受保护运行审计](/run-audit)。
 
 ### 使用工具定义
 

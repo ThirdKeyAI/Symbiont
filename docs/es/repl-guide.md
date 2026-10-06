@@ -1,6 +1,17 @@
 # Guia del REPL de Symbiont
 
-> Esta rama rechaza durante el registro los campos heredados explícitos de `security.tier`, `security.sandbox`, recursos y políticas de ejecución, porque no puede aplicarlos por agente. Los builtins admitidos usan el aislamiento configurado por el operador para el proyecto. Los bloques vacíos y las declaraciones solo de capacidades conservan sus comprobaciones. Un módulo rechazado no reemplaza agentes ni funciones existentes.
+> **Estado de ejecucion de la rama:** Los builtins asincronos conservan la identidad
+> de quien los invoca. El puente congela su raiz de proyecto, y las llamadas
+> predeterminadas a `reason()` / `tool_call()` requieren diarios de ejecucion
+> protegidos y devuelven referencias publicas de auditoria. Las llamadas directas de
+> inferencia tambien requieren diarios; `:audit` lista sus referencias publicas. Las
+> declaraciones de funciones y de comportamientos persisten entre entradas, y los
+> comportamientos en ejecucion conservan una instantanea de sus auxiliares. La
+> sintaxis heredada del REPL no implementa la seleccion canonica de sandbox por
+> agente. Los requisitos explicitos de tier, sandbox, recursos y politicas de
+> ejecucion que no estan soportados ahora hacen fallar el registro. Consulta el
+> [contexto de invocacion del DSL](/dsl-invocation-context) y la
+> [guia de la rama](/containment-branch-guide) para conocer la cobertura actual.
 
 ## Otros idiomas
 
@@ -33,24 +44,49 @@ symbi repl --stdio
 
 ### Uso Basico
 
-```rust
-# Define an agent
-metadata {
-  version = "1.0.0"
-  description = "A simple greeting agent"
-}
+Introduce cada declaracion en una sola linea:
 
-agent greeter(name: String) -> String {
-  capabilities = ["greet"]
+```text
+agent Greeter {}
+function greet(value: string) { return upper(value) }
+behavior Welcome { steps { return greet(args) } }
+:agents
+:agent start <id>
+:agent execute <id> Welcome hello
+```
 
-  policy safe {
-    allow: read(name) if true
-  }
+Sustituye `<id>` por el UUID impreso para `Greeter`. El ultimo comando devuelve
+`HELLO`. La declaracion y el arranque no ejecutan el comportamiento. Los
+argumentos opcionales del comando llegan como una sola cadena llamada `args`. Las
+definiciones persisten; las variables locales y los argumentos no pasan a la
+siguiente invocacion. Un registro de modulo fallido no reemplaza las definiciones
+anteriores. Los errores de ejecucion siguen siendo visibles y el cliente puede
+aceptar el siguiente comando. Los diagnosticos de `print()` van a stderr con
+independencia de la respuesta estructurada.
 
-  with memory = "ephemeral" {
-    return greet(name);
-  }
-}
+El lenguaje canonico `agent name(...) { with ... }` que usa `symbi run` es una
+ruta de analisis distinta. Los niveles de seguridad y los modos de sandbox
+heredados del REPL no son su configuracion de ejecucion. El registro rechaza los
+modos explicitos heredados de tier/sandbox, los recursos con contenido y las
+politicas de ejecucion antes de publicar cualquier definicion. Los bloques de
+restricciones duplicados y las listas de capacidades duplicadas tambien fallan al
+analizarse. Las declaraciones solo de capacidades conservan sus comprobaciones
+existentes. Los efectos de las herramientas usan el limite del proyecto y el
+despachador gobernado; sin una puerta configurada que lo permita, las peticiones
+de herramientas se deniegan. Las llamadas directas al LLM, las de composicion y
+las de patrones requieren un diario firmado para cada llamada al proveedor. Sus
+tipos de resultado existentes no cambian; usa `:audit` para las referencias
+publicas. La comunicacion requiere una puerta configurada y un destinatario
+registrado. `send_to` confirma un arranque duradero, mientras que su diario
+terminal registra la finalizacion posterior. `race` devuelve el primer exito y
+cancela las llamadas pendientes. Estos controles no establecen la seleccion
+canonica de fuentes ni presupuestos agregados de inferencia.
+
+Para reproducir las pruebas de humo de RPC y de terminal despues de compilar el
+workspace:
+
+```bash
+python3 scripts/test-repl-session.py --binary target/debug/repl-cli --report /tmp/repl-session.json
 ```
 
 ## Comandos del REPL
@@ -60,6 +96,7 @@ agent greeter(name: String) -> String {
 | Comando | Descripcion |
 |---------|-------------|
 | `:agents` | Listar todos los agentes |
+| `:audit` | Listar las referencias de auditoria recientes de inferencia directa y el numero de referencias omitidas |
 | `:agent list` | Listar todos los agentes |
 | `:agent start <id>` | Iniciar un agente |
 | `:agent stop <id>` | Detener un agente |

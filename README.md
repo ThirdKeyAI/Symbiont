@@ -24,10 +24,10 @@
 
 Symbiont is a Rust-native runtime for executing AI agents and tools under explicit policy, identity, and audit controls.
 
-> **Containment branch:** See the [operator guide](docs/containment-branch-guide.md)
-> for the CLI, TUI, chat, audit and scheduling changes on `fix/containment-boundary`.
+> **Containment:** See the [operator guide](docs/containment-branch-guide.md)
+> for the CLI, TUI, chat, audit and scheduling changes in 1.21.0.
 > It includes migration steps and the remaining gaps; full containment across all
-> entry points is not established. These changes are not a published-release claim.
+> entry points is not established.
 
 Most agent frameworks focus on orchestration. Symbiont focuses on what happens when agents need to run in real environments with real risk: untrusted tools, sensitive data, approval boundaries, audit requirements, and repeatable enforcement.
 
@@ -49,6 +49,13 @@ Once an agent can call tools, access files, send messages, or invoke external se
 
 Symbiont is built for that layer.
 
+Optional [governed improvements](docs/governed-improvements.md) let operators
+evaluate versioned workflow instructions against signed trial evidence, approve
+an exact candidate and pin it for explicitly selected runs. Existing agents do
+not opt in automatically. The OSS lifecycle includes offline evaluation, rollback
+and independently verifiable exports; organization-wide release management is
+separate from these runtime controls.
+
 ### Open Agent Trust Stack (OATS) — reference implementation
 
 Symbiont is the **reference implementation of the [Open Agent Trust Stack (OATS)](https://openagenttruststack.org)** — an open specification (CC BY 4.0) for securing AI agent execution through structural enforcement rather than post-hoc interception ("define what is permitted and make everything else structurally inexpressible"). The OATS spec is grounded in Symbiont's production operational experience and Symbiont's design tracks the OATS layers directly:
@@ -66,6 +73,31 @@ Symbiont conforms to **OATS Extended** (C1–C7 + E1–E8). The empirical compar
 ---
 
 ## Quick start
+
+### Linux Landlock setup
+
+For native isolation on a supported Linux desktop, start with:
+
+```sh
+symbi init --sandbox landlock --profile assistant --dir my-agent
+cd my-agent
+symbi doctor
+```
+
+This path needs Landlock ABI 6+ and a systemd user manager with cgroup v2
+CPU/memory/PID delegation and `DelegateSubgroup` support. It automatically starts
+supervision and checks a restricted worker's execution and cleanup, without
+Docker or a manually installed service unit. See the
+[Landlock supervision guide](docs/landlock-supervision.md) and [governed Linux development](docs/landlock-development.md) for configuration and the current
+supported execution routes.
+
+For guided read-only repository review with an installed Claude Code, use
+`symbi init --sandbox landlock --profile dev-agent --dir review-control`. It asks
+for a separate source repository, executable and Messages-compatible inference
+settings, then generates the read/list/search tools and their policies. Follow
+the printed `doctor` and review commands. See the
+[developer onboarding guide](docs/landlock-development.md#create-the-control-project)
+for noninteractive flags and prerequisites.
 
 ### See the policy gate deny a tool — one command, no setup
 

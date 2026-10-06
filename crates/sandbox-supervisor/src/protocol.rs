@@ -5,7 +5,7 @@ use std::{
 };
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
 
-pub const VERSION: u32 = 4;
+pub const VERSION: u32 = 7;
 pub const IMPLEMENTATION: &str = env!("SYMBI_SUPERVISOR_IMPLEMENTATION");
 pub const MAX_FRAME: usize = 1024 * 1024;
 pub const MAX_ENVIRONMENT: usize = 64 * 1024;
@@ -29,6 +29,7 @@ pub struct Create {
     pub startup_ms: u64,
     pub resources: crate::admission::WorkerResources,
     pub staging: Vec<uuid::Uuid>,
+    pub origin: Option<crate::origin::WorkerOrigin>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -45,6 +46,7 @@ pub enum Request {
     },
     Create(Box<Create>),
     CreateVm(Box<CreateVm>),
+    CreateHost(Box<CreateHost>),
     Close {},
 }
 
@@ -61,6 +63,7 @@ pub enum Reply {
         version: u32,
         implementation: String,
         jailed_vms: bool,
+        delegated_workers: bool,
     },
     Registered {
         lease: uuid::Uuid,
@@ -71,6 +74,9 @@ pub enum Reply {
     VmCreated {
         pid: u32,
         vsock_path: PathBuf,
+    },
+    HostCreated {
+        cgroup: CgroupIdentity,
     },
     Closed {},
     /// Before Registered, this explicitly proves this request started no
@@ -96,9 +102,13 @@ pub struct CreateVm {
     pub memory_mib: u32,
     pub lifetime_ms: u64,
     pub startup_ms: u64,
+    pub origin: Option<crate::origin::WorkerOrigin>,
 }
 impl CreateVm {
     pub fn validate(&self) -> anyhow::Result<()> {
+        if let Some(origin) = &self.origin {
+            origin.validate()?;
+        }
         if self.version != VERSION || self.implementation != IMPLEMENTATION {
             anyhow::bail!("unsupported VM supervisor protocol or implementation");
         }
@@ -181,6 +191,9 @@ pub fn validate_daemon_environment(environment: &HashMap<String, String>) -> any
 
 impl Create {
     pub fn validate(&self) -> anyhow::Result<()> {
+        if let Some(origin) = &self.origin {
+            origin.validate()?;
+        }
         self.resources.validate()?;
         validate_staging_ids(&self.staging)?;
         if self.version != VERSION || self.implementation != IMPLEMENTATION {
@@ -345,6 +358,7 @@ mod tests {
         let lease = uuid::Uuid::new_v4();
         let name = format!("symbi-{lease}");
         let valid = Create {
+            origin: None,
             staging: Vec::new(),
             version: VERSION,
             implementation: IMPLEMENTATION.into(),
@@ -376,5 +390,69 @@ mod tests {
         let mut changed = valid;
         changed.startup_ms = changed.lifetime_ms + 1;
         assert!(changed.validate().is_err());
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CgroupIdentity {
+    pub path: PathBuf,
+    pub boot_id: String,
+    pub device: u64,
+    pub inode: u64,
+}
+impl CgroupIdentity {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.path.starts_with("/sys/fs/cgroup")
+                && self.path != Path::new("/sys/fs/cgroup")
+                && self.path.components().all(|c| matches!(
+                    c,
+                    std::path::Component::RootDir | std::path::Component::Normal(_)
+                ))
+                && self.inode > 0
+                && uuid::Uuid::parse_str(&self.boot_id).is_ok(),
+            "invalid delegated cgroup identity"
+        );
+        Ok(())
+    }
+}
+
+/// A resource lease only. Executable paths and payloads stay in the runtime.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CreateHost {
+    pub version: u32,
+    pub implementation: String,
+    pub lease: uuid::Uuid,
+    pub resources: crate::admission::WorkerResources,
+    pub pids_limit: u32,
+    pub lifetime_ms: u64,
+    pub startup_ms: u64,
+    pub origin: Option<crate::origin::WorkerOrigin>,
+    #[serde(default)]
+    pub staging: Vec<uuid::Uuid>,
+}
+impl CreateHost {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        validate_staging_ids(&self.staging)?;
+        if let Some(origin) = &self.origin {
+            origin.validate()?;
+        }
+        self.resources.validate()?;
+        anyhow::ensure!(
+            self.version == VERSION && self.implementation == IMPLEMENTATION,
+            "unsupported delegated worker protocol or implementation"
+        );
+        anyhow::ensure!(
+            (10_000_000..=1_024_000_000_000).contains(&self.resources.cpu_nanos)
+                && self.resources.cpu_nanos.is_multiple_of(10_000)
+                && (1..=4096).contains(&self.pids_limit)
+                && (1..=86_400_000).contains(&self.lifetime_ms)
+                && self.startup_ms > 0
+                && self.startup_ms <= self.lifetime_ms,
+            "invalid delegated worker resources or lifetime"
+        );
+        Ok(())
     }
 }

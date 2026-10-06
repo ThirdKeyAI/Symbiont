@@ -44,7 +44,7 @@ usage consumes the reserved allowance instead of silently refunding it.
 
 ## Worker capacity
 
-Docker, gVisor and Firecracker launches reserve one worker slot plus their
+Docker, gVisor, Firecracker and governed Landlock launches reserve one worker slot plus their
 configured memory and CPU allowance in the independent sandbox supervisor.
 HTTP, scheduler, CLI and other governed worker routes using the same supervisor
 state directory draw from this common pool, in addition to existing route caps.
@@ -52,7 +52,10 @@ Reservation and durable registration happen under one lock before worker creatio
 Exhausted capacity returns `shared worker capacity exhausted`; admission has no
 waiting queue. Inference needed to select a tool can already have occurred before
 its worker is refused. This gate does not limit concurrent provider requests or
-native HTTP tool calls that do not launch workers.
+native HTTP tool calls that do not launch workers. Landlock MCP and low-level SDK
+CLI launches require an externally managed delegated service and share this pool.
+Their cgroups enforce CPU, memory and PID limits and retain capacity until whole
+cgroup removal. See [native worker supervision](landlock-supervision.md).
 
 The private state directory contains `admission.conf`, a JSON configuration read
 when the supervisor starts. If absent, it is created with these defaults:

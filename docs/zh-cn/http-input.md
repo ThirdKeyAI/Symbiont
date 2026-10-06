@@ -4,6 +4,14 @@ HTTP 输入模块提供了一个 webhook 服务器，允许外部系统通过 HT
 
 ## 概述
 
+在此分支上，每个 HTTP 推理请求都会独立执行，即使其注册的智能体已经处于活跃状态
+也是如此。已注册的源码和安全层级会在推理之前确定一个被冻结的工具执行器。CPU、
+内存和执行时间限制会约束该次调用。受治理的工作进程还会与使用同一私有状态目录的
+调度器和 CLI 启动共享监督进程所配置的 CPU、内存和工作进程池；参见
+[共享预算](/shared-budgets)。成功的响应包含带有 `run_id`、`path` 和 `public_key`
+的 `audit` 字段。必需的存储写入失败会阻止后续作用，被丢弃的请求仍保留清理责任。
+参见[运行审计](/run-audit)和[分支指南](/containment-branch-guide)。
+
 HTTP 输入模块包含：
 
 - **HTTP 服务器**：基于 Axum 的 Web 服务器，监听传入的 HTTP 请求
@@ -12,7 +20,7 @@ HTTP 输入模块包含：
 - **响应控制**：可配置的响应格式和状态码
 - **安全功能**：CORS 支持、请求大小限制和审计日志记录
 - **并发管理**：内置请求速率限制和并发控制
-- **使用 ToolClad 的 LLM 调用**：当目标智能体未在运行时通信总线上活跃运行时，webhook 可通过已配置的 LLM 提供商按需调用智能体，使用由 ToolClad 清单支撑的 ORGA 风格工具调用循环
+- **使用 ToolClad 的 LLM 调用**：每个请求都会通过已配置的 LLM 提供商和受治理的 ORGA 工具调用循环，独立地调用已注册的智能体，即使另一次调用正在进行中也是如此
 
 该模块通过 `http-input` 功能标志进行条件编译，并与 Symbiont 智能体运行时无缝集成。
 
@@ -131,11 +139,15 @@ let config = HttpInputConfig {
 };
 ```
 
-JWT 验证器从指定的 PEM 文件加载 Ed25519 公钥，并验证传入的 `Authorization: Bearer <jwt>` 令牌。
+密钥加载器接受 Ed25519 PEM 或原始公钥字节，用于 EdDSA 验证。JWT 必须带有有效的
+`exp` 和非空的 `sub`（最多 512 字节）。过期校验允许五秒的时钟偏差。若提供了
+`iss`，则它必须非空且不超过 2,048 字节。使用相同的签名 subject、issuer 和已配置
+的密钥续签令牌，可以保持其调用方身份不变。
 
-**算法白名单（v1.13.0 审计之后）：** 非对称 Bearer 令牌路径仅接受 **ES256** 与 **EdDSA**。HMAC webhook 签名路径（用于 Slack、Mattermost、GitHub 等）仅接受 **HS256**。RSA 系列算法（`RS256`、`RS384`、`RS512`、`PS256`、`PS384`、`PS512`）以及符号 `none` 算法在头部检查守卫和 `Validation::algorithms` 白名单两处都会被拒绝。这在运维方可控的所有路径上中和了 `rsa` crate 的时序攻击建议（RUSTSEC-2023-0071）。参见 `SECURITY_AUDIT.md` C4。（Microsoft Teams 适配器仍使用 RS256，因为 Bot Framework 要求如此；该表面被限定在由 MS 签名的令牌内。）
-
-**强制要求 audience：** `SYMBIONT_ALLOW_NO_JWT_AUDIENCE` 环境变量逃生通道已在 v1.13.0 审计之后被移除。每个 JWT 验证器都要求显式的 `aud` 配置；不匹配 audience 的令牌会被拒绝。
+此 HTTP 输入验证器**不**强制 audience 或 issuer 白名单。已配置的密钥就是其信任
+权威；请为该权威使用一个专用密钥。签名中的 issuer 会参与构成重试身份，但并不
+构成 issuer 白名单。即使已配置 webhook 签名验证，仍然需要 Bearer 认证；webhook
+签名只是一项附加检查。
 
 #### 健康端点
 
@@ -227,6 +239,7 @@ agent webhook_handler(body: JSON) -> Maybe<Alert> {
 curl -X POST http://localhost:8081/webhook \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer secret-token" \
+  -H "Idempotency-Key: 72d6a833-b825-4b22-b50c-206337d77f7c" \
   -d '{
     "type": "security_alert",
     "message": "Suspicious login detected",
@@ -236,59 +249,104 @@ curl -X POST http://localhost:8081/webhook \
   }'
 ```
 
+请为每一项预期任务选定并保留一个全新的 UUID。每次 HTTP 提交都必须恰好带一个
+`Idempotency-Key` 标头；重试时请使用相同的 ID、URI 和 JSON 负载。把本示例中的 ID
+复用于不同的工作会被拒绝。webhook 发送方必须为每次投递保留一个稳定的 UUID，或者
+使用一个适配器，在提交前把其投递标识映射为稳定的 UUID。服务器不会从模型输出推断
+身份，也不会在标头缺失时自动生成替代值。
+
+### 重试状态
+
+在每个规范项目内，ID 只在一个 HTTP 域中有效。持久化的占用会绑定已验证的调用方、
+请求 URI、JSON 输入以及受信任的目标源码/设置。已注册的智能体 ID 在重启后发生变化
+并不会构成一个不同的请求。独立的 SDK 服务器必须在重启后保留其已配置的 `AgentId`。
+在同一个 ID 下更改源码、目标、调用方或负载都会拒绝执行；不会把缓存内容或审计引用
+返回给另一个调用方。
+
+| HTTP 状态码 | 响应体 `status` | 含义 |
+|---|---|---|
+| 默认 200 | `completed` | 原始结果已持久化；`replayed` 标识这是一个已保存的响应。 |
+| 422 | `failed` | 已持久化一次带有完整追踪证据的终态失败；重试会返回它。 |
+| 409 | `in_progress` | 另一个持有者占用着该 ID；此次请求不会启动任何工作。 |
+| 409 | `unresolved` | 原始运行需要核销；在可用时会附带其审计引用。 |
+| 409 | `reconciled` | 返回一份独立签名的运维评定；该原始 ID 不能再次执行。 |
+| 409 | `conflict` | 该 ID 已绑定到不同的调用方或请求。 |
+| 400 | `invalid_invocation_id` | UUID 标头缺失、重复或无效。 |
+| 503 | `unavailable` | 必需的调用存储无法授权执行。 |
+
+调用状态响应包含 `Idempotency-Key`、`Idempotency-Replayed` 和 `Cache-Control:
+no-store` 标头。已配置的成功响应格式仍然适用于已完成的结果；但它无法把未解决或
+冲突的结果变成成功响应。已配置的 CORS 源会允许并公开这些调用标头。
+
+被保留的持有者会在准备、执行、清理和保存结果的整个过程中持有该占用。客户端断开
+连接会取消该持有者的工作，但不会释放该 ID 以便再次执行。在结果持久化之前进程丢失
+会留下一个未解决的占用。已保存的结果在返回前会对照其原始签名审计进行校验；取回
+结果不会再次运行提供方或执行器。
+
+静态共享凭据代表一个调用方。JWT 调用方绑定已配置的密钥、签名的 issuer 和 subject；
+过期/续签字段不会改变它。轮换凭据或密钥材料会让已有 ID 产生冲突，而不是悄悄创建
+第二个任务。占用在整个项目范围内跨 HTTP 监听器生效，因此请使用全新的随机 UUID，
+并把该存储与其审计证据一起保留。存储方面的限制参见
+[持久化调用身份](/invocation-idempotency)。
+
 ### 预期响应
 
-响应的形式取决于智能体的调用方式。
-
-**运行时派发** — 目标智能体在通信总线上处于 `Running` 状态，消息已交由异步处理：
-
-```json
-{
-  "status": "execution_started",
-  "agent_id": "webhook_handler",
-  "message_id": "01H...",
-  "latency_ms": 3,
-  "timestamp": "2024-01-15T10:30:00Z"
-}
-```
-
-**LLM 调用** — 智能体未在运行，通过已配置的 LLM 提供商按需执行（请参阅下文的[使用 ToolClad 工具的 LLM 调用](#使用-toolclad-工具的-llm-调用)）。响应包含最终文本以及已执行工具调用的摘要：
+每个推理请求都会返回自己的结果，即使同一智能体的另一次调用正在进行中也是如此。
+此路由上不再使用旧的 `execution_started`/`message_id` 交接式响应。成功的响应包含
+本次运行的公开审计引用、`invocation_id`、`replayed`、`total_usage` 以及共享的
+`budget` 快照。示例取值：
 
 ```json
 {
   "status": "completed",
-  "agent_id": "webhook_handler",
-  "response": "Scanned target and found 3 open ports …",
-  "tool_runs": [
-    {
-      "tool": "nmap_scan",
-      "input": {"target": "example.com"},
-      "output_preview": "{\"scan_id\": \"…\", \"ports\": [ … ]}"
-    }
-  ],
-  "model": "claude-sonnet-4-20250514",
-  "provider": "Anthropic",
+  "agent_id": "11111111-1111-4111-8111-111111111111",
+  "response": "Task complete.",
+  "tool_runs": [],
+  "termination_reason": "Completed",
+  "iterations": 1,
+  "audit": {
+    "run_id": "22222222-2222-4222-8222-222222222222",
+    "path": "/srv/control/.symbiont/governed/11111111-1111-4111-8111-111111111111.22222222-2222-4222-8222-222222222222.jsonl",
+    "public_key": "<hex-encoded-public-key>"
+  },
+  "model": "<configured-model>",
+  "provider": "<configured-provider>",
   "latency_ms": 4821,
   "timestamp": "2024-01-15T10:30:00Z"
 }
 ```
 
+`tool_runs` 汇总的是相互关联的工具观测结果，其中也包括拒绝和校验失败。它的存在
+并不证明某项作用确实执行了，而且 `status: completed` 也可能伴随一个策略拒绝的
+响应。核实时请使用受保护日志中精确的规范化参数、决策和作用记录。必需的审计或清理
+失败会返回错误，即使此前已经发生过某项作用也是如此。`audit.path` 是运行时主机上
+的路径，不是下载 URL。
+
 ## 使用 ToolClad 工具的 LLM 调用
 
-当运行时已附加但路由到的智能体**未处于 `Running` 状态**时，webhook 处理程序会转入按需 LLM 调用路径。这对于按请求执行而非长时间监听的智能体非常有用。
+每个 HTTP 推理请求都会启动一次独立的受治理调用，即使已注册的智能体已经有另一次
+活跃调用也是如此。
 
 ### 工作原理
 
-1. webhook 处理程序调用 `scheduler.get_agent_status()` 以验证智能体是否处于活跃运行状态。发往未运行智能体的消息不会通过通信总线派发，因为 `send_message` 会静默丢弃这些消息。
-2. 如果智能体未运行，处理程序会根据 `agents/` 目录下的任何 `.symbi`（或旧后缀 `.dsl`）智能体文件构建系统提示，追加调用方可选提供的 `system_prompt`（会被长度限制并记录日志），并根据请求负载构造用户消息。
-3. `tools/` 目录下的 ToolClad 清单被加载并作为函数调用工具暴露给 LLM。`toolclad.toml` 中的自定义类型会被应用。
-4. 处理程序运行 **ORGA**（Observe-Reason-Gate-Act）工具调用循环，最多 15 轮迭代：
-   - LLM 提出零个或多个 `tool_use` 调用。
-   - 每个工具调用由 ToolClad 校验，并在阻塞线程池上执行，**单个工具超时时间为 120 秒**。
-   - 单轮迭代内重复的 `(tool_name, input)` 组合会被去重，以避免非幂等工具的冗余执行。
-   - 工具结果以 `tool_result` 消息形式反馈给 LLM。
-   - 当 LLM 产生最终文本响应或达到迭代上限时，循环终止。
-5. 最终响应、已执行工具运行列表以及提供商/模型元数据会返回给调用方。
+1. 在运行时已附加的情况下，从受信任的注册表解析智能体。冻结其所选的源码、沙箱和
+   资源设置；在推理之前拒绝不存在的智能体、有歧义的选择以及不匹配的安全层级。
+   独立的 SDK 服务器使用其显式配置的通用智能体/执行器。
+2. 仅根据所选的智能体源码构建系统提示。调用方可选提供的 `system_prompt` 仍会被
+   长度限制并记录日志；它不提供策略、主体或沙箱方面的权限。用户消息则根据请求负载
+   构建。
+3. 在被冻结的项目中发现 ToolClad 工具，并打开一份必需的私有签名日志。ORGA 循环最多
+   允许 15 轮迭代。已注册的以及智能体所选的截止时间会收紧循环和工具的限制；单个
+   工具的默认上限为 120 秒。
+4. 在 Cedar 之前先准备并规范化被提议的调用。强制性的精确审批、必需的审计和一次性
+   授权都先于作用发生。重复或为空的调用 ID 会被拒绝；结果必须与实际准备的调用相
+   对应。
+5. 等待工作进程清理完成和终态日志写入。成功的响应包含最终响应、工具结果、提供商/
+   模型元数据以及 `audit` 引用。取消操作仍保留清理责任；必需的存储或清理错误不会
+   悄悄产生一个成功的结果。
+
+参见[预备调用](/prepared-calls)和[运行审计](/run-audit)。按次调用的资源限制并不
+构成对请求的汇总准入控制。
 
 ### 提供商自动检测
 
@@ -300,7 +358,7 @@ LLM 客户端在服务器启动时根据环境变量初始化。按以下顺序�
 | `OPENAI_API_KEY` | OpenAI | `CHAT_MODEL`（默认：`gpt-4o`） | `OPENAI_BASE_URL` |
 | `ANTHROPIC_API_KEY` | Anthropic | `ANTHROPIC_MODEL`（默认：`claude-sonnet-4-20250514`） | `ANTHROPIC_BASE_URL` |
 
-如果未设置任何 API 密钥，LLM 调用路径会被禁用，针对未运行智能体的请求将返回错误。
+若未配置推理提供方，推理请求会返回错误。运维方配置的本地端点仍受支持。
 
 ### 输入字段
 
@@ -361,8 +419,8 @@ HTTP 输入模块提供全面的错误处理：
 - **身份验证错误**：对于无效令牌返回 `401 Unauthorized`
 - **速率限制**：当超过并发限制时返回 `429 Too Many Requests`
 - **载荷错误**：对于格式错误的 JSON 返回 `400 Bad Request`
-- **智能体错误**：返回可配置的错误状态和错误详情
-- **服务器错误**：对于运行时故障返回 `500 Internal Server Error`
+- **调用结果**：返回上文列出的明确重试状态；未解决的工作绝不会被报告为已完成。
+- **服务器错误**：无法归类的运行时故障返回可配置的状态码和一条通用的公开消息。
 
 ## 监控和可观测性
 
@@ -414,3 +472,7 @@ INFO LLM invocation completed for agent webhook_handler: latency=4821ms tool_run
 - [推理循环 (ORGA)](reasoning-loop.md)
 - [ToolClad 工具契约](toolclad.md)
 - [智能体运行时文档](../crates/runtime/README.md)
+
+若一个被保留的调用已有运维核销结论，它会返回 HTTP 409 和 `status: "reconciled"`、
+其原始审计引用，以及一份独立签名的 `resolution` 回执。它不会返回伪造的成功结果，
+也不会再次执行。参见[运维核销](/invocation-reconciliation)。

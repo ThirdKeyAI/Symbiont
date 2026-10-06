@@ -4,6 +4,19 @@ El modulo de Entrada HTTP proporciona un servidor webhook que permite a sistemas
 
 ## Descripcion General
 
+En esta rama, cada peticion HTTP de razonamiento se ejecuta de forma independiente
+aunque su agente registrado ya este activo. El codigo fuente registrado y el nivel
+de seguridad seleccionan un ejecutor de herramientas congelado antes de la
+inferencia. Los limites de CPU, memoria y tiempo de ejecucion acotan esa
+invocacion. Los workers gobernados tambien comparten la CPU, la memoria y el pool
+de workers configurados del supervisor con los lanzamientos del planificador y de
+la CLI que usan el mismo directorio de estado privado; consulta
+[presupuestos compartidos](/shared-budgets). Las respuestas correctas incluyen
+`audit` con `run_id`, `path` y `public_key`. Los fallos del almacenamiento
+obligatorio detienen cualquier efecto posterior, y las peticiones descartadas
+conservan la propiedad de la limpieza. Consulta
+[auditoria de ejecuciones](/run-audit) y la [guia de la rama](/containment-branch-guide).
+
 El modulo de Entrada HTTP consiste en:
 
 - **Servidor HTTP**: Un servidor web basado en Axum que escucha peticiones HTTP entrantes
@@ -12,7 +25,7 @@ El modulo de Entrada HTTP consiste en:
 - **Control de Respuestas**: Formato de respuesta configurable y codigos de estado
 - **Caracteristicas de Seguridad**: Soporte CORS, limites de tamano de peticion y registro de auditoria
 - **Gestion de Concurrencia**: Limitacion de tasa de peticiones integrada y control de concurrencia
-- **Invocacion LLM con ToolClad**: Cuando el agente objetivo no esta activamente en ejecucion en el bus de comunicacion del runtime, el webhook puede invocar al agente bajo demanda a traves de un proveedor LLM configurado, usando un bucle de llamada a herramientas de estilo ORGA respaldado por manifiestos de ToolClad
+- **Invocacion LLM con ToolClad**: Cada peticion invoca al agente registrado de forma independiente a traves del proveedor LLM configurado y del bucle gobernado de llamada a herramientas ORGA, incluso cuando hay otra invocacion activa
 
 El modulo se compila condicionalmente con el flag de caracteristica `http-input` y se integra sin problemas con el runtime de agentes Symbiont.
 
@@ -131,11 +144,19 @@ let config = HttpInputConfig {
 };
 ```
 
-El verificador JWT carga una clave publica Ed25519 del archivo PEM especificado y valida los tokens entrantes `Authorization: Bearer <jwt>`.
+El cargador de claves acepta PEM de Ed25519 o bytes de clave publica en bruto para
+la verificacion EdDSA. Los JWT deben tener un `exp` valido y un `sub` no vacio (de
+512 bytes como maximo). La validacion de la expiracion admite cinco segundos de
+desfase de reloj. Si se proporciona, `iss` debe ser no vacio y de 2048 bytes como
+maximo. Renovar un token con el mismo sujeto firmado, el mismo emisor y la misma
+clave configurada conserva la identidad de su llamante.
 
-**Lista de algoritmos permitidos (auditoria posterior a v1.13.0):** la ruta asimetrica de Bearer-token acepta unicamente **ES256** y **EdDSA**. La ruta HMAC de firma de webhooks (usada por Slack, Mattermost, GitHub, etc.) acepta unicamente **HS256**. Los algoritmos de la familia RSA (`RS256`, `RS384`, `RS512`, `PS256`, `PS384`, `PS512`) y el algoritmo simbolico `none` son rechazados tanto en la guarda de inspeccion de cabecera como en la lista de permitidos de `Validation::algorithms`. Esto neutraliza el aviso de ataque de tiempo del crate `rsa` (RUSTSEC-2023-0071) en cada ruta que el operador controla. Consulta `SECURITY_AUDIT.md` C4. (El adaptador de Microsoft Teams sigue usando RS256 porque el Bot Framework lo exige; esa superficie esta acotada a tokens firmados por MS.)
-
-**Audiencia requerida:** la escotilla de escape mediante la variable de entorno `SYMBIONT_ALLOW_NO_JWT_AUDIENCE` fue eliminada en la auditoria posterior a v1.13.0. Cada verificador JWT requiere una configuracion `aud` explicita; los tokens sin una audiencia coincidente se rechazan.
+Este verificador de la Entrada HTTP **no** aplica una audiencia ni una lista de
+emisores permitidos. La clave configurada es su autoridad de confianza; usa una
+clave dedicada a esa autoridad. Un emisor firmado contribuye a la identidad de
+reintento, pero no establece una lista de emisores permitidos. La autenticacion
+Bearer es obligatoria incluso cuando se configura la verificacion de firma de
+webhooks; la firma del webhook es una comprobacion adicional.
 
 #### Endpoint de Salud
 
@@ -227,6 +248,7 @@ Enviar una peticion webhook para activar el agente:
 curl -X POST http://localhost:8081/webhook \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer secret-token" \
+  -H "Idempotency-Key: 72d6a833-b825-4b22-b50c-206337d77f7c" \
   -d '{
     "type": "security_alert",
     "message": "Suspicious login detected",
@@ -236,59 +258,132 @@ curl -X POST http://localhost:8081/webhook \
   }'
 ```
 
+Elige y conserva un UUID nuevo para cada tarea prevista. Cada envio HTTP requiere
+exactamente una cabecera `Idempotency-Key`; reintenta con el mismo ID, la misma URI
+y la misma carga util JSON. Reutilizar el ID de este ejemplo para un trabajo
+distinto se rechazara. Los emisores de webhooks deben conservar un UUID estable por
+entrega, o usar un adaptador que asigne su identidad de entrega a un UUID estable
+antes del envio. El servidor no infiere la identidad a partir de la salida del
+modelo ni genera un sustituto cuando falta la cabecera.
+
+### Estados de reintento
+
+Los IDs ocupan un unico dominio HTTP por proyecto canonico. La reclamacion duradera
+vincula al llamante verificado, la URI de la peticion, la entrada JSON y el codigo
+fuente y los ajustes de destino en los que se confia. Los IDs de agente registrados
+pueden cambiar al reiniciar sin que eso cree una peticion distinta. Un servidor SDK
+autonomo debe conservar su `AgentId` configurado entre reinicios. Cambiar el codigo
+fuente, el destino, el llamante o la carga util bajo un ID existente rechaza el
+trabajo; no se devuelve a otro llamante ningun contenido de la cache ni referencia
+de auditoria.
+
+| Estado HTTP | `status` del cuerpo | Significado |
+|---|---|---|
+| 200 por defecto | `completed` | El resultado original se persistio; `replayed` identifica una respuesta guardada. |
+| 422 | `failed` | Se persistio un fallo terminal con la evidencia completa registrada; los reintentos lo devuelven. |
+| 409 | `in_progress` | Otro propietario tiene el ID; esta peticion no inicia ningun trabajo. |
+| 409 | `unresolved` | La ejecucion original necesita reconciliacion; incluye su referencia de auditoria cuando esta disponible. |
+| 409 | `reconciled` | Devuelve una valoracion de operador firmada por separado; el ID original no puede volver a ejecutarse. |
+| 409 | `conflict` | El ID esta vinculado a otro llamante o a otra peticion. |
+| 400 | `invalid_invocation_id` | Cabecera UUID ausente, repetida o invalida. |
+| 503 | `unavailable` | El almacenamiento de invocaciones requerido no pudo autorizar la ejecucion. |
+
+Las respuestas de estado de invocacion incluyen las cabeceras `Idempotency-Key`,
+`Idempotency-Replayed` y `Cache-Control: no-store`. El formato de exito configurado
+sigue aplicandose a los resultados completados; no puede convertir desenlaces sin
+resolver o en conflicto en respuestas correctas. Los origenes CORS configurados
+permiten y exponen las cabeceras de invocacion.
+
+Un propietario retenido mantiene la reclamacion durante la preparacion, la
+ejecucion, la limpieza y el guardado del resultado. La desconexion del cliente
+cancela el trabajo de ese propietario, pero no libera el ID para volver a
+ejecutarlo. La perdida del proceso antes de persistir el resultado deja una
+reclamacion sin resolver. Los resultados guardados se verifican contra su auditoria
+firmada original antes de devolverse; la recuperacion no vuelve a ejecutar el
+proveedor ni el ejecutor.
+
+Las credenciales compartidas estaticas representan a un solo llamante. Un llamante
+JWT queda vinculado a la clave configurada, al emisor firmado y al sujeto; los
+campos de expiracion y renovacion no lo cambian. Rotar las credenciales o el
+material de clave hace que un ID existente entre en conflicto en lugar de crear
+silenciosamente una segunda tarea. Las reclamaciones abarcan todo el proyecto a
+traves de los listeners HTTP, asi que usa UUID aleatorios nuevos y conserva el
+almacen junto con su evidencia de auditoria. Consulta
+[identidades de invocacion persistentes](/invocation-idempotency) para conocer los
+limites del almacenamiento.
+
 ### Respuesta Esperada
 
-La forma de la respuesta depende de como se invoco al agente.
-
-**Despacho del runtime** — el agente objetivo esta `Running` en el bus de comunicacion y el mensaje fue entregado para procesamiento asincrono:
-
-```json
-{
-  "status": "execution_started",
-  "agent_id": "webhook_handler",
-  "message_id": "01H...",
-  "latency_ms": 3,
-  "timestamp": "2024-01-15T10:30:00Z"
-}
-```
-
-**Invocacion LLM** — el agente no esta en ejecucion y fue ejecutado bajo demanda a traves del proveedor LLM configurado (ver [Invocacion LLM con Herramientas ToolClad](#invocacion-llm-con-herramientas-toolclad) mas abajo). La respuesta incluye el texto final y un resumen de cualquier llamada a herramientas que haya sido ejecutada:
+Cada peticion de razonamiento devuelve su propio resultado, incluso cuando hay otra
+invocacion del mismo agente activa. La antigua respuesta de entrega con
+`execution_started` / `message_id` ya no se usa en esta ruta. Las respuestas
+correctas incluyen la referencia publica de auditoria de la ejecucion,
+`invocation_id`, `replayed`, `total_usage` y la instantanea compartida de
+`budget`. Valores ilustrativos:
 
 ```json
 {
   "status": "completed",
-  "agent_id": "webhook_handler",
-  "response": "Scanned target and found 3 open ports …",
-  "tool_runs": [
-    {
-      "tool": "nmap_scan",
-      "input": {"target": "example.com"},
-      "output_preview": "{\"scan_id\": \"…\", \"ports\": [ … ]}"
-    }
-  ],
-  "model": "claude-sonnet-4-20250514",
-  "provider": "Anthropic",
+  "agent_id": "11111111-1111-4111-8111-111111111111",
+  "response": "Task complete.",
+  "tool_runs": [],
+  "termination_reason": "Completed",
+  "iterations": 1,
+  "audit": {
+    "run_id": "22222222-2222-4222-8222-222222222222",
+    "path": "/srv/control/.symbiont/governed/11111111-1111-4111-8111-111111111111.22222222-2222-4222-8222-222222222222.jsonl",
+    "public_key": "<hex-encoded-public-key>"
+  },
+  "model": "<configured-model>",
+  "provider": "<configured-provider>",
   "latency_ms": 4821,
   "timestamp": "2024-01-15T10:30:00Z"
 }
 ```
 
+`tool_runs` resume las observaciones de herramientas correlacionadas, incluidas las
+denegaciones y los fallos de validacion. Su presencia no demuestra que un efecto se
+haya ejecutado, y `status: completed` puede acompanar a una respuesta de rechazo por
+politica. Usa los argumentos normalizados exactos, la decision y los registros de
+efecto del diario protegido para verificarlo. Los fallos de auditoria o de limpieza
+obligatorias devuelven un error, aunque ya se hubiera producido un efecto previo. El
+valor de `audit.path` es una ruta en el host del runtime, no una URL de descarga.
+
 ## Invocacion LLM con Herramientas ToolClad
 
-Cuando el runtime esta adjunto pero el agente enrutado **no esta en el estado `Running`**, el manejador de webhook recae en una ruta de invocacion LLM bajo demanda. Esto es util para agentes que se ejecutan por peticion en lugar de como listeners de larga duracion.
+Cada peticion HTTP de razonamiento inicia una invocacion gobernada independiente,
+incluso cuando el agente registrado ya tiene otra invocacion activa.
 
 ### Como funciona
 
-1. El manejador de webhook llama a `scheduler.get_agent_status()` para verificar que el agente esta activamente en ejecucion. Los mensajes a agentes que no estan en ejecucion no se despachan a traves del bus de comunicacion, ya que `send_message` los descartaria silenciosamente.
-2. Si el agente no esta en ejecucion, el manejador construye un prompt de sistema a partir de cualquier archivo de agente `.symbi` (o `.dsl` heredado) encontrado en el directorio `agents/`, agrega un `system_prompt` opcional proporcionado por el llamante (con limite de longitud y registrado), y construye un mensaje de usuario a partir de la carga util de la peticion.
-3. Los manifiestos de ToolClad en el directorio `tools/` se cargan y se exponen al LLM como herramientas de llamada a funciones. Los tipos personalizados de `toolclad.toml` se aplican.
-4. El manejador ejecuta un bucle de llamada a herramientas **ORGA** (Observe-Reason-Gate-Act), hasta 15 iteraciones:
-   - El LLM propone cero o mas llamadas `tool_use`.
-   - Cada llamada a herramienta es validada por ToolClad y ejecutada en un grupo de hilos bloqueante con un **tiempo de espera de 120 segundos por herramienta**.
-   - Los pares duplicados `(tool_name, input)` dentro de una misma iteracion son deduplicados para evitar ejecucion redundante de herramientas no idempotentes.
-   - Los resultados de las herramientas se retroalimentan al LLM como mensajes `tool_result`.
-   - El bucle termina cuando el LLM produce una respuesta de texto final o se alcanza el limite de iteraciones.
-5. La respuesta final, la lista de ejecuciones de herramientas realizadas y los metadatos de proveedor/modelo se devuelven al llamante.
+1. Con un runtime adjunto, se resuelve el agente desde el registro de confianza. Se
+   congelan su codigo fuente, su sandbox y sus ajustes de recursos seleccionados; se
+   rechazan los agentes inexistentes, las selecciones ambiguas y los niveles de
+   seguridad que no coinciden, antes de la inferencia. Un servidor SDK autonomo usa
+   el agente y el ejecutor genericos que tenga configurados de forma explicita.
+2. El prompt de sistema se construye unicamente a partir del codigo fuente del
+   agente seleccionado. El `system_prompt` opcional proporcionado por el llamante
+   sigue teniendo limite de longitud y quedando registrado; no aporta autoridad de
+   politica, de principal ni de sandbox. El mensaje de usuario se construye a partir
+   de la carga util de la peticion.
+3. Se descubren las herramientas ToolClad del proyecto congelado y se abre un diario
+   privado firmado obligatorio. El bucle ORGA permite hasta 15 iteraciones. Los
+   plazos registrados y los seleccionados por el agente endurecen los limites del
+   bucle y de las herramientas; el limite por herramienta es de 120 segundos por
+   defecto.
+4. Las llamadas propuestas se preparan y normalizan antes de Cedar. Las aprobaciones
+   exactas obligatorias, la auditoria requerida y la autorizacion de un solo uso
+   preceden a los efectos. Los IDs de llamada duplicados o vacios se rechazan; los
+   resultados deben correlacionarse con las llamadas realmente preparadas.
+5. Se espera la limpieza del worker y el registro terminal en el diario. Las
+   respuestas correctas incluyen la respuesta final, los desenlaces de las
+   herramientas, los metadatos de proveedor y modelo, y la referencia `audit`. La
+   cancelacion conserva la propiedad de la limpieza; los errores de almacenamiento
+   obligatorio o de limpieza no pueden producir en silencio un resultado correcto.
+
+Consulta [llamadas preparadas](/prepared-calls) y
+[auditoria de ejecuciones](/run-audit). Los limites de recursos por invocacion no
+establecen una admision agregada de peticiones.
 
 ### Deteccion automatica de proveedor
 
@@ -300,7 +395,7 @@ El cliente LLM se inicializa a partir de variables de entorno al iniciar el serv
 | `OPENAI_API_KEY` | OpenAI | `CHAT_MODEL` (por defecto: `gpt-4o`) | `OPENAI_BASE_URL` |
 | `ANTHROPIC_API_KEY` | Anthropic | `ANTHROPIC_MODEL` (por defecto: `claude-sonnet-4-20250514`) | `ANTHROPIC_BASE_URL` |
 
-Si ninguna clave API esta establecida, la ruta de invocacion LLM esta deshabilitada y las peticiones para agentes que no estan en ejecucion devuelven un error.
+Sin un proveedor de inferencia configurado, las peticiones de razonamiento devuelven un error. Los endpoints locales configurados por el operador siguen estando soportados.
 
 ### Campos de entrada
 
@@ -361,8 +456,8 @@ El modulo de Entrada HTTP proporciona manejo de errores integral:
 - **Errores de Autenticacion**: Devuelve `401 Unauthorized` para tokens invalidos
 - **Limitacion de Tasa**: Devuelve `429 Too Many Requests` cuando se exceden los limites de concurrencia
 - **Errores de Carga Util**: Devuelve `400 Bad Request` para JSON mal formado
-- **Errores de Agente**: Devuelve estado de error configurable con detalles del error
-- **Errores del Servidor**: Devuelve `500 Internal Server Error` para fallos en tiempo de ejecucion
+- **Desenlaces de Invocacion**: Devuelve los estados de reintento explicitos descritos arriba; el trabajo sin resolver nunca se reporta como completado.
+- **Errores del Servidor**: Los fallos de runtime sin clasificar devuelven un estado configurable con un mensaje publico generico.
 
 ## Monitoreo y Observabilidad
 
@@ -414,3 +509,9 @@ El modulo se integra con el sistema de metricas del runtime Symbiont para propor
 - [Bucle de Razonamiento (ORGA)](reasoning-loop.md)
 - [Contratos de Herramientas ToolClad](toolclad.md)
 - [Documentacion del Runtime de Agentes](../crates/runtime/README.md)
+
+Una invocacion retenida con una resolucion del operador devuelve HTTP 409 y
+`status: "reconciled"`, su referencia de auditoria original y un recibo de
+`resolution` firmado por separado. No devuelve un resultado correcto fabricado ni
+vuelve a ejecutarse. Consulta la
+[reconciliacion por el operador](/invocation-reconciliation).

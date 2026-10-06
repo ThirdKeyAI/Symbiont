@@ -1,5 +1,7 @@
 # Isolated Git source queries
 
+Linux Landlock also supports this workflow through explicit `[sandbox.roots]` ceilings. Native commands use private bounded workspaces and retained staging; see [Linux development](landlock-development.md).
+
 The bundled `git_diff`, `git_staged_diff`, `git_log` and `git_status` tools now use
 `[source]` operations. A fixed Git driver runs in the selected Linux Docker,
 gVisor or Firecracker worker with bounded private copies of the repository. The original source

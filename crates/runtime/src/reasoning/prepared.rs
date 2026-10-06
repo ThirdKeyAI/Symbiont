@@ -229,6 +229,7 @@ pub struct AuthorizedAction {
     approval: Option<ApprovalReceipt>,
     iteration: u32,
     effect_journal: Option<super::effect_journal::EffectJournal>,
+    worker_origin: Option<crate::sandbox::worker_origin::WorkerOrigin>,
 }
 
 impl AuthorizedAction {
@@ -269,6 +270,7 @@ impl AuthorizedAction {
             prepared,
             iteration: state.iteration,
             effect_journal: None,
+            worker_origin: None,
             principal: state.agent_id,
             binding: state_binding(state, config)?,
             run_key: execution_run_key(state),
@@ -310,6 +312,35 @@ impl AuthorizedAction {
     }
     pub(crate) fn effect_journal(&self) -> Option<super::effect_journal::EffectJournal> {
         self.effect_journal.clone()
+    }
+    pub(super) fn attach_worker_origin(
+        &mut self,
+        audit: Option<super::run_audit::RunAuditReference>,
+        dispatch_id: uuid::Uuid,
+    ) -> Result<(), String> {
+        let Some(audit) = audit else { return Ok(()) };
+        let expected = format!("{}.{}.jsonl", self.principal, audit.run_id);
+        if audit.path.file_name().and_then(|s| s.to_str()) != Some(expected.as_str()) {
+            return Err("worker origin does not match its journal principal and run".into());
+        }
+        let super::loop_types::ProposedAction::ToolCall { name, .. } = self.action() else {
+            return Err("worker attribution requires a tool dispatch".into());
+        };
+        let origin = crate::sandbox::worker_origin::WorkerOrigin {
+            agent_id: self.principal.0,
+            run_id: audit.run_id,
+            public_key: audit.public_key,
+            dispatch_id,
+            call_fingerprint: self.prepared.fingerprint().into(),
+            tool_name: name.clone(),
+            iteration: self.iteration,
+        };
+        origin.validate().map_err(|e| e.to_string())?;
+        self.worker_origin = Some(origin);
+        Ok(())
+    }
+    pub(crate) fn worker_origin(&self) -> Option<crate::sandbox::worker_origin::WorkerOrigin> {
+        self.worker_origin.clone()
     }
     pub fn action(&self) -> &ProposedAction {
         self.prepared.action()

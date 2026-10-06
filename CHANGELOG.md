@@ -5,7 +5,101 @@ All notable changes to the Symbiont project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.21.0] - 2026-10-06
+
+### Added
+
+- Optional OSS governed workflow improvements: versioned instruction artifacts,
+  frozen acceptance suites, offline evaluation of signed trial evidence, exact
+  operator approvals, guarded activation, rollback and independent signed exports.
+  `symbi improvement` manages the lifecycle; ordinary ORGA runs opt in with
+  `--improvement`. Existing agents and configurations keep their current behavior.
+  The explicit Rust runner API retains normal authorization and shared budgets.
+
+- A `landlock` command tier isolates one-shot commands, custom output parsers
+  and the managed CLI child with no daemon, image or helper binary. It is named
+  rather than numbered, so existing configurations are unchanged, and it refuses
+  to run where the kernel cannot enforce the declared profile. A one-shot command
+  receives a domain scoped to that call; the managed CLI child receives one for
+  its session, which is a weaker guarantee and documented as such.
+- Supervised Firecracker guests run commands, verified MCP sessions, governed
+  terminal sessions and managed CLI children. The host checks a fingerprint of
+  the guest service sources before sending a command and withholds the request
+  until that handshake passes. An independent supervisor owns VM lifetime, so a
+  VM cannot outlive it and an orphan is reclaimed against a verified process
+  identity rather than a reusable PID. Managed host isolation with jailer, host
+  limits and a watchdog is available opt-in.
+- Per-operation file grants replace ambient filesystem access. One-shot tools,
+  MCP workers and terminal sessions see only their declared inputs and a bounded
+  ceiling for new outputs, and Git source queries read through bounded repository
+  snapshots rather than the working tree.
+- Invocation identities survive retries and interruption across the HTTP input
+  server, the CLI, scheduled API invocations and coordinator messages. Dispatch
+  outcomes are recorded so an interrupted run can be inspected without replay,
+  and SDK reasoning runs require an explicit protected journal.
+
+- Native Linux development workspaces combine Landlock, seccomp, private
+  user/mount namespaces and independently supervised cgroups. Commands receive
+  declared input snapshots and new output files; publication waits for confirmed
+  descendant cleanup. Source queries, Git inspection, parser execution and
+  approved shell editing support the native route without Docker or a VM.
+- Managed CLI workers use private loopback networking and inherited tool and
+  inference connections. An explicit executable setting supports standalone
+  user-local installations without granting their containing home directory.
+  Read-only access to the primary process's maps/stat metadata supports the
+  validated standalone CLI toolchain.
+- `symbi init --sandbox landlock` provisions configuration for automatic user
+  supervision. The `dev-agent` profile adds prompts and flags for a separate
+  source repository, executable and inference settings, then generates read-only
+  tools, scoped policies and first-review instructions.
+- `symbi doctor` checks native workspaces, private loopback, inherited connections,
+  configured CLI startup and confirmed cleanup, with stage-specific remedies.
+- Worker capacity inspection links retained workers to their originating signed
+  runs and reports staging reservations and Landlock cgroup usage.
+
+### Fixed
+
+- Manual cron admission owns its intent before timer recovery can claim it;
+  refused identities retain the specific policy or identity failure and cannot
+  replay automatically after a policy change.
+- Project `.env` discovery stops at the nearest project root, with subprocess
+  initialization tests isolated from ambient developer configuration.
+- Update rustls to 0.23.45 and its affected cryptographic dependencies.
+- Publish every workspace dependency before its consumer, including both sandbox
+  crates; failed uploads cannot pass on progress messages. OSS sync validates the
+  filtered tracked tree and retains the public workflow test drivers.
+
+- Container ownership is preserved across runtime failures, so a crashed run no
+  longer abandons its worker.
+- Documentation states that every isolation tier -- landlock, Docker, gVisor and
+  Firecracker -- ships in the OSS runtime. The enterprise README and specifications
+  had listed gVisor and Firecracker as licensed features they never were.
+- Landlock grants are retained before worker creation; socket and signal scopes
+  prevent access outside the worker boundary. Capacity remains charged until
+  independent cleanup confirms that all descendants have exited.
+- Concurrent lease inspection tolerates completed records disappearing or being
+  atomically replaced without losing retained staging charges.
+- Timeout settlement closes abandoned provider requests only in the terminating
+  budget scope, preserves uncertain usage and avoids duplicate finish records.
+- Missing CPU and memory telemetry stays unavailable in the API and operations
+  console instead of appearing as measured zero usage.
+
+### Validation
+
+- Held-out routing rejects the frozen improvement candidate on all three trials;
+  governance does not claim to improve model accuracy by itself. A separate real
+  model and Landlock receipt workflow verifies exact approvals, missing-relay
+  refusal, interruption, signed reconciliation without replay and explicit recovery.
+  See [phase 2 findings](docs/governed-intake-phase2.md) and
+  [1.21.0 validation](docs/release-1.21-validation.md).
+
+### Deployment
+
+- Native development requires Linux Landlock ABI 6+, seccomp, unprivileged
+  user/mount/network namespaces, cgroup v2 delegation, a systemd user manager and
+  Python 3. Native interactive PTYs and macOS/Windows backends remain unsupported.
+- Drain active workers and restart existing supervisor services with the matching
+  runtime build when upgrading. Retain the durable supervisor state directory.
 
 ## [1.20.0] - 2026-09-02
 

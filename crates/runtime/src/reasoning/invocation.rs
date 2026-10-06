@@ -481,15 +481,19 @@ fn validate_file(file: &File) -> Result<(), String> {
 }
 
 fn try_lock(file: &File) -> Result<bool, String> {
-    // SAFETY: flock acts only on the live file descriptor. Closing it releases the lock.
-    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-        return Ok(true);
-    }
-    let error = std::io::Error::last_os_error();
-    if error.kind() == std::io::ErrorKind::WouldBlock {
-        Ok(false)
-    } else {
-        Err(error.to_string())
+    loop {
+        // SAFETY: flock acts only on the live file descriptor. Closing it releases the lock.
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+            return Ok(true);
+        }
+        let error = std::io::Error::last_os_error();
+        return match error.kind() {
+            std::io::ErrorKind::WouldBlock => Ok(false),
+            // flock is interruptible. A signal is neither contention nor a
+            // lock failure, so reissue it rather than refusing the claim.
+            std::io::ErrorKind::Interrupted => continue,
+            _ => Err(error.to_string()),
+        };
     }
 }
 

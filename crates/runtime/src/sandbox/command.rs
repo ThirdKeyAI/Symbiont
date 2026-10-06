@@ -67,6 +67,11 @@ impl CommandBoundary {
         boundary.gvisor.docker.staging.clear();
         boundary.roots.source_roots.clear();
         boundary.roots.output_roots.clear();
+        #[cfg(target_os = "linux")]
+        {
+            boundary.landlock.workspace = None;
+            boundary.landlock.clear_executable();
+        }
         if let Some(config) = &mut boundary.firecracker {
             config.source_roots.clear();
             config.output_roots.clear();
@@ -125,6 +130,21 @@ impl CommandBoundary {
                     .min(f64::from(limits.cpu_cores)),
             );
             config.max_execution_time = config.max_execution_time.min(limits.execution_timeout);
+        }
+        #[cfg(target_os = "linux")]
+        if self.tier == CommandTier::Landlock {
+            self.landlock.memory_mib = self
+                .landlock
+                .memory_mib
+                .min(u32::try_from(limits.memory_mb).unwrap_or(u32::MAX));
+            self.landlock.cpu_millis = self
+                .landlock
+                .cpu_millis
+                .min((f64::from(limits.cpu_cores) * 1000.0).floor() as u32);
+            self.landlock.max_execution_time = self
+                .landlock
+                .max_execution_time
+                .min(limits.execution_timeout);
         }
         if self.tier == CommandTier::Firecracker {
             let config = self
@@ -209,6 +229,11 @@ impl CommandBoundary {
                 profile.docker.max_execution_time = profile.docker.max_execution_time.min(bound);
                 profile.gvisor.docker.max_execution_time =
                     profile.gvisor.docker.max_execution_time.min(bound);
+                #[cfg(target_os = "linux")]
+                {
+                    profile.landlock.max_execution_time =
+                        profile.landlock.max_execution_time.min(bound);
+                }
             }
         }
         if profile.tier == CommandTier::DevelopmentHost
@@ -291,7 +316,8 @@ impl CommandBoundary {
             }
             #[cfg(target_os = "linux")]
             CommandTier::Landlock => {
-                super::landlock::check_kernel(&self.landlock)?;
+                self.landlock.validate()?;
+                super::landlock::validate_roots(&self.landlock, &self.roots)?;
                 self.validate_protected_roots(&self.roots.source_roots)?;
                 self.validate_protected_roots(&self.roots.output_roots)
             }
@@ -374,9 +400,24 @@ impl CommandBoundary {
             descriptor["landlock"] = serde_json::json!({
                 "abi_detected": super::landlock::detect_abi(),
                 "abi_floor": self.landlock.abi_floor,
+                "abi_required": self.landlock.abi_floor.max(super::landlock::MIN_ABI),
+                "boundary_version": 5,
+                "supervision": "delegated_cgroup_v1",
+                "resources": self.landlock.resources(),
+                "pids_limit": self.landlock.pids_limit,
+                "max_lifetime_ms": self.landlock.max_execution_time.as_millis() as u64,
+                "supervisor_state_dir": self.landlock.supervisor.resolved_state_dir().map_err(|e|e.to_string())?,
+                "scopes": ["signal", "abstract_unix_socket"],
+                "socket_policy": if self.landlock.workspace.as_ref().is_some_and(|w| w.has_channels()) { "private_loopback_and_inherited_brokers" } else if self.landlock.require_network { "private_unix_stream_pair_only" } else { "ip_and_private_unix_stream_pair" },
+                "io_uring": "denied",
+                "namespace_mutation": "denied_after_setup",
+                "inherited_descriptors": if self.landlock.workspace.as_ref().is_some_and(|w| w.has_channels()) { "stdio_and_two_connected_broker_streams" } else { "stdio_only" },
                 "network_restricted": self.landlock.require_network,
                 "broker_source_roots": self.roots.source_roots,
                 "broker_output_roots": self.roots.output_roots,
+                "executable": self.landlock.executable(),
+                "process_metadata": if self.landlock.executable().is_some() && self.landlock.workspace.is_some() { super::landlock::PRIMARY_PROCESS_METADATA } else { &[] },
+                "workspace": self.landlock.workspace.as_ref().map(|workspace| workspace.descriptor()),
             });
         }
         if let Some(config) = container {
@@ -400,6 +441,15 @@ impl CommandBoundary {
         timeout: Duration,
     ) -> Result<ExecutionResult, String> {
         self.validate()?;
+        #[cfg(target_os = "linux")]
+        if self.tier == CommandTier::Landlock {
+            return super::landlock::workspace::execute(
+                self.landlock.clone(),
+                argv.to_owned(),
+                timeout,
+            )
+            .await;
+        }
         if self.tier == CommandTier::Firecracker {
             return self.execute_vm(argv, None, false, timeout).await;
         }
@@ -445,6 +495,10 @@ impl CommandBoundary {
         self.validate()?;
         if input.len() > 10 * 1024 * 1024 {
             return Err("parser input exceeds 10 MiB".into());
+        }
+        #[cfg(target_os = "linux")]
+        if self.tier == CommandTier::Landlock {
+            return super::landlock::workspace::parse(&self.landlock, path, input, timeout).await;
         }
         if self.tier == CommandTier::Firecracker {
             return self
@@ -538,15 +592,15 @@ impl CommandBoundary {
         Ok((runner, remaining))
     }
 
-    /// Launch directly on the host inside a landlock domain. No daemon, no
-    /// image: the domain is installed between fork and exec.
+    /// Reserve delegated capacity and join the worker cgroup before exec.
     #[cfg(target_os = "linux")]
-    pub(crate) fn spawn_landlock(
+    pub(crate) async fn spawn_landlock(
         &self,
         argv: &[String],
         env: HashMap<String, String>,
         domain: super::landlock::PreparedDomain,
-    ) -> Result<tokio::process::Child, String> {
+        timeout: Duration,
+    ) -> Result<(tokio::process::Child, super::supervisor::Lease), String> {
         let (program, args) = argv.split_first().ok_or("empty command")?;
         let mut command = tokio::process::Command::new(program);
         command
@@ -558,8 +612,9 @@ impl CommandBoundary {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
         command.process_group(0);
-        domain.apply_to(&mut command);
-        command.spawn().map_err(|e| e.to_string())
+        super::landlock::spawn(&self.landlock, domain, &mut command, timeout)
+            .await
+            .map_err(|e| e.to_string())
     }
 
     #[cfg(feature = "mcp-client")]
@@ -572,11 +627,23 @@ impl CommandBoundary {
         self.validate()?;
         #[cfg(target_os = "linux")]
         if self.tier == CommandTier::Landlock {
+            if self.landlock.workspace.is_some() {
+                let (child, lease) =
+                    super::landlock::workspace::spawn(&self.landlock, argv, env, timeout)
+                        .await
+                        .map_err(|e| e.to_string())?;
+                return Ok(super::streams::StdioStreams::host(
+                    child,
+                    lease,
+                    self.landlock.max_output_bytes,
+                ));
+            }
             let domain = super::landlock::prepare(&self.landlock, &self.roots)?;
-            let child = self.spawn_landlock(argv, env, domain)?;
+            let (child, lease) = self.spawn_landlock(argv, env, domain, timeout).await?;
             return Ok(super::streams::StdioStreams::host(
                 child,
-                self.docker.max_output_bytes,
+                lease,
+                self.landlock.max_output_bytes,
             ));
         }
         if self.tier == CommandTier::Firecracker {
@@ -757,8 +824,8 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn landlock_descriptor_records_what_the_kernel_could_actually_enforce() {
-        if super::super::landlock::detect_abi() < 4 {
-            eprintln!("skipped: kernel Landlock ABI below 4");
+        if super::super::landlock::detect_abi() < 6 {
+            eprintln!("skipped: kernel Landlock ABI below 6");
             return;
         }
         let boundary = CommandBoundary {
@@ -782,8 +849,12 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[tokio::test]
     async fn landlock_boundary_runs_a_command_and_confines_it_without_a_container() {
-        if super::super::landlock::detect_abi() < 4 {
-            eprintln!("skipped: kernel Landlock ABI below 4");
+        if std::env::var_os("SYMBIONT_TEST_DELEGATED_SERVICE").is_none() {
+            eprintln!("skipped: requires explicit delegated service fixture");
+            return;
+        }
+        if super::super::landlock::detect_abi() < 6 {
+            eprintln!("skipped: kernel Landlock ABI below 6");
             return;
         }
         let granted = tempfile::tempdir().expect("tempdir");
@@ -803,10 +874,12 @@ mod tests {
         ];
         let domain = super::super::landlock::prepare(&boundary.landlock, &boundary.roots)
             .expect("prepare domain");
-        let child = boundary
-            .spawn_landlock(&argv, HashMap::new(), domain)
+        let (child, mut lease) = boundary
+            .spawn_landlock(&argv, HashMap::new(), domain, Duration::from_secs(10))
+            .await
             .expect("the command must start");
         let output = child.wait_with_output().await.expect("collect output");
+        lease.finish().await.expect("independent cleanup");
         // Both halves matter: the command must actually have been refused, and
         // it must not have leaked the content. Asserting only on empty stdout
         // would pass vacuously if the child never started.

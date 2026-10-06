@@ -381,6 +381,9 @@ pub enum TerminationReason {
 /// Events emitted during loop execution for observability.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum LoopEvent {
+    /// Actual final output of an explicitly opted-in improvement run, recorded
+    /// after policy processing and cleanup and before its terminal event.
+    ImprovementOutput { output: String },
     /// Durable checkpoint before handing one authorized call to an executor.
     /// A missing finish record leaves execution and its effects unconfirmed.
     ToolDispatchStarted {
@@ -597,6 +600,16 @@ pub struct JournalEntry {
 /// journals; `BufferedJournal` is an opt-in, non-durable testing/display writer.
 #[async_trait::async_trait]
 pub trait JournalWriter: Send + Sync {
+    /// Optional final-output evidence. Ordinary writers retain their existing
+    /// event format; improvement execution explicitly supplies an implementation.
+    async fn record_final_output(
+        &self,
+        _agent_id: AgentId,
+        _iteration: u32,
+        _output: &str,
+    ) -> Result<(), JournalError> {
+        Ok(())
+    }
     /// Public identity of the protected run, when supplied by its trusted writer.
     fn audit_reference(&self) -> Option<super::run_audit::RunAuditReference> {
         None

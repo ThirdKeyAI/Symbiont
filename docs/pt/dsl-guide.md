@@ -97,27 +97,38 @@ Os agentes gerenciados via CLI (Modo B) reconhecem estas chaves de metadados adi
 | `system_prompt` | String | Prompt de sistema adicional anexado ao subprocesso |
 | `permission_mode` | String | Opcional. Repassado como `--permission-mode`. Quando ausente, a flag é omitida e o subprocesso mantém o próprio padrão, que continua pedindo confirmação para qualquer coisa fora de `allowed_tools`. Use `"dontAsk"` para agentes que precisem rodar sem supervisão |
 
-O spawn passa uma vez pelo gate de política, como `tool_call::claude_code`, mas nada governa o subprocesso depois disso — o que `allowed_tools` e `permission_mode` resolverem vale para a sessão inteira. Por isso `allowed_tools` é obrigatório e `permission_mode` é opt-in: uma decisão do gate deve autorizar uma sessão delimitada, não uma irrestrita.
-
-Essa única decisão do gate é lida de `policies/managed-cli/` — **não** de
-`policies/run/`. Iniciar um subprocesso tem um raio de impacto diferente do loop
-de raciocínio em processo, então as duas superfícies não compartilham diretório
-de políticas. Um permit mínimo:
+O spawn passa pelo gate de política como `tool_call::claude_code`, e essa decisão
+é lida de `policies/managed-cli/` — **não** de `policies/run/`. Iniciar um
+subprocesso tem um raio de impacto diferente do loop de raciocínio em processo,
+então as duas superfícies não compartilham diretório de políticas. Um permit
+mínimo:
 
 ```cedar
 // policies/managed-cli/claude_code.cedar
 permit(principal, action == Action::"tool_call::claude_code", resource);
 ```
 
-Como o gate não consegue ver o que o subprocesso faz em seguida, cada execução é
-registrada em journal. O filho roda com `--output-format stream-json` e cada
-chamada de ferramenta é anexada a `.symbiont/audit/mode-b-<session>.jsonl`
-conforme acontece — nome da ferramenta, argumentos, se o resultado deu erro, e um
-registro final com a contagem de turnos e quaisquer negações de permissão. São
-gravados ao vivo, não na saída, de modo que uma execução encerrada pelo timeout
-ainda deixa rastro. Valores sob chaves como `token`, `api_key` ou `password` são
-redigidos e argumentos muito grandes são truncados, para que o log identifique o
-que o filho fez sem virar uma segunda cópia do payload.
+A decisão sobre o spawn não é a única decisão. O filho roda dentro do worker
+Docker, gVisor ou Firecracker selecionado, com armazenamento temporário e canais
+privados de inferência e de ferramentas — sem montagem do código-fonte, sem rede
+externa, sem estado de login do host, sem credenciais do host. As ferramentas
+embutidas da CLI e a descoberta automática de projetos/plugins ficam desativadas,
+e `--plugin-dir` é rejeitado. O acesso ao código-fonte se dá por um conjunto de
+ferramentas ToolClad registradas, e **cada chamada de ferramenta feita pelo filho
+é intermediada de volta pelo runtime**: preparar e normalizar, obter qualquer
+aprovação exata obrigatória, avaliar o Cedar, persistir o registro obrigatório
+pré-efeito, despachar e então registrar o resultado. `allowed_tools` nomeia um
+subconjunto exato das ferramentas registradas; expressões de permissão com
+curinga e nomes de ferramentas embutidas da CLI não são aceitos como entradas do
+registro.
+
+Por isso `allowed_tools` é obrigatório e `permission_mode` é opt-in: eles
+delimitam o que o filho pode *pedir*, enquanto o runtime — e não o filho — decide
+o que de fato acontece. Cada sessão de CLI gerenciada mantém o próprio journal
+assinado. Veja [Contenção da CLI gerenciada](/managed-cli-containment) para a
+configuração de imagem, montagens, políticas e `[managed_cli.inference]`, e o
+[broker de ferramentas governado](/governed-tool-broker) para o contrato de
+intermediação.
 
 
 ---

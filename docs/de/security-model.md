@@ -14,6 +14,20 @@ Umfassende Sicherheitsarchitektur, die Zero-Trust, richtliniengesteuerten Schutz
 
 ## Ueberblick
 
+**Eindaemmungsabdeckung:** 1.21.0 ergaenzt ausgewaehlte Docker-/gVisor-Effektgrenzen,
+exakte Genehmigungen fuer vorbereitete Aufrufe, geschuetzte Journale an den
+abgedeckten Einstiegspunkten und unabhaengige Worker-Eigentuemerschaft. Siehe den
+[Eindaemmungs-Leitfaden](/containment-branch-guide) fuer implementierte Pfade und
+Deployment-Annahmen. Die nachfolgende Architektur und Stufenkonfiguration sind
+kein Nachweis einer vollstaendigen Durchsetzung auf allen Pfaden.
+Firecracker-Oneshot-Befehle, Parser, MCP-stdio, PTY-Sitzungen und verwaltete
+CLI-Worker verwenden einen versionierten Gast-Transport und unabhaengige
+VMM-Eigentuemerschaft. Verwaltete VMs erhalten ausschliesslich von der Runtime
+ausgestellte Tool-/Inferenz-Capabilities. Isolierte Browser-Ausfuehrung bleibt
+nicht verfuegbar. [Firecracker-Setup](/firecracker-setup) beschreibt die
+Deployment-Anforderungen fuer Gast und Host; Docker-Tests validieren kein
+VM-Deployment.
+
 Symbiont implementiert eine sicherheitsorientierte Architektur, die fuer regulierte und hochsichere Umgebungen entwickelt wurde. Das Sicherheitsmodell basiert auf Zero-Trust-Prinzipien mit umfassender Richtliniendurchsetzung, mehrstufiger Sandbox und kryptographischer Auditierbarkeit.
 
 ### Sicherheitsprinzipien
@@ -73,13 +87,133 @@ graph TB
     H --> H1
 ```
 
-> **Alle drei Host-Isolationsstufen — Docker, gVisor und Firecracker — werden im OSS-Runtime ausgeliefert.** Betreiber waehlen die Stufe pro Agent ueber den DSL-Block `with { sandbox = ... }` oder setzen einen Projekt-Standard via `[sandbox] tier = "..."` in `symbiont.toml`. E2B ist ausschliesslich ueber DSL Opt-in (`with { sandbox = "e2b" }`) und wird absichtlich nicht als `[sandbox] tier`-Wert angeboten.
+> **Jede Host-Isolationsstufe — landlock, Docker, gVisor und Firecracker — wird im OSS-Runtime ausgeliefert.** Betreiber waehlen die Stufe pro Agent ueber den DSL-Block `with { sandbox = ... }` oder setzen einen Projekt-Standard via `[sandbox] tier = "..."` in `symbiont.toml`. E2B ist ausschliesslich ueber DSL Opt-in (`with { sandbox = "e2b" }`) und wird absichtlich nicht als `[sandbox] tier`-Wert angeboten.
 >
 > Starke Isolation ist eine Grundlage, kein Upsell. Die Stufen bleiben im
 > Open-Source-Runtime, damit die Community die Grenze, auf die sie sich verlaesst,
 > lesen, pruefen und reproduzieren kann. Die Gast-Attestierung ist der klarste Fall:
 > Ein Fingerabdruck ueber Quellen, die man nicht lesen kann, bezeugt nichts. Der
 > Gastdienst ist gerade deshalb quelloffen, weil er eine Sicherheitskontrolle ist.
+
+<a id="landlock-daemon-free"></a>
+
+### Landlock (native Worker)
+
+Benannt als `landlock`, nicht nummeriert. Dieses optionale Linux-Backend
+verwendet native Prozesse und einen extern verwalteten delegierten Supervisor. Es
+benoetigt weder ein Container-Image noch einen Container-Daemon. Docker bleibt der
+Standard. Siehe [Diensteinrichtung und Migration](/landlock-supervision).
+
+**Konfiguration:** `[sandbox] tier = "landlock"` in `symbiont.toml`.
+Schreibgeschuetzte und beschreibbare Obergrenzen stammen aus `[sandbox.roots]` und
+werden mit den anderen Backends geteilt. `[sandbox.landlock]` enthaelt
+`abi_floor`, `require_network`, Speicher-, CPU-, PID-, Lebensdauer- und
+Ausgabelimits sowie seine `supervisor`-Konfiguration. Die standardmaessige und
+mindestens unterstuetzte ABI ist nun 6, auch wenn eine aeltere Konfiguration eine
+niedrigere Untergrenze setzt. Eine hoeher konfigurierte Untergrenze gilt
+weiterhin. Natives Little-Endian-x86_64 oder -aarch64 sowie funktionierende
+seccomp-Filterung sind erforderlich.
+
+**Anwendungsfaelle:**
+- Eine Workstation oder ein Desktop, auf dem der Betrieb eines Container-Daemons
+  pro Agent nicht sinnvoll ist
+- Beschraenkung der Dateisystemreichweite, Sockets und ausgehenden Signale eines
+  lokalen Prozesses, ohne ein Image bereitzustellen
+
+**Sicherheitsmerkmale:**
+- Dateisystembeschraenkung auf deklarierte Roots, vom Kernel durchgesetzt
+- Landlock-ABI-6-Scopes verhindern Signale und Verbindungen zu abstrakten
+  Unix-Sockets von Prozessen ausserhalb der Domaene des Workers. Signale innerhalb
+  der Domaene bleiben nutzbar.
+- Mit dem Standardwert `require_network = true` verweigert seccomp neue Sockets,
+  was TCP, UDP und Pfadnamen-Unix-Sockets abdeckt. Private
+  Unix-**Stream**-Socket-Paare bleiben nutzbar. Datagramm-Paare werden verweigert,
+  da sie an unbeteiligte Pfadnamen-Sockets senden koennen. `io_uring`-Operationen
+  und alternative Syscall-ABIs werden abgelehnt, damit sie diese Beschraenkung
+  nicht umgehen koennen.
+- `require_network = false` erlaubt ausdruecklich neue IPv4-/IPv6-Sockets. Es
+  erlaubt keine Host-Unix-Sockets, keine anderen Socket-Familien, keine
+  Datagramm-Paare und kein `io_uring`. Diese Option gewaehrt
+  IP-Netzwerkzugriff einschliesslich Loopback; sie ist keine Egress-Allowlist.
+- Eine Basis-Lese-/Ausfuehrungsberechtigung fuer System-Verzeichnisse mit
+  ausfuehrbaren Dateien und Bibliotheken, die erforderlich ist, bevor ein
+  dynamisch gelinktes Programm starten kann. Sie umfasst keinen beschreibbaren
+  Pfad, nichts unterhalb eines Home-Verzeichnisses und keine breite
+  `/etc`-Berechtigung.
+- Rulesets verlangen vollstaendige Durchsetzung. Der Standard der Crate ist
+  Best-Effort und ignoriert stillschweigend, was der Kernel nicht unterstuetzt;
+  dieser Standard wird nicht verwendet.
+- Regeln und der Syscall-Filter werden im Elternprozess gegen geoeffnete
+  Dateisystemobjekte konstruiert. Das Ersetzen eines Roots nach der Vorbereitung
+  kann dessen Berechtigung nicht umleiten. Das Kind installiert die
+  Beschraenkungen und markiert Deskriptoren oberhalb von stderr mittels roher
+  Syscalls als close-on-exec. Fehlende deklarierte Roots lassen die Vorbereitung
+  fehlschlagen; nicht vorhandene optionale Systempfade duerfen entfallen. Eine
+  fehlgeschlagene Installation bricht den Spawn ab.
+- Zusaetzlich geerbte Datei-, Socket- und Ring-Deskriptoren werden bei exec
+  geschlossen. Stdin, stdout und stderr bleiben explizite Capabilities:
+  SDK-Aufrufer muessen ausschliesslich die beabsichtigten Kanaele bereitstellen.
+  Der ausgelieferte MCP-Pfad verwendet Pipes. Dies entzieht keine Capabilities,
+  die ein Betreiber bewusst ueber stdio durchreicht oder ueber lesbare Roots
+  gewaehrt.
+
+**Migration.** Hosts mit ABI 4 oder 5 schlagen nun fail-closed fehl; ein Absenken
+von `abi_floor` kann die schwaechere Grenze nicht wiederherstellen. Workloads, die
+Unix-Dienste, Datagramm-Paare, `io_uring` oder Kompatibilitaets-Executables
+benoetigen, muessen ein geeignetes beaufsichtigtes Backend verwenden.
+Audit-Deskriptoren enthalten Grenzversion 3, geteilte Zulassung und
+cgroup-Beaufsichtigung, die effektive ABI-Anforderung, Signal-/Socket-Scopes, die
+Socket-Richtlinie, die Ring-Ablehnung und die Richtlinie fuer geerbte
+Deskriptoren.
+
+**Aktuelle Abdeckung.** MCP-stdio ohne deklarierte Dateien und der
+Low-Level-Startpfad `CliExecutor` des SDK verwenden dieses Backend. Oeffentliche
+Oneshot-Befehle, benutzerdefinierte Ausgabeparser, interaktive PTYs, das Staging
+deklarierter Dateien und das ausgelieferte verwaltete CLI-Setup unterstuetzen es
+noch nicht. Die Auswahl von Landlock auf diesen Pfaden schlaegt fehl, statt auf
+unbeschraenkte Ausfuehrung umzuschalten.
+
+**Lebensdauer der Berechtigung.** Eine Domaene kann nach ihrer Anwendung nicht
+gelockert werden. Das SDK-CLI-Kind erhaelt seine Domaene einmalig beim Spawn,
+einschliesslich Schreibzugriff auf sein Arbeitsverzeichnis. Direkte Roots
+autorisieren die konfigurierte Hierarchie fuer diese Lebensdauer; sie erstellen
+keinen Schnappschuss von Dateiinhalten und beschraenken Schreibvorgaenge nicht auf
+die Veroeffentlichung neuer Dateien. MCP-Discovery und Aufrufe ohne deklarierte
+Dateien leeren die konfigurierten Host-Roots. Kontrollierte MCP- und
+Low-Level-SDK-CLI-Worker behalten dauerhafte geteilte
+CPU-/Speicher-/Worker-Reservierungen bis zur Entfernung der cgroup. Delegierte
+cgroups setzen Ressourcenlimits durch und stoppen Nachkommen auch dann, wenn
+diese die Prozessgruppe verlassen. Der unabhaengige Dienstmanager behandelt
+Supervisor-Ausfaelle und Watchdog-Ablauf. Das rohe `PreparedDomain`-Primitiv wendet
+nur Kernel-Zugriffskontrollen an und erwirbt keine Lease.
+
+**Fail-closed.** Die erforderliche Landlock-ABI und die native Architektur werden
+vor der Autorisierung geprueft. Fehler bei der Konstruktion oder Installation des
+Rulesets, einschliesslich nicht verfuegbarer seccomp-Filterung, brechen den Spawn
+ab, bevor die Worker-Executable startet. Es gibt keine teilweise Anwendung und
+keinen Rueckfall auf unbeschraenkte Host-Ausfuehrung.
+
+**Nicht verfuegbar fuer registrierte Agenten.** Kein `SecurityTier` benennt
+landlock, sodass ein geplanter oder per HTTP registrierter Agent es nicht
+deklarieren kann; diese Pfade lehnen es ab, statt es auf eine benachbarte Stufe
+abzubilden und die verwendete Isolation falsch zu melden. Waehlen Sie es fuer
+direkte Laeufe in `[sandbox]` aus.
+
+**Validierung.** `crates/runtime/tests/landlock_sandbox.rs` ueberprueft echte
+beschraenkte Kindprozesse, einschliesslich ersetzter Lese-/Schreib-Roots und
+legitimen Zugriffs ueber die urspruenglichen Objekte, Socket- und
+Signalbeschraenkungen, geerbter Deskriptoren, privater Stream-IPC, expliziten
+IP-Zugriffs und der Ablehnung alternativer Syscall-ABIs.
+`scripts/test-landlock-boundary.py --binary /path/to/symbi
+--report /path/to/report.json` ueberprueft den ausgelieferten signierten
+MCP-Dispatch, nutzbare Ausgabe, Dateisystem-, TCP-, UDP-, Unix-Socket- und
+Signalablehnungen, das erforderliche Audit sowie die Ablehnung nicht
+unterstuetzter Kernel mit lokalen synthetischen Fixtures. Geschuetzte Beobachter
+pruefen unabhaengig auf zugestellte Nachrichten und Signale. Diese Pruefungen
+belegen keine adaptive Ausbruchsresistenz. Das separate
+`scripts/test-landlock-supervision.py` ueberprueft echte Fehlerfaelle im
+cgroup-Lebenszyklus. Siehe den
+[Landlock-Kontrakt des Kernels](https://docs.kernel.org/userspace-api/landlock.html).
 
 ### Stufe 1: Docker-Isolation
 
@@ -177,7 +311,7 @@ mem_mib           = 512
 rootfs_read_only  = true
 ```
 
-**Voraussetzungen:** Der Betreiber muss (a) ein Firecracker-kompatibles Kernel-Image und (b) ein Root-Dateisystem-Image mit einem init-Skript bereitstellen, das die Agenten-Payload liest. **Siehe [`docs/firecracker-setup.md`](firecracker-setup.md) fuer einen schrittweisen Quickstart, den In-VM-Init-Kontrakt und eine Haertungs-Checkliste.** `symbi doctor` meldet, ob das `firecracker`-Binary erreichbar ist.
+**Voraussetzungen:** Der Betreiber muss (a) ein Firecracker-kompatibles Kernel-Image und (b) ein Root-Dateisystem-Image mit dem passenden kompilierten Gastdienst bereitstellen. **Siehe [`docs/firecracker-setup.md`](/firecracker-setup) fuer einen schrittweisen Quickstart, den In-VM-Init-Kontrakt und eine Haertungs-Checkliste.** `symbi doctor` meldet, ob das `firecracker`-Binary erreichbar ist.
 
 Sobald Sie beide Artefakte haben, scaffolden Sie ein tier3-Projekt mit:
 
@@ -515,7 +649,30 @@ pub fn encrypt_message(
 
 ### Kryptographische Audit-Spur
 
-Jede sicherheitsrelevante Operation generiert ein unveraenderliches Audit-Event:
+Zwei Subsysteme fuehren eine signierte, hash-verkettete Aufzeichnung: die
+Kritiker-Audit-Kette (`crates/runtime/src/reasoning/critic_audit.rs`, verifiziert
+mit `verify_chain` / `verify_chain_anchored`) und die Sitzungstranskripte
+(`crates/runtime/src/session/transcript.rs`). Die nachfolgende Struktur
+beschreibt diese Ketten.
+
+Der Branch ergaenzt zudem erforderliche geschuetzte Lauf-Journale fuer die
+gewoehnliche/verwaltete CLI, HTTP, geplante ORGA-Laeufe und die standardmaessige
+DSL-Ausfuehrung von `reason()`/`tool_call()`. Diese sind privat, dauerhaft
+angehaengt, Ed25519-signiert und hash-verkettet; aufrufgebundene Eintraege
+enthalten die Lauf-ID. Siehe [Lauf-Audit](/run-audit) fuer das tatsaechliche
+Format, die Schluesselverwahrung, die Verifizierung und unvollstaendige
+Endergebnisse.
+
+Dies bleibt hinter einem systemweiten Audit-Log zurueck. Die zugrunde liegende
+`JournalWriter`-Schnittstelle erlaubt auf anderen Pfaden oder bei expliziter
+SDK-Injektion weiterhin einen gepufferten In-Memory-Writer; delegierte interne
+Journale werden dem Betreiber nicht alle zugaenglich gemacht. Direkte
+LLM-/Kompositionspfade und weitere Shell-Reasoning-Pfade muessen noch migriert
+werden. Die nachfolgende beispielhafte Event-Struktur beschreibt die
+Kritiker-/Transkript-Ketten, nicht das Wire-Format des geschuetzten
+Lauf-Journals.
+
+Ein Event in diesen Ketten sieht so aus:
 
 ```rust
 pub struct AuditEvent {

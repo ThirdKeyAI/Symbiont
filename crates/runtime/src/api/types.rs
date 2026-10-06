@@ -65,11 +65,11 @@ pub struct AgentStatusResponse {
 #[cfg(feature = "http-api")]
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ResourceUsage {
-    /// Memory usage in bytes
-    pub memory_bytes: u64,
-    /// CPU usage percentage
-    pub cpu_percent: f64,
-    /// Number of active tasks
+    /// Per-agent memory measurement in bytes; null when not sampled.
+    pub memory_bytes: Option<u64>,
+    /// Per-agent CPU measurement; null when not sampled.
+    pub cpu_percent: Option<f64>,
+    /// Number of active tasks owned by this scheduler.
     pub active_tasks: u32,
 }
 

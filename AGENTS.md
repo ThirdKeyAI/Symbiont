@@ -97,7 +97,8 @@ Private repo is on Gitea. Public mirror is `github.com:ThirdKeyAI/Symbiont.git`.
 bash scripts/sync_oss_to_github.sh --force
 ```
 
-The script exits with code 1 during cleanup even on success — this is a known quirk.
+Validate locally with `--export-dir /absolute/new/oss-export` before publishing.
+This mode performs no network, signing, commits or pushes; nonzero exits indicate failure.
 
 ## DSL Quick Reference
 
@@ -156,7 +157,7 @@ E2B is a separate hosted-cloud backend, **not** a peer of Tier 1/2/3. Code runs 
 
 ## Managed CLI agents (Mode B)
 
-An agent with `executor = "claude_code"` uses the project-selected Docker,
+An agent with `executor = "claude_code"` uses the project-selected Landlock, Docker,
 gVisor or Firecracker worker with a scratch workspace and private runtime channels.
 VMs use `/tmp` and fixed tool/inference vsock capabilities. Their `--target` is an
 absolute guest path; host source is not automatically transferred. Readable
@@ -235,7 +236,27 @@ uncertain leases keep their charge until cleanup is confirmed. Route limits
 remain additional bounds. See `docs/shared-budgets.md` for deployment and scope.
 Git and declared command/MCP/terminal file snapshots also reserve shared disk
 staging before copying. Caller locks and durable worker references retain charges
-until private data cleanup. See `docs/staging-capacity.md`.
+until private data cleanup. The administrative capacity view reports staging
+reservations and links attributed worker leases to their originating run. Busy or
+invalid staging accounting is explicitly unavailable. Governed Landlock commands, Git snapshots, declared-file MCP and managed CLI workers use the shared pool and independently managed
+cgroups. A delegated systemd user service starts automatically unless an
+external service owner is explicitly configured. `symbi init --sandbox landlock`
+scaffolds this project boundary; `symbi doctor` verifies restricted launch, native
+workspace and private loopback setup, inherited diagnostic connections and
+confirmed cleanup. With `[managed_cli]` configured, it also checks the selected
+CLI through a bounded contained `--version` launch, without provider credentials. See
+`docs/landlock-supervision.md` for setup, limits and recovery. Native development workspaces use bounded tmpfs and unprivileged user/mount namespaces; managed CLI adds private loopback and two inherited broker connections. `[managed_cli] executable` selects one canonical executable file without exposing its home directory. See `docs/landlock-development.md` for prerequisites, exact file ceilings and current compatibility limits.
+See `docs/staging-capacity.md` and `docs/worker-capacity.md`.
+
+For a ready-to-configure read-only native review, use `symbi init --sandbox landlock
+--profile dev-agent --dir <empty-control-directory>`. It prompts for `--source`,
+`--managed-executable`, `--inference-url`, `--inference-model` and
+`--inference-key-env`; noninteractive callers must pass all five. The provider
+must support the Anthropic Messages API. The scaffold grants only the fixed
+read/list/search tools, keeps source and control roots separate, and prints the
+correct `--target` command. It does not grant writes or shell access. This profile
+refuses existing control files even with `--force`. See `docs/landlock-development.md`.
+
 `--budget-tokens` bounds reserved inference output tokens; input traffic is bounded
 by bytes and request count. It is not a total billing limit. `--plugin-dir` is
 rejected. See `docs/managed-cli-containment.md` for configuration, evidence and
@@ -249,7 +270,7 @@ The manifest carries everything: binary path, description, risk tier, human-appr
 
 Argument types are validated in `crates/runtime/src/toolclad/validator.rs`. `agent_summary` is a best-effort defense-in-depth sanitizer for free text bound for a downstream prompt — **not** a load-bearing control. For a privileged downstream decision (routing, escalation, authorization), use typed `enum` args grounded in trusted context via Cedar, not free text: see `crates/runtime/src/toolclad/decision.rs` (`route_grounded`/`decide_route`), `tools/submit_triage.clad.toml`, and `examples/policies/triage_routing.cedar`. Mark decision-feeding args with `feeds_decision = true`; ToolClad manifest validation (`validate_toolclad`) flags free-text args that feed a privileged decision.
 
-Docker/gVisor/Firecracker command and MCP tools declare individual input and new output paths in
+Landlock/Docker/gVisor/Firecracker command and MCP tools declare individual input and new output paths in
 `[filesystem]`; configured mounts are access ceilings. Missing declarations give
 these workers no host mounts, and custom parsers inherit no host mounts. See
 `docs/filesystem-grants.md` for limits and migration.
@@ -391,6 +412,29 @@ the actual `execution_id`. Match that ID in agent history for the terminal statu
 See `crates/runtime/API_REFERENCE.md` for source selection and migration details.
 
 ## Agent Capabilities
+
+### Optional governed improvements
+
+`symbi improvement init` explicitly enables one operator-owned workflow with a
+frozen acceptance suite. It does not alter normal agent execution. Ordinary ORGA
+CLI runs select an approved version with `--improvement WORKFLOW`; the additional
+`--improvement-trial SHA256` explicitly runs an unpromoted candidate for evaluation.
+Managed CLI rejects these flags. HTTP, scheduler and chat do not auto-adopt them.
+
+Artifacts contain instructions, not permissions or executable definitions.
+Approval binds one candidate and passing evaluation; promotion checks the exact
+current version. Pins retain their version throughout a run. Disabled, changed,
+unapproved or invalid selections fail closed. Trials execute under the same
+runtime gates as other runs; evaluate only in a deliberately configured fixture
+environment. Final output evidence is captured after policy processing and
+cleanup, before termination. Unknown effects or usage cannot count as passing
+trial evidence. `export`/`verify` work without Enterprise services.
+
+The private `.symbiont/improvements/` tree and its signing keys must stay outside
+worker access. Local administration trusts the OS operator; it is not an
+enterprise reviewer identity or quorum. See `docs/governed-improvements.md` for
+schema contracts, limits, deployment fingerprints and evidence qualifications.
+Use `scripts/test-governed-improvements.py` for the installed CLI lifecycle check.
 
 Agents defined in the Symbi DSL can:
 

@@ -3,6 +3,19 @@
 ## Otros idiomas
 
 
+La [guia de ejecucion gobernada](/scheduled-execution) describe el comportamiento
+del runtime en esta rama: el registro almacena la configuracion sin ejecutar un
+agente; las invocaciones por API, manuales y por temporizador reciben IDs de
+ejecucion distintos y resultados terminales reales. El historial alcanza
+`succeeded` despues de la ejecucion y la limpieza, e incluye la salida, los
+errores y las referencias de auditoria protegida. La programacion de CLI
+administrada, los modelos enrutados y el transporte de agentes externos siguen
+sin estar disponibles en el servicio predeterminado. El limite de comandos
+seleccionado puede usar [Firecracker](/firecracker-setup) para herramientas
+oneshot, parsers, MCP stdio y sesiones PTY cuando se aprovisionan los artefactos
+de invitado correspondientes. Consulte la [guia de la rama](/containment-branch-guide)
+para conocer las diferencias visibles para el operador y la cobertura pendiente.
+
 El sistema de programacion de Symbiont proporciona ejecucion de tareas basada en cron de nivel de produccion para agentes de IA. El sistema soporta:
 
 - **Programaciones cron**: Sintaxis cron tradicional para tareas recurrentes

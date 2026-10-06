@@ -1041,7 +1041,7 @@ impl ActionExecutor for ToolCladExecutor {
             else {
                 continue;
             };
-            let result = async {
+            let result = crate::sandbox::worker_origin::scope(grant.worker_origin(), async {
                 grant.check_live()?;
                 circuit_breakers
                     .check(&name)
@@ -1169,7 +1169,7 @@ impl ActionExecutor for ToolCladExecutor {
                         }
                     })
                     .await
-            }
+            })
             .await;
             let (content, is_error) = match result {
                 Ok(value) => {

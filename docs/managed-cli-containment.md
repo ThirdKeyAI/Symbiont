@@ -1,13 +1,13 @@
 # Managed CLI containment
 
 Agents with `metadata { executor = "claude_code" }` run Claude Code in the
-project-selected Docker, gVisor or Firecracker worker. Containers receive scratch
+project-selected Landlock, Docker, gVisor or Firecracker worker. Landlock uses a private tmpfs, private loopback network namespace and two inherited connected broker capabilities; see [Linux development](landlock-development.md). Containers receive scratch
 `/workspace` and a private channel mount. Firecracker receives scratch `/tmp` and
 fixed vsock capabilities for tools and inference, without host mounts or a NIC.
-Source mounts belong to governed container tool backends. Policy, approval state,
+Configured source access belongs to governed tool backends. Policy, approval state,
 provider credentials and signed journals stay in the runtime.
 
-Configure a container image or matching VM rootfs containing Claude Code and Python 3. The reference code
+For Landlock, configure the installed executable and system Python 3 as described in the Linux guide. Container and VM routes require an image or matching rootfs containing Claude Code and Python 3. The reference code
 reviewer also needs Git. Missing images or backends fail without host fallback.
 The independent sandbox supervisor owns worker creation, lifetime and cleanup,
 including detached descendants and runtime process loss. Container deployments
@@ -44,7 +44,7 @@ The credential variable is read by the runtime while preparing its private
 inference broker. No provider request or child process starts until admission
 has passed policy, required approval and durable pre-effect recording. It is not inherited by the child. The child
 uses a fixed placeholder credential and a loopback adapter to the private Unix
-socket (containers) or runtime-issued vsock port 4052 (VMs). An explicit local HTTP endpoint is supported. URL credentials, query
+socket (containers), inherited connection (Landlock) or runtime-issued vsock port 4052 (VMs). An explicit local HTTP endpoint is supported. URL credentials, query
 parameters, fragments, redirects and ambient proxies are rejected or disabled.
 Only the configured model and Messages/token-counting routes are available.
 Provider-hosted tools, remote MCP servers and URL-based document/image sources
@@ -66,7 +66,7 @@ CLI names and wildcard permission expressions are not accepted as registry
 entries. The reference reviewer uses `read_file`, `list_files`, `grep_files`,
 `git_diff`, `git_staged_diff`, `git_log` and `git_status`. The first three now use
 [fixed source queries](source-queries.md) against Linux Docker/gVisor ceilings
-or explicit read-only Firecracker `source_roots`. The CLI receives authorized
+or explicit read-only Landlock/Firecracker `source_roots`. The CLI receives authorized
 results through its tool channel, without host mounts. The Git tools use
 [isolated repository snapshots](git-source-queries.md) with networking disabled
 and fixed Git configuration. Firecracker receives bounded Git snapshots in a

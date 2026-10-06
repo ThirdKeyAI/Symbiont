@@ -16,6 +16,7 @@ pub struct WorkerSnapshot {
     pub backend: String,
     pub phase: String,
     pub resources: Option<WorkerResources>,
+    pub origin: Option<crate::origin::WorkerOrigin>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,6 +29,9 @@ pub struct CapacitySnapshot {
     pub unknown_resource_leases: usize,
     pub admission_blocked: bool,
     pub workers: Vec<WorkerSnapshot>,
+    #[cfg(unix)]
+    pub staging: Option<crate::staging::Snapshot>,
+    pub staging_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,11 +81,14 @@ mod local {
             .context("capacity inspection is busy")?;
         state
             .storage(|store| {
-                snapshot(
-                    store.root.clone(),
-                    store.admission_limits(),
-                    store.records()?,
-                )
+                let records = store.records()?;
+                let staging = crate::staging::inspect(&store.root, &records);
+                let mut value = snapshot(store.root.clone(), store.admission_limits(), records)?;
+                match staging {
+                    Ok(staging) => value.staging = Some(staging),
+                    Err(error) => value.staging_error = Some(error.to_string()),
+                }
+                Ok(value)
             })
             .await
     }
@@ -120,6 +127,8 @@ mod local {
             .into_iter()
             .map(|r| {
                 let (backend, phase) = match r.state {
+                    Phase::HostCreating { .. } => ("landlock", "creating"),
+                    Phase::HostCreated { .. } => ("landlock", "created"),
                     Phase::Creating => ("container", "creating"),
                     Phase::Created { .. } => ("container", "created"),
                     Phase::Uncertain => ("container", "uncertain"),
@@ -131,6 +140,7 @@ mod local {
                     backend: backend.into(),
                     phase: phase.into(),
                     resources: r.resources,
+                    origin: r.origin,
                 }
             })
             .collect();
@@ -143,6 +153,8 @@ mod local {
             unknown_resource_leases: unknown,
             admission_blocked: blocked,
             workers,
+            staging: None,
+            staging_error: None,
         })
     }
 
@@ -183,6 +195,40 @@ mod local {
                         .context("worker measurement timed out")??;
                 anyhow::ensure!(output.success, "Docker worker measurement unavailable");
                 docker_sample(&record, container_id, &output.stdout)?
+            }
+            #[cfg(target_os = "linux")]
+            Phase::HostCreated { cgroup, .. } => {
+                let group = cgroup.open()?.context("delegated worker cgroup is gone")?;
+                anyhow::ensure!(
+                    group
+                        .read("cgroup.events")?
+                        .lines()
+                        .any(|line| line == "populated 1"),
+                    "delegated worker has no live process; usage unavailable"
+                );
+                let memory = group.read("memory.current")?.trim().parse()?;
+                let stat = group.read("cpu.stat")?;
+                let cpu = stat
+                    .lines()
+                    .find_map(|line| line.strip_prefix("usage_usec "))
+                    .context("missing cgroup CPU counter")?
+                    .parse()?;
+                anyhow::ensure!(
+                    group
+                        .read("cgroup.events")?
+                        .lines()
+                        .any(|line| line == "populated 1"),
+                    "delegated worker exited during sampling; usage unavailable"
+                );
+                WorkerMeasurement {
+                    lease,
+                    observed_at_unix_ms: now()?,
+                    source: "landlock_cgroup".into(),
+                    cpu_percent: None,
+                    memory_usage: None,
+                    cpu_time_micros: Some(cpu),
+                    memory_bytes: Some(memory),
+                }
             }
             Phase::VmCreated { .. } => {
                 let record = record.clone();
@@ -336,6 +382,7 @@ mod local {
         fn record() -> Record {
             let lease = uuid::Uuid::new_v4();
             Record {
+                origin: None,
                 lease,
                 name: format!("symbi-{lease}"),
                 docker_binary: "/usr/bin/docker".into(),

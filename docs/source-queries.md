@@ -1,5 +1,7 @@
 # Bounded source queries
 
+Linux Landlock also supports this workflow through explicit `[sandbox.roots]` ceilings. Native commands use private bounded workspaces and retained staging; see [Linux development](landlock-development.md).
+
 The bundled `read_file`, `list_files` and `grep_files` tools use a fixed runtime
 file broker. Configure a Docker or gVisor mount ceiling for the source tree and
 its working directory, separately from the runtime control project:

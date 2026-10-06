@@ -144,7 +144,7 @@ impl Effects {
     }
 }
 
-pub(super) fn classify(
+pub(crate) fn classify(
     prefix: VerifiedPrefix,
     run_id: Uuid,
 ) -> Result<RecoveryReport, JournalError> {

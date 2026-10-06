@@ -26,6 +26,8 @@ symbi shell --resume <id>      # eine Sitzung per UUID wiederoeffnen
 
 ## Layout
 
+Der [Leitfaden zur Eindaemmung](/containment-branch-guide#tui-a-separate-complete-review) beschreibt den neuen Genehmigungsablauf. Lokale Orchestrator- und Fleet-Turns erfordern jetzt geschuetztes Audit, und Datei- sowie Befehls-Tools verwenden die ausgewaehlte Container-Grenze. Konfigurieren Sie explizite Workspace-Mounts wie unter [kontrollierter Shell-Workspace](/shell-containment) beschrieben. Andere Runtime- und kanonische DSL-Pfade sind weiterhin in Arbeit.
+
 Die Shell verwendet einen Inline-Viewport, der sich das Terminal mit Ihrem vorhandenen Scrollback teilt. Von oben nach unten sehen Sie:
 
 - **Projektstruktur-Sidebar** (umschaltbar) -- Dateibaum des aktuellen Projekts, hebt Agenten, Richtlinien und Tools hervor.
@@ -35,6 +37,10 @@ Die Shell verwendet einen Inline-Viewport, der sich das Terminal mit Ihrem vorha
 
 Syntax-Highlighting deckt ueber Tree-Sitter-Grammatiken das Symbiont-DSL, Cedar und ToolClad-Manifeste ab.
 
+Unter Zellij warnt die Shell, dass Scrollback oberhalb des Inline-Viewports
+moeglicherweise nicht dargestellt wird. Verwenden Sie fuer volle Wiedergabetreue
+ein natives Terminal oder tmux; ein `--full-screen`-Flag gibt es derzeit nicht.
+
 ### Tastenbelegungen
 
 | Belegung | Aktion |
@@ -43,12 +49,29 @@ Syntax-Highlighting deckt ueber Tree-Sitter-Grammatiken das Symbiont-DSL, Cedar 
 | `/` oder `@` | Vervollstaendigungs-Popup automatisch oeffnen |
 | `↑` / `↓` | Eingabeverlauf oder Popup-Eintraege durchlaufen |
 | `Ctrl+R` | Reverse-History-Suche |
+| `Ctrl+G` | Das Gate-Panel oeffnen, auch waehrend eines laufenden Turns |
 | `Tab` | Hervorgehobene Vervollstaendigung uebernehmen |
 | `Esc` | Popup schliessen / laufenden LLM-Aufruf abbrechen |
 | `Ctrl+L` | Sichtbaren Ausgabepuffer leeren |
 | `Ctrl+D` | Shell beenden |
 
-Unter Zellij erkennt die Shell den Multiplexer und gibt eine Inline-Viewport-Kompatibilitaetswarnung aus; verwenden Sie `--full-screen`, wenn Sie stattdessen in einem Alternate-Screen-Puffer laufen wollen.
+### Zurueckgehaltene Aktionen pruefen
+
+Oeffnen Sie `/gate` oder druecken Sie Ctrl+G. Waehlen Sie mit ↑/↓ aus und
+druecken Sie dann Enter, um die vollstaendige escapte JSON-Anfrage zu oeffnen.
+Verwenden Sie ↑/↓ oder Page Up/Down, um lange Argumente zu pruefen. Druecken Sie
+`a` zum Genehmigen oder `d` zum Ablehnen der geprueften Anfrage. Esc kehrt zur
+Liste zurueck und schliesst anschliessend das Panel. Ein `a` auf einer
+Listenzeile verlangt zuerst eine Pruefung.
+
+Die Auswahl folgt der Anfrage-ID ueber Aktualisierungen hinweg. Aenderungen,
+Ablauf, Entfernung oder ein fehlgeschlagener Lesevorgang der Warteschlange machen
+die Pruefung ungueltig. Das Panel haelt die Aufloesung ausstehend, bis es das
+Ergebnis erhaelt; ein Timeout meldet ein unbekanntes Ergebnis.
+Verbindungsaenderungen verwerfen alte Pruefungen und warten auf eine etwaige
+ausstehende Aufloesung. Eine konfigurierte lokale Warteschlange hat Vorrang vor
+einer angebundenen Runtime-API. Siehe
+[Genehmigungs-Lebenszyklus](/approval-lifecycle).
 
 ## Befehlskatalog
 
@@ -103,10 +126,21 @@ Authoring-Befehle schreiben erst nach erfolgreicher Validierung auf die Festplat
 | Befehl | Funktion |
 |---------|-------------|
 | `/cron list` | Geplante Agent-Jobs auflisten. |
-| `/cron add` / `/cron remove` | Geplante Jobs erstellen oder loeschen. |
+| `/cron add <description>` | Einen Zeitplan zur Pruefung entwerfen. |
+| `/cron pause <job-id>` / `/cron resume <job-id>` | Einen entfernten Zeitplan pausieren oder fortsetzen. |
+| `/cron run <job-id> [invocation-id]` | Arbeit starten oder eine explizite ID wiederverwenden, um diesen Aufruf zu pruefen bzw. zu wiederholen. |
 | `/cron history` | Juengste Laeufe anzeigen. |
 
-`/cron` funktioniert sowohl lokal als auch ueber Remote-Attach (siehe unten). Siehe den [Scheduling-Leitfaden](/scheduling) fuer die vollstaendige Cron-Engine.
+`/cron` erfordert einen Remote-Attach (siehe unten). Trigger-Ergebnisse zeigen die
+Aufruf-UUID, den exakten Wiederholungsbefehl und den Zustand
+queued/saved/in-progress/unresolved. Gespeicherte Ergebnisse enthalten eine
+begrenzte Ausgabevorschau, die gemeldeten Tokens, das verfuegbare/reservierte/
+unsichere Budget und die Referenz auf das geschuetzte Journal. Die Historie
+bewahrt alle Details. Bewahren Sie die UUID auf: Wird sie weggelassen, wird neue
+Arbeit angefordert. Eine verlorene Antwort belegt kein Fehlschlagen; verwenden Sie
+den angezeigten Wiederholungsbefehl oder pruefen Sie `/cron history <job-id>` nach
+einem Neustart der Shell. Unbekannte Effekte erfordern einen Abgleich. Siehe
+[Cron-Wiederherstellung](/cron-recovery).
 
 ### Channels
 

@@ -111,7 +111,7 @@ impl InferenceProvider for Provider {
 
 async fn fixture(
     project: &std::path::Path,
-    provider: Arc<Provider>,
+    provider: Arc<dyn InferenceProvider>,
 ) -> (ReasoningLoopRunner, AgentId, RunAuditReference) {
     let agent = AgentId::new();
     let executor = Arc::new(DefaultActionExecutor::default());
@@ -278,4 +278,155 @@ async fn parent_cancellation_retains_unknown_child_spend_after_cleanup() {
             ..
         }
     ));
+}
+
+#[derive(Default)]
+struct GatedProvider {
+    entered: tokio::sync::Notify,
+    release: tokio::sync::Notify,
+}
+
+#[async_trait]
+impl InferenceProvider for GatedProvider {
+    fn input_token_reservation(
+        &self,
+        _: &Conversation,
+        _: &InferenceOptions,
+    ) -> Result<u32, InferenceError> {
+        Ok(1)
+    }
+    async fn complete(
+        &self,
+        _: &Conversation,
+        options: &InferenceOptions,
+    ) -> Result<InferenceResponse, InferenceError> {
+        assert_eq!(options.max_tokens, 10);
+        self.entered.notify_one();
+        self.release.notified().await;
+        Ok(InferenceResponse {
+            content: "sum is 2".into(),
+            tool_calls: vec![],
+            finish_reason: FinishReason::Stop,
+            usage: Usage {
+                prompt_tokens: 1,
+                completion_tokens: 1,
+                total_tokens: 2,
+            },
+            model: "fixture".into(),
+        })
+    }
+    fn provider_name(&self) -> &str {
+        "fixture"
+    }
+    fn default_model(&self) -> &str {
+        "fixture"
+    }
+    fn supports_native_tools(&self) -> bool {
+        true
+    }
+    fn supports_structured_output(&self) -> bool {
+        true
+    }
+}
+
+#[tokio::test]
+async fn child_timeout_preserves_live_parent_and_sibling_signed_reservations() {
+    use symbi_runtime::reasoning::budget::{journal::recover, SharedBudget};
+    let project = tempfile::tempdir().unwrap();
+    let root_budget = SharedBudget::new(1000);
+    let timed_budget = root_budget.child(100).unwrap();
+    let sibling_budget = root_budget.child(100).unwrap();
+    let root_provider = Arc::new(GatedProvider::default());
+    let timed_provider = Arc::new(GatedProvider::default());
+    let sibling_provider = Arc::new(GatedProvider::default());
+    let run_config = |budget, limit, timeout| LoopConfig {
+        shared_budget: Some(budget),
+        max_total_tokens: limit,
+        max_output_tokens: 10,
+        timeout,
+        ..Default::default()
+    };
+    let (root, agent, root_audit) = fixture(project.path(), root_provider.clone()).await;
+    let task = tokio::spawn(async move {
+        root.run(
+            agent,
+            Conversation::with_system("Root"),
+            run_config(root_budget, 1000, Duration::from_secs(10)),
+        )
+        .await
+    });
+    tokio::time::timeout(Duration::from_secs(5), root_provider.entered.notified())
+        .await
+        .unwrap();
+    let (sibling, agent, sibling_audit) = fixture(project.path(), sibling_provider.clone()).await;
+    let sibling_task = tokio::spawn(async move {
+        sibling
+            .run(
+                agent,
+                Conversation::with_system("Sibling"),
+                run_config(sibling_budget, 100, Duration::from_secs(10)),
+            )
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(5), sibling_provider.entered.notified())
+        .await
+        .unwrap();
+    let (timed, agent, timed_audit) = fixture(project.path(), timed_provider.clone()).await;
+    let timed_task = tokio::spawn(async move {
+        timed
+            .run(
+                agent,
+                Conversation::with_system("Timeout"),
+                run_config(timed_budget, 100, Duration::from_secs(1)),
+            )
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(5), timed_provider.entered.notified())
+        .await
+        .unwrap();
+    let timed_result = timed_task.await.unwrap();
+    assert!(matches!(
+        timed_result.termination_reason,
+        TerminationReason::Timeout
+    ));
+    let partial = recover(&entries(&root_audit)).unwrap().unwrap();
+    assert_eq!(partial.reservations.len(), 3);
+    let finished: Vec<_> = partial
+        .reservations
+        .iter()
+        .filter(|r| r.finish_sequence.is_some())
+        .collect();
+    assert_eq!(finished.len(), 1);
+    assert_eq!(
+        finished[0].reservation.audit.as_ref().unwrap().run_id,
+        timed_audit.run_id
+    );
+    sibling_provider.release.notify_one();
+    assert!(matches!(
+        sibling_task.await.unwrap().termination_reason,
+        TerminationReason::Completed
+    ));
+    root_provider.release.notify_one();
+    let result = task.await.unwrap();
+    assert!(matches!(
+        result.termination_reason,
+        TerminationReason::Completed
+    ));
+    assert_eq!(result.output, "sum is 2");
+    let recovered = recover(&entries(&root_audit)).unwrap().unwrap();
+    assert!(recovered
+        .reservations
+        .iter()
+        .all(|r| r.finish_sequence.is_some()));
+    assert_eq!(recovered.scopes[0].usage.total_tokens, 4);
+    assert_eq!(recovered.scopes[0].uncertain_tokens, 11);
+    assert_eq!(recovered.scopes[0].available_tokens, 985);
+    assert_eq!(result.budget.unwrap().available_tokens, 985);
+    for (audit, timeout) in [(&timed_audit, true), (&sibling_audit, false)] {
+        let verified = entries(audit);
+        assert!(
+            matches!(&verified.last().unwrap().event, LoopEvent::Terminated { reason, .. }
+            if matches!(reason, TerminationReason::Timeout) == timeout)
+        );
+    }
 }

@@ -739,7 +739,7 @@ mod tests {
     use crate::types::{AgentConfig, AgentId, Priority, ResourceLimits, SecurityTier};
     use std::collections::HashMap;
 
-    fn test_agent_config() -> AgentConfig {
+    pub(super) fn test_agent_config() -> AgentConfig {
         AgentConfig {
             id: AgentId::new(),
             name: "cron_agent".to_string(),
@@ -823,7 +823,7 @@ mod tests {
         }
     }
 
-    async fn make_scheduler() -> (CronScheduler, Arc<DefaultAgentScheduler>) {
+    pub(super) async fn make_scheduler() -> (CronScheduler, Arc<DefaultAgentScheduler>) {
         let sched = Arc::new(
             DefaultAgentScheduler::new_with_executor(
                 SchedulerConfig::default(),
@@ -1697,7 +1697,7 @@ mod tests {
 
     // ── Schedule policy gate wiring ──────────────────────────────────
 
-    fn deny_all_gate() -> PolicyGate {
+    pub(super) fn deny_all_gate() -> PolicyGate {
         PolicyGate::new(
             vec![SchedulePolicyRule {
                 id: "deny-all".to_string(),

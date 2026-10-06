@@ -1,5 +1,7 @@
 # 入门指南
 
+> 要在收容（containment）条件下运行智能体？请先阅读[收容运维指南](/containment-branch-guide)，了解执行前置条件、审批方面的变化以及当前的覆盖范围。
+
 本指南将指导您设置 Symbi 并创建您的第一个 AI 智能体。
 
 ▶ **观看入门教程视频：**
@@ -148,7 +150,13 @@ symbi init
 这将启动一个交互式向导，引导您完成：
 - **配置文件选择**：`minimal`、`assistant`、`dev-agent` 或 `multi-agent`
 - **SchemaPin 模式**：`tofu`（首次使用信任）、`strict` 或 `disabled`
-- **沙箱层级**：`tier0`（无，仅供开发使用）、`tier1`（Docker）、`tier2`（gVisor / `runsc`）或 `tier3`（Firecracker microVM）
+- **沙箱层级**：`landlock`（Linux 原生）、`tier0`（无，仅供开发使用）、`tier1`（Docker）、`tier2`（gVisor / `runsc`）或 `tier3`（Firecracker microVM）
+
+使用 `--sandbox landlock --profile dev-agent` 时，向导还会询问源码仓库、已安装的
+Claude Code 可执行文件、兼容 Messages 接口的推理 URL、模型，以及凭据环境变量名。
+它会在一个独立的空控制目录中生成只读的代码审阅配置。非交互式调用方必须提供
+`--source`、`--managed-executable`、`--inference-url`、`--inference-model` 和
+`--inference-key-env`。参见 [Linux 开发者上手指南](/landlock-development)。
 
 ### `init` 生成的内容
 
@@ -164,7 +172,7 @@ symbi init
 | `.gitignore` | 追加 Symbiont 特定条目，包括 `.env` |
 | `.env` | 从 `/dev/urandom` 生成的 `SYMBIONT_MASTER_KEY`（0600 权限） |
 | `.env.example` | 可安全提交的模板，展示所需的环境变量 |
-| `docker-compose.yml` | 即用型 compose 文件，带有正确的卷挂载和环境变量接线 |
+| `docker-compose.yml` | 带有卷挂载和环境变量接线的 compose 文件；使用 Landlock 时不生成 |
 
 传递 `--no-docker-compose` 可跳过 compose 文件，使用 `--dir <PATH>` 可写入当前目录之外的其他目录（在 Docker 容器内运行时必需 — 见下文）。
 
@@ -193,12 +201,12 @@ docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest \
 |---------|-----------|
 | `minimal` | `symbiont.toml` + 默认 Cedar 策略 |
 | `assistant` | + 单个治理助手智能体 |
-| `dev-agent` | + 带安全策略的 CliExecutor 智能体 |
+| `dev-agent` | + 托管 CLI 智能体；使用 Landlock 时还会加入已配置的读取/列目录/搜索工具、限定范围的策略和 `DEVELOPMENT.md` |
 | `multi-agent` | + 协调器/工作器智能体及智能体间策略 |
 
 ### 从目录导入
 
-在任何配置文件旁导入预构建的智能体：
+在通用配置文件旁导入预构建的智能体（只读的 Landlock 开发初始化器不支持同时导入目录）：
 
 ```bash
 symbi init --profile minimal --no-interact
@@ -234,6 +242,12 @@ symbi run <agent-name-or-file> --input <json>
 symbi run assistant -i 'Summarize this document'
 symbi run agents/recon.symbi -i '{"target": "10.0.1.5"}' --max-iterations 5
 ```
+
+工具命令、解析器、MCP 和 PTY 执行都需要所选的容器后端、一个包含所声明可执行文件
+的已缓存镜像，以及显式的数据挂载。后端不可用时不能回退到主机执行。所选的智能体
+设置和项目默认值会在推理之前进行检查。运行还需要受保护的 `.symbiont/governed/`
+存储，并会打印其公开的审计引用。参见[命令配置](/toolclad-command-boundary)和
+[运行审计](/run-audit)。
 
 ### 使用本地模型
 
@@ -542,34 +556,37 @@ branches = ["main", "master", "production"]
 
 #### 模式 B：受治理的 Claude Code 子进程
 
-除了编辑器内的钩子之外，Symbiont 还可以将 Claude Code 作为*受治理的子进程*运行 —— 即“模式 B”（ORGA 管理）路径。元数据声明了 `executor = "claude_code"` 的智能体，会通过在运行时的 `CliExecutor` 下生成 Claude Code 来运行，而不是使用 LLM 推理循环。捆绑的 `code_reviewer` 智能体是参考示例：
+声明了 `metadata { executor = "claude_code" }` 的智能体，会在所选的 Docker/gVisor
+容器中运行其 CLI 子进程，只有临时暂存存储以及私有的运行时推理/工具通道。捆绑的
+`code_reviewer` 是参考智能体。请先配置一个已缓存的 CLI/Python 镜像、显式的后端源码
+挂载、已注册的 ToolClad 工具和 Cedar 策略，以及 `[managed_cli.inference]`。完整示例
+参见[托管 CLI 收容](/managed-cli-containment)。
 
 ```bash
-# Review a working tree with a governed Claude Code subprocess
-symbi run code_reviewer --target /path/to/repo
+# /srv/source must map to an explicit backend mount in the control project.
+symbi run code_reviewer --target /srv/source --max-turns 12 --budget-timeout 15m
 
-# Bounds: --max-turns is the primary (cooperative) limit; --budget-timeout is a
-# hard wall-clock backstop (graceful SIGTERM -> SIGKILL).
-symbi run code_reviewer --target . --max-turns 12 --budget-timeout 15m
+# Add operator review for tools that require approval.
+symbi run code_reviewer --target /srv/source --approval-terminal
 ```
 
-每次运行时，Symbiont 会：
+子进程不会获得直接的源码挂载、外部网络访问、主机登录状态或提供方凭据。允许的
+文件/Git 访问由已注册的工具代为中转。内置工具和自动发现均被禁用。每个动作都需要
+运行时授权；对启动的一次批准并不授权后续动作。插件不会被加载，`--plugin-dir`
+会被拒绝。
 
-- 通过策略 **Gate** 评估该进程的生成（失败即关闭 —— 通过 Cedar 策略允许它，或在本地开发时设置 `SYMBI_INSECURE_ALLOW_ALL=1`）；
-- 设置环境握手（`SYMBIONT_MANAGED=true`、`SYMBIONT_SESSION_ID`、`SYMBIONT_BUDGET_TOKENS`、`SYMBIONT_BUDGET_TIMEOUT`、`CLAUDE_PROJECT_DIR`），以便 symbi-claude-code 插件将其钩子**延迟**交给外层 Gate 处理；
-- 通过 `--plugin-dir` 加载插件，并通过 `--mcp-config --strict-mcp-config` 接通 stdio `symbi mcp` 反向通道；
-- 以无头模式运行 Claude Code（`--print --output-format json --permission-mode dontAsk`）。
+| 标志 / 设置 | 用途 |
+|---|---|
+| `--target` | 映射到显式后端挂载的源码目录 |
+| `--max-turns` | 对话轮次上限；默认 12 |
+| `--budget-timeout` | 包含初始化在内的挂钟时间上限；默认 `15m` |
+| `--budget-tokens` | 预留的推理输出 token 额度；默认 100000，不是计费的总 token 数 |
+| `--approval-terminal` | 选择启用控制终端审阅，用于强制性审批 |
+| `[managed_cli.inference]` | 显式的提供方端点、模型和凭据变量；凭据保留在运行时内 |
 
-| Variable / flag | 用途 | 默认值 |
-|---|---|---|
-| `SYMBIONT_CLAUDE_PLUGIN_DIR` | symbi-claude-code 插件的路径 | 自动检测同级仓库 |
-| `--plugin-dir` | 为单次运行覆盖插件路径 | —— |
-| `--target` | 要操作的工作目录 | 当前目录 |
-| `--max-turns` | 主要协作边界（智能体轮次） | 12 |
-| `--budget-timeout` | 挂钟时间兜底，例如 `15m` / `900s` | 15m |
-| `--budget-tokens` | 传递给子进程的令牌预算提示（建议性） | 100000 |
-
-> **认证：** 子进程使用 Claude Code 自身的认证 —— 已登录的会话（`claude /login`）或 `ANTHROPIC_API_KEY`。`cli-executor` 特性默认开启。
+必需的签名会话日志保存在私有的 `.symbiont/governed/` 存储中。运行时会打印公开
+验证密钥。缺少审批、审计存储不安全、后端不可用或清理失败，都不会被悄悄报告为
+成功。推理响应会被缓冲（包括 SSE），因此流式输出会有延迟。
 
 ### Gemini CLI
 
@@ -643,6 +660,42 @@ enabled = true
 backend = "lancedb"              # 默认值；也支持 "qdrant"
 collection_name = "symbi_knowledge"
 # url = "http://localhost:6333"  # 仅在 backend = "qdrant" 时需要
+```
+
+### 人机协同审批
+
+即使 Cedar 允许某次调用，清单/子命令中声明的审批要求仍然是强制性的。共享队列会
+保留每个请求，直到出现有权限的决定、请求过期或被取消。某个通知器卡住不会阻塞
+其他审批界面。
+
+- **普通 / 托管 CLI：** 添加 `--approval-terminal`，可以附带
+  `--approval-timeout 120`（1–3600 秒）。审阅完整转义后的 JSON，然后在控制终端上
+  准确输入 `approve <request-id>`。不带该标志时，需要审批的调用会失败关闭。
+- **REST：** 经过认证的 `GET /api/v1/approvals`、
+  `POST /api/v1/approvals/{id}/approve` 和 `.../deny` 可处置待决请求。
+- **Shell：** Ctrl+G 即使在轮次执行过程中也能打开 Gate 面板。用 ↑/↓ 选择，按
+  Enter 审阅完整请求，滚动查看，然后按 `a` 或 `d`。`/gate` 同样可以打开该面板。
+  仅停留在列表行上无法完成批准。
+- **聊天：** 位于允许列表中的发送者使用 `/symbi gate show <id>`，然后从完整审阅
+  内容中复制 `/symbi gate approve <id> <review-digest>`，或发送
+  `/symbi gate deny <id>`。只带 ID 的批准会被拒绝。消息过长时需要另外接入一个
+  审阅界面。
+
+请求发生变更、过期或被移除后，都需要重新审阅。TUI 会明确报告处置错误和结果未知
+的情况。批准只是允许通过门控继续执行；实际是否执行请在签名的运行审计中核实。
+Slack 在所有环境中都要求非空的签名密钥和有效的回调签名。此前允许未签名回调的
+覆盖开关已不再支持。限制条件和信任假设参见[审批生命周期](/approval-lifecycle)。
+
+在 `symbiont.toml` 中配置超时和聊天审批通道：
+
+```toml
+[escalation]
+timeout_seconds = 120
+
+[[escalation.approval_channels]]
+platform   = "slack"
+channel_id = "C0APPROVERS"
+approvers  = ["U0ALICE", "U0BOB"]   # allowlisted sender ids; empty = nobody may approve via chat
 ```
 
 ---

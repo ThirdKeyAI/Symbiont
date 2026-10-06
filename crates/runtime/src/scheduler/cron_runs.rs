@@ -9,6 +9,18 @@ use crate::{
 };
 use uuid::Uuid;
 
+// Keep manual admission and timer recovery from racing for the same intent.
+// The durable invocation claim remains the authority across scheduler processes.
+struct OccurrenceAttempt {
+    ids: Arc<RwLock<std::collections::HashSet<Uuid>>>,
+    id: Uuid,
+}
+impl Drop for OccurrenceAttempt {
+    fn drop(&mut self) {
+        self.ids.write().remove(&self.id);
+    }
+}
+
 struct CronAdmissionGate {
     owner: CronScheduler,
     occurrence: Occurrence,
@@ -16,6 +28,19 @@ struct CronAdmissionGate {
     refusal: std::sync::Mutex<Option<CronSchedulerError>>,
 }
 impl CronAdmissionGate {
+    /// Preserve the specific refusal before releasing the invocation claim.
+    /// Refused identities remain closed; operator reconciliation cannot replay them.
+    async fn record_refusal(&self, reason: &str) {
+        if let Err(error) = self
+            .owner
+            .store
+            .note_run_refusal(self.occurrence.identity.id, reason)
+            .await
+        {
+            tracing::error!(%error, "refused cron run could not record its reason");
+        }
+    }
+
     async fn check_inner(
         &self,
         audit: &crate::reasoning::run_audit::RunAuditReference,
@@ -50,16 +75,19 @@ impl CronAdmissionGate {
         }
         if let Err(error) = self.owner.verify_job_credential(&authority).await {
             self.owner.metrics.write().runs_skipped_identity += 1;
+            self.record_refusal(&error.to_string()).await;
             return Err(error);
         }
         let gate = self.owner.policy_gate.read().clone();
         let decision = CronScheduler::evaluate_schedule_policy(gate.as_deref(), &authority);
         if !matches!(decision, SchedulePolicyDecision::Allow) {
             self.owner.metrics.write().runs_skipped_policy += 1;
-            return Err(CronSchedulerError::PolicyDenied(
+            let refusal = CronSchedulerError::PolicyDenied(
                 authority.job_id,
                 CronScheduler::describe_policy_refusal(&decision),
-            ));
+            );
+            self.record_refusal(&refusal.to_string()).await;
+            return Err(refusal);
         }
         let reservation = self.owner.reserve(&authority).ok_or_else(|| {
             CronSchedulerError::Scheduler(
@@ -103,6 +131,8 @@ impl CronScheduler {
             .get_job(job_id)
             .await?
             .ok_or(CronSchedulerError::NotFound(job_id))?;
+        // Register ownership before publishing the intent to the recovery scan.
+        let attempt = self.begin_occurrence_attempt(identity.id);
         let occurrence = Occurrence::manual(job, identity);
         let stored = self
             .store
@@ -111,7 +141,21 @@ impl CronScheduler {
             .ok_or_else(|| {
                 CronSchedulerError::Scheduler("cron occurrence capacity exhausted".into())
             })?;
+        let Some(_attempt) = attempt else {
+            // prepare_occurrence above still checks the request fingerprint.
+            return Ok(Admission::Existing(ExistingInvocation::InProgress));
+        };
         self.admit_occurrence(stored).await
+    }
+
+    fn begin_occurrence_attempt(&self, id: Uuid) -> Option<OccurrenceAttempt> {
+        self.pending_attempts
+            .write()
+            .insert(id)
+            .then(|| OccurrenceAttempt {
+                ids: self.pending_attempts.clone(),
+                id,
+            })
     }
 
     async fn admit_occurrence(
@@ -171,22 +215,35 @@ impl CronScheduler {
         let admission = match admitted {
             Ok(admission) => admission,
             Err(error) => {
+                let refusal = gate
+                    .refusal
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .take();
+                // Record why the run was refused, not merely that it was. The
+                // gate holds the specific reason -- a policy denial, a rejected
+                // credential -- while `error` is the scheduler's generic string,
+                // so persisting the latter loses the only useful detail.
+                let recorded = refusal
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| error.clone());
                 let (config, _, _) = occurrence.admission();
                 let existing = self
                     .agent_scheduler
                     .lookup_identified_invocation(&config, &input, &identity)
                     .await
                     .map_err(CronSchedulerError::Scheduler)?;
-                if let Some(ExistingInvocation::Unresolved { audit }) = existing {
-                    self.finish_unknown(&occurrence, audit.as_ref(), &error)
-                        .await?;
-                }
-                return Err(gate
-                    .refusal
-                    .lock()
-                    .unwrap_or_else(|p| p.into_inner())
-                    .take()
-                    .unwrap_or(CronSchedulerError::Scheduler(error)));
+                let audit = match existing {
+                    Some(ExistingInvocation::Unresolved { audit }) => audit,
+                    _ => None,
+                };
+                // finish_occurrence is idempotent and reports whether it applied,
+                // so this is safe whatever the lookup found. Skipping it left a
+                // refused run with no reason recorded at all.
+                self.finish_unknown(&occurrence, audit.as_ref(), &recorded)
+                    .await?;
+                return Err(refusal.unwrap_or(CronSchedulerError::Scheduler(error)));
             }
         };
         let Admission::Queued { handle, audit } = admission else {
@@ -386,24 +443,12 @@ impl CronScheduler {
 
     fn spawn_occurrence_attempt(&self, stored: StoredOccurrence) {
         let id = stored.occurrence.identity.id;
-        if !self.pending_attempts.write().insert(id) {
+        let Some(attempt) = self.begin_occurrence_attempt(id) else {
             return;
-        }
+        };
         let owner = self.clone();
         tokio::spawn(async move {
-            struct Attempt {
-                ids: Arc<RwLock<std::collections::HashSet<Uuid>>>,
-                id: Uuid,
-            }
-            impl Drop for Attempt {
-                fn drop(&mut self) {
-                    self.ids.write().remove(&self.id);
-                }
-            }
-            let _attempt = Attempt {
-                ids: owner.pending_attempts.clone(),
-                id,
-            };
+            let _attempt = attempt;
             if stored.state == "prepared"
                 && stored.occurrence.scheduled_for.is_some()
                 && stored.occurrence.job.jitter_max_secs > 0
@@ -421,5 +466,49 @@ impl CronScheduler {
                 tracing::warn!("cron occurrence {id} was not admitted: {error}");
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn manual_admission_owns_intent_before_recovery_can_claim_it() {
+        use super::super::tests::{deny_all_gate, make_scheduler, test_agent_config};
+        let (cron, scheduler) = make_scheduler().await;
+        let cron = cron.with_policy_gate(Arc::new(deny_all_gate()));
+        let job = CronJobDefinition::new(
+            "manual-recovery-race".into(),
+            "0 0 0 1 1 * 2099".into(),
+            "UTC".into(),
+            test_agent_config(),
+        );
+        let agent_id = job.agent_config.id;
+        let id = cron.add_job(job).await.unwrap();
+        let identity = InvocationIdentity {
+            id: Uuid::new_v4(),
+            context: serde_json::json!({"caller":"fixture"}),
+        };
+        let mut admission = Box::pin(cron.trigger_identified(id, identity.clone()));
+        // First poll publishes the SQLite intent, then suspends for the durable
+        // claim lookup. Reproduce recovery at precisely that pre-claim boundary.
+        assert!(futures::poll!(admission.as_mut()).is_pending());
+        assert!(cron.pending_attempts.read().contains(&identity.id));
+        let pending = cron.store.pending_occurrences_after(None).await.unwrap();
+        assert_eq!(pending.len(), 1);
+        cron.spawn_occurrence_attempt(pending.into_iter().next().unwrap());
+        assert!(matches!(
+            admission.await,
+            Err(CronSchedulerError::PolicyDenied(_, _))
+        ));
+        assert!(!cron.pending_attempts.read().contains(&identity.id));
+        let history = cron.get_run_history(id, 10).await.unwrap();
+        assert_eq!(history.len(), 1);
+        assert!(history[0].error.as_deref().unwrap().contains("policy"));
+        assert_eq!(cron.metrics().runs_skipped_policy, 1);
+        assert!(!scheduler.has_agent(agent_id));
+        cron.shutdown().await;
+        scheduler.shutdown().await.unwrap();
     }
 }

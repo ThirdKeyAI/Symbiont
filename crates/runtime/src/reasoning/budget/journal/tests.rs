@@ -159,19 +159,21 @@ struct ControlledWriter {
     inner: BufferedJournal,
     entered: tokio::sync::Notify,
     block_start: bool,
+    block_finish: bool,
     fail_finish: bool,
 }
 #[async_trait::async_trait]
 impl JournalWriter for ControlledWriter {
     async fn append(&self, entry: JournalEntry) -> Result<(), JournalError> {
         let is_start = matches!(entry.event, LoopEvent::BudgetReservationStarted { .. });
+        let is_finish = matches!(entry.event, LoopEvent::BudgetReservationFinished { .. });
         if self.fail_finish && matches!(entry.event, LoopEvent::BudgetReservationFinished { .. }) {
             return Err(JournalError::WriteFailed(
                 "fixture settlement outage".into(),
             ));
         }
         self.inner.append(entry).await?;
-        if is_start && self.block_start {
+        if (is_start && self.block_start) || (is_finish && self.block_finish) {
             self.entered.notify_one();
             std::future::pending::<()>().await;
         }
@@ -189,6 +191,7 @@ async fn cancellation_during_required_append_does_not_refund_durable_intent() {
         inner: BufferedJournal::new(100),
         entered: Default::default(),
         block_start: true,
+        block_finish: false,
         fail_finish: false,
     });
     budget
@@ -212,6 +215,7 @@ async fn failed_settlement_retains_full_charge_and_blocks_more_calls() {
         inner: BufferedJournal::new(100),
         entered: Default::default(),
         block_start: false,
+        block_finish: false,
         fail_finish: true,
     });
     budget
@@ -254,4 +258,133 @@ async fn root_cannot_rebind_or_bypass_durable_accounting_and_writer_is_not_retai
     assert!(budget.reserve_audited(1, 1, proof).await.is_err());
     assert!(budget.snapshot().exceeded);
     assert!(recover(&[]).unwrap().is_none());
+}
+
+#[tokio::test]
+async fn timeout_settlement_preserves_live_and_other_scope_reservations() {
+    let (root, journal) = attached(1000).await;
+    let timed_out = root.child(100).unwrap();
+    let sibling = root.child(100).unwrap();
+    let abandoned = timed_out.reserve_audited(1, 9, proof).await.unwrap();
+    let same_scope_live = timed_out.reserve_audited(1, 9, proof).await.unwrap();
+    let sibling_live = sibling.reserve_audited(1, 9, proof).await.unwrap();
+    let sibling_abandoned = sibling.reserve_audited(1, 9, proof).await.unwrap();
+    drop(abandoned);
+    drop(sibling_abandoned);
+    timed_out.settle_outstanding().await.unwrap();
+    let recovered = recover(&journal.entries().await).unwrap().unwrap();
+    assert_eq!(
+        recovered
+            .reservations
+            .iter()
+            .filter(|r| r.finish_sequence.is_some())
+            .count(),
+        1,
+        "a timeout must finish only its own abandoned reservation"
+    );
+    for reservation in [same_scope_live, sibling_live] {
+        reservation
+            .settle_audited(
+                &Usage {
+                    prompt_tokens: 1,
+                    completion_tokens: 1,
+                    total_tokens: 2,
+                },
+                1,
+            )
+            .await
+            .unwrap();
+    }
+    let recovered = recover(&journal.entries().await).unwrap().unwrap();
+    assert_eq!(
+        recovered
+            .reservations
+            .iter()
+            .filter(|r| r.finish_sequence.is_none())
+            .count(),
+        1
+    );
+    assert_eq!(recovered.scopes[0].uncertain_tokens, 20);
+    assert_eq!(recovered.scopes[0].usage.total_tokens, 4);
+    assert_eq!(
+        recovered.scopes[0].available_tokens,
+        root.snapshot().available_tokens
+    );
+    let before = journal.entries().await.len();
+    timed_out.settle_outstanding().await.unwrap();
+    assert_eq!(
+        journal.entries().await.len(),
+        before,
+        "settlement must not duplicate terminal records"
+    );
+}
+
+#[tokio::test]
+async fn timeout_settlement_never_retries_a_cancelled_finish_append() {
+    let budget = SharedBudget::new(100);
+    let writer = Arc::new(ControlledWriter {
+        inner: BufferedJournal::new(100),
+        entered: Default::default(),
+        block_start: false,
+        block_finish: true,
+        fail_finish: false,
+    });
+    budget
+        .attach(&(writer.clone() as Arc<dyn JournalWriter>), AgentId::new())
+        .await
+        .unwrap();
+    let reservation = budget.reserve_audited(10, 30, proof).await.unwrap();
+    let usage = Usage {
+        prompt_tokens: 1,
+        completion_tokens: 1,
+        total_tokens: 2,
+    };
+    tokio::select! {
+        _ = writer.entered.notified() => {},
+        _ = reservation.settle_audited(&usage, 1) => panic!("finish append should remain pending"),
+    }
+    let before = writer.inner.entries().await.len();
+    budget.settle_outstanding().await.unwrap();
+    assert_eq!(writer.inner.entries().await.len(), before);
+    let recovered = recover(&writer.inner.entries().await).unwrap().unwrap();
+    assert_eq!(recovered.reservations.len(), 1);
+    assert_eq!(
+        recovered.reservations[0]
+            .usage
+            .as_ref()
+            .unwrap()
+            .total_tokens,
+        2
+    );
+    // The caller never observed settlement success, so its live allowance stays conservative.
+    assert_eq!(budget.snapshot().uncertain_tokens, 40);
+}
+
+#[tokio::test]
+async fn timeout_settlement_failure_closes_allowance_and_retains_uncertain_intent() {
+    let budget = SharedBudget::new(100);
+    let writer = Arc::new(ControlledWriter {
+        inner: BufferedJournal::new(100),
+        entered: Default::default(),
+        block_start: false,
+        block_finish: false,
+        fail_finish: true,
+    });
+    budget
+        .attach(&(writer.clone() as Arc<dyn JournalWriter>), AgentId::new())
+        .await
+        .unwrap();
+    drop(budget.reserve_audited(10, 30, proof).await.unwrap());
+    assert!(budget
+        .settle_outstanding()
+        .await
+        .unwrap_err()
+        .contains("fixture settlement outage"));
+    assert_eq!(budget.snapshot().uncertain_tokens, 40);
+    assert!(budget.snapshot().exceeded);
+    assert!(budget.reserve_audited(1, 1, proof).await.is_err());
+    let recovered = recover(&writer.inner.entries().await).unwrap().unwrap();
+    assert!(recovered.reservations[0].finish_sequence.is_none());
+    let retained = budget.lock().outstanding[0];
+    assert!(retained.abandoned && retained.settlement_started);
 }

@@ -4,6 +4,18 @@ Das HTTP-Eingabe-Modul stellt einen Webhook-Server bereit, der es externen Syste
 
 ## Ueberblick
 
+In diesem Branch wird jede HTTP-Reasoning-Anfrage unabhaengig ausgefuehrt, auch
+wenn ihr registrierter Agent bereits aktiv ist. Registrierte Quelle und
+Sicherheitsstufe waehlen vor der Inferenz einen eingefrorenen Tool-Executor aus.
+CPU-, Speicher- und Ausfuehrungszeitlimits begrenzen diesen Aufruf. Kontrollierte
+Worker teilen sich zudem den vom Supervisor konfigurierten CPU-, Speicher- und
+Worker-Pool mit Scheduler- und CLI-Starts, die dasselbe private
+Zustandsverzeichnis verwenden; siehe [geteilte Budgets](/shared-budgets).
+Erfolgreiche Antworten enthalten `audit` mit `run_id`, `path` und `public_key`.
+Fehler beim erforderlichen Speichern stoppen weitere Effekte, und verworfene
+Anfragen behalten die Verantwortung fuer die Bereinigung.
+Siehe [Lauf-Audit](/run-audit) und den [Branch-Leitfaden](/containment-branch-guide).
+
 Das HTTP-Eingabe-Modul besteht aus:
 
 - **HTTP-Server**: Ein Axum-basierter Webserver, der auf eingehende HTTP-Anfragen lauscht
@@ -12,7 +24,7 @@ Das HTTP-Eingabe-Modul besteht aus:
 - **Antwort-Kontrolle**: Konfigurierbare Antwortformatierung und Statuscodes
 - **Sicherheitsfeatures**: CORS-Unterstuetzung, Anfragengroessenlimits und Audit-Logging
 - **Parallelitaetsverwaltung**: Eingebaute Anfrage-Ratenbegrenzung und Parallelitaetskontrolle
-- **LLM-Aufruf mit ToolClad**: Wenn der Ziel-Agent nicht aktiv auf dem Laufzeit-Kommunikationsbus laeuft, kann der Webhook den Agenten bei Bedarf ueber einen konfigurierten LLM-Anbieter aufrufen und dabei eine ORGA-artige Tool-Calling-Schleife verwenden, die durch ToolClad-Manifeste gestuetzt wird
+- **LLM-Aufruf mit ToolClad**: Jede Anfrage ruft den registrierten Agenten unabhaengig ueber den konfigurierten LLM-Anbieter und die kontrollierte ORGA-Tool-Calling-Schleife auf, auch wenn ein anderer Aufruf aktiv ist
 
 Das Modul wird bedingt mit dem `http-input` Feature-Flag kompiliert und integriert sich nahtlos in die Symbiont-Agenten-Laufzeitumgebung.
 
@@ -131,11 +143,20 @@ let config = HttpInputConfig {
 };
 ```
 
-Der JWT-Verifizierer laedt einen Ed25519-Public-Key aus der angegebenen PEM-Datei und validiert eingehende `Authorization: Bearer <jwt>`-Token.
+Der Key-Loader akzeptiert fuer die EdDSA-Verifizierung Ed25519 im PEM-Format oder
+rohe Public-Key-Bytes. JWTs muessen ein gueltiges `exp` und ein nicht leeres `sub`
+(hoechstens 512 Bytes) besitzen. Die Ablaufpruefung erlaubt fuenf Sekunden
+Zeitabweichung. Falls angegeben, muss `iss` nicht leer und hoechstens 2.048 Bytes
+gross sein. Die Erneuerung eines Tokens mit demselben signierten Subject, demselben
+Issuer und demselben konfigurierten Key erhaelt seine Aufrufer-Identitaet.
 
-**Algorithmus-Allowlist (nach dem v1.13.0-Audit):** Der asymmetrische Bearer-Token-Pfad akzeptiert nur **ES256** und **EdDSA**. Der HMAC-Webhook-Signaturpfad (verwendet von Slack, Mattermost, GitHub usw.) akzeptiert nur **HS256**. RSA-Familie-Algorithmen (`RS256`, `RS384`, `RS512`, `PS256`, `PS384`, `PS512`) sowie der symbolische `none`-Algorithmus werden sowohl von der Header-Inspektionspruefung als auch von der `Validation::algorithms`-Allowlist abgewiesen. Dies neutralisiert die Timing-Attack-Schwachstelle der `rsa`-Crate (RUSTSEC-2023-0071) auf jedem vom Betreiber kontrollierten Pfad. Siehe `SECURITY_AUDIT.md` C4. (Der Microsoft-Teams-Adapter verwendet weiterhin RS256, da das Bot Framework dies vorschreibt; diese Flaeche ist auf MS-signierte Tokens beschraenkt.)
-
-**Audience ist erforderlich:** Der Notausgang ueber die Umgebungsvariable `SYMBIONT_ALLOW_NO_JWT_AUDIENCE` wurde im Audit nach v1.13.0 entfernt. Jeder JWT-Verifizierer verlangt eine explizite `aud`-Konfiguration; Tokens ohne passende Audience werden abgelehnt.
+Dieser HTTP-Eingabe-Verifizierer erzwingt **keine** Audience- oder
+Issuer-Allowlist. Der konfigurierte Key ist seine Vertrauensinstanz; verwenden Sie
+einen Key, der dieser Instanz vorbehalten ist. Ein signierter Issuer traegt zur
+Wiederholungs-Identitaet bei, begruendet aber keine Issuer-Allowlist.
+Bearer-Authentifizierung ist auch dann erforderlich, wenn die Verifizierung der
+Webhook-Signatur konfiguriert ist; die Webhook-Signatur ist eine zusaetzliche
+Pruefung.
 
 #### Health-Endpunkt
 
@@ -227,6 +248,7 @@ Webhook-Anfrage senden, um den Agenten auszuloesen:
 curl -X POST http://localhost:8081/webhook \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer secret-token" \
+  -H "Idempotency-Key: 72d6a833-b825-4b22-b50c-206337d77f7c" \
   -d '{
     "type": "security_alert",
     "message": "Suspicious login detected",
@@ -236,59 +258,137 @@ curl -X POST http://localhost:8081/webhook \
   }'
 ```
 
+Waehlen Sie fuer jede beabsichtigte Aufgabe eine neue UUID und behalten Sie diese
+bei. Jede HTTP-Einreichung erfordert genau einen `Idempotency-Key`-Header;
+wiederholen Sie mit derselben ID, derselben URI und demselben JSON-Payload. Die
+Wiederverwendung dieser Beispiel-ID fuer andere Arbeit wird abgelehnt.
+Webhook-Absender muessen eine stabile UUID pro Zustellung vorhalten oder einen
+Adapter verwenden, der ihre Zustellungsidentitaet vor der Einreichung auf eine
+stabile UUID abbildet. Der Server leitet die Identitaet nicht aus der
+Modellausgabe ab und erzeugt keinen Ersatz, wenn der Header fehlt.
+
+### Wiederholungszustaende
+
+IDs belegen eine HTTP-Domaene pro kanonischem Projekt. Der dauerhafte Anspruch
+bindet den verifizierten Aufrufer, die Anfrage-URI, die JSON-Eingabe sowie die
+vertrauenswuerdige Zielquelle und deren Einstellungen. Registrierte Agenten-IDs
+koennen sich beim Neustart aendern, ohne dass daraus eine andere Anfrage wird. Ein
+eigenstaendiger SDK-Server muss seine konfigurierte `AgentId` ueber Neustarts
+hinweg beibehalten. Das Aendern von Quelle, Ziel, Aufrufer oder Payload unter
+einer bestehenden ID verweigert die Arbeit; es werden weder Cache-Inhalte noch
+eine Audit-Referenz an einen anderen Aufrufer zurueckgegeben.
+
+| HTTP-Status | Body-`status` | Bedeutung |
+|---|---|---|
+| 200 standardmaessig | `completed` | Das urspruengliche Ergebnis wurde gespeichert; `replayed` kennzeichnet eine gespeicherte Antwort. |
+| 422 | `failed` | Ein endgueltiger Fehlschlag mit vollstaendigen nachverfolgten Nachweisen wurde gespeichert; Wiederholungen geben ihn zurueck. |
+| 409 | `in_progress` | Ein anderer Eigentuemer haelt die ID; diese Anfrage startet keine Arbeit. |
+| 409 | `unresolved` | Der urspruengliche Lauf benoetigt einen Abgleich; enthaelt seine Audit-Referenz, sofern verfuegbar. |
+| 409 | `reconciled` | Gibt eine separate signierte Betreiber-Bewertung zurueck; die urspruengliche ID kann nicht erneut ausgefuehrt werden. |
+| 409 | `conflict` | Die ID ist an einen anderen Aufrufer oder eine andere Anfrage gebunden. |
+| 400 | `invalid_invocation_id` | Fehlender, mehrfach vorhandener oder ungueltiger UUID-Header. |
+| 503 | `unavailable` | Der erforderliche Aufruf-Speicher konnte die Ausfuehrung nicht autorisieren. |
+
+Antworten zum Aufrufzustand enthalten die Header `Idempotency-Key`,
+`Idempotency-Replayed` und `Cache-Control: no-store`. Die konfigurierte
+Erfolgsformatierung gilt weiterhin fuer abgeschlossene Ergebnisse; sie kann
+ungeklaerte oder widerspruechliche Ausgaenge nicht in erfolgreiche Antworten
+verwandeln. Konfigurierte CORS-Urspruenge erlauben die Aufruf-Header und geben sie
+frei.
+
+Ein beibehaltener Eigentuemer haelt den Anspruch ueber Einrichtung, Ausfuehrung,
+Bereinigung und Speichern des Ergebnisses hinweg. Eine Client-Trennung bricht die
+Arbeit dieses Eigentuemers ab, gibt die ID aber nicht zur erneuten Ausfuehrung
+frei. Ein Prozessverlust vor dem Speichern des Ergebnisses hinterlaesst einen
+ungeklaerten Anspruch. Gespeicherte Ergebnisse werden vor der Rueckgabe gegen ihr
+urspruengliches signiertes Audit geprueft; der Abruf fuehrt weder den Anbieter
+noch den Executor erneut aus.
+
+Statische geteilte Zugangsdaten repraesentieren einen Aufrufer. Ein JWT-Aufrufer
+bindet den konfigurierten Key, den signierten Issuer und das Subject;
+Ablauf- und Erneuerungsfelder aendern ihn nicht. Das Rotieren von Zugangsdaten
+oder Schluesselmaterial fuehrt dazu, dass eine bestehende ID in Konflikt geraet,
+statt stillschweigend eine zweite Aufgabe zu erzeugen. Ansprueche gelten
+projektweit ueber HTTP-Listener hinweg; verwenden Sie daher neue zufaellige UUIDs
+und bewahren Sie den Speicher mitsamt seinen Audit-Nachweisen auf. Siehe
+[persistente Aufruf-Identitaeten](/invocation-idempotency) fuer die
+Speichergrenzen.
+
 ### Erwartete Antwort
 
-Die Antwortstruktur haengt davon ab, wie der Agent aufgerufen wurde.
-
-**Laufzeit-Dispatch** -- der Ziel-Agent ist `Running` auf dem Kommunikationsbus und die Nachricht wurde zur asynchronen Verarbeitung uebergeben:
-
-```json
-{
-  "status": "execution_started",
-  "agent_id": "webhook_handler",
-  "message_id": "01H...",
-  "latency_ms": 3,
-  "timestamp": "2024-01-15T10:30:00Z"
-}
-```
-
-**LLM-Aufruf** -- der Agent laeuft nicht und wurde bei Bedarf ueber den konfigurierten LLM-Anbieter ausgefuehrt (siehe [LLM-Aufruf mit ToolClad-Tools](#llm-aufruf-mit-toolclad-tools) unten). Die Antwort enthaelt den endgueltigen Text und eine Zusammenfassung aller ausgefuehrten Tool-Aufrufe:
+Jede Reasoning-Anfrage gibt ihr eigenes Ergebnis zurueck, auch wenn ein anderer
+Aufruf desselben Agenten aktiv ist. Die alte
+`execution_started`/`message_id`-Uebergabeantwort wird auf dieser Route nicht mehr
+verwendet. Erfolgreiche Antworten enthalten die oeffentliche Audit-Referenz des
+Laufs, `invocation_id`, `replayed`, `total_usage` sowie den geteilten
+`budget`-Schnappschuss. Beispielhafte Werte:
 
 ```json
 {
   "status": "completed",
-  "agent_id": "webhook_handler",
-  "response": "Scanned target and found 3 open ports …",
-  "tool_runs": [
-    {
-      "tool": "nmap_scan",
-      "input": {"target": "example.com"},
-      "output_preview": "{\"scan_id\": \"…\", \"ports\": [ … ]}"
-    }
-  ],
-  "model": "claude-sonnet-4-20250514",
-  "provider": "Anthropic",
+  "agent_id": "11111111-1111-4111-8111-111111111111",
+  "response": "Task complete.",
+  "tool_runs": [],
+  "termination_reason": "Completed",
+  "iterations": 1,
+  "audit": {
+    "run_id": "22222222-2222-4222-8222-222222222222",
+    "path": "/srv/control/.symbiont/governed/11111111-1111-4111-8111-111111111111.22222222-2222-4222-8222-222222222222.jsonl",
+    "public_key": "<hex-encoded-public-key>"
+  },
+  "model": "<configured-model>",
+  "provider": "<configured-provider>",
   "latency_ms": 4821,
   "timestamp": "2024-01-15T10:30:00Z"
 }
 ```
 
+`tool_runs` fasst korrelierte Tool-Beobachtungen zusammen, einschliesslich
+Ablehnungen und Validierungsfehlern. Sein Vorhandensein belegt nicht, dass ein
+Effekt ausgefuehrt wurde, und `status: completed` kann eine
+Richtlinien-Ablehnungsantwort begleiten. Verwenden Sie zur Verifizierung die
+exakten normalisierten Argumente, Entscheidungen und Effekt-Eintraege des
+geschuetzten Journals. Fehler beim erforderlichen Audit oder bei der Bereinigung
+geben einen Fehler zurueck, selbst wenn zuvor bereits ein Effekt eingetreten ist.
+Der `audit.path` ist ein Pfad auf dem Laufzeit-Host, keine Download-URL.
+
 ## LLM-Aufruf mit ToolClad-Tools
 
-Wenn die Laufzeitumgebung angebunden ist, der geroutete Agent sich aber **nicht im `Running`-Zustand befindet**, faellt der Webhook-Handler auf einen bedarfsgesteuerten LLM-Aufrufpfad zurueck. Dies ist nuetzlich fuer Agenten, die pro Anfrage ausgefuehrt werden, anstatt als dauerhaft laufende Listener.
+Jede HTTP-Reasoning-Anfrage startet einen unabhaengigen kontrollierten Aufruf,
+auch wenn der registrierte Agent bereits einen anderen aktiven Aufruf hat.
 
 ### Funktionsweise
 
-1. Der Webhook-Handler ruft `scheduler.get_agent_status()` auf, um zu pruefen, ob der Agent aktiv laeuft. Nachrichten an nicht laufende Agenten werden nicht ueber den Kommunikationsbus zugestellt, da `send_message` sie stillschweigend verwerfen wuerde.
-2. Wenn der Agent nicht laeuft, erstellt der Handler einen System-Prompt aus allen `.symbi`-Agentendateien (oder dem Legacy-Format `.dsl`), die im Verzeichnis `agents/` gefunden werden, haengt einen optionalen vom Aufrufer bereitgestellten `system_prompt` an (laengenbegrenzt und protokolliert) und konstruiert eine Benutzernachricht aus dem Anfrage-Payload.
-3. ToolClad-Manifeste im Verzeichnis `tools/` werden geladen und dem LLM als Function-Calling-Tools bereitgestellt. Benutzerdefinierte Typen aus `toolclad.toml` werden angewendet.
-4. Der Handler fuehrt eine **ORGA**-Schleife (Observe-Reason-Gate-Act) fuer Tool-Aufrufe mit bis zu 15 Iterationen aus:
-   - Das LLM schlaegt null oder mehr `tool_use`-Aufrufe vor.
-   - Jeder Tool-Aufruf wird von ToolClad validiert und in einem Blocking-Threadpool mit einem **Timeout von 120 Sekunden pro Tool** ausgefuehrt.
-   - Doppelte `(tool_name, input)`-Paare innerhalb einer einzelnen Iteration werden dedupliziert, um die redundante Ausfuehrung nicht-idempotenter Tools zu vermeiden.
-   - Tool-Ergebnisse werden dem LLM als `tool_result`-Nachrichten zurueckgespielt.
-   - Die Schleife endet, wenn das LLM eine endgueltige Textantwort erzeugt oder die Iterationsobergrenze erreicht wird.
-5. Die endgueltige Antwort, die Liste der ausgefuehrten Tool-Aufrufe sowie Anbieter-/Modell-Metadaten werden an den Aufrufer zurueckgegeben.
+1. Bei angebundener Laufzeitumgebung wird der Agent aus der vertrauenswuerdigen
+   Registry aufgeloest. Seine ausgewaehlte Quelle, Sandbox und
+   Ressourceneinstellungen werden eingefroren; fehlende Agenten, mehrdeutige
+   Auswahlen und nicht uebereinstimmende Sicherheitsstufen werden vor der Inferenz
+   abgelehnt. Ein eigenstaendiger SDK-Server verwendet seinen explizit
+   konfigurierten generischen Agenten/Executor.
+2. Der System-Prompt wird ausschliesslich aus der ausgewaehlten Agentenquelle
+   erstellt. Ein optionaler vom Aufrufer bereitgestellter `system_prompt` bleibt
+   laengenbegrenzt und protokolliert; er verleiht keine Richtlinien-, Prinzipal-
+   oder Sandbox-Autoritaet. Die Benutzernachricht wird aus dem Anfrage-Payload
+   erstellt.
+3. ToolClad-Tools werden im eingefrorenen Projekt ermittelt und ein
+   erforderliches privates signiertes Journal wird geoeffnet. Die ORGA-Schleife
+   erlaubt bis zu 15 Iterationen. Registrierte und vom Agenten gewaehlte Fristen
+   verschaerfen die Schleifen- und Tool-Limits; das Standardlimit pro Tool betraegt
+   120 Sekunden.
+4. Vorgeschlagene Aufrufe werden vor Cedar vorbereitet und normalisiert.
+   Verpflichtende exakte Genehmigungen, erforderliches Audit und
+   Einmal-Autorisierung gehen den Effekten voraus. Doppelte oder leere Aufruf-IDs
+   werden abgelehnt; Ergebnisse muessen mit den tatsaechlich vorbereiteten Aufrufen
+   korrelieren.
+5. Es wird auf die Worker-Bereinigung und das abschliessende Journaling gewartet.
+   Erfolgreiche Antworten enthalten die endgueltige Antwort, die Tool-Ergebnisse,
+   Anbieter-/Modell-Metadaten und die `audit`-Referenz. Ein Abbruch behaelt die
+   Verantwortung fuer die Bereinigung; Fehler beim erforderlichen Speichern oder
+   bei der Bereinigung koennen nicht stillschweigend ein erfolgreiches Ergebnis
+   erzeugen.
+
+Siehe [vorbereitete Aufrufe](/prepared-calls) und [Lauf-Audit](/run-audit).
+Ressourcenlimits pro Aufruf begruenden keine aggregierte Anfragezulassung.
 
 ### Anbieter-Auto-Erkennung
 
@@ -300,7 +400,9 @@ Der LLM-Client wird beim Serverstart aus Umgebungsvariablen initialisiert. Der e
 | `OPENAI_API_KEY` | OpenAI | `CHAT_MODEL` (Standard: `gpt-4o`) | `OPENAI_BASE_URL` |
 | `ANTHROPIC_API_KEY` | Anthropic | `ANTHROPIC_MODEL` (Standard: `claude-sonnet-4-20250514`) | `ANTHROPIC_BASE_URL` |
 
-Wenn kein API-Schluessel gesetzt ist, ist der LLM-Aufrufpfad deaktiviert und Anfragen fuer nicht laufende Agenten geben einen Fehler zurueck.
+Ohne konfigurierten Inferenz-Anbieter geben Reasoning-Anfragen einen Fehler
+zurueck. Vom Betreiber konfigurierte lokale Endpunkte werden weiterhin
+unterstuetzt.
 
 ### Eingabefelder
 
@@ -361,8 +463,8 @@ Das HTTP-Eingabe-Modul bietet umfassende Fehlerbehandlung:
 - **Authentifizierungsfehler**: Gibt `401 Unauthorized` fuer ungueltige Token zurueck
 - **Ratenbegrenzung**: Gibt `429 Too Many Requests` zurueck, wenn Parallelitaetslimits ueberschritten werden
 - **Payload-Fehler**: Gibt `400 Bad Request` fuer fehlerhaftes JSON zurueck
-- **Agenten-Fehler**: Gibt konfigurierbaren Fehlerstatus mit Fehlerdetails zurueck
-- **Server-Fehler**: Gibt `500 Internal Server Error` fuer Laufzeitfehler zurueck
+- **Aufruf-Ausgaenge**: Gibt die oben genannten expliziten Wiederholungszustaende zurueck; ungeklaerte Arbeit wird niemals als abgeschlossen gemeldet.
+- **Server-Fehler**: Nicht klassifizierte Laufzeitfehler geben einen konfigurierbaren Status mit einer generischen oeffentlichen Meldung zurueck.
 
 ## Ueberwachung und Observability
 
@@ -414,3 +516,9 @@ Das Modul integriert sich in das Metriken-System der Symbiont-Laufzeitumgebung u
 - [Reasoning-Schleife (ORGA)](reasoning-loop.md)
 - [ToolClad-Tool-Contracts](toolclad.md)
 - [Agenten-Laufzeitumgebung-Dokumentation](../crates/runtime/README.md)
+
+Ein beibehaltener Aufruf mit einer Betreiber-Aufloesung gibt HTTP 409 und
+`status: "reconciled"`, seine urspruengliche Audit-Referenz sowie eine separate
+signierte `resolution`-Quittung zurueck. Er gibt kein erfundenes erfolgreiches
+Ergebnis zurueck und wird nicht erneut ausgefuehrt. Siehe
+[Betreiber-Abgleich](/invocation-reconciliation).

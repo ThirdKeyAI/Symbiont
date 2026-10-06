@@ -125,25 +125,32 @@ impl ActionExecutor for OrgaMockExecutor {
             } = action
             {
                 if let Err(err) = circuit_breakers.check(name).await {
-                    observations.push(Observation::tool_error(
-                        call_id.clone(),
-                        format!("Circuit open for '{}': {}", name, err),
-                    ));
+                    observations.push(
+                        Observation::tool_error(
+                            name.clone(),
+                            format!("Circuit open for '{}': {}", name, err),
+                        )
+                        .with_call_id(call_id.clone()),
+                    );
                     circuit_breakers.record_failure(name).await;
                     continue;
                 }
 
                 if name == "test_tool" {
-                    observations.push(Observation::tool_result(
-                        call_id.clone(),
-                        r#"{"status": "ok", "result": "tool executed successfully"}"#.to_string(),
-                    ));
+                    observations.push(
+                        Observation::tool_result(
+                            name.clone(),
+                            r#"{"status": "ok", "result": "tool executed successfully"}"#
+                                .to_string(),
+                        )
+                        .with_call_id(call_id.clone()),
+                    );
                     circuit_breakers.record_success(name).await;
                 } else {
-                    observations.push(Observation::tool_error(
-                        call_id.clone(),
-                        format!("Unknown tool: {}", name),
-                    ));
+                    observations.push(
+                        Observation::tool_error(name.clone(), format!("Unknown tool: {}", name))
+                            .with_call_id(call_id.clone()),
+                    );
                     circuit_breakers.record_failure(name).await;
                 }
             }

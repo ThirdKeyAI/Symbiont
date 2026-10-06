@@ -24,6 +24,9 @@ use tokio::{
 };
 
 #[cfg(target_os = "linux")]
+#[path = "host_worker.rs"]
+mod host_worker;
+#[cfg(target_os = "linux")]
 #[path = "virtual_machine.rs"]
 mod virtual_machine;
 
@@ -37,6 +40,8 @@ pub(crate) struct State {
     store: Arc<Mutex<Store>>,
     active: Mutex<HashSet<uuid::Uuid>>,
     host: Option<Arc<crate::host::HostProfile>>,
+    #[cfg(target_os = "linux")]
+    delegated: Option<Arc<crate::delegated::Group>>,
 }
 impl State {
     pub(crate) async fn storage<T: Send + 'static>(
@@ -77,13 +82,18 @@ impl Drop for Active {
 /// Run one service under an exclusive private-directory lock. Existing services
 /// win startup races; their socket is never replaced by a second process.
 pub async fn serve(root: &Path, persistent: bool) -> anyhow::Result<()> {
-    serve_configured(root, persistent, None).await
+    serve_configured(root, persistent, None, false).await
 }
 
 #[cfg(target_os = "linux")]
 pub async fn serve_host(profile: crate::host::HostProfile) -> anyhow::Result<()> {
     let root = profile.state_dir.clone();
-    serve_configured(&root, true, Some(Arc::new(profile))).await
+    serve_configured(&root, true, Some(Arc::new(profile)), false).await
+}
+
+#[cfg(target_os = "linux")]
+pub async fn serve_delegated(root: &Path) -> anyhow::Result<()> {
+    serve_configured(root, true, None, true).await
 }
 
 #[cfg(target_os = "linux")]
@@ -95,6 +105,7 @@ pub(crate) async fn reap_host(profile: crate::host::HostProfile) -> anyhow::Resu
         store: Arc::new(Mutex::new(store)),
         active: Mutex::new(HashSet::new()),
         host: Some(Arc::new(profile)),
+        delegated: None,
     };
     for record in records {
         crate::host::reconcile_jail(&state, &record).await?;
@@ -106,7 +117,16 @@ async fn serve_configured(
     root: &Path,
     persistent: bool,
     host: Option<Arc<crate::host::HostProfile>>,
+    delegated: bool,
 ) -> anyhow::Result<()> {
+    #[cfg(not(target_os = "linux"))]
+    anyhow::ensure!(!delegated, "delegated workers require Linux");
+    #[cfg(target_os = "linux")]
+    let delegated = if delegated {
+        Some(Arc::new(crate::delegated::service_group()?))
+    } else {
+        None
+    };
     let Some(store) = Store::open(root)? else {
         return Ok(());
     };
@@ -141,6 +161,8 @@ async fn serve_configured(
         store: Arc::new(Mutex::new(store)),
         active: Mutex::new(HashSet::new()),
         host,
+        #[cfg(target_os = "linux")]
+        delegated,
     });
     let mut clients = JoinSet::new();
     let mut recovery = JoinSet::new();
@@ -148,7 +170,7 @@ async fn serve_configured(
     let mut idle = Instant::now();
     let mut recovery_cursor = 0usize;
     #[cfg(target_os = "linux")]
-    if state.host.is_some() {
+    if state.host.is_some() || state.delegated.is_some() {
         crate::host::notify("READY=1\nWATCHDOG=1")?;
     }
     loop {
@@ -173,7 +195,7 @@ async fn serve_configured(
             Some(result)=recovery.join_next(), if !recovery.is_empty() => { report_task(result); }
             _=reaper.tick() => {
                 #[cfg(target_os = "linux")]
-                if state.host.is_some() { crate::host::notify("WATCHDOG=1")?; }
+                if state.host.is_some() || state.delegated.is_some() { crate::host::notify("WATCHDOG=1")?; }
                 let mut records=state.storage(|s| {
                     if let Err(error) = crate::staging::reap(&s.root) { eprintln!("staging recovery retained unresolved data: {error}"); }
                     s.records()
@@ -228,6 +250,16 @@ async fn handle(stream: UnixStream, state: Arc<State>) -> anyhow::Result<()> {
                     version: VERSION,
                     implementation: IMPLEMENTATION.into(),
                     jailed_vms: state.host.is_some(),
+                    delegated_workers: {
+                        #[cfg(target_os = "linux")]
+                        {
+                            state.delegated.is_some()
+                        }
+                        #[cfg(not(target_os = "linux"))]
+                        {
+                            false
+                        }
+                    },
                 },
             )
             .await?;
@@ -263,6 +295,15 @@ async fn handle(stream: UnixStream, state: Arc<State>) -> anyhow::Result<()> {
             {
                 let _ = spec;
                 anyhow::bail!("VM supervision requires Linux");
+            }
+        }
+        Some(Request::CreateHost(spec)) => {
+            #[cfg(target_os = "linux")]
+            return host_worker::handle(reader, writer, state, *spec).await;
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = spec;
+                anyhow::bail!("delegated workers require Linux");
             }
         }
         _ => anyhow::bail!("invalid supervisor initial request"),
@@ -515,6 +556,15 @@ async fn inspect(record: &Record) -> anyhow::Result<Option<Inspection>> {
 /// Unknown creation is resolved only after its owned container is observed and
 /// removed. A missing name alone never clears a potentially delayed request.
 async fn reconcile(state: &State, record: &Record) -> anyhow::Result<bool> {
+    if matches!(
+        record.state,
+        Phase::HostCreating { .. } | Phase::HostCreated { .. }
+    ) {
+        #[cfg(target_os = "linux")]
+        return host_worker::reconcile(state, record).await;
+        #[cfg(not(target_os = "linux"))]
+        anyhow::bail!("delegated recovery requires Linux");
+    }
     if matches!(record.state, Phase::VmCreating | Phase::VmCreated { .. }) {
         #[cfg(target_os = "linux")]
         return virtual_machine::reconcile(state, record).await;

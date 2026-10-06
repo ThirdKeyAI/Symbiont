@@ -64,6 +64,21 @@ Deploy matching runtime and supervisor binaries, drain old workers and preserve
 durable state during upgrade. The changed worker protocol refuses an older
 helper instead of admitting a worker without its staging references.
 
+## Operator inspection
+
+The administrative [Worker capacity view](worker-capacity.md) and
+`GET /api/v1/sandbox/capacity` include a read-only staging snapshot. They report
+retained charges, remaining slots/bytes, live caller or registration locks, and
+worker references. Inspection never initializes a pool, removes unreferenced data
+or refunds a charge. A nonblocking accounting lock prevents an allocation or
+reaper from making the inspection wait.
+
+Unavailable staging accounting is separate from worker accounting: the API can
+return valid worker totals alongside `staging: null` and `staging_error`. The UI
+shows that error explicitly. Root-managed cross-identity state currently cannot
+supply this private runtime-owned staging view. An uninitialized pool with no
+retained data shows configured/default limits without writing them to disk.
+
 ## Validation
 
 Focused supervisor tests cover competing reservations, live ownership, durable

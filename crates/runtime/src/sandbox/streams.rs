@@ -17,11 +17,17 @@ impl StdioStreams {
     pub fn development(child: tokio::process::Child, output_limit: usize) -> Self {
         Self::process(child, None, output_limit)
     }
-    /// A child launched directly on the host inside a landlock domain. There
-    /// is no container guard to retain, so the process group is the lifetime.
+    /// A Landlock child retains its independent delegated-cgroup owner.
     #[cfg(target_os = "linux")]
-    pub fn host(child: tokio::process::Child, output_limit: usize) -> Self {
-        Self::process(child, None, output_limit)
+    pub fn host(
+        child: tokio::process::Child,
+        lease: super::supervisor::Lease,
+        output_limit: usize,
+    ) -> Self {
+        let mut streams = Self::process(child, None, output_limit);
+        streams.guard.group_live = false;
+        streams.guard.host = Some(lease);
+        streams
     }
     pub fn container(worker: StdioContainer) -> Self {
         let output_limit = worker.guard.output_limit;
@@ -40,6 +46,8 @@ impl StdioStreams {
                 child: Some(child),
                 group_live: container.is_none(),
                 container,
+                #[cfg(target_os = "linux")]
+                host: None,
                 #[cfg(unix)]
                 vm: None,
                 output_limit,
@@ -57,6 +65,8 @@ impl StdioStreams {
                 child: None,
                 group_live: false,
                 container: None,
+                #[cfg(target_os = "linux")]
+                host: None,
                 vm: Some(worker.guard),
                 output_limit,
             },
@@ -68,6 +78,8 @@ pub(crate) struct StreamGuard {
     child: Option<tokio::process::Child>,
     group_live: bool,
     container: Option<StdioContainerGuard>,
+    #[cfg(target_os = "linux")]
+    host: Option<super::supervisor::Lease>,
     #[cfg(unix)]
     vm: Option<super::firecracker::StdioGuard>,
     pub output_limit: usize,
@@ -102,6 +114,18 @@ impl StreamGuard {
         if let Some(vm) = &mut self.vm {
             return vm.finish().await.map_err(|e| e.to_string());
         }
+        #[cfg(target_os = "linux")]
+        if let Some(host) = &mut self.host {
+            let cleanup = host.finish().await.map_err(|e| e.to_string());
+            if let Some(child) = &mut self.child {
+                tokio::time::timeout(Duration::from_secs(3), child.wait())
+                    .await
+                    .map_err(|_| "Landlock child reaping timed out".to_string())?
+                    .map_err(|e| e.to_string())?;
+            }
+            self.child.take();
+            return cleanup;
+        }
         let result = match &mut self.container {
             Some(guard) => guard.finish().await.map_err(|e| e.to_string()),
             None => Ok(()),
@@ -126,6 +150,6 @@ impl Drop for StreamGuard {
                 });
             }
         }
-        // VM and container guards cancel their independent owners on drop.
+        // All supervised backend guards cancel their independent owners on drop.
     }
 }

@@ -64,6 +64,10 @@ pub async fn run(matches: &ArgMatches) {
         .get("executor")
         .map(|v| v.trim().trim_matches('"').to_string());
     if executor_kind.as_deref() == Some("claude_code") {
+        if matches.get_one::<String>("improvement").is_some() {
+            eprintln!("✗ Improvements currently require ordinary ORGA execution; no managed CLI work started.");
+            std::process::exit(1);
+        }
         if matches.get_one::<String>("invocation-id").is_some() {
             eprintln!("✗ --invocation-id is not yet supported by managed CLI agents; no execution started.");
             std::process::exit(1);
@@ -101,6 +105,28 @@ pub async fn run(matches: &ArgMatches) {
             }),
         ..Default::default()
     };
+    // Merely installing the feature or initializing another workflow changes
+    // nothing. Only the explicit CLI selection opens the improvement store.
+    let improvement = matches.get_one::<String>("improvement").map(|workflow| {
+        if std::env::var("SYMBI_INSECURE_ALLOW_ALL").as_deref() == Ok("1") {
+            eprintln!("✗ Improvement runs refuse the permissive development policy bypass.");
+            std::process::exit(1);
+        }
+        symbi_runtime::improvement::Store::open(&project, workflow)
+            .and_then(|store| {
+                store.pin(
+                    &execution_settings.agent_name,
+                    &execution_settings.agent_source,
+                    matches
+                        .get_one::<String>("improvement-trial")
+                        .map(String::as_str),
+                )
+            })
+            .unwrap_or_else(|error| {
+                eprintln!("✗ Improvement selection refused: {error}");
+                std::process::exit(1);
+            })
+    });
     let invocation_id = matches
         .get_one::<String>("invocation-id")
         .map(|value| value.parse::<InvocationId>())
@@ -111,8 +137,12 @@ pub async fn run(matches: &ArgMatches) {
         })
         .unwrap_or_else(InvocationId::new_v4);
     eprintln!("Invocation ID: {invocation_id}");
-    let request = serde_json::json!({"agent": execution_settings.agent_name,
+    let mut request = serde_json::json!({"agent": execution_settings.agent_name,
         "source": execution_settings.agent_source, "input": input, "config": config});
+    if let Some(pinned) = &improvement {
+        request["improvement"] = pinned.identity();
+        eprintln!("Improvement version: {}", pinned.candidate_id());
+    }
     let invocation = match open_invocation(
         &project,
         "cli:orga",
@@ -232,7 +262,17 @@ pub async fn run(matches: &ArgMatches) {
     conv.push(ConversationMessage::user(&input));
 
     // Run the ORGA loop
-    let result = runner.run(agent_id, conv, config).await;
+    let result = if let Some(pinned) = &improvement {
+        runner
+            .run_with_improvement(agent_id, conv, config, pinned)
+            .await
+            .unwrap_or_else(|error| {
+                eprintln!("✗ Improvement execution refused: {error}");
+                std::process::exit(1);
+            })
+    } else {
+        runner.run(agent_id, conv, config).await
+    };
 
     let errors: Vec<_> = result
         .conversation

@@ -6,6 +6,7 @@ pub mod cron;
 pub mod doctor;
 pub mod dsl;
 pub mod fmt;
+pub mod improvement;
 pub mod init;
 pub mod invocation;
 pub mod logs;

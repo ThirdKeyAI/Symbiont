@@ -22,7 +22,7 @@ http://127.0.0.1:8080/api/v1
 
 ### Authentifizierung
 
-Runtime-Routen außer Gesundheitsprüfungen erfordern Bearer-Authentifizierung. Konfigurieren Sie eine private API-Schlüsseldatei oder das bisherige Betreiber-Token `SYMBIONT_API_TOKEN`.
+Runtime-Routen ausser Gesundheitspruefungen erfordern Bearer-Authentifizierung. Konfigurieren Sie eine private API-Schluesseldatei oder das bisherige Betreiber-Token `SYMBIONT_API_TOKEN`.
 
 ```
 Authorization: Bearer <your-token>
@@ -30,7 +30,7 @@ Authorization: Bearer <your-token>
 
 **Geschuetzte Endpunkte:**
 - Alle Endpunkte unter `/api/v1/agents/*` erfordern Authentifizierung
-- Nur Gesundheitsprüfungen sind öffentlich. Workflow-Einreichungen und Metriken erfordern Administratorrechte.
+- Nur Gesundheitspruefungen sind oeffentlich. Workflow-Einreichungen und Metriken erfordern Administratorrechte.
 
 ### Verfuegbare Endpunkte
 
@@ -67,7 +67,7 @@ Gibt den aktuellen Systemgesundheitsstatus und grundlegende Runtime-Informatione
 POST /api/v1/workflows/execute
 ```
 
-Administratoren übermitteln DSL-Quelltext in `workflow_id`; `parameters` wird als Eingabe der Ausführung verwendet. `agent_id` erstellt oder ersetzt eine Registrierung; ohne Angabe wird eine neue ID vergeben. Auf Agenten beschränkte Schlüssel erhalten `403 ADMIN_REQUIRED` und können registrierten Quelltext über `/agents/{id}/execute` ausführen. `queued` bestätigt die Aufnahme in die Warteschlange. Das Ergebnis steht unter `/agents/{id}/history`, zugeordnet über `execution_id`. Siehe den [vollständigen Vertrag](../../crates/runtime/API_REFERENCE.md#execute-workflow).
+Administratoren uebermitteln rohen DSL-Quelltext in `workflow_id`; `parameters` wird als Eingabe des Aufrufs verwendet. Lassen Sie `agent_id` weg, um eine Registrierung zu vergeben, oder geben Sie eine ID an, um sie zu erstellen oder zu ersetzen. Auf Agenten beschraenkte Schluessel erhalten hier `403 ADMIN_REQUIRED` und koennen ihren registrierten Quelltext ueber `/agents/{id}/execute` aufrufen. Eine `queued`-Antwort bestaetigt die Aufnahme; ordnen Sie `execution_id` in `/agents/{id}/history` zu, um das endgueltige Ergebnis zu erhalten. Siehe den [Workflow-Vertrag](../../crates/runtime/API_REFERENCE.md#execute-workflow) fuer Details zu Quellenauswahl, Validierung und Migration.
 
 **Request Body:**
 ```json
@@ -116,28 +116,31 @@ GET /api/v1/agents/{id}/status
 Authorization: Bearer <your-token>
 ```
 
-Ruft detaillierte Statusinformationen fuer einen bestimmten Agenten ab, einschliesslich Echtzeit-Ausfuehrungsmetriken.
+Ruft den Scheduler-Status fuer einen bestimmten Agenten ab. CPU und Speicher sind
+nullable; der aktuelle Scheduler besitzt keinen Sampler pro Agent und liefert
+`null` fuer interne und externe Agenten. Clients duerfen diese Werte nicht als
+Nullauslastung darstellen.
 
 **Response (200 OK):**
 ```json
 {
   "agent_id": "uuid",
-  "state": "running|ready|waiting|failed|completed|terminated",
+  "state": "Running",
   "last_activity": "2024-01-15T10:30:00Z",
-  "scheduled_at": "2024-01-15T10:00:00Z",
   "resource_usage": {
-    "memory_usage": 268435456,
-    "cpu_usage": 15.5,
+    "memory_bytes": null,
+    "cpu_percent": null,
     "active_tasks": 1
   },
-  "execution_context": {
-    "execution_mode": "ephemeral|persistent|scheduled|event_driven",
-    "process_id": 12345,
-    "uptime": "00:15:30",
-    "health_status": "healthy|unhealthy"
-  }
+  "execution_mode": "Ephemeral"
 }
 ```
+
+`active_tasks` zaehlt die vom Scheduler verwalteten Aufgaben. `last_activity` ist
+kein Zeitstempel einer Ressourcenmessung. Die Fleet Overview zeigt **Nicht erfasst**
+fuer fehlende CPU- und Speicherwerte an; [Worker-Kapazitaet](/worker-capacity)
+liefert separat erfasste Worker-Auslastung und reservierte Kapazitaet. Diese
+Worker-Werte sind keine Summen pro Agent.
 
 **Neue Agent-Zustaende:**
 - `running`: Agent fuehrt aktiv mit einem laufenden Prozess aus
@@ -218,7 +221,10 @@ Idempotency-Key: <UUID retained for retries>
 Authorization: Bearer <your-token>
 ```
 
-Startet die Ausfuehrung eines bestimmten Agenten.
+Reicht einen einzelnen Aufruf des ausgewaehlten Agenten ein. Verwenden Sie
+dieselbe UUID und denselben Request erneut, um ein gespeichertes Ergebnis oder
+ein explizites Resultat vom Typ active/unresolved/reconciled/conflict abzurufen.
+Siehe [Scheduler-Wiederholungszustaende](/scheduler-idempotency).
 
 **Request Body:**
 ```json
@@ -686,7 +692,7 @@ Authorization: Bearer <your-token>
 Idempotency-Key: <invocation-uuid>
 ```
 
-Manuelle Ausführungen erfordern ein administratives Token und eine UUID im Header `Idempotency-Key`. Sie liefern `queued`, ein gespeichertes Ergebnis oder `in_progress` / `unresolved` / `conflict`. Verwenden Sie bei Wiederholungen dieselbe UUID. Pausieren und Fortsetzen behalten die folgende Antwort; ungeklärte Ausführungen verhindern das Fortsetzen. Siehe [Cron-Wiederherstellung](../cron-recovery.md).
+Manuelle Ausfuehrungen erfordern ein administratives Token und eine UUID im Header `Idempotency-Key`. Sie liefern `queued`, ein gespeichertes Ergebnis oder einen expliziten Zustand `in_progress` / `unresolved` / `reconciled` / `conflict`. Verwenden Sie bei Wiederholungen dieselbe UUID. Pausieren und Fortsetzen behalten die folgende Antwort; ungeklaerte Ausfuehrungen verhindern das Fortsetzen. Siehe [Cron-Wiederherstellung](/cron-recovery).
 
 **Response (200 OK):**
 ```json
@@ -1324,3 +1330,9 @@ Fuer API-Support und Fragen:
 - Ueberpruefen Sie die [Runtime-Architektur-Dokumentation](runtime-architecture.md)
 - Konsultieren Sie die [Sicherheitsmodell-Dokumentation](security-model.md)
 - Melden Sie Probleme im GitHub-Repository des Projekts
+
+Ein abgeglichener (reconciled) Aufruf liefert HTTP 409 und die separat signierte
+Betreiber-`resolution`; er liefert niemals einen konstruierten Runtime-Abschluss.
+Die Cron-Historie behaelt den Status `Reconciled`, den urspruenglichen Fehler samt
+Audit sowie das Resolution-Objekt. Der Job bleibt bis zum expliziten Fortsetzen
+pausiert. Siehe [Betreiber-Abgleich](/invocation-reconciliation).

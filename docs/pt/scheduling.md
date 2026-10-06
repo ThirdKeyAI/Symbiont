@@ -3,6 +3,18 @@
 ## Outros idiomas
 
 
+O [guia de execução governada](/scheduled-execution) descreve o comportamento de
+runtime desta branch: o registro armazena a configuração sem executar um agente;
+invocações via API, manuais e por temporizador recebem IDs de execução distintos e
+resultados terminais reais. O histórico atinge `succeeded` após a execução e a
+limpeza, e inclui saída, erros e referências de auditoria protegidas. Agendamento
+gerenciado via CLI, modelos roteados e transporte de agentes externos permanecem
+indisponíveis no serviço padrão. O limite de comando selecionado pode usar
+[Firecracker](/firecracker-setup) para ferramentas oneshot, parsers, MCP stdio e
+sessões PTY quando os artefatos de guest correspondentes estiverem provisionados.
+Consulte o [guia da branch](/containment-branch-guide) para as diferenças visíveis
+ao operador e a cobertura restante.
+
 O sistema de agendamento do Symbiont oferece execução de tarefas baseada em cron de nível de produção para agentes de IA. O sistema suporta:
 
 - **Agendamentos cron**: Sintaxe cron tradicional para tarefas recorrentes

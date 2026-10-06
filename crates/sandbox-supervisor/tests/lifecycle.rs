@@ -195,6 +195,7 @@ os.execv('/usr/bin/docker', ['docker', *sys.argv[1:]])
             "--label".into(), self.label.clone(), "--entrypoint".into(), "python".into(), self.image.clone(), "-c".into(),
             "import os,pathlib,time; assert os.getuid()==65534; assert os.environ['EXPLICIT']=='synthetic'; pathlib.Path('/workspace/started').touch(); pid=os.fork(); os.setsid() if pid==0 else None; exec(\"while True:\\n pathlib.Path('/workspace/ticks').write_text(str(time.monotonic()))\\n time.sleep(0.05)\")".into()]);
         let mut request = Create {
+            origin: None,
             staging: Vec::new(),
             version: VERSION,
             implementation: IMPLEMENTATION.into(),
@@ -346,6 +347,7 @@ async fn shared_admission_retains_capacity_through_cleanup_failure_and_restart()
     // Both backend kinds enter the same admission owner. Refusal occurs before
     // artifact access or any VMM launch, even though these files do not exist.
     let vm = protocol::CreateVm {
+        origin: None,
         version: VERSION,
         implementation: IMPLEMENTATION.into(),
         lease: uuid::Uuid::new_v4(),

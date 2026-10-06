@@ -9,6 +9,8 @@
 
 ## 概述
 
+已实现的收容（containment）变更参见[收容运维与架构指南](/containment-branch-guide)。运行时通过校验、审批、Cedar、必需审计和一次性派发来绑定预备调用；受收容的工作进程由一个独立的监督进程拥有。已覆盖的 CLI、HTTP、调度器和 DSL 默认路径使用受保护日志。下文的原则描述的是设计；仍有执行与审计路径未覆盖，因此还不能宣称完整的收容。
+
 Symbi 运行时系统为自主代理提供安全、可扩展且策略感知的执行环境。基于 Rust 构建以确保性能和安全性，它实现了具有全面审计功能的多层安全模型。
 
 ### 核心原则
@@ -183,7 +185,7 @@ pub struct ResourceLimits {
 - 通过 KVM 实现的硬件虚拟化，每次执行使用独立内核
 - 由运维方提供 vmlinux 与 rootfs（默认只读）
 - 与主机不共享任何内核表面
-- 需要 `firecracker` 二进制以及实现 Symbiont 在 VM 内启动契约的 init 脚本 —— 见 [`docs/firecracker-setup.md`](firecracker-setup.md)。
+- 需要 `firecracker` 二进制，以及与之匹配的 `symbi-sandbox-guest` PID 1 服务和监督进程 —— 见 [`docs/firecracker-setup.md`](/firecracker-setup)。
 
 #### 托管执行：E2B（不是一个层级）
 E2B 是一个独立的托管云后端，**不是**第 1/2/3 层的对等项。它映射到 `SecurityTier::Hosted`，在排序上位于 `Tier1` **之下** —— 任何要求主机隔离（`tier >= Tier1`）的策略都会拒绝托管执行。仅可通过 DSL（`with { sandbox = "e2b" }`）选择启用。

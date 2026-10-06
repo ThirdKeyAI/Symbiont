@@ -1,6 +1,7 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 import { inspectCapacity, measureWorker, type Capacity, type Measurement, type Worker } from '../../../api/capacity.js';
+import '../../shared/audit-reference.js';
 
 const memory = (value: number | null): string => value === null ? 'Unknown' : `${(value / 1048576).toLocaleString(undefined, { maximumFractionDigits: 2 })} MiB`;
 const cpus = (value: number | null): string => value === null ? 'Unknown' : `${(value / 1e9).toLocaleString(undefined, { maximumFractionDigits: 3 })} CPUs`;
@@ -26,6 +27,8 @@ export class CapacityPanel extends LitElement {
     .table-wrap { overflow-x:auto; } table { width:100%; border-collapse:collapse; }
     th,td { padding:.7rem; text-align:left; vertical-align:top; border-bottom:1px solid #334155; }
     td p { margin:.3rem 0; } .sample { min-width:15rem; } .phase { text-transform:capitalize; }
+    tr:focus { outline:2px solid #7dd3fc; outline-offset:-2px; }
+    .worker-link { margin:.2rem; font-size:.8rem; }
   `;
   @state() private _snapshot: Capacity | null = null;
   @state() private _loading = false;
@@ -70,18 +73,56 @@ export class CapacityPanel extends LitElement {
       ${value ? html`<p>Sampled ${time(value.observed_at_unix_ms)}</p>
         ${value.source === 'docker_cli' ? html`<p>CPU: ${value.cpu_percent ?? 'Unknown'}</p><p>Memory / limit: ${value.memory_usage ?? 'Unknown'}</p>
           <p>Memory follows Docker's cache-adjusted display.</p>`
-          : html`<p>${value.source === 'vmm_cgroup' ? 'Cgroup memory' : 'Resident memory'}: ${memory(value.memory_bytes)}</p>
+          : html`<p>${value.source === 'vmm_process' ? 'Resident memory' : 'Cgroup memory'}: ${memory(value.memory_bytes)}</p>
             <p>CPU time: ${value.cpu_time_micros === null ? 'Unknown' : `${(value.cpu_time_micros / 1e6).toLocaleString()} seconds`}</p>
-            <p>${value.source === 'vmm_cgroup' ? 'VMM cgroup counters' : 'VMM process counters'}; guest application usage is separate.</p>`}
+            <p>${value.source === 'landlock_cgroup' ? 'Worker cgroup counters include descendants.'
+              : `${value.source === 'vmm_cgroup' ? 'VMM cgroup counters' : 'VMM process counters'}; guest application usage is separate.`}</p>`}
       ` : !sample?.loading && !sample?.error ? html`<p>${worker.phase === 'created' ? 'Not sampled.' : 'Creation or cleanup is uncertain; usage is unknown.'}</p>` : ''}
     </div>`;
+  }
+
+  private _origin(worker: Worker) {
+    const origin = worker.origin;
+    if (!origin) return html`<p>Originating run unavailable.</p>`;
+    const reference = { run_id:origin.run_id, public_key:origin.public_key,
+      path:`${origin.agent_id}.${origin.run_id}.jsonl` };
+    return html`<p>Launch: ${origin.tool_name} · iteration ${origin.iteration}</p>
+      <audit-reference label="Inspect originating run" .reference=${reference}></audit-reference>
+      <details><summary>Dispatch reference</summary><p>Run: <code>${origin.run_id}</code></p>
+        <p>Dispatch: <code>${origin.dispatch_id}</code></p><p>Call: <code>${origin.call_fingerprint}</code></p></details>`;
+  }
+
+  private _focusWorker(lease: string) {
+    const row = this.renderRoot.querySelector<HTMLElement>(`[data-lease="${lease}"]`);
+    row?.scrollIntoView({ block:'center' }); row?.focus({ preventScroll:true });
+  }
+
+  private _staging(snapshot: Capacity) {
+    const s = snapshot.staging;
+    return html`<section aria-label="Staging reservations"><h3>Staging reservations</h3>
+      <p>Private file and Git snapshots reserve host storage before copying. These figures are reservations, not measured disk use or a filesystem quota.</p>
+      ${!s ? html`<p class="error" role="alert">Staging capacity unavailable: ${snapshot.staging_error ?? 'No staging observation supplied'}. No zero balance is assumed.</p>`
+        : html`<div class="metrics">
+          <div class="metric"><span>Snapshot slots reserved</span><strong>${s.reserved.snapshots} / ${s.limits.max_snapshots}</strong><span>${s.available.snapshots} available</span></div>
+          <div class="metric"><span>Staging bytes reserved</span><strong>${memory(s.reserved.reserved_bytes)}</strong><span>${memory(s.available.reserved_bytes)} available of ${memory(s.limits.reserved_bytes)}</span></div>
+        </div>
+        ${!s.initialized ? html`<p>No staging pool has been initialized. Shown limits apply to the first allocation.</p>` : ''}
+        ${s.admission_blocked ? html`<p class="attention">Staging capacity blocks new snapshots. Existing worker capacity is a separate limit.</p>` : ''}
+        ${s.reservations.length ? html`<div class="table-wrap"><table><thead><tr><th>Snapshot</th><th>Reserved storage</th><th>Retained ownership</th></tr></thead>
+          <tbody>${s.reservations.map(entry => html`<tr><td><code>${entry.id}</code></td><td>${memory(entry.reserved_bytes)}</td>
+            <td><p>${entry.active_hold ? 'Active caller or registration hold observed.' : 'No active caller hold observed.'}</p>
+              ${entry.worker_leases.map(lease => html`<button class="worker-link" aria-label=${`Show worker ${lease}`} @click=${() => this._focusWorker(lease)}>Worker ${lease.slice(0, 8)}</button>`)}
+              ${!entry.worker_leases.length ? html`<p>No retained worker reference. Preparation, guest transfer or pending cleanup may still hold this reservation.</p>` : ''}</td></tr>`)}</tbody></table></div>`
+          : html`<p>No retained staging reservations in this snapshot.</p>`}
+        <p>Refresh does not remove data or release charges. Reservations remain until cleanup confirms removal.</p>`}
+    </section>`;
   }
 
   render() {
     const s = this._snapshot;
     return html`<header><h2>Worker capacity</h2><button ?disabled=${this._loading} @click=${this._refresh}>
       ${this._loading ? 'Refreshing…' : 'Refresh capacity'}</button></header>
-      <p>Shared worker reservations across execution routes using this supervisor. Administrative access is required.</p>
+      <p>Docker, gVisor, Firecracker and supervised Landlock reservations using this supervisor. Administrative access is required.</p>
       ${this._error ? html`<p class="error" role="alert">Capacity unavailable: ${this._error}. No empty pool or zero usage is assumed.</p>` : ''}
       <div aria-live="polite">${this._loading ? html`<p>Reading the running supervisor…</p>` : ''}</div>
       ${s ? html`<section aria-label="Shared capacity snapshot">
@@ -96,9 +137,11 @@ export class CapacityPanel extends LitElement {
         <p>Reservations remain charged until removal is confirmed. Low measured usage does not release a reservation.</p>
         <p>Pool: <code>${s.state_dir}</code>. Separate supervisor directories are separate pools.</p>
       </section>
+      ${this._staging(s)}
       <section><h3>Retained workers</h3><p>Lease state describes retained supervision records, not proof that a process is currently running. Usage is sampled separately on request.</p>
+        <p>Origin links use retained runtime dispatch references. The Inspector verifies the selected run's signed journal. Runs from another project require that project's Inspector.</p>
         ${s.workers.length ? html`<div class="table-wrap"><table><thead><tr><th>Lease / backend</th><th>Lease state</th><th>Reserved resources</th><th>Measured usage</th></tr></thead>
-          <tbody>${s.workers.map(worker => html`<tr><td><code>${worker.lease}</code><p>${worker.backend}</p></td>
+          <tbody>${s.workers.map(worker => html`<tr data-lease=${worker.lease} tabindex="-1"><td><code>${worker.lease}</code><p>${worker.backend}</p>${this._origin(worker)}</td>
             <td class="phase">${worker.phase}</td><td>${memory(worker.resources?.memory_bytes ?? null)}<br>${cpus(worker.resources?.cpu_nanos ?? null)}</td>
             <td>${this._measurement(worker)}</td></tr>`)}</tbody></table></div>`
           : html`<p>No retained workers in this snapshot.</p>`}

@@ -9,6 +9,14 @@ Compreenda a arquitetura do sistema de runtime Symbi e os componentes principais
 
 ## Visão Geral
 
+Para as mudanças de contenção já implementadas, consulte o
+[guia de operação e arquitetura de contenção](/containment-branch-guide). O runtime
+vincula chamadas preparadas através de validação, aprovação, Cedar, auditoria
+obrigatória e despacho de uso único; um supervisor independente é dono dos workers
+contidos. Os caminhos cobertos de CLI, HTTP, agendador e os padrões do DSL usam
+journals protegidos. Os princípios abaixo descrevem o design; os caminhos restantes
+de execução e auditoria impedem uma afirmação completa de contenção.
+
 O sistema de runtime Symbi fornece um ambiente de execução seguro, escalável e consciente de políticas para agentes autônomos. Construído em Rust para performance e segurança, implementa um modelo de segurança multi-camadas com capacidades abrangentes de auditoria.
 
 ### Princípios Fundamentais
@@ -200,7 +208,7 @@ O runtime entrega três camadas de isolamento no host (Tier 1 → Tier 3) mais u
 - Sistema de arquivos raiz somente leitura por padrão
 - Sem superfície de kernel compartilhada com o host
 
-Configuração via `[sandbox.firecracker]` em `symbiont.toml`. O operador deve fornecer (a) uma imagem de kernel compatível com Firecracker e (b) uma imagem de sistema de arquivos raiz com um script de init que leia o payload do agente. Veja [`docs/firecracker-setup.md`](firecracker-setup.md) para um guia rápido passo a passo.
+Configuração via `[sandbox.firecracker]` em `symbiont.toml`. O operador deve fornecer (a) uma imagem de kernel compatível com Firecracker e (b) uma imagem de sistema de arquivos raiz com o serviço PID 1 `symbi-sandbox-guest` correspondente e seu supervisor. Veja [`docs/firecracker-setup.md`](firecracker-setup.md) para um guia rápido passo a passo.
 
 #### Execução hospedada: E2B
 **O E2B é um backend de sandbox em nuvem hospedado, não uma camada de isolamento no host.** Fica fora da escada Tier 1 → Tier 3. O código roda na infraestrutura do E2B via API HTTPS; o runtime envia apenas um cliente HTTP. Defina `E2B_API_KEY` e selecione-o por agente com `with { sandbox = "e2b" }`. Não há flag `--sandbox e2b` no `symbi init` — o E2B é intencionalmente opt-in apenas via DSL, pois representa um modelo de confiança diferente das camadas no host. O runtime mapeia `E2B → SecurityTier::Hosted`, que ordena **abaixo** de `Tier1` — políticas que exigem isolamento no host (`tier >= Tier1`) rejeitarão a execução hospedada.

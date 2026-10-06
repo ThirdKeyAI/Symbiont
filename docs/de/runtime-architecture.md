@@ -9,6 +9,15 @@ Verstehen Sie die Architektur des Symbi-Laufzeitsystems und die Kernkomponenten.
 
 ## Überblick
 
+Die umgesetzten Änderungen zur Eindämmung beschreibt der
+[Betreiber- und Architektur-Leitfaden zur Eindämmung](/containment-branch-guide).
+Die Runtime bindet vorbereitete Aufrufe über Validierung, Genehmigung, Cedar,
+erforderliches Audit und einmaligen Dispatch; ein unabhängiger Supervisor
+verwaltet die eingedaemmten Worker. Die abgedeckten CLI-, HTTP-, Scheduler- und
+DSL-Standardwege verwenden geschützte Journale. Die nachfolgenden Prinzipien
+beschreiben den Entwurf; verbleibende Ausführungs- und Audit-Pfade verhindern
+eine vollständige Aussage zur Eindämmung.
+
 Das Symbi-Laufzeitsystem bietet eine sichere, skalierbare und richtlinienorientierte Ausführungsumgebung für autonome Agenten. Auf Rust für Leistung und Sicherheit aufgebaut, implementiert es ein mehrstufiges Sicherheitsmodell mit umfassenden Audit-Funktionen.
 
 ### Grundprinzipien
@@ -183,7 +192,7 @@ Die Laufzeit liefert drei Host-Isolationsstufen — alle OSS — plus ein separa
 - Hardware-Virtualisierung via KVM mit einem dedizierten Kernel pro Ausfuehrung
 - Vom Betreiber bereitgestellte vmlinux + rootfs (standardmaessig schreibgeschuetzt)
 - Keine geteilte Kernel-Oberflaeche mit dem Host
-- Erfordert das `firecracker`-Binary plus ein init-Skript, das den Symbiont In-VM-Kontrakt implementiert — siehe [`docs/firecracker-setup.md`](firecracker-setup.md).
+- Erfordert das `firecracker`-Binary plus den passenden `symbi-sandbox-guest` PID-1-Dienst und Supervisor — siehe [`docs/firecracker-setup.md`](/firecracker-setup).
 
 #### Hosted-Ausfuehrung: E2B (keine Stufe)
 E2B ist ein separates Hosted-Cloud-Backend, **kein** Peer von Stufe 1/2/3. Es wird auf `SecurityTier::Hosted` abgebildet, das beim Sortieren **unterhalb** von `Tier1` einsortiert wird — Richtlinien, die Host-Isolation verlangen (`tier >= Tier1`), lehnen Hosted-Ausfuehrung ab. Opt-in ausschliesslich ueber DSL (`with { sandbox = "e2b" }`).

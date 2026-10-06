@@ -11,6 +11,7 @@ pub mod crypto_provider;
 pub mod env;
 pub mod error_handler;
 pub mod escalation;
+pub mod improvement;
 pub mod integrations;
 pub mod lifecycle;
 pub mod logging;
@@ -480,6 +481,8 @@ impl RuntimeApiProvider for AgentRuntime {
         let supervisor = match boundary.tier {
             CommandTier::Docker => boundary.docker.supervisor,
             CommandTier::GVisor => boundary.gvisor.docker.supervisor,
+            #[cfg(target_os = "linux")]
+            CommandTier::Landlock => boundary.landlock.supervisor,
             CommandTier::Firecracker => {
                 boundary
                     .firecracker

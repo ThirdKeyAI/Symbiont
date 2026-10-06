@@ -1,8 +1,8 @@
 ---
 name: symbiont
 title: Symbiont
-description: AI-native agent runtime with typestate-enforced ORGA reasoning loop, Cedar policy authorization, CommunicationPolicyGate for inter-agent governance, ToolClad declarative tool contracts, knowledge bridge, zero-trust security, multi-tier sandboxing, webhook verification, markdown memory, skill scanning, metrics, scheduling, symbi init/run/up/shell/repl CLI, interactive TUI (Beta), cross-instance agent messaging, human approval relay, and a declarative DSL
-version: 1.20.0
+description: AI-native agent runtime with typestate-enforced ORGA reasoning loop, Cedar policy authorization, CommunicationPolicyGate for inter-agent governance, ToolClad declarative tool contracts, knowledge bridge, zero-trust security, multi-tier sandboxing including a daemon-free Landlock tier, governed workflow improvements, webhook verification, markdown memory, skill scanning, metrics, scheduling, symbi init/run/up/shell/repl CLI, interactive TUI (Beta), cross-instance agent messaging, human approval relay, and a declarative DSL
+version: 1.21.0
 ---
 
 # Symbiont Agent Development Skills Guide
@@ -19,7 +19,10 @@ version: 1.20.0
 - **Durable Journal**: All 7 loop event types recorded for crash recovery and replay without re-calling the LLM
 - **Zero-Trust Security**: All inputs untrusted by default, explicit policies required
 - **Policy-as-Code**: Declarative security rules enforced at runtime
-- **Multi-Tier Sandboxing**: Docker → gVisor → Firecracker isolation, all OSS. Per-agent selection via `with { sandbox = "tier1"|"gvisor"|"firecracker" }`; project default in `[sandbox] tier = "..."`. E2B is a separate hosted backend (`with { sandbox = "e2b" }`, opt-in only) that maps to `SecurityTier::Hosted` and sorts below Tier 1
+- **Multi-Tier Sandboxing**: Landlock → Docker → gVisor → Firecracker isolation, all OSS. Per-agent selection via `with { sandbox = "tier1"|"gvisor"|"firecracker" }`; project default in `[sandbox] tier = "..."`. E2B is a separate hosted backend (`with { sandbox = "e2b" }`, opt-in only) that maps to `SecurityTier::Hosted` and sorts below Tier 1
+- **Daemon-Free Landlock Tier**: Named `landlock`, not numbered. Isolates one-shot commands, output parsers and the managed CLI child using kernel Landlock + seccomp with no daemon, image or helper binary. Requires Linux Landlock ABI 6+ and fails closed where the kernel cannot enforce the declared profile. Not available for registered agents — no `SecurityTier` names it.
+- **Governed Workflow Improvements**: Opt-in lifecycle for versioned instruction artifacts — frozen acceptance suites, offline evaluation of signed trial evidence, exact operator approvals, guarded activation, rollback and signed exports. Managed with `symbi improvement`; ORGA runs opt in via `--improvement`.
+- **Per-Operation File Grants**: One-shot tools, MCP workers and terminal sessions see only their declared inputs plus a bounded ceiling for new outputs. Git source queries read through bounded repository snapshots rather than the working tree.
 - **Canonical `.symbi` extension**: Agent files use `.symbi`; legacy `.dsl` is recognized indefinitely for backward compatibility. Use `dsl::is_symbi_file` / `dsl::strip_symbi_extension` for discovery
 - **Enterprise Compliance**: HIPAA, SOC2, GDPR patterns built-in
 - **Cryptographic Verification**: SchemaPin for MCP tools, AgentPin for agent identity, Ed25519 signatures
@@ -532,6 +535,7 @@ The host-isolation tiers form a monotonically increasing ladder. **Hosted** (E2B
 
 | Tier | Technology | Use Case | Performance | Security | Overhead |
 |------|------------|----------|-------------|----------|----------|
+| **Landlock** | Kernel LSM + seccomp (no daemon) | Workstations, dev loops, no container runtime | Fastest isolated | Good | Minimal |
 | **Tier1** | Docker | General workloads | Fast | Good | Low (~100ms) |
 | **Tier2** | gVisor (`runsc`) | Untrusted code | Medium | High | Medium (~500ms) |
 | **Tier3** | Firecracker microVM | Multi-tenant isolation, regulated data | Slower | Maximum | High (~2s) |
@@ -539,6 +543,7 @@ The host-isolation tiers form a monotonically increasing ladder. **Hosted** (E2B
 | **Native** | Process only | Development ONLY | Fastest | None | Minimal |
 
 **Selection Guide**:
+- **Landlock**: One-shot commands, parsers and the managed CLI child on a Linux host with no container runtime. Requires Landlock ABI 6+; refuses to run where the kernel cannot enforce the profile. Select with `[sandbox] tier = "landlock"` or `symbi init --sandbox landlock`.
 - **Tier1 (Docker)**: Default choice for most agents.
 - **Tier2 (gVisor)**: Processing external data, user-provided code. Requires `runsc` registered as a Docker runtime.
 - **Tier3 (Firecracker)**: Highly sensitive, regulatory compliance. Operator-supplied kernel + rootfs required — see [`docs/firecracker-setup.md`](https://github.com/thirdkeyai/symbiont/blob/main/docs/firecracker-setup.md). Scaffold with `symbi init --sandbox tier3 --firecracker-kernel /path/to/vmlinux --firecracker-rootfs /path/to/rootfs.ext4`.

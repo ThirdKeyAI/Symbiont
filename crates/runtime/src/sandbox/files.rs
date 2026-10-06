@@ -136,7 +136,10 @@ impl FileAccessPlan {
         access.validate()?;
         if !matches!(
             boundary.tier,
-            CommandTier::Docker | CommandTier::GVisor | CommandTier::Firecracker
+            CommandTier::Docker
+                | CommandTier::GVisor
+                | CommandTier::Firecracker
+                | CommandTier::Landlock
         ) {
             return Err("filesystem grants require a supported Linux file broker".into());
         }
@@ -564,6 +567,25 @@ pub(super) mod linux {
         create: bool,
     ) -> anyhow::Result<(&str, &[String])> {
         match boundary.tier {
+            CommandTier::Landlock => {
+                let roots = if create {
+                    &boundary.roots.output_roots
+                } else {
+                    &boundary.roots.source_roots
+                };
+                anyhow::ensure!(roots.len() <= 32, "too many Landlock file ceilings");
+                let mut destinations = std::collections::HashSet::new();
+                for root in roots {
+                    super::super::docker::canonical_mount(root)?;
+                    let parts: Vec<_> = root.split(':').collect();
+                    anyhow::ensure!(parts.get(2).copied().unwrap_or("ro") == if create { "rw" } else { "ro" }, "Landlock source ceilings must be read-only and output ceilings explicitly writable");
+                    anyhow::ensure!(
+                        destinations.insert(Path::new(parts[1]).components().collect::<PathBuf>()),
+                        "duplicate Landlock file destination"
+                    );
+                }
+                Ok(("/workspace", roots))
+            }
             CommandTier::Docker => Ok((&boundary.docker.working_dir, &boundary.docker.volumes)),
             CommandTier::GVisor => Ok((
                 &boundary.gvisor.docker.working_dir,
@@ -748,6 +770,10 @@ pub(super) mod linux {
                     config.working_dir.clone(),
                 )
             }
+            CommandTier::Landlock => (
+                boundary.landlock.supervisor.resolved_state_dir()?,
+                super::super::landlock::workspace::WORKSPACE.into(),
+            ),
             _ => anyhow::bail!("file staging transport unavailable"),
         };
         let reserved_bytes = plan
@@ -760,7 +786,12 @@ pub(super) mod linux {
             } else {
                 0
             }
-            + (plan.inputs.len() as u64 + 4) * 4096;
+            + (plan.inputs.len() as u64 + 4) * 4096
+            + if boundary.tier == CommandTier::Landlock {
+                super::super::landlock::workspace::SPEC_LIMIT
+            } else {
+                0
+            };
         let directory = Arc::new(symbi_sandbox_supervisor::staging::Lease::reserve(
             &state_dir,
             reserved_bytes,
@@ -811,6 +842,29 @@ pub(super) mod linux {
             output_file = Some(file);
         }
         match boundary.tier {
+            CommandTier::Landlock => {
+                use super::super::landlock::workspace::{Mount, Workspace};
+                let mounts = sources
+                    .into_iter()
+                    .zip(imports)
+                    .map(|(source, input)| Mount {
+                        source,
+                        destination: input.path.into(),
+                        read_only: true,
+                    })
+                    .chain(destination.into_iter().map(|target| Mount {
+                        source: directory.path().join("output"),
+                        destination: target.into(),
+                        read_only: false,
+                    }))
+                    .collect();
+                boundary.landlock.workspace = Some(Workspace::new(
+                    directory.clone(),
+                    mounts,
+                    working_dir.into(),
+                    plan.max_file_bytes,
+                )?);
+            }
             CommandTier::Docker | CommandTier::GVisor => {
                 let config = if boundary.tier == CommandTier::Docker {
                     &mut boundary.docker

@@ -5,9 +5,10 @@ import sys
 import threading
 
 vsock = sys.argv[1] == 'vsock:2:4051'
-connection = socket.socket(socket.AF_VSOCK if vsock else socket.AF_UNIX, socket.SOCK_STREAM)
+tcp = sys.argv[1] == 'tcp:127.0.0.1:8766'
+connection = socket.socket(socket.AF_VSOCK if vsock else (socket.AF_INET if tcp else socket.AF_UNIX), socket.SOCK_STREAM)
 connection.settimeout(10)
-connection.connect((2, 4051) if vsock else sys.argv[1])
+connection.connect((2, 4051) if vsock else (('127.0.0.1', 8766) if tcp else sys.argv[1]))
 connection.settimeout(None)
 
 

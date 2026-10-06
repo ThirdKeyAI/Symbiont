@@ -48,11 +48,15 @@ impl GitPlan {
         anyhow::ensure!(
             matches!(
                 ceiling.tier,
-                CommandTier::Docker | CommandTier::GVisor | CommandTier::Firecracker
+                CommandTier::Docker
+                    | CommandTier::GVisor
+                    | CommandTier::Firecracker
+                    | CommandTier::Landlock
             ),
             "Git source queries require a supported Linux file ceiling"
         );
         let supervisor = match ceiling.tier {
+            CommandTier::Landlock => &ceiling.landlock.supervisor,
             CommandTier::Docker => &ceiling.docker.supervisor,
             CommandTier::GVisor => &ceiling.gvisor.docker.supervisor,
             CommandTier::Firecracker => {
@@ -66,7 +70,13 @@ impl GitPlan {
         };
         let directory = Arc::new(symbi_sandbox_supervisor::staging::Lease::reserve(
             &supervisor.resolved_state_dir()?,
-            MAX_BYTES + (MAX_ENTRIES as u64 + 8) * 4096,
+            MAX_BYTES
+                + (MAX_ENTRIES as u64 + 8) * 4096
+                + if ceiling.tier == CommandTier::Landlock {
+                    super::landlock::workspace::SPEC_LIMIT
+                } else {
+                    0
+                },
         )?);
         let mut snapshot = Snapshot {
             ceiling,
@@ -165,6 +175,27 @@ impl GitPlan {
         snapshot.live()?;
         let mut boundary = ceiling.without_host_mounts();
         match boundary.tier {
+            CommandTier::Landlock => {
+                use super::landlock::workspace::{Mount, Workspace};
+                boundary.landlock.require_network = true;
+                boundary.landlock.workspace = Some(Workspace::new(
+                    directory.clone(),
+                    vec![
+                        Mount {
+                            source: directory.path().join("input"),
+                            destination: "/tmp/symbi-git-input".into(),
+                            read_only: true,
+                        },
+                        Mount {
+                            source: directory.path().join("worktree"),
+                            destination: "/tmp/symbi-source".into(),
+                            read_only: true,
+                        },
+                    ],
+                    "/tmp/symbi-source".into(),
+                    MAX_FILE_BYTES,
+                )?);
+            }
             CommandTier::Firecracker => {
                 let config = boundary
                     .firecracker
@@ -186,7 +217,10 @@ impl GitPlan {
                 config.network_mode = "none".into();
             }
         }
-        let worker_mounts = if boundary.tier == CommandTier::Firecracker {
+        let worker_mounts = if matches!(
+            boundary.tier,
+            CommandTier::Firecracker | CommandTier::Landlock
+        ) {
             json!([])
         } else {
             json!([{"destination":INPUT,"read_only":true},{"destination":WORKTREE,"read_only":true}])
@@ -214,7 +248,9 @@ impl GitPlan {
             return Err("Git query already consumed".into());
         }
         let mut boundary = self.boundary.clone();
-        let (input, worktree) = if boundary.tier == CommandTier::Firecracker {
+        let (input, worktree) = if boundary.tier == CommandTier::Landlock {
+            ("/tmp/symbi-git-input".into(), "/tmp/symbi-source".into())
+        } else if boundary.tier == CommandTier::Firecracker {
             (
                 format!("{}/input", symbi_sandbox_guest::snapshot::ROOT),
                 format!("{}/worktree", symbi_sandbox_guest::snapshot::ROOT),

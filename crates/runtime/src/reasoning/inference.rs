@@ -215,6 +215,11 @@ pub enum InferenceError {
 /// - Token usage tracking
 #[async_trait]
 pub trait InferenceProvider: Send + Sync {
+    /// Stable, non-secret configuration identity for opt-in evaluated releases.
+    /// Unimplemented providers remain usable for ordinary runs.
+    fn configuration_identity(&self) -> Option<String> {
+        None
+    }
     /// Input allowance reserved before dispatch, including tools and framing.
     /// The default conservatively budgets serialized UTF-8 bytes plus framing
     /// overhead for text providers. It is not an exact tokenizer or billing

@@ -116,28 +116,27 @@ GET /api/v1/agents/{id}/status
 Authorization: Bearer <your-token>
 ```
 
-获取特定智能体的详细状态信息，包括实时执行指标。
+获取特定智能体的调度器状态。CPU 和内存字段可为 null；当前调度器没有按智能体
+采样的机制，对内部和外部智能体都返回 `null`。客户端不得把这些值呈现为零占用。
 
 **响应（200 OK）：**
 ```json
 {
   "agent_id": "uuid",
-  "state": "running|ready|waiting|failed|completed|terminated",
+  "state": "Running",
   "last_activity": "2024-01-15T10:30:00Z",
-  "scheduled_at": "2024-01-15T10:00:00Z",
   "resource_usage": {
-    "memory_usage": 268435456,
-    "cpu_usage": 15.5,
+    "memory_bytes": null,
+    "cpu_percent": null,
     "active_tasks": 1
   },
-  "execution_context": {
-    "execution_mode": "ephemeral|persistent|scheduled|event_driven",
-    "process_id": 12345,
-    "uptime": "00:15:30",
-    "health_status": "healthy|unhealthy"
-  }
+  "execution_mode": "Ephemeral"
 }
 ```
+
+`active_tasks` 统计的是调度器拥有的任务。`last_activity` 不是资源采样的时间戳。
+Fleet Overview 对缺失的 CPU 和内存显示 **Not sampled**；[工作进程容量](/worker-capacity)
+提供单独采样的工作进程占用和预留容量。这些工作进程数值不是按智能体汇总的结果。
 
 **新的智能体状态：**
 - `running`：智能体正在活跃执行，有运行中的进程
@@ -218,7 +217,8 @@ Idempotency-Key: <UUID retained for retries>
 Authorization: Bearer <your-token>
 ```
 
-触发特定智能体的执行。
+提交所选智能体的一次调用。复用同一 UUID 和同一请求可取回已保存的完成结果，
+或得到明确的 active/unresolved/reconciled/conflict 状态。参见[调度器重试状态](/scheduler-idempotency)。
 
 **请求体：**
 ```json
@@ -686,7 +686,7 @@ Authorization: Bearer <your-token>
 Idempotency-Key: <invocation-uuid>
 ```
 
-手动触发需要管理员令牌和 `Idempotency-Key` 标头中的 UUID。返回 `queued`、已保存的结果或 `in_progress` / `unresolved` / `conflict`。重试时应复用同一 UUID。暂停和恢复仍使用以下响应格式；存在未解决的执行时无法恢复。参见 [cron 恢复](../cron-recovery.md)。
+手动触发需要管理员令牌和 `Idempotency-Key` 标头中的 UUID。返回 `queued`、已保存的结果，或明确的 `in_progress` / `unresolved` / `reconciled` / `conflict` 状态。重试时应复用同一 UUID。暂停和恢复仍使用以下响应格式；存在未解决的执行时无法恢复。参见 [cron 恢复](/cron-recovery)。
 
 **响应（200 OK）：**
 ```json
@@ -1324,3 +1324,8 @@ symbi agents-md generate --dir . --output AGENTS.md
 - 查看[运行时架构文档](runtime-architecture.md)
 - 查看[安全模型文档](security-model.md)
 - 在项目的 GitHub 仓库中提交问题
+
+已核销（reconciled）的调用会返回 HTTP 409 及其单独签名的运维 `resolution`；它
+绝不会返回伪造的运行时完成结果。cron 历史会保留 `Reconciled` 状态、原始错误和
+审计记录，以及该 resolution 对象。在显式恢复之前，该作业将保持暂停。参见
+[运维核销](/invocation-reconciliation)。

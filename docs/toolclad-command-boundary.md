@@ -23,11 +23,14 @@ memory, CPU, PID, file-size, output and lifetime limits still apply. Project
 configuration, tools, policies, scope, agent definitions, Git metadata and audit
 storage cannot be exposed by a project-configured mount.
 
-The `landlock` tier runs commands and parsers directly on the host inside a
-kernel-enforced domain, with no daemon and no image. It covers one-shot commands
-and custom parsers; MCP stdio and PTY still require Docker or above. See
+The optional Linux `landlock` backend currently supports MCP stdio without
+declared files. One-shot commands, custom parsers, declared-file staging and
+PTYs still require Docker/gVisor or Firecracker. Landlock prepares its rules
+before fork, retains the originally granted filesystem objects and refuses
+missing declared roots. Governed launches now require shared admission and
+[delegated cgroup supervision](landlock-supervision.md). See
 [multi-tier sandboxing](security-model.md#landlock-daemon-free) for its
-coverage, its non-uniform guarantee and its fail-closed kernel check.
+coverage, network limits and fail-closed kernel check.
 
 Production Docker and gVisor profiles require `network_mode = "none"`. An explicit
 `bridge` setting fails configuration validation before a worker starts; `symbi run`

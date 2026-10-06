@@ -575,6 +575,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn test_native_runner_creation() {
         let config = config_with_bash();
         let runner = NativeRunner::new(config);
@@ -589,6 +590,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn test_native_python_execution() {
         ensure_test_env();
         let config = NativeConfig {
@@ -617,6 +619,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn test_native_bash_execution() {
         let config = config_with_bash();
 
@@ -634,6 +637,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn test_native_execution_with_env_vars() {
         let config = config_with_bash();
 
@@ -649,6 +653,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn test_native_execution_timeout() {
         ensure_test_env();
         let config = NativeConfig {
@@ -692,7 +697,11 @@ mod tests {
         assert!(result.is_err());
     }
 
+    // SYMBIONT_ENV is process-wide, so this test and every test that builds a
+    // NativeRunner are serialized: without that, the production value set here
+    // leaks into siblings and fails them for an unrelated reason.
     #[tokio::test]
+    #[serial_test::serial]
     async fn test_production_environment_blocked() {
         // Save original value
         let original = std::env::var("SYMBIONT_ENV").ok();
@@ -714,6 +723,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn test_output_truncation() {
         ensure_test_env();
         let config = NativeConfig {

@@ -2,6 +2,17 @@ use clap::parser::ValueSource;
 use clap::ArgMatches;
 use std::path::{Path, PathBuf};
 
+#[cfg(all(target_os = "linux", feature = "cli-executor"))]
+mod developer;
+
+const DEVELOPER_OPTIONS: &[&str] = &[
+    "source",
+    "managed-executable",
+    "inference-url",
+    "inference-model",
+    "inference-key-env",
+];
+
 /// Whether interactive prompts should be skipped.
 ///
 /// Split out from `run` so the decision is testable without a terminal.
@@ -374,7 +385,7 @@ policy_dir = "policies"
 mode = "{schemapin}"
 
 [sandbox]
-# Default tier: tier1 (Docker), tier2 (gVisor), tier3 (Firecracker), or tier0 (none, dev only).
+# Default tier: landlock (Linux), tier1 (Docker), tier2 (gVisor), tier3 (Firecracker), or tier0 (none, dev only).
 # Per-agent overrides come from the DSL `with {{ sandbox = "..." }}` block.
 tier = "{sandbox}"
 {firecracker_block}
@@ -439,7 +450,7 @@ fn select_profile_interactive() -> String {
     let profiles = &[
         "minimal      \u{2014} symbiont.toml + default Cedar policy (add agents later)",
         "assistant     \u{2014} single governed assistant agent",
-        "dev-agent     \u{2014} CliExecutor agent for coding tasks (Claude Code / Gemini CLI)",
+        "dev-agent     \u{2014} managed coding agent (Landlock starts with read-only review)",
         "multi-agent   \u{2014} coordinator + worker pattern with inter-agent policies",
     ];
     let profile_values = &["minimal", "assistant", "dev-agent", "multi-agent"];
@@ -487,9 +498,10 @@ fn select_sandbox_interactive() -> String {
         "tier1         \u{2014} Docker isolation (recommended)",
         "tier2         \u{2014} gVisor hardened sandbox (requires runsc)",
         "tier3         \u{2014} Firecracker microVM (requires kernel + rootfs)",
+        "landlock      \u{2014} Linux isolation (ABI 6+, systemd user delegation)",
         "tier0         \u{2014} no sandbox (development only)",
     ];
-    let tier_values = &["tier1", "tier2", "tier3", "tier0"];
+    let tier_values = &["tier1", "tier2", "tier3", "landlock", "tier0"];
 
     let selection = Select::with_theme(&ColorfulTheme::default())
         .with_prompt("Sandbox tier")
@@ -609,6 +621,22 @@ fn init_project(
     sandbox: &str,
     firecracker: Option<&FirecrackerInit>,
 ) {
+    // Native profiles inherit the project boundary and use conversational
+    // declarations, without unsupported executable bodies or memory clauses.
+    let scaffold_agent = |filename, source: &str| {
+        let source = if sandbox == "landlock" {
+            let name = dsl::strip_symbi_extension(filename).expect("built-in agent filename");
+            format!(
+                "metadata {{\n    version = \"1.0.0\"\n    description = \"Governed {name} using the project Landlock boundary\"\n}}\n\n\
+                 // Configure tool manifests and Cedar permissions before enabling tools.\n\
+                 // Sandbox selection is inherited from symbiont.toml.\n\
+                 agent {name}() {{\n    capabilities = [\"read\", \"analyze\"]\n    with timeout = 300.seconds {{}}\n}}\n"
+            )
+        } else {
+            source.to_owned()
+        };
+        write_agent_if_not_exists(dir, filename, &source)
+    };
     let toml = generate_toml(profile, schemapin, sandbox, firecracker);
     std::fs::write(dir.join("symbiont.toml"), toml).expect("Failed to write symbiont.toml");
     println!("\u{2713} Created symbiont.toml");
@@ -635,19 +663,24 @@ fn init_project(
         "minimal" => {}
         "assistant" => {
             std::fs::create_dir_all(dir.join("agents")).expect("Failed to create agents/");
-            write_agent_if_not_exists(dir, "assistant.symbi", ASSISTANT_DSL);
+            scaffold_agent("assistant.symbi", ASSISTANT_DSL);
             generate_agents_md(dir);
         }
         "dev-agent" => {
             std::fs::create_dir_all(dir.join("agents")).expect("Failed to create agents/");
-            write_agent_if_not_exists(dir, "dev.symbi", DEV_AGENT_DSL);
-            write_policy_if_not_exists(dir, "dev-agent.cedar", DEV_AGENT_CEDAR);
+            if sandbox == "landlock" {
+                #[cfg(all(target_os = "linux", feature = "cli-executor"))]
+                developer::write_templates(dir).expect("Failed to write development templates");
+            } else {
+                scaffold_agent("dev.symbi", DEV_AGENT_DSL);
+                write_policy_if_not_exists(dir, "dev-agent.cedar", DEV_AGENT_CEDAR);
+            }
             generate_agents_md(dir);
         }
         "multi-agent" => {
             std::fs::create_dir_all(dir.join("agents")).expect("Failed to create agents/");
-            write_agent_if_not_exists(dir, "coordinator.symbi", COORDINATOR_DSL);
-            write_agent_if_not_exists(dir, "worker.symbi", WORKER_DSL);
+            scaffold_agent("coordinator.symbi", COORDINATOR_DSL);
+            scaffold_agent("worker.symbi", WORKER_DSL);
             write_policy_if_not_exists(dir, "inter-agent.cedar", INTER_AGENT_CEDAR);
             generate_agents_md(dir);
         }
@@ -671,7 +704,7 @@ fn compose_file_present(dir: &Path) -> bool {
 /// Print the closing "Next steps" guidance. Called once, last, after every
 /// file (including `.env` and the compose file) has been written — so it is
 /// the final thing the user sees and reflects what actually got generated.
-fn print_next_steps(dir: &Path, profile: &str, docker_compose_enabled: bool) {
+fn print_next_steps(dir: &Path, profile: &str, docker_compose_enabled: bool, sandbox: &str) {
     let compose = docker_compose_enabled && compose_file_present(dir);
     let validate_target = match profile {
         "minimal" | "import" => None,
@@ -685,7 +718,16 @@ fn print_next_steps(dir: &Path, profile: &str, docker_compose_enabled: bool) {
     if let Some(target) = validate_target {
         println!("  Validate   symbi dsl --check -f {target}");
     }
-    if compose {
+    if sandbox == "landlock" {
+        println!("  Check      symbi doctor        # checks isolation and starts supervision");
+        println!("  Configure  provider credentials and explicit tool/file policies");
+        if let Some(target) = validate_target {
+            println!(
+                "  Run        symbi run {target} --input '{{\"prompt\":\"Describe your task\"}}'"
+            );
+        }
+        println!("  Guide      docs/landlock-supervision.md");
+    } else if compose {
         println!(
             "  Run        docker compose up   # Docker \u{2014} reads .env automatically (recommended)"
         );
@@ -948,8 +990,18 @@ pub async fn run(matches: &ArgMatches) {
         eprintln!("\u{2717} Unknown schemapin mode: {}", schemapin);
         std::process::exit(1);
     }
-    if !["tier0", "tier1", "tier2", "tier3"].contains(&sandbox.as_str()) {
+    if !["tier0", "tier1", "tier2", "tier3", "landlock"].contains(&sandbox.as_str()) {
         eprintln!("\u{2717} Unknown sandbox tier: {}", sandbox);
+        std::process::exit(1);
+    }
+
+    let native_developer = profile == "dev-agent" && sandbox == "landlock";
+    if !native_developer
+        && DEVELOPER_OPTIONS
+            .iter()
+            .any(|name| matches.get_one::<String>(name).is_some())
+    {
+        eprintln!("Development settings require --profile dev-agent --sandbox landlock");
         std::process::exit(1);
     }
 
@@ -973,6 +1025,18 @@ pub async fn run(matches: &ArgMatches) {
         }
     }
 
+    if native_developer && matches.get_one::<String>("catalog").is_some() {
+        eprintln!("Initialize the read-only development profile without catalog imports");
+        std::process::exit(1);
+    }
+    #[cfg(not(all(target_os = "linux", feature = "cli-executor")))]
+    if native_developer {
+        eprintln!(
+            "The Landlock development profile requires Linux and the cli-executor build feature"
+        );
+        std::process::exit(1);
+    }
+
     if let Err(e) = std::fs::create_dir_all(&target_dir) {
         eprintln!(
             "\u{2717} Failed to create target directory {}: {}",
@@ -983,9 +1047,28 @@ pub async fn run(matches: &ArgMatches) {
     }
 
     if should_proceed(&target_dir, force).is_err() {
-        eprintln!("\u{2717} symbiont.toml already exists. Use --force to overwrite.");
+        if native_developer {
+            eprintln!(
+                "Development onboarding needs a new empty --dir; the existing project is preserved"
+            );
+        } else {
+            eprintln!("\u{2717} symbiont.toml already exists. Use --force to overwrite.");
+        }
         std::process::exit(1);
     }
+
+    #[cfg(all(target_os = "linux", feature = "cli-executor"))]
+    let developer = if native_developer {
+        match developer::Settings::collect(matches, &target_dir, no_interact) {
+            Ok(settings) => Some(settings),
+            Err(error) => {
+                eprintln!("Cannot initialize development project: {error}");
+                std::process::exit(1);
+            }
+        }
+    } else {
+        None
+    };
 
     init_project(
         &target_dir,
@@ -1005,14 +1088,25 @@ pub async fn run(matches: &ArgMatches) {
     // Master key: generate a .env with SYMBIONT_MASTER_KEY unless one is already present.
     write_env_files(&target_dir);
 
+    #[cfg(all(target_os = "linux", feature = "cli-executor"))]
+    if let Some(settings) = developer {
+        if let Err(error) = settings.write_configuration(&target_dir) {
+            eprintln!("Cannot finish development configuration: {error}");
+            std::process::exit(1);
+        }
+        settings.print_next_steps(&target_dir);
+        return;
+    }
+
     // Docker compose: emit a ready-to-run compose file unless opted out.
-    if !no_docker_compose {
+    let docker_compose = !no_docker_compose && sandbox != "landlock";
+    if docker_compose {
         write_docker_compose(&target_dir, &profile);
     }
 
     // Closing guidance — printed last so it's the final thing on screen and
     // reflects everything that was actually generated above.
-    print_next_steps(&target_dir, &profile, !no_docker_compose);
+    print_next_steps(&target_dir, &profile, docker_compose, &sandbox);
 }
 
 fn resolve_target_dir(matches: &ArgMatches) -> PathBuf {

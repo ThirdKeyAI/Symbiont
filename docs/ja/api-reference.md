@@ -116,28 +116,24 @@ GET /api/v1/agents/{id}/status
 Authorization: Bearer <your-token>
 ```
 
-リアルタイム実行メトリクスを含む特定のエージェントの詳細なステータス情報を取得します。
+特定のエージェントのスケジューラー上のステータスを取得します。CPU とメモリは null になり得ます。現在のスケジューラーにはエージェント単位のサンプラーがないため、内部エージェントと外部エージェントのいずれについても `null` を返します。クライアントはこれらの値を使用量ゼロとして提示してはなりません。
 
 **レスポンス（200 OK）：**
 ```json
 {
   "agent_id": "uuid",
-  "state": "running|ready|waiting|failed|completed|terminated",
+  "state": "Running",
   "last_activity": "2024-01-15T10:30:00Z",
-  "scheduled_at": "2024-01-15T10:00:00Z",
   "resource_usage": {
-    "memory_usage": 268435456,
-    "cpu_usage": 15.5,
+    "memory_bytes": null,
+    "cpu_percent": null,
     "active_tasks": 1
   },
-  "execution_context": {
-    "execution_mode": "ephemeral|persistent|scheduled|event_driven",
-    "process_id": 12345,
-    "uptime": "00:15:30",
-    "health_status": "healthy|unhealthy"
-  }
+  "execution_mode": "Ephemeral"
 }
 ```
+
+`active_tasks` はスケジューラーが所有するタスクの数です。`last_activity` はリソースをサンプリングした時刻ではありません。Fleet Overview は、CPU とメモリが欠落している場合に **Not sampled** と表示します。個別にサンプリングされたワーカーの使用量と予約済み容量は、[ワーカー容量](/worker-capacity)で提供されます。これらのワーカーの値は、エージェント単位の合計ではありません。
 
 **新しいエージェント状態：**
 - `running`: エージェントが実行中のプロセスでアクティブに実行中
@@ -218,7 +214,7 @@ Idempotency-Key: <UUID retained for retries>
 Authorization: Bearer <your-token>
 ```
 
-特定のエージェントの実行をトリガーします。
+選択したエージェントの呼び出しを 1 件送信します。同じ UUID とリクエストを再利用すると、保存済みの完了結果、または active / unresolved / reconciled / conflict のいずれかの明示的な結果を取得できます。[スケジューラーの再試行状態](/scheduler-idempotency)を参照してください。
 
 **リクエストボディ：**
 ```json
@@ -686,7 +682,7 @@ Authorization: Bearer <your-token>
 Idempotency-Key: <invocation-uuid>
 ```
 
-手動実行には管理者トークンと `Idempotency-Key` ヘッダーの UUID が必要です。`queued`、保存済みの結果、または `in_progress` / `unresolved` / `conflict` を返します。再試行では同じ UUID を使用してください。一時停止と再開は以下の応答形式を維持します。未解決の実行がある場合は再開できません。[cron の復旧](../cron-recovery.md)を参照してください。
+手動実行には管理者トークンと `Idempotency-Key` ヘッダーの UUID が必要です。`queued`、保存済みの結果、または `in_progress` / `unresolved` / `reconciled` / `conflict` を返します。再試行では同じ UUID を使用してください。一時停止と再開は以下の応答形式を維持します。未解決の実行がある場合は再開できません。[cron の復旧](/cron-recovery)を参照してください。
 
 **レスポンス（200 OK）：**
 ```json
@@ -1321,6 +1317,8 @@ symbi agents-md generate --dir . --output AGENTS.md
 ## サポート
 
 APIサポートと質問については：
-- [ランタイムアーキテクチャドキュメント](runtime-architecture.md)を確認
-- [セキュリティモデルドキュメント](security-model.md)をチェック
+- [ランタイムアーキテクチャドキュメント](/runtime-architecture)を確認
+- [セキュリティモデルドキュメント](/security-model)をチェック
 - プロジェクトのGitHubリポジトリで問題を報告
+
+突き合わせ済み（reconciled）の呼び出しは HTTP 409 と、個別に署名された運用者の `resolution` を返します。ランタイムの完了結果を捏造して返すことはありません。cron の履歴には `Reconciled` ステータス、元のエラーと監査情報、および resolution オブジェクトが保持されます。ジョブは明示的に再開されるまで一時停止のままです。[運用者による突き合わせ](/invocation-reconciliation)を参照してください。

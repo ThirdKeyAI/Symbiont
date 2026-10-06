@@ -116,28 +116,29 @@ GET /api/v1/agents/{id}/status
 Authorization: Bearer <your-token>
 ```
 
-Get detailed status information for a specific agent including real-time execution metrics.
+Get scheduler status for a specific agent. CPU and memory are nullable; the
+current scheduler has no per-agent sampler and returns `null` for internal and
+external agents. Clients must not present these values as zero usage.
 
 **Response (200 OK):**
 ```json
 {
   "agent_id": "uuid",
-  "state": "running|ready|waiting|failed|completed|terminated",
+  "state": "Running",
   "last_activity": "2024-01-15T10:30:00Z",
-  "scheduled_at": "2024-01-15T10:00:00Z",
   "resource_usage": {
-    "memory_usage": 268435456,
-    "cpu_usage": 15.5,
+    "memory_bytes": null,
+    "cpu_percent": null,
     "active_tasks": 1
   },
-  "execution_context": {
-    "execution_mode": "ephemeral|persistent|scheduled|event_driven",
-    "process_id": 12345,
-    "uptime": "00:15:30",
-    "health_status": "healthy|unhealthy"
-  }
+  "execution_mode": "Ephemeral"
 }
 ```
+
+`active_tasks` counts tasks owned by the scheduler. `last_activity` is not a
+resource sample timestamp. Fleet Overview displays **Not sampled** for missing
+CPU and memory; [Worker capacity](worker-capacity.md) provides separately sampled
+worker usage and reserved capacity. These worker values are not per-agent totals.
 
 **New Agent States:**
 - `running`: Agent is actively executing with a running process

@@ -1,5 +1,7 @@
 # はじめに
 
+> 封じ込めのもとでエージェントを実行しますか？実行の前提条件、承認まわりの変更点、現在のカバー範囲については、まず[封じ込めの運用ガイド](/containment-branch-guide)をお読みください。
+
 このガイドでは、Symbiのセットアップと初めてのAIエージェントの作成について説明します。
 
 ▶ **入門ウォークスルー動画を見る：**
@@ -148,7 +150,9 @@ symbi init
 これにより、以下の手順を案内するインタラクティブウィザードが起動します：
 - **プロファイル選択**: `minimal`、`assistant`、`dev-agent`、または `multi-agent`
 - **SchemaPinモード**: `tofu`（Trust-On-First-Use）、`strict`、または `disabled`
-- **サンドボックスティア**: `tier0`（なし、開発専用）、`tier1`（Docker）、`tier2`（gVisor / `runsc`）、または `tier3`（Firecracker microVM）
+- **サンドボックスティア**: `landlock`（ネイティブ Linux）、`tier0`（なし、開発専用）、`tier1`（Docker）、`tier2`（gVisor / `runsc`）、または `tier3`（Firecracker microVM）
+
+`--sandbox landlock --profile dev-agent` を指定すると、ウィザードはさらにソースリポジトリ、インストール済みの Claude Code 実行ファイル、Messages 互換の推論 URL、モデル、資格情報の環境変数名を尋ねます。そして、別の空の制御ディレクトリに読み取り専用のレビュー構成を生成します。非インタラクティブに呼び出す場合は、`--source`、`--managed-executable`、`--inference-url`、`--inference-model`、`--inference-key-env` を指定する必要があります。[Linux 開発者向けオンボーディング](/landlock-development)を参照してください。
 
 ### `init` が生成するもの
 
@@ -164,7 +168,7 @@ symbi init
 | `.gitignore` | `.env` を含む Symbiont 固有のエントリを追記 |
 | `.env` | `/dev/urandom` から生成された `SYMBIONT_MASTER_KEY`（パーミッション 0600） |
 | `.env.example` | 必要な環境変数を示すコミット可能なテンプレート |
-| `docker-compose.yml` | 正しいボリュームマウントと環境変数配線を備えた、すぐに実行可能なコンポーズファイル |
+| `docker-compose.yml` | ボリュームマウントと環境変数配線を備えたコンポーズファイル。Landlock では生成されません |
 
 `--no-docker-compose` を渡すとコンポーズファイルをスキップし、`--dir <PATH>` でカレント以外のディレクトリに書き込みます（Docker コンテナ内で実行する場合は必須 — 下記参照）。
 
@@ -193,12 +197,12 @@ docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest \
 |-------------|--------------|
 | `minimal` | `symbiont.toml` + デフォルトCedarポリシー |
 | `assistant` | + 単一のガバナンスアシスタントエージェント |
-| `dev-agent` | + 安全ポリシー付きCliExecutorエージェント |
+| `dev-agent` | + 管理 CLI エージェント。Landlock では、設定済みの読み取り／一覧／検索ツール、範囲を限定したポリシー、`DEVELOPMENT.md` が追加されます |
 | `multi-agent` | + エージェント間ポリシー付きコーディネーター/ワーカーエージェント |
 
 ### カタログからのインポート
 
-任意のプロファイルと共にビルド済みエージェントをインポート：
+一般的なプロファイルと共にビルド済みエージェントをインポートできます（読み取り専用の Landlock 開発用初期化はカタログのインポートと併用できません）：
 
 ```bash
 symbi init --profile minimal --no-interact
@@ -234,6 +238,8 @@ symbi run <agent-name-or-file> --input <json>
 symbi run assistant -i 'Summarize this document'
 symbi run agents/recon.symbi -i '{"target": "10.0.1.5"}' --max-iterations 5
 ```
+
+ツールコマンド、パーサー、MCP、PTY の実行には、選択されたコンテナバックエンド、宣言された実行ファイルを含むキャッシュ済みイメージ、および明示的なデータマウントが必要です。バックエンドが利用できない場合、ホスト実行にフォールバックすることはできません。選択されたエージェント設定とプロジェクトの既定値は、推論の前に検査されます。実行には保護された `.symbiont/governed/` ストレージも必要で、公開の監査参照が出力されます。[コマンドの設定](/toolclad-command-boundary)および[実行監査](/run-audit)を参照してください。
 
 ### ローカルモデルを使う
 
@@ -542,34 +548,28 @@ branches = ["main", "master", "production"]
 
 #### Mode B: ガバナンス対象のClaude Codeサブプロセス
 
-エディタ内フックに加えて、Symbiontは Claude Code を*ガバナンス対象のサブプロセス*として実行できます — これが「Mode B」（ORGA管理）パスです。メタデータで `executor = "claude_code"` を宣言したエージェントは、LLM推論ループの代わりに、ランタイムの `CliExecutor` の下で Claude Code をスポーンして実行されます。同梱の `code_reviewer` エージェントがリファレンス例です：
+`metadata { executor = "claude_code" }` を宣言したエージェントは、選択された Docker / gVisor のコンテナ内で、スクラッチストレージとランタイム専用の推論チャネル・ツールチャネルを使って CLI の子プロセスを実行します。同梱の `code_reviewer` がリファレンスエージェントです。まず、キャッシュ済みの CLI / Python イメージ、明示的なバックエンドのソースマウント、登録済みの ToolClad ツールと Cedar ポリシー、`[managed_cli.inference]` を設定してください。完全な例は[管理 CLI の封じ込め](/managed-cli-containment)を参照してください。
 
 ```bash
-# ガバナンス対象のClaude Codeサブプロセスで作業ツリーをレビュー
-symbi run code_reviewer --target /path/to/repo
+# /srv/source は制御プロジェクト内の明示的なバックエンドマウントに対応している必要があります。
+symbi run code_reviewer --target /srv/source --max-turns 12 --budget-timeout 15m
 
-# 境界: --max-turns が主要な（協調的な）制限であり、--budget-timeout は
-# ハードな実時間バックストップ（グレースフルな SIGTERM -> SIGKILL）です。
-symbi run code_reviewer --target . --max-turns 12 --budget-timeout 15m
+# 承認が必要なツールに対して運用者のレビューを追加します。
+symbi run code_reviewer --target /srv/source --approval-terminal
 ```
 
-各実行で Symbiont は以下を行います：
+子プロセスには、ソースの直接マウント、外部ネットワークへのアクセス、ホストのログイン状態、プロバイダーの資格情報はいずれも与えられません。許可されたファイルおよび Git へのアクセスは、登録済みツールが仲介します。組み込みツールと自動検出は無効化されます。すべてのアクションにはランタイムの認可が必要であり、起動時の承認が以降のアクションを認可することはありません。プラグインは読み込まれず、`--plugin-dir` は拒否されます。
 
-- スポーンをポリシー**Gate**を通じて評価します（フェイルクローズド — Cedar ポリシーで許可するか、ローカル開発では `SYMBI_INSECURE_ALLOW_ALL=1` を使用）；
-- env ハンドシェイク（`SYMBIONT_MANAGED=true`、`SYMBIONT_SESSION_ID`、`SYMBIONT_BUDGET_TOKENS`、`SYMBIONT_BUDGET_TIMEOUT`、`CLAUDE_PROJECT_DIR`）を設定し、symbi-claude-code プラグインがそのフックを外側の Gate に**委譲**するようにします；
-- `--plugin-dir` でプラグインを読み込み、`--mcp-config --strict-mcp-config` を介して stdio の `symbi mcp` バックチャネルを配線します；
-- Claude Code をヘッドレスで実行します（`--print --output-format json --permission-mode dontAsk`）。
+| フラグ／設定 | 目的 |
+|---|---|
+| `--target` | 明示的なバックエンドマウントに対応付けられたソースディレクトリ |
+| `--max-turns` | 会話の上限。デフォルトは 12 |
+| `--budget-timeout` | 初期化を含む実時間の上限。デフォルトは `15m` |
+| `--budget-tokens` | 予約される推論の出力トークン枠。デフォルトは 100000。課金対象の総トークン数ではありません |
+| `--approval-terminal` | 必須の承認について、制御端末でのレビューをオプトインで有効化 |
+| `[managed_cli.inference]` | プロバイダーのエンドポイント、モデル、資格情報の変数を明示的に指定。資格情報はランタイム側に留まります |
 
-| Variable / flag | 目的 | デフォルト |
-|---|---|---|
-| `SYMBIONT_CLAUDE_PLUGIN_DIR` | symbi-claude-code プラグインへのパス | 兄弟リポジトリを自動検出 |
-| `--plugin-dir` | 1回の実行に対してプラグインパスを上書き | — |
-| `--target` | 操作対象の作業ディレクトリ | カレントディレクトリ |
-| `--max-turns` | 主要な協調的境界（エージェントターン） | 12 |
-| `--budget-timeout` | 実時間バックストップ、例: `15m` / `900s` | 15m |
-| `--budget-tokens` | サブプロセスに渡されるトークン予算のヒント（認識用） | 100000 |
-
-> **認証:** サブプロセスは Claude Code 自身の認証を使用します — ログイン済みのセッション（`claude /login`）または `ANTHROPIC_API_KEY`。`cli-executor` フィーチャーはデフォルトで有効です。
+必須となる署名付きセッションジャーナルは、非公開の `.symbiont/governed/` ストレージに保存されます。ランタイムは検証用の公開鍵を出力します。承認の欠落、安全でない監査ストレージ、バックエンドの利用不可、クリーンアップの失敗が、黙って成功として報告されることはありません。推論レスポンスは SSE を含めてバッファリングされるため、ストリーミング出力には遅延が生じます。
 
 ### Gemini CLI
 
@@ -643,6 +643,29 @@ enabled = true
 backend = "lancedb"              # デフォルト；"qdrant" もサポート
 collection_name = "symbi_knowledge"
 # url = "http://localhost:6333"  # backend = "qdrant" の場合のみ必要
+```
+
+### ヒューマン・イン・ザ・ループの承認
+
+マニフェストやサブコマンドで定められた承認要件は、Cedar が呼び出しを許可している場合でも必須のままです。共有キューは、権限のある判断、期限切れ、またはキャンセルがあるまで各リクエストを保持します。1 つの通知先が停止しても、他の承認サーフェスがブロックされることはありません。
+
+- **通常／管理 CLI：** `--approval-terminal` を付けます。必要に応じて `--approval-timeout 120`（1〜3600 秒）も指定します。エスケープ済みの完全な JSON をレビューし、制御端末で `approve <request-id>` を正確に入力します。このフラグがない場合、承認が必要な呼び出しはフェイルクローズします。
+- **REST：** 認証済みの `GET /api/v1/approvals`、`POST /api/v1/approvals/{id}/approve`、`.../deny` で保留中のリクエストを解決します。
+- **シェル：** 処理中のターンの最中でも Ctrl+G で Gate パネルが開きます。↑/↓ で選択し、Enter でリクエスト全体をレビューしてスクロールしたうえで、`a` または `d` を押します。`/gate` でもパネルが開きます。一覧の行だけでは承認できません。
+- **チャット：** 許可リストに登録された送信者が `/symbi gate show <id>` を実行し、表示された完全なレビューから `/symbi gate approve <id> <review-digest>` をコピーするか、`/symbi gate deny <id>` を送信します。ID のみの承認は拒否されます。メッセージが大きすぎる場合は、別のレビューサーフェスを併用する必要があります。
+
+リクエストが変更、期限切れ、削除された場合は、改めてレビューが必要です。TUI は解決時のエラーと結果不明の状態を明示的に報告します。承認はゲートを通過する許可にすぎません。実際に実行されたかどうかは署名付きの実行監査で確認してください。Slack では、すべての環境で空でない署名シークレットと有効なコールバック署名が必要です。以前の未署名コールバックを許容するオーバーライドはサポートされなくなりました。制限事項と信頼の前提については[承認のライフサイクル](/approval-lifecycle)を参照してください。
+
+タイムアウトとチャットの承認チャネルは `symbiont.toml` で設定します：
+
+```toml
+[escalation]
+timeout_seconds = 120
+
+[[escalation.approval_channels]]
+platform   = "slack"
+channel_id = "C0APPROVERS"
+approvers  = ["U0ALICE", "U0BOB"]   # 許可リストに登録した送信者 ID；空の場合はチャット経由で承認できる人はいません
 ```
 
 ---

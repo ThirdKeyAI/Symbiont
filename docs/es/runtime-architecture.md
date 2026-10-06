@@ -9,6 +9,15 @@ Comprenda la arquitectura del sistema de runtime de Symbi y los componentes prin
 
 ## Visión General
 
+Para conocer los cambios de contención ya implementados, consulte la
+[guía de operador y arquitectura de contención](/containment-branch-guide). El runtime
+vincula las llamadas preparadas mediante validación, aprobación, Cedar, auditoría
+obligatoria y despacho de un solo uso; un supervisor independiente es propietario
+de los workers contenidos. Los valores predeterminados cubiertos de CLI, HTTP,
+planificador y DSL usan diarios protegidos. Los principios que siguen describen el
+diseño; las rutas de ejecución y auditoría pendientes impiden afirmar una contención
+completa.
+
 El sistema de runtime de Symbi proporciona un entorno de ejecución seguro, escalable y consciente de políticas para agentes autónomos. Construido sobre Rust para rendimiento y seguridad, implementa un modelo de seguridad de múltiples niveles con capacidades de auditoría integral.
 
 ### Principios Fundamentales
@@ -198,7 +207,7 @@ El runtime ofrece tres niveles de aislamiento del host — todos OSS — mas un 
 - Virtualización por hardware via KVM con un kernel dedicado por ejecución
 - vmlinux + rootfs proporcionados por el operador (solo lectura por defecto)
 - Sin superficie de kernel compartida con el host
-- Requiere el binario `firecracker` mas un script de init que implemente el contrato in-VM de Symbiont — consulte [`docs/firecracker-setup.md`](firecracker-setup.md).
+- Requiere el binario `firecracker` más el servicio PID 1 `symbi-sandbox-guest` correspondiente y su supervisor — consulte [`docs/firecracker-setup.md`](/firecracker-setup).
 
 #### Ejecución alojada: E2B (no es un nivel)
 E2B es un backend separado de nube alojada, **no** un par de los Niveles 1/2/3. Se mapea a `SecurityTier::Hosted`, que ordena por debajo de `Tier1` — las políticas que requieran aislamiento del host (`tier >= Tier1`) rechazarán la ejecución alojada. Habilitable únicamente via DSL (`with { sandbox = "e2b" }`).

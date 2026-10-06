@@ -1,6 +1,12 @@
 # Symbiont REPL 指南
 
-> 此分支在注册时拒绝显式设置旧版 `security.tier`、`security.sandbox`、资源限制和执行策略，因为该路径无法按代理强制执行这些要求。受支持的内置函数使用运维人员配置的项目沙箱。空配置块和仅声明能力要求的代理保留原有检查。注册被拒绝的模块不会替换已有代理或辅助函数。
+> **分支执行状态：** 异步内置函数保留发起调用方的身份。桥接层会冻结其项目根目录，
+> 默认的 `reason()`/`tool_call()` 调用需要受保护的运行日志，并返回公开的审计引用。
+> 直接推理调用同样需要日志；`:audit` 会列出它们的公开引用。函数和 behavior 声明
+> 会在多次输入之间保留，运行中的 behavior 会保留其辅助函数的快照。旧版 REPL 语法
+> 并未实现按代理进行的规范沙箱选择。显式声明的不受支持的层级、沙箱、资源和执行策略
+> 要求现在会导致注册失败。当前覆盖范围参见
+> [DSL 调用上下文](/dsl-invocation-context)和[分支指南](/containment-branch-guide)。
 
 ## 其他语言
 
@@ -33,24 +39,37 @@ symbi repl --stdio
 
 ### 基本使用
 
-```rust
-# Define an agent
-metadata {
-  version = "1.0.0"
-  description = "A simple greeting agent"
-}
+每条声明在一行内输入：
 
-agent greeter(name: String) -> String {
-  capabilities = ["greet"]
+```text
+agent Greeter {}
+function greet(value: string) { return upper(value) }
+behavior Welcome { steps { return greet(args) } }
+:agents
+:agent start <id>
+:agent execute <id> Welcome hello
+```
 
-  policy safe {
-    allow: read(name) if true
-  }
+请把 `<id>` 替换为 `Greeter` 输出的 UUID。最后一条命令返回 `HELLO`。声明和启动
+并不会执行 behavior。可选的命令参数会作为一个名为 `args` 的字符串传入。定义会被
+保留；局部变量和参数不会带入下一次调用。模块注册失败不会替换已有的定义。运行时
+错误仍然可见，客户端可以继续接受下一条命令。`print()` 的诊断信息输出到 stderr，
+与结构化响应相互独立。
 
-  with memory = "ephemeral" {
-    return greet(name);
-  }
-}
+`symbi run` 使用的规范 `agent name(...) { with ... }` 语言走的是另一条解析路径。
+旧版 REPL 的安全层级和沙箱模式并不是它的执行设置。注册会在发布任何定义之前，
+拒绝显式的旧版 tier/sandbox 模式、非空的资源声明和执行策略。重复的约束块和能力
+列表同样会导致解析失败。仅声明能力的声明保留原有检查。工具作用使用项目边界和
+受治理的派发器；若未配置允许的门控，工具请求会被拒绝。直接 LLM 调用、组合调用和
+模式调用都要求每次提供者调用都有签名日志。它们已有的结果类型保持不变；公开引用
+请使用 `:audit` 查看。通信需要已配置的门控和已注册的接收方。`send_to` 确认的是
+持久化的启动，其终态日志记录后续的完成情况。`race` 返回第一个成功结果并取消其余
+调用。这些控制并不构成规范的源码选择，也不构成汇总的推理预算。
+
+在完成工作区构建后，可用以下命令复现 RPC 与终端冒烟测试：
+
+```bash
+python3 scripts/test-repl-session.py --binary target/debug/repl-cli --report /tmp/repl-session.json
 ```
 
 ## REPL 命令
@@ -60,6 +79,7 @@ agent greeter(name: String) -> String {
 | 命令 | 描述 |
 |------|------|
 | `:agents` | 列出所有智能体 |
+| `:audit` | 列出最近的直接推理审计引用以及被省略的引用数量 |
 | `:agent list` | 列出所有智能体 |
 | `:agent start <id>` | 启动智能体 |
 | `:agent stop <id>` | 停止智能体 |

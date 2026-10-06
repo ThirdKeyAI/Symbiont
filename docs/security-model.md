@@ -8,9 +8,9 @@ Comprehensive security architecture ensuring zero-trust, policy-driven protectio
 
 ## Overview
 
-**Branch coverage:** `fix/containment-boundary` adds selected Docker/gVisor effect
+**Containment coverage:** 1.21.0 adds selected Docker/gVisor effect
 boundaries, exact prepared-call approvals, protected journals on covered entry
-points and independent worker ownership. See the [branch guide](containment-branch-guide.md)
+points and independent worker ownership. See the [containment guide](containment-branch-guide.md)
 for implemented paths and deployment assumptions. The architecture and tier
 configuration below are not evidence of complete enforcement across all paths.
 Firecracker oneshot commands, parsers, MCP stdio, PTY sessions and managed CLI
@@ -86,51 +86,102 @@ graph TB
 > attests to nothing, so the guest service is open source precisely because it is a
 > security control.
 
-### Landlock (daemon-free)
+<a id="landlock-daemon-free"></a>
 
-Named `landlock`, not numbered. It sits below Docker in isolation strength but
-needs no daemon, no image and no helper binary, which makes it the practical
-default on a single machine such as a desktop.
+### Landlock (native workers)
+
+Named `landlock`, not numbered. This optional Linux backend uses native processes
+and an externally managed delegated supervisor. It needs no container image or
+container daemon. Docker remains the default. See
+[service setup and migration](landlock-supervision.md).
 
 **Configuration:** `[sandbox] tier = "landlock"` in `symbiont.toml`. Read-only
 and writable ceilings come from `[sandbox.roots]`, shared with the other
-backends. `[sandbox.landlock]` carries only `abi_floor` and `require_network`.
+backends. `[sandbox.landlock]` carries `abi_floor`, `require_network`, memory, CPU,
+PID, lifetime and output limits, plus its `supervisor` configuration.
+The default and minimum supported ABI is now 6, even when an older configuration
+sets a lower floor. A higher configured floor still applies. Native little-endian
+x86_64 or aarch64 and working seccomp filtering are required.
 
 **Use cases:**
 - A workstation or desktop where running a container daemon per agent is not
   reasonable
-- Confining a coding agent's filesystem reach and outbound connections without
+- Confining a local process's filesystem reach, sockets and outgoing signals without
   provisioning an image
 
 **Security features:**
 - Filesystem confinement to declared roots, enforced by the kernel
-- Outbound TCP restriction, requiring Landlock ABI 4 (Linux 6.7) or later
-- A narrow base grant for the interpreter, loader and shared libraries, needed
+- Landlock ABI-6 scopes prevent signals and abstract Unix socket connections to
+  processes outside the worker's domain. Signals within the domain remain usable.
+- With the default `require_network = true`, seccomp denies new sockets, covering
+  TCP, UDP and pathname Unix sockets. Private Unix **stream** socket pairs remain
+  usable. Datagram pairs are denied because they can send to unrelated pathname
+  sockets. `io_uring` operations and alternate syscall ABIs are refused so they
+  cannot bypass this restriction.
+- `require_network = false` explicitly permits new IPv4/IPv6 sockets. It does not
+  permit host Unix sockets, other socket families, datagram pairs or `io_uring`.
+  This option grants IP network access, including loopback; it is not an egress
+  allowlist.
+- A base read/execute grant for system executable and library directories, needed
   before any dynamically linked program can start. It carries no writable path,
   nothing under a home directory and no broad `/etc` grant.
 - Rulesets demand full enforcement. The crate's default is best-effort, which
   silently ignores what the kernel does not support; that default is not used.
+- Rules and the syscall filter are constructed in the parent against open
+  filesystem objects. Replacing a root after preparation cannot redirect its
+  grant. The child installs the restrictions and marks descriptors above stderr
+  close-on-exec using raw syscalls. Missing declared roots fail preparation;
+  absent optional system paths may be omitted. Failed installation aborts spawn.
+- Extra inherited file, socket and ring descriptors close at exec. Stdin, stdout
+  and stderr remain explicit capabilities: SDK callers must supply only intended
+  channels. The shipping MCP path uses pipes. This does not revoke capabilities
+  an operator deliberately passes through stdio or grants through readable roots.
 
-**Coverage.** One-shot commands, custom output parsers and the managed CLI.
-MCP stdio sessions and interactive PTY still require Docker or above.
+**Migration.** Hosts with ABI 4 or 5 now fail closed; lowering `abi_floor` cannot
+restore the weaker boundary. Workloads requiring Unix services, datagram pairs,
+`io_uring` or compatibility executables must use a suitable supervised backend.
+Audit descriptors include boundary version 3, shared admission and cgroup supervision, the effective ABI requirement,
+signal/socket scopes, socket policy, ring refusal and inherited-descriptor policy.
 
-**The guarantee is not uniform.** A landlock domain cannot be relaxed once
-applied. A one-shot command is a fresh process, so it receives a domain scoped
-to exactly that call's grants. The managed-CLI child is a single long-lived
-process, so it receives its domain once at spawn, covering the whole session,
-and its working directory is granted for the duration. That is a weaker
-guarantee than a one-shot command gets.
+**Current coverage.** MCP stdio without declared files and the SDK's low-level
+`CliExecutor` launch path use this backend. Public one-shot commands, custom
+output parsers, interactive PTYs, declared-file staging and the shipping managed
+CLI setup do not yet support it. Selecting Landlock on those paths fails rather
+than switching to unrestricted execution.
 
-**Fail-closed.** If the running kernel cannot enforce everything the profile
-declares, boundary validation fails and the run never starts. There is no
-partial application and no fallback to host execution. Because validation runs
-before authorization, a run is never authorized against a boundary the kernel
-could not enforce.
+**Grant lifetime.** A domain cannot be relaxed once applied. The SDK CLI child
+receives its domain once at spawn, including write access to its working
+directory. Direct roots authorize the configured hierarchy for that lifetime;
+they do not snapshot file contents or restrict writes to new-file publication.
+MCP discovery and calls without declared files clear the configured host roots.
+Governed MCP and low-level SDK CLI workers retain durable shared CPU/memory/worker
+reservations until cgroup removal. Delegated cgroups enforce resource limits and
+stop descendants even when they leave the process group. The independent service
+manager handles supervisor failure and watchdog expiry. The raw `PreparedDomain`
+primitive only applies kernel access controls and does not acquire a lease.
+
+**Fail-closed.** The required Landlock ABI and native architecture are checked
+before authorization. Ruleset construction or installation failures, including
+unavailable seccomp filtering, abort spawn before the worker executable starts.
+There is no partial application or fallback to unrestricted host execution.
 
 **Not available for registered agents.** No `SecurityTier` names landlock, so a
 scheduled or HTTP-registered agent cannot declare it; those paths refuse it
 rather than mapping it onto a neighboring tier and misreporting the isolation
 in use. Select it in `[sandbox]` for direct runs.
+
+**Validation.** `crates/runtime/tests/landlock_sandbox.rs` exercises real restricted
+children, including replaced read/write roots and legitimate access through the
+original objects, socket and signal restrictions, inherited descriptors, private
+stream IPC, explicit IP access and alternate syscall ABI refusal.
+`scripts/test-landlock-boundary.py --binary /path/to/symbi
+--report /path/to/report.json` exercises shipping signed MCP dispatch, useful
+output, filesystem/TCP/UDP/Unix socket and signal denials, required audit and
+unsupported-kernel refusal with local synthetic fixtures. Protected observers
+independently check for delivered messages and signals. These checks do not
+establish adaptive escape resistance. The separate
+`scripts/test-landlock-supervision.py` exercises real cgroup lifecycle failures. See the
+[kernel's Landlock contract](https://docs.kernel.org/userspace-api/landlock.html).
 
 ### Tier 1: Docker Isolation
 

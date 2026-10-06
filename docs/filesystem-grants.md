@@ -1,5 +1,7 @@
 # Per-operation filesystem grants
 
+Linux Landlock also supports this workflow through explicit `[sandbox.roots]` ceilings. Native commands use private bounded workspaces and retained staging; see [Linux development](landlock-development.md).
+
 ToolClad commands, MCP calls and persistent terminals on Linux Docker/gVisor
 and Firecracker accept individual file grants. Configured host roots define
 the maximum available access. A mount in `symbiont.toml` no longer automatically

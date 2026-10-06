@@ -484,7 +484,7 @@ Suggested Fix: [if applicable]
 
 ### Code of Conduct
 
-We are committed to providing a welcoming and inclusive environment for all contributors. Please read and follow our [Code of Conduct](CODE_OF_CONDUCT.md).
+We are committed to providing a welcoming and inclusive environment for all contributors. Please read and follow our [Code of Conduct](https://github.com/thirdkeyai/symbiont/blob/main/CODE_OF_CONDUCT.md).
 
 **Key Principles:**
 - **Respect**: Treat all community members with respect

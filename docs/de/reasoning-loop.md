@@ -26,8 +26,8 @@ Die Schleife laeuft weiter, bis das LLM eine finale Textantwort erzeugt, Iterati
 ### Designprinzipien
 
 - **Compile-Time-Sicherheit**: Ungueltige Phasenwechsel werden zur Kompilierzeit durch Rusts Typsystem erkannt
-- **Explizite Ausführungskonfiguration**: Provider, Executor und Journal sind erforderlich; das Standard-Policy-Gate verweigert Tools, bis eine Policy sie erlaubt
-- **Erforderliches Audit**: Journal-Initialisierung und erforderliche Schreibvorgänge müssen vor weiteren Effekten erfolgreich sein
+- **Explizite Ausfuehrungskonfiguration**: Provider, Executor und Journal sind erforderlich; das Standard-Policy-Gate verweigert Tools, bis eine Policy sie erlaubt
+- **Erforderliches Audit**: Journal-Initialisierung und erforderliche Schreibvorgaenge muessen vor weiteren Effekten erfolgreich sein
 - **Beobachtbar**: Jede Phase emittiert Journal-Events und Tracing-Spans
 
 ---
@@ -68,7 +68,14 @@ println!("Iterations: {}", result.iterations);
 println!("Tokens used: {}", result.total_usage.total_tokens);
 ```
 
-Konfigurieren Sie für jeden Aufruf ein neues geschütztes Journal und verwenden Sie dieselbe Agenten-ID. Ohne `.journal(...)` verweigert der Builder die Ausführung vor der Inferenz. Ein expliziter `BufferedJournal` ist nur für Tests und Anzeige geeignet, nicht als dauerhafter Audit-Nachweis.
+Dieses Beispiel erlaubt Textantworten und kuendigt keine Tools an. Die
+Tool-Ausfuehrung erfordert einen Executor mit ausgewaehlter Grenze und ein
+passendes Policy-Gate. Oeffnen Sie fuer jeden Aufruf neuen geschuetzten
+Speicher und bewahren Sie dessen Lauf-ID, Pfad und oeffentlichen Schluessel auf.
+Ein fehlendes Builder-Journal fuehrt zum Abbruch vor der Inferenz. Das explizite
+Einsetzen eines `BufferedJournal` bleibt fuer kontrollierte Tests und die Anzeige
+verfuegbar, ist aber kein dauerhafter Audit-Nachweis. Siehe
+[geschuetztes Lauf-Audit](/run-audit).
 
 ### Mit Tool-Definitionen
 

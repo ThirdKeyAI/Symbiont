@@ -13,10 +13,16 @@ function stateToVariant(state: string): BadgeVariant {
   }
 }
 
-function formatBytes(bytes: number): string {
+function formatBytes(bytes: number | null): string {
+  if (bytes == null || !Number.isFinite(bytes) || bytes < 0) return 'Not sampled';
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+function formatCpu(percent: number | null): string {
+  if (percent == null || !Number.isFinite(percent) || percent < 0) return 'Not sampled';
+  return `${percent.toFixed(1)}%`;
 }
 
 @customElement('agent-card')
@@ -64,9 +70,10 @@ export class AgentCard extends LitElement {
 
     .resources {
       display: flex;
-      gap: 1rem;
+      flex-wrap: wrap;
+      gap: 0.35rem 1rem;
       font-size: 0.75rem;
-      color: #64748b;
+      color: #94a3b8;
     }
 
     .resource {
@@ -76,7 +83,7 @@ export class AgentCard extends LitElement {
     }
 
     .resource-label {
-      color: #4b5563;
+      color: #94a3b8;
     }
 
     .footer {
@@ -110,7 +117,7 @@ export class AgentCard extends LitElement {
           </span>
           <span class="resource">
             <span class="resource-label">CPU</span>
-            ${a.resource_usage.cpu_percent.toFixed(1)}%
+            ${formatCpu(a.resource_usage.cpu_percent)}
           </span>
           <span class="resource">
             <span class="resource-label">Tasks</span>
