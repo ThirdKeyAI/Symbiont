@@ -23,6 +23,32 @@ pub mod supervisor;
 pub(crate) mod worker_origin;
 pub mod workspace;
 
+/// Rename without replacing an existing entry.
+///
+/// glibc only grew a `renameat2` wrapper in 2.28 and the release images cross
+/// compile against an older one, so the symbol is missing at link time on some
+/// targets. Issue the syscall directly instead of relying on the wrapper.
+///
+/// # Safety
+/// Both descriptors must be open directories and both names valid, NUL
+/// terminated, and borrowed for the duration of the call.
+#[cfg(target_os = "linux")]
+pub(crate) unsafe fn rename_noreplace_at(
+    old_dir: std::os::fd::RawFd,
+    old_name: *const libc::c_char,
+    new_dir: std::os::fd::RawFd,
+    new_name: *const libc::c_char,
+) -> libc::c_int {
+    libc::syscall(
+        libc::SYS_renameat2,
+        old_dir,
+        old_name,
+        new_dir,
+        new_name,
+        libc::RENAME_NOREPLACE,
+    ) as libc::c_int
+}
+
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

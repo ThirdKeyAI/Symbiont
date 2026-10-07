@@ -116,12 +116,11 @@ impl Candidate {
         // SAFETY: pinned parent descriptors and valid, owned C strings. The
         // non-replacing rename cannot overwrite a competing file or link.
         if unsafe {
-            libc::renameat2(
+            crate::sandbox::rename_noreplace_at(
                 self.output.parent.as_raw_fd(),
                 self.name.as_ptr(),
                 self.output.parent.as_raw_fd(),
                 self.output.name.as_ptr(),
-                libc::RENAME_NOREPLACE,
             )
         } != 0
         {

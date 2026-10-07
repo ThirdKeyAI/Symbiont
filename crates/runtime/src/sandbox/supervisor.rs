@@ -637,4 +637,7 @@ impl Lease {
     pub async fn finish(&mut self) -> anyhow::Result<()> {
         anyhow::bail!("container supervision requires Unix local sockets")
     }
+    pub async fn finish_cleanup(&mut self) -> anyhow::Result<()> {
+        anyhow::bail!("container supervision requires Unix local sockets")
+    }
 }

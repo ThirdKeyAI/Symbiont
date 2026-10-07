@@ -939,12 +939,11 @@ pub(super) mod linux {
             // SAFETY: pinned parent and valid names. RENAME_NOREPLACE atomically
             // rejects a competing file, symlink or directory without overwriting.
             if unsafe {
-                libc::renameat2(
+                crate::sandbox::rename_noreplace_at(
                     output.parent.as_raw_fd(),
                     temporary_name.as_ptr(),
                     output.parent.as_raw_fd(),
                     output.name.as_ptr(),
-                    libc::RENAME_NOREPLACE,
                 )
             } != 0
             {

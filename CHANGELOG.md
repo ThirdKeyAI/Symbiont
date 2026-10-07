@@ -5,6 +5,31 @@ All notable changes to the Symbiont project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.21.1] - 2026-10-07
+
+Fixes the cross-platform release build. 1.21.0 produced no downloadable
+binaries: only x86_64 Linux compiled, and the macOS, Windows and aarch64 Linux
+jobs each failed for a different reason, so the release carried no assets at
+all. Nothing in the runtime's behavior changes on x86_64 Linux.
+
+### Fixed
+
+- **macOS builds.** The supervisor store passed `mode_t` straight to the
+  variadic `openat`. That type is narrower than an `int` on Darwin, which C
+  variadics do not allow, so `symbi-sandbox-supervisor` would not compile for
+  either Apple target. The mode is now promoted explicitly.
+- **aarch64 Linux builds.** Non-replacing rename called glibc's `renameat2`
+  wrapper, which only exists from glibc 2.28 and is absent from the aarch64
+  cross image, leaving `undefined reference to renameat2` at link time. The
+  three call sites now issue the syscall directly through one shared helper.
+- **Windows builds.** The non-Unix `Lease` stub was missing `finish_cleanup`,
+  added to the Unix implementation in 1.21.0, so the Firecracker module failed
+  to compile for Windows even though it refuses to run there.
+- **Clippy on Rust 1.99.** `async-trait` 0.1.89 generated a doubled
+  `#[must_use]` that the 1.99 lint rejects; updated to 0.1.92. The deprecation
+  of `fetch_update` is allowed rather than fixed, because its replacement
+  `try_update` is newer than this workspace's 1.89 MSRV.
+
 ## [1.21.0] - 2026-10-06
 
 ### Added

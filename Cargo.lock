@@ -682,13 +682,13 @@ checksum = "8b75356056920673b02621b35afd0f7dda9306d03c79a30f5c56c44cf256e3de"
 
 [[package]]
 name = "async-trait"
-version = "0.1.89"
+version = "0.1.92"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9035ad2d096bed7955a320ee7e2230574d28fd3c3a0f186cbea1ff3c7eed5dbb"
+checksum = "82f6aeea286b8eb4dd3431a1be1b59d290ace00f5bfd8e2a159bc2a05e2c1667"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.116",
+ "syn 3.0.6",
 ]
 
 [[package]]
@@ -8365,7 +8365,7 @@ checksum = "ba39f3699c378cd8970968dcbff9c43159ea4cfbd88d43c00b22f2ef10a435d2"
 
 [[package]]
 name = "repl-cli"
-version = "1.21.0"
+version = "1.21.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -8380,7 +8380,7 @@ dependencies = [
 
 [[package]]
 name = "repl-core"
-version = "1.21.0"
+version = "1.21.1"
 dependencies = [
  "async-trait",
  "bytes",
@@ -8401,7 +8401,7 @@ dependencies = [
 
 [[package]]
 name = "repl-lsp"
-version = "1.21.0"
+version = "1.21.1"
 dependencies = [
  "repl-core",
  "tokio",
@@ -8410,7 +8410,7 @@ dependencies = [
 
 [[package]]
 name = "repl-proto"
-version = "1.21.0"
+version = "1.21.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -9686,7 +9686,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "symbi"
-version = "1.21.0"
+version = "1.21.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -9770,7 +9770,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-dsl"
-version = "1.21.0"
+version = "1.21.1"
 dependencies = [
  "anyhow",
  "cc",
@@ -9813,7 +9813,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-runtime"
-version = "1.21.0"
+version = "1.21.1"
 dependencies = [
  "aes-gcm",
  "agentpin",
@@ -9912,7 +9912,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-sandbox-guest"
-version = "1.21.0"
+version = "1.21.1"
 dependencies = [
  "anyhow",
  "libc",
@@ -9923,7 +9923,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-sandbox-supervisor"
-version = "1.21.0"
+version = "1.21.1"
 dependencies = [
  "anyhow",
  "libc",
@@ -9937,7 +9937,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-session"
-version = "1.21.0"
+version = "1.21.1"
 dependencies = [
  "proptest",
  "serde",
@@ -9946,7 +9946,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-shell"
-version = "1.21.0"
+version = "1.21.1"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -9992,6 +9992,17 @@ name = "syn"
 version = "2.0.116"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3df424c70518695237746f84cede799c9c58fcb37450d7b23716568cc8bc69cb"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "unicode-ident",
+]
+
+[[package]]
+name = "syn"
+version = "3.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8593e8e72159ed2257d083c7a454a85cbf854f37a0966d8d483aff8c8a3ebcee"
 dependencies = [
  "proc-macro2",
  "quote",

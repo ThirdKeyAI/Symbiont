@@ -510,6 +510,9 @@ impl JournalWriter for MeteredJournal {
         self.writer.audit_reference()
     }
 
+    // `fetch_update` is deprecated for `try_update` from Rust 1.99, which is
+    // past this workspace's 1.89 MSRV. Switch the call once the floor moves.
+    #[allow(deprecated)]
     async fn append(&self, entry: JournalEntry) -> Result<(), JournalError> {
         let size = serde_json::to_vec(&entry)
             .map_err(|e| JournalError::WriteFailed(e.to_string()))?

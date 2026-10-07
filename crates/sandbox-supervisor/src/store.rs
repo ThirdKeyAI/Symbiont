@@ -441,7 +441,9 @@ pub(crate) fn open_at(
             directory.as_raw_fd(),
             name.as_ptr(),
             flags | libc::O_CLOEXEC | libc::O_NOFOLLOW,
-            mode,
+            // openat is variadic, so the mode must arrive already promoted to
+            // an int. mode_t is narrower than that on Darwin.
+            mode as libc::c_uint,
         )
     };
     if fd < 0 {

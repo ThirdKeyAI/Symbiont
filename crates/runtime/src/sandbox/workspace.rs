@@ -513,12 +513,11 @@ mod linux {
                         // SAFETY: retained parent and broker-owned candidate. A
                         // competing target is never overwritten or followed.
                         if unsafe {
-                            libc::renameat2(
+                            crate::sandbox::rename_noreplace_at(
                                 parent.as_raw_fd(),
                                 old.as_ptr(),
                                 parent.as_raw_fd(),
                                 new.as_ptr(),
-                                libc::RENAME_NOREPLACE,
                             )
                         } != 0
                         {
