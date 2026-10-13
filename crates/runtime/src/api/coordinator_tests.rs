@@ -313,6 +313,7 @@ fixture_runtime! {
 }
 
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+const TURN_TIMEOUT: Duration = Duration::from_secs(10);
 struct Fixture {
     _root: tempfile::TempDir,
     state: Arc<CoordinatorState>,
@@ -380,7 +381,7 @@ impl Fixture {
                 .unwrap(),
             );
         }
-        state.loop_config.timeout = Duration::from_secs(10);
+        state.loop_config.timeout = TURN_TIMEOUT;
         let state = Arc::new(state);
         let keys = root.path().join("api-keys.json");
         let record = ApiKeyRecord {
@@ -464,19 +465,25 @@ async fn send(socket: &mut Socket) {
         .unwrap();
 }
 async fn next(socket: &mut Socket) -> ServerMessage {
-    loop {
-        let message = tokio::time::timeout(Duration::from_secs(5), socket.next())
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap();
-        if let Message::Text(text) = message {
-            let message = serde_json::from_str(&text).unwrap();
-            if !matches!(message, ServerMessage::Pong) {
-                return message;
+    // Allow the fixture's full turn budget plus time to deliver its outcome.
+    // Keep one deadline so ignored frames cannot extend the wait indefinitely.
+    tokio::time::timeout(TURN_TIMEOUT + Duration::from_secs(5), async {
+        loop {
+            let message = socket
+                .next()
+                .await
+                .expect("WebSocket closed before the expected message")
+                .expect("receive WebSocket frame");
+            if let Message::Text(text) = message {
+                let message = serde_json::from_str(&text).unwrap();
+                if !matches!(message, ServerMessage::Pong) {
+                    return message;
+                }
             }
         }
-    }
+    })
+    .await
+    .expect("coordinator message within the turn budget and delivery margin")
 }
 async fn audit(socket: &mut Socket, fixture: &Fixture) -> RunAuditReference {
     let ServerMessage::AuditOpened { audit, .. } = next(socket).await else {

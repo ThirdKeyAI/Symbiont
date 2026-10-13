@@ -733,6 +733,7 @@ mod tests {
     #[test]
     fn dsl_path_enforces_pipeline_with_autoderived_labels() {
         use crate::runtime_bridge::RuntimeBridge;
+        use std::time::Duration;
         use symbi_runtime::session::RoleBinding;
         use symbi_runtime::types::AgentId;
         use symbi_runtime::types::MessageType;
