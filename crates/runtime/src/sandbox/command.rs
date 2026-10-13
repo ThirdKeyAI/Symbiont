@@ -593,7 +593,7 @@ impl CommandBoundary {
     }
 
     /// Reserve delegated capacity and join the worker cgroup before exec.
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", any(test, feature = "mcp-client")))]
     pub(crate) async fn spawn_landlock(
         &self,
         argv: &[String],

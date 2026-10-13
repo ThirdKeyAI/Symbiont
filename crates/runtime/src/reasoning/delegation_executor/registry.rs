@@ -1,8 +1,10 @@
 //! Frozen, unambiguous conversational sources for coordinator delegation.
 use super::*;
+use crate::reasoning::prepared::digest_json;
+#[cfg(any(test, feature = "http-api"))]
 use crate::reasoning::{
     loop_types::{Observation, ProposedAction},
-    prepared::{digest_json, AuthorizedAction, PreparedAction},
+    prepared::{AuthorizedAction, PreparedAction},
 };
 use serde_json::{json, Value};
 use std::{collections::HashSet, path::Path};
@@ -193,6 +195,7 @@ impl RegisteredDelegationRegistry {
         })
     }
 
+    #[cfg(any(test, feature = "http-api"))]
     pub(crate) fn wrap(
         self: &Arc<Self>,
         inner: Arc<dyn ActionExecutor>,
@@ -204,11 +207,13 @@ impl RegisteredDelegationRegistry {
     }
 }
 
+#[cfg(any(test, feature = "http-api"))]
 struct RegistryExecutor {
     inner: Arc<dyn ActionExecutor>,
     registry: Arc<RegisteredDelegationRegistry>,
 }
 
+#[cfg(any(test, feature = "http-api"))]
 #[async_trait]
 impl ActionExecutor for RegistryExecutor {
     fn execution_context(&self) -> HashMap<String, Value> {

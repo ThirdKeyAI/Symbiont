@@ -50,5 +50,6 @@ pub use server::HttpApiServer;
 #[cfg(feature = "http-api")]
 pub use traits::RuntimeApiProvider;
 
-#[cfg(all(test, unix, feature = "http-api"))]
+// The WebSocket fixtures exercise explicit Cedar policies.
+#[cfg(all(test, unix, feature = "http-api", feature = "cedar"))]
 mod coordinator_tests;

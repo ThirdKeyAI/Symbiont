@@ -112,6 +112,7 @@ impl FileAccessPlan {
         Ok(())
     }
 
+    #[cfg(feature = "toolclad-session")]
     pub(crate) fn effect_journal(&self) -> Option<crate::reasoning::effect_journal::EffectJournal> {
         self.journal.clone()
     }

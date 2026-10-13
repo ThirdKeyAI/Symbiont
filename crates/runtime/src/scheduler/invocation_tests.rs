@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    reasoning::{conversation::Conversation, inference::*, CedarPolicy, CedarPolicyGate},
+    reasoning::{conversation::Conversation, inference::*, policy_bridge::DefaultPolicyGate},
     scheduler::{execution::GovernedAgentExecutor, AgentScheduler, SchedulerConfig},
     types::{AgentId, ExecutionMode, ResourceLimits, SecurityTier},
 };
@@ -76,13 +76,9 @@ fn config() -> AgentConfig {
     }
 }
 async fn scheduler(root: &Path, provider: Arc<Provider>, capacity: usize) -> DefaultAgentScheduler {
-    let gate = Arc::new(CedarPolicyGate::deny_by_default());
-    gate.add_policy(CedarPolicy {
-        name: "fixture".into(),
-        active: true,
-        source: "permit(principal, action, resource);".into(),
-    })
-    .await;
+    // These identity/recovery tests only return text. Keep them active in the
+    // minimal build with the default gate, which permits responses but no tools.
+    let gate = Arc::new(DefaultPolicyGate::new());
     DefaultAgentScheduler::new_with_executor(
         SchedulerConfig {
             max_concurrent_agents: capacity,

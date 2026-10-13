@@ -123,6 +123,7 @@ impl SubLoopDelegationExecutor {
     }
 
     /// Canonical coordinator targets retain selected source rules and identity.
+    #[cfg(feature = "http-api")]
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new_registered(
         provider: Arc<dyn InferenceProvider>,
