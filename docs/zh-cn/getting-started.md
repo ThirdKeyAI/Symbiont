@@ -1,5 +1,7 @@
 # 入门指南
 
+**Symbiont 2.0：** 升级前请阅读[迁移指南](/migration-2.0/)和[发布验证指南](release-verification.md)。提示词缓存和受治理改进仍为可选功能，需要显式启用；现有代理不会自动启用这些功能。
+
 > 要在收容（containment）条件下运行智能体？请先阅读[收容运维指南](/containment-branch-guide)，了解执行前置条件、审批方面的变化以及当前的覆盖范围。
 
 本指南将指导您设置 Symbi 并创建您的第一个 AI 智能体。
@@ -27,7 +29,7 @@
 
 仅当您通过 `cargo install` 安装或自行构建仓库时才需要：
 
-- **Rust 1.82+**
+- **Rust 1.89+**
 - **protobuf-compiler**（在 Ubuntu 上使用 `apt install protobuf-compiler`，在 macOS 上使用 `brew install protobuf`）
 - **Git**（用于克隆仓库）
 
@@ -42,7 +44,32 @@
 
 ## 安装
 
-### 选项 1：Docker（推荐）
+### 选项 1：预编译二进制文件
+
+**macOS（Homebrew）：**
+
+```bash
+brew tap thirdkeyai/tap
+brew install symbi
+```
+
+**Linux / macOS（仓库安装脚本）：**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ThirdKeyAI/Symbiont/main/scripts/install.sh | bash
+export PATH="$HOME/.symbi/bin:$PATH"
+symbi --version
+```
+
+脚本需要 Bash、`curl` 或 `wget`、`tar`，以及 `sha256sum` 或 `shasum`。清单条目缺失、匹配不唯一或校验和错误时，会停止安装。
+
+仓库安装脚本使用 `sha256sum` 或 `shasum`，在解压前验证 HTTPS 发布清单中的 SHA-256 校验和。它将最新版本安装到 `~/.symbi/bin`，但不执行独立的 Sigstore 身份验证。若需更改安装根目录，请为 `bash` 进程设置 `SYMBI_INSTALL_DIR`。要固定版本，请手动下载指定版本。
+
+手动下载支持 Linux x86_64/ARM64、macOS ARM64 和 Windows x86_64。Windows 请使用 ZIP 压缩包。将二进制文件加入 `PATH` 前，请按[发布验证指南](release-verification.md)完成验证。
+
+Landlock 通过 `symbi init --sandbox landlock` 按 Linux 项目选择。它需要 Landlock ABI 6+、seccomp、非特权用户/挂载/网络命名空间、cgroup v2 委派和 systemd 用户管理器。请参阅 [Linux 设置指南](/landlock-development/)（英文）。
+
+### 选项 2：Docker（推荐）
 
 获得可工作运行时的最快方法是让容器为您生成项目脚手架：
 
@@ -71,7 +98,7 @@ docker build -t symbi:latest .
 docker run --rm -it -v $(pwd):/workspace symbi:latest bash
 ```
 
-### 选项 2：本地安装
+### 选项 3：本地安装
 
 用于本地开发：
 

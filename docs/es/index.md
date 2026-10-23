@@ -4,6 +4,8 @@ nav_exclude: true
 
 # Documentacion de Symbiont
 
+**Symbiont 2.0:** Antes de actualizar, consulta la [guía de migración](/migration-2.0/) y la [verificación de la versión](release-verification.md). La caché de prompts y las mejoras gobernadas siguen siendo opcionales y requieren activación explícita; no se habilitan automáticamente para los agentes existentes.
+
 Plataforma gobernada por politicas para construir aplicaciones agenticas. Ejecute agentes de IA y herramientas bajo controles explicitos de politicas, identidad y auditoria.
 
 ## Empiece por donde empieza su trabajo
@@ -53,7 +55,8 @@ Empiece haciendo que Symbiont rechace algo. Este es el mismo gate de Cedar que e
 **Instalacion:**
 
 ```bash
-curl -fsSL https://symbiont.dev/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ThirdKeyAI/Symbiont/main/scripts/install.sh | bash
+export PATH="$HOME/.symbi/bin:$PATH"
 ```
 
 **Escriba dos politicas y evalue contra ellas:**
@@ -127,7 +130,8 @@ La salida del modelo nunca se trata como autoridad de ejecucion. El runtime cont
 | **Verificacion de herramientas** | Verificacion criptografica [SchemaPin](https://schemapin.org) de esquemas de herramientas MCP antes de la ejecucion |
 | **Identidad de agentes** | Identidad ES256 anclada al dominio con [AgentPin](https://agentpin.org) para agentes y tareas programadas |
 | **Bucle de razonamiento** | Ciclo Observe-Reason-Gate-Act con aplicacion de typestate, compuertas de politicas y circuit breakers |
-| **Sandboxing** | Cuatro backends OSS — Landlock (con nombre, sin demonio), Docker (Nivel 1), gVisor (Nivel 2), microVM Firecracker (Nivel 3) — seleccionables desde el DSL sin restricciones Enterprise |
+| **Sandboxing** | Landlock se selecciona por proyecto Linux y requiere un gestor systemd de usuario y cgroups delegados. Docker (nivel 1), gVisor (nivel 2) y Firecracker (nivel 3) se seleccionan por agente en el DSL. Los cuatro mecanismos de aislamiento son OSS. |
+| **Caché de prompts opcional** | [Modos explícitos prefix y rolling](/prompt-caching/) para solicitudes directas a Anthropic y a Anthropic mediante OpenRouter; los presupuestos de tokens brutos no cambian. Las aplicaciones con transporte propio deben integrarlos explícitamente. |
 | **Auditoria protegida** | Diarios privados firmados por ejecucion bajo `.symbiont/governed/`; el fallo de una escritura obligatoria detiene el despacho |
 | **Mejoras gobernadas opcionales** | [Instrucciones de flujo de trabajo versionadas](/governed-improvements), evaluacion de pruebas firmada, aprobacion exacta del operador, activacion explicita y fijacion de version por ejecucion; desactivadas hasta que se inicializan y seleccionan explicitamente |
 | **Gestion de secretos** | Integracion con Vault/OpenBao, almacenamiento cifrado AES-256-GCM, con alcance por agente |

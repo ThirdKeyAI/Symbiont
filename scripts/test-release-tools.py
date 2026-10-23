@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Offline regressions for publication failures and the actual OSS export filter."""
 import contextlib
+import hashlib
 import io
 import os
 from pathlib import Path
 import runpy
 import re
 import subprocess
+import tarfile
 import tempfile
 import unittest
 from unittest.mock import Mock
@@ -23,6 +25,60 @@ def package(name, dependencies=(), public=True):
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_installer_resolves_latest_and_rejects_ambiguous_or_corrupt_assets(self):
+        for case in ['valid', 'corrupt', 'duplicate', 'unsafe-name']:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                fixtures, commands, home = root / 'fixtures', root / 'commands', root / 'home'
+                for directory in [fixtures, commands, home]:
+                    directory.mkdir()
+                archive = 'symbi-v2.0.0-x86_64-unknown-linux-gnu.tar.gz'
+                content = b'#!/bin/sh\necho symbi 2.0.0\n'
+                with tarfile.open(fixtures / archive, 'w:gz') as bundle:
+                    entry = tarfile.TarInfo('symbi')
+                    entry.size, entry.mode = len(content), 0o755
+                    bundle.addfile(entry, io.BytesIO(content))
+                digest = hashlib.sha256((fixtures / archive).read_bytes()).hexdigest()
+                line = f'{digest}  {archive}\n'
+                if case == 'corrupt':
+                    (fixtures / archive).write_bytes(b'corrupt archive')
+                if case == 'duplicate':
+                    line += line
+                if case == 'unsafe-name':
+                    line = f'{digest}  ../{archive}\n'
+                (fixtures / 'checksums.txt').write_text(line + '0' * 64 + '  symbi-v2.0.0-aarch64-apple-darwin.tar.gz\n')
+                (commands / 'uname').write_text('#!/bin/sh\ncase "$1" in -s) echo Linux;; -m) echo x86_64;; esac\n')
+                (commands / 'curl').write_text('''#!/usr/bin/python3
+import os
+from pathlib import Path
+import shutil
+import sys
+args = sys.argv[1:]
+url = next(a for a in args if a.startswith('https://'))
+with open(os.environ['DOWNLOAD_LOG'], 'a') as log:
+    log.write(url + '\\n')
+shutil.copyfile(Path(os.environ['FIXTURES']) / url.rsplit('/', 1)[1], args[args.index('-o') + 1])
+''')
+                for command in commands.iterdir():
+                    command.chmod(0o755)
+                log = root / 'downloads'
+                result = subprocess.run(['bash', str(HERE / 'install.sh')], cwd=root,
+                    env=dict(os.environ, HOME=str(home), SYMBI_INSTALL_DIR=str(root / 'installed'),
+                             PATH=str(commands) + ':/usr/bin:/bin', FIXTURES=str(fixtures), DOWNLOAD_LOG=str(log)),
+                    capture_output=True, text=True, timeout=20)
+                installed = root / 'installed/bin/symbi'
+                if case == 'valid':
+                    self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                    self.assertEqual(installed.read_bytes(), content)
+                    self.assertEqual(log.read_text().splitlines(), [
+                        'https://github.com/thirdkeyai/symbiont/releases/latest/download/checksums.txt',
+                        f'https://github.com/thirdkeyai/symbiont/releases/download/v2.0.0/{archive}'])
+                else:
+                    self.assertNotEqual(result.returncode, 0, result.stdout)
+                    self.assertFalse(installed.exists())
+                    if case in ['duplicate', 'unsafe-name']:
+                        self.assertEqual(len(log.read_text().splitlines()), 1)
+
     def test_workflow_preserves_validated_source_and_shell_boundaries(self):
         workflow = (HERE.parent / '.github/workflows/release-binaries.yml').read_text()
         self.assertIn("if: github.event_name == 'release' || github.ref == 'refs/heads/main'", workflow)

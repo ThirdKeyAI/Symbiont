@@ -4,6 +4,8 @@ nav_exclude: true
 
 # Symbiont ドキュメント
 
+**Symbiont 2.0：** 更新前に[移行ガイド](/migration-2.0/)と[リリースの検証](release-verification.md)を確認してください。プロンプトキャッシュとガバナンス下の改善機能は明示的な有効化が必要なオプションです。既存エージェントで自動的に有効になることはありません。
+
 エージェント型アプリケーションを構築するための、ポリシー制御プラットフォーム。明示的なポリシー、アイデンティティ、監査制御の下で AI エージェントとツールを実行します。
 
 ## 目的に応じた読み進め方
@@ -53,7 +55,8 @@ nav_exclude: true
 **インストール：**
 
 ```bash
-curl -fsSL https://symbiont.dev/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ThirdKeyAI/Symbiont/main/scripts/install.sh | bash
+export PATH="$HOME/.symbi/bin:$PATH"
 ```
 
 **2 つのポリシーを書き、それに照らして評価する：**
@@ -127,7 +130,8 @@ Symbiont はエージェントの意図と実行権限を分離します：
 | **ツール検証** | 実行前に [SchemaPin](https://schemapin.org) による MCP ツールスキーマの暗号学的検証 |
 | **エージェントアイデンティティ** | [AgentPin](https://agentpin.org) によるエージェントとスケジュールタスクのドメイン固定 ES256 アイデンティティ |
 | **推論ループ** | ポリシーゲートとサーキットブレーカーを備えた型状態強制の Observe-Reason-Gate-Act サイクル |
-| **サンドボックス** | 4つの OSS バックエンド — Landlock（番号ではなく名前で指定、デーモン不要）、Docker（Tier 1）、gVisor（Tier 2）、Firecracker microVM（Tier 3） — Enterprise ゲーティングなしで DSL から選択可能 |
+| **サンドボックス** | Landlock は Linux のプロジェクト単位で選択し、systemd ユーザーマネージャーと委任された cgroup が必要です。Docker（Tier 1）、gVisor（Tier 2）、Firecracker（Tier 3）は DSL でエージェント単位に選択します。4 つの隔離バックエンドはすべて OSS です。 |
+| **オプションのプロンプトキャッシュ** | Anthropic への直接リクエストと OpenRouter 経由の Anthropic リクエストに[明示的な prefix / rolling モード](/prompt-caching/)を提供します。生のトークン予算は変わりません。独自の通信実装を持つアプリケーションでは明示的な統合が必要です。 |
 | **保護された監査** | `.symbiont/governed/` 配下の、実行ごとの非公開な署名付きジャーナル。必須の書き込みが失敗した場合はディスパッチを停止します |
 | **オプションのガバナンス下の改善** | [バージョン管理されたワークフロー指示](/governed-improvements)、署名付きの試行評価、運用者による厳密な承認、明示的な有効化、実行ごとのバージョン固定。明示的に初期化して選択するまでは無効です |
 | **シークレット管理** | Vault/OpenBao 統合、AES-256-GCM 暗号化ストレージ、エージェントごとのスコープ |

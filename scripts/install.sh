@@ -93,6 +93,11 @@ check_prerequisites() {
         exit 1
     fi
 
+    if ! command -v sha256sum &> /dev/null && ! command -v shasum &> /dev/null; then
+        echo -e "${RED}✗ SHA256 verification requires sha256sum or shasum.${NC}"
+        exit 1
+    fi
+
     echo -e "${GREEN}✓ Prerequisites met${NC}"
 }
 
@@ -110,14 +115,42 @@ install_binary() {
         base_url="https://github.com/${GITHUB_REPO}/releases/download/${VERSION}"
     fi
 
-    local archive="symbi-${VERSION}-${RUST_TARGET}.tar.gz"
-    local download_url="${base_url}/${archive}"
     local checksums_url="${base_url}/checksums.txt"
-
-    # Download binary archive
     local temp_dir=$(mktemp -d)
-    local temp_file="${temp_dir}/${archive}"
     local temp_checksums="${temp_dir}/checksums.txt"
+
+    # Resolve the versioned filename from the release manifest. The latest
+    # download endpoint redirects to a release; no symbi-latest archive exists.
+    if command -v curl &> /dev/null; then
+        curl -fsSL "$checksums_url" -o "$temp_checksums" || {
+            rm -rf "$temp_dir"
+            exit 1
+        }
+    else
+        wget -q "$checksums_url" -O "$temp_checksums" || {
+            rm -rf "$temp_dir"
+            exit 1
+        }
+    fi
+    local digest name extra archive="" expected_checksum="" release_version="" matches=0
+    while read -r digest name extra; do
+        if [[ "$digest" =~ ^[[:xdigit:]]{64}$ && -z "$extra" &&
+              "$name" =~ ^symbi-(v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?)-${RUST_TARGET}\.tar\.gz$ ]]; then
+            release_version="${BASH_REMATCH[1]}"
+            archive="$name"
+            expected_checksum="$digest"
+            matches=$((matches + 1))
+        fi
+    done < "$temp_checksums"
+    if [ "$matches" -ne 1 ] || { [ "$VERSION" != latest ] && [ "$VERSION" != "$release_version" ]; }; then
+        echo -e "${RED}✗ Release manifest must contain one matching platform archive.${NC}"
+        rm -rf "$temp_dir"
+        exit 1
+    fi
+    VERSION="$release_version"
+    # Pin the archive to the captured manifest's version, even if latest moves.
+    local download_url="https://github.com/${GITHUB_REPO}/releases/download/${VERSION}/${archive}"
+    local temp_file="${temp_dir}/${archive}"
 
     echo -e "${YELLOW}  Note: Pre-built binaries are tested but considered less reliable than${NC}"
     echo -e "${YELLOW}  cargo install or Docker. See https://docs.symbi.sh for alternatives.${NC}"
@@ -131,28 +164,28 @@ install_binary() {
             rm -rf "$temp_dir"
             exit 1
         }
-        curl -fsSL "$checksums_url" -o "$temp_checksums" 2>/dev/null
     else
         wget -q "$download_url" -O "$temp_file" || {
             echo -e "${RED}✗ Failed to download Symbiont${NC}"
             rm -rf "$temp_dir"
             exit 1
         }
-        wget -q "$checksums_url" -O "$temp_checksums" 2>/dev/null
     fi
 
-    # Verify checksum if available
-    if [ -f "$temp_checksums" ] && command -v sha256sum &> /dev/null; then
-        echo "• Verifying checksum..."
+    echo "• Verifying checksum..."
+    if (
         cd "$temp_dir"
-        grep "$archive" checksums.txt | sha256sum --check --quiet && {
-            echo -e "${GREEN}✓ Checksum verified${NC}"
-        } || {
-            echo -e "${RED}✗ Checksum verification failed!${NC}"
-            rm -rf "$temp_dir"
-            exit 1
-        }
-        cd - > /dev/null
+        if command -v sha256sum &> /dev/null; then
+            printf '%s  %s\n' "$expected_checksum" "$archive" | sha256sum --check --quiet
+        else
+            printf '%s  %s\n' "$expected_checksum" "$archive" | shasum -a 256 --check --status
+        fi
+    ); then
+        echo -e "${GREEN}✓ Checksum verified${NC}"
+    else
+        echo -e "${RED}✗ Checksum verification failed!${NC}"
+        rm -rf "$temp_dir"
+        exit 1
     fi
 
     # Extract binary

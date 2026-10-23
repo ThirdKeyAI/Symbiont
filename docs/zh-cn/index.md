@@ -4,6 +4,8 @@ nav_exclude: true
 
 # Symbiont 文档
 
+**Symbiont 2.0：** 升级前请阅读[迁移指南](/migration-2.0/)和[发布验证指南](release-verification.md)。提示词缓存和受治理改进仍为可选功能，需要显式启用；现有代理不会自动启用这些功能。
+
 用于构建智能体应用的策略治理平台。在明确的策略、身份和审计控制下执行 AI 智能体和工具。
 
 ## 从您的工作出发
@@ -53,7 +55,8 @@ nav_exclude: true
 **安装：**
 
 ```bash
-curl -fsSL https://symbiont.dev/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ThirdKeyAI/Symbiont/main/scripts/install.sh | bash
+export PATH="$HOME/.symbi/bin:$PATH"
 ```
 
 **写两条策略并据此求值：**
@@ -127,7 +130,8 @@ Symbiont 将智能体意图与执行权限分离：
 | **工具验证** | 执行前通过 [SchemaPin](https://schemapin.org) 对 MCP 工具模式进行密码学验证 |
 | **智能体身份** | 通过 [AgentPin](https://agentpin.org) 为智能体和计划任务提供域锚定的 ES256 身份 |
 | **推理循环** | 类型状态强制的 Observe-Reason-Gate-Act 循环，带策略门控和断路器 |
-| **沙箱** | 四个 OSS 后端 —— Landlock（具名，无守护进程）、Docker（第 1 层）、gVisor（第 2 层）、Firecracker microVM（第 3 层）—— 在 DSL 中选择，无任何企业版限制 |
+| **沙箱** | Landlock 按 Linux 项目选择，需要 systemd 用户管理器和委派的 cgroup。Docker（第 1 层）、gVisor（第 2 层）和 Firecracker（第 3 层）通过 DSL 按代理选择。四种隔离后端均为 OSS。 |
+| **可选提示词缓存** | 为直连 Anthropic 及经 OpenRouter 访问 Anthropic 的请求提供[显式 prefix 和 rolling 模式](/prompt-caching/)。原始 token 预算保持不变；使用自有传输实现的应用需要显式集成。 |
 | **受保护审计** | 位于 `.symbiont/governed/` 下、按次运行的私有签名日志；必需写入失败会中止派发 |
 | **可选的受治理改进** | [带版本的工作流指令](/governed-improvements)、签名的试运行评估、精确的运维审批、显式启用和按次运行的版本固定；在显式初始化并选用之前保持禁用 |
 | **密钥管理** | Vault/OpenBao 集成，AES-256-GCM 加密存储，按智能体隔离 |

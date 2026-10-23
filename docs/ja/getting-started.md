@@ -1,5 +1,7 @@
 # はじめに
 
+**Symbiont 2.0：** 更新前に[移行ガイド](/migration-2.0/)と[リリースの検証](release-verification.md)を確認してください。プロンプトキャッシュとガバナンス下の改善機能は明示的な有効化が必要なオプションです。既存エージェントで自動的に有効になることはありません。
+
 > 封じ込めのもとでエージェントを実行しますか？実行の前提条件、承認まわりの変更点、現在のカバー範囲については、まず[封じ込めの運用ガイド](/containment-branch-guide)をお読みください。
 
 このガイドでは、Symbiのセットアップと初めてのAIエージェントの作成について説明します。
@@ -27,7 +29,7 @@
 
 `cargo install` でインストールする場合、またはリポジトリを自分でビルドする場合にのみ必要です：
 
-- **Rust 1.82+**
+- **Rust 1.89+**
 - **protobuf-compiler**（Ubuntu では `apt install protobuf-compiler`、macOS では `brew install protobuf`）
 - **Git**（リポジトリのクローン用）
 
@@ -42,7 +44,32 @@
 
 ## インストール
 
-### オプション1：Docker（推奨）
+### オプション1：ビルド済みバイナリ
+
+**macOS（Homebrew）：**
+
+```bash
+brew tap thirdkeyai/tap
+brew install symbi
+```
+
+**Linux / macOS（リポジトリのインストーラー）：**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ThirdKeyAI/Symbiont/main/scripts/install.sh | bash
+export PATH="$HOME/.symbi/bin:$PATH"
+symbi --version
+```
+
+スクリプトには Bash、`curl` または `wget`、`tar`、`sha256sum` または `shasum` が必要です。一覧の該当項目がない場合、複数ある場合、チェックサムが一致しない場合はインストールを中止します。
+
+リポジトリのインストーラーは、展開前に HTTPS のリリース一覧に記載された SHA-256 を `sha256sum` または `shasum` で検証します。最新版を `~/.symbi/bin` にインストールしますが、独立した Sigstore ID 検証は行いません。インストール先のルートを変える場合は `bash` プロセスに `SYMBI_INSTALL_DIR` を設定してください。バージョンを固定する場合は手動でダウンロードします。
+
+手動ダウンロードは Linux x86_64/ARM64、macOS ARM64、Windows x86_64 に対応します。Windows では ZIP を使用してください。`PATH` に追加する前に[リリースを検証](release-verification.md)してください。
+
+Landlock は Linux のプロジェクト単位で `symbi init --sandbox landlock` により選択します。Landlock ABI 6+、seccomp、非特権のユーザー・マウント・ネットワーク名前空間、cgroup v2 の委任、systemd ユーザーマネージャーが必要です。[Linux の設定](/landlock-development/)を参照してください（英語）。
+
+### オプション2：Docker（推奨）
 
 動作するランタイムを最も簡単に手に入れる方法は、コンテナにプロジェクトをスキャフォールドさせることです：
 
@@ -71,7 +98,7 @@ docker build -t symbi:latest .
 docker run --rm -it -v $(pwd):/workspace symbi:latest bash
 ```
 
-### オプション2：ローカルインストール
+### オプション3：ローカルインストール
 
 ローカル開発の場合：
 

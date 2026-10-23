@@ -4,6 +4,8 @@ nav_exclude: true
 
 # Symbiont Dokumentation
 
+**Symbiont 2.0:** Lesen Sie vor dem Upgrade die [Migrationsanleitung](/migration-2.0/) und [Release-Verifizierung](release-verification.md). Prompt-Caching und gesteuerte Verbesserungen bleiben ausdrücklich optional; bestehende Agenten werden nicht automatisch umgestellt.
+
 Richtliniengesteuerte Plattform zum Bau agentischer Anwendungen. Fuehren Sie KI-Agenten und Tools unter expliziten Richtlinien-, Identitaets- und Audit-Kontrollen aus.
 
 ## Beginnen Sie dort, wo Ihre Aufgabe beginnt
@@ -51,7 +53,8 @@ Beginnen Sie damit, Symbiont etwas verweigern zu lassen. Es ist dasselbe Cedar-G
 **Installation:**
 
 ```bash
-curl -fsSL https://symbiont.dev/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ThirdKeyAI/Symbiont/main/scripts/install.sh | bash
+export PATH="$HOME/.symbi/bin:$PATH"
 ```
 
 **Zwei Richtlinien schreiben und dagegen auswerten:**
@@ -125,7 +128,8 @@ Modellausgaben werden niemals als Ausfuehrungsberechtigung behandelt. Das Runtim
 | **Tool-Verifikation** | [SchemaPin](https://schemapin.org) kryptographische Verifikation von MCP-Tool-Schemas vor der Ausfuehrung |
 | **Agenten-Identitaet** | [AgentPin](https://agentpin.org) domainverankerte ES256-Identitaet fuer Agenten und geplante Aufgaben |
 | **Reasoning-Schleife** | Typestate-erzwungener Observe-Reason-Gate-Act-Zyklus mit Richtlinien-Gates und Circuit Breakern |
-| **Sandboxing** | Vier OSS-Backends — Landlock (benannt, ohne Daemon), Docker (Tier 1), gVisor (Tier 2), Firecracker microVM (Tier 3) — aus der DSL waehlbar, ohne Enterprise-Gating |
+| **Sandboxing** | Landlock wird pro Linux-Projekt gewählt und benötigt einen systemd-Benutzermanager sowie delegierte cgroups. Docker (Tier 1), gVisor (Tier 2) und Firecracker (Tier 3) werden pro Agent in der DSL gewählt. Alle vier Isolations-Backends sind OSS. |
+| **Optionales Prompt-Caching** | [Explizite Prefix- und Rolling-Modi](/prompt-caching/) für direkte Anthropic- und OpenRouter-Anthropic-Anfragen; rohe Tokenbudgets bleiben unverändert. Anwendungen mit eigenem Transport müssen die Funktion ausdrücklich integrieren. |
 | **Geschuetztes Audit** | Private signierte Journale pro Lauf unter `.symbiont/governed/`; ein fehlgeschlagener erforderlicher Schreibvorgang stoppt den Dispatch |
 | **Optionale gesteuerte Verbesserungen** | [Versionierte Workflow-Anweisungen](/governed-improvements), signierte Testauswertung, exakte Betreibergenehmigung, explizite Aktivierung und Versionsbindung pro Lauf; deaktiviert, bis sie explizit initialisiert und ausgewaehlt werden |
 | **Geheimnismanagement** | Vault/OpenBao-Integration, AES-256-GCM-verschluesselter Speicher, pro Agent isoliert |

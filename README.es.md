@@ -28,6 +28,8 @@ La mayoría de los frameworks de agentes se centran en la orquestación. Symbion
 
 ---
 
+**Symbiont 2.0:** Antes de actualizar, consulta la [guía de migración](docs/migration-2.0.md) y la [verificación de la versión](docs/es/release-verification.md). La caché de prompts y las mejoras gobernadas siguen siendo opcionales y requieren activación explícita; no se habilitan automáticamente para los agentes existentes.
+
 ## Por qué Symbiont
 
 Los agentes de IA son fáciles de demostrar y difíciles de confiar.
@@ -86,16 +88,17 @@ Esa es la misma compuerta Cedar que el runtime conecta al bucle de razonamiento 
 ### Instala la CLI
 
 ```bash
-# Linux / macOS — installs the `symbi` binary to /usr/local/bin
-curl -fsSL https://symbiont.dev/install.sh | bash
+# Linux / macOS — instala la última versión en ~/.symbi/bin
+curl -fsSL https://raw.githubusercontent.com/ThirdKeyAI/Symbiont/main/scripts/install.sh | bash
+export PATH="$HOME/.symbi/bin:$PATH"
 symbi --help
 ```
 
-El instalador descarga el binario de release precompilado para tu plataforma. Fija una versión con `bash -s -- --version v1.15.2` o cambia el destino con `--dir`. ¿Prefieres Docker o [compilar desde el código fuente](#construir-desde-código-fuente)? Ambos están más abajo.
+El instalador del repositorio verifica la suma SHA-256 del manifiesto HTTPS antes de extraer, mediante `sha256sum` o `shasum`. Instala la última versión en `~/.symbi/bin`; no realiza la comprobación independiente de identidad Sigstore. Define `SYMBI_INSTALL_DIR` para el proceso `bash` si necesitas otra raíz de instalación. Usa una descarga manual para fijar una versión. [Verificar la versión 2.0](docs/es/release-verification.md).
 
 ### Prerrequisitos
 
-* Docker (recomendado) o Rust 1.82+
+* Docker (recomendado) o Rust 1.89+
 
 ### Crea y ejecuta un proyecto (Docker, ~60 segundos)
 

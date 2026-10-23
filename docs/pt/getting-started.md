@@ -1,5 +1,7 @@
 # Começando
 
+**Symbiont 2.0:** Antes de atualizar, leia o [guia de migração](/migration-2.0/) e a [verificação da versão](release-verification.md). O cache de prompts e as melhorias governadas continuam opcionais e exigem ativação explícita; agentes existentes não aderem automaticamente.
+
 > Vai executar agentes sob contenção? Comece pelo [guia de operação de contenção](/containment-branch-guide) para os pré-requisitos de execução, as mudanças de aprovação e a cobertura atual.
 
 Este guia irá orientá-lo na configuração do Symbi e na criação do seu primeiro agente de IA.
@@ -27,7 +29,7 @@ Os binários pré-compilados já estão compilados — você **não** precisa de
 
 Necessário apenas se você instalar via `cargo install` ou compilar o repositório você mesmo:
 
-- **Rust 1.82+**
+- **Rust 1.89+**
 - **protobuf-compiler** (`apt install protobuf-compiler` no Ubuntu, `brew install protobuf` no macOS)
 - **Git** (para clonar o repositório)
 
@@ -42,7 +44,32 @@ Necessário apenas se você instalar via `cargo install` ou compilar o repositó
 
 ## Instalação
 
-### Opção 1: Docker (Recomendado)
+### Opção 1: Binários pré-compilados
+
+**macOS (Homebrew):**
+
+```bash
+brew tap thirdkeyai/tap
+brew install symbi
+```
+
+**Linux / macOS (instalador do repositório):**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ThirdKeyAI/Symbiont/main/scripts/install.sh | bash
+export PATH="$HOME/.symbi/bin:$PATH"
+symbi --version
+```
+
+O script exige Bash, `curl` ou `wget`, `tar` e `sha256sum` ou `shasum`. Entradas ausentes ou ambíguas e falhas de checksum interrompem a instalação.
+
+O instalador do repositório verifica a soma SHA-256 do manifesto HTTPS antes da extração, usando `sha256sum` ou `shasum`. Ele instala a versão mais recente em `~/.symbi/bin` e não faz a verificação independente de identidade Sigstore. Defina `SYMBI_INSTALL_DIR` para o processo `bash` se precisar de outra raiz de instalação. Use um download manual para fixar a versão.
+
+Os downloads manuais oferecem Linux x86_64/ARM64, macOS ARM64 e Windows x86_64. No Windows, use o arquivo ZIP. Siga a [verificação da versão](release-verification.md) antes de adicionar o binário ao `PATH`.
+
+Landlock é selecionado por projeto Linux com `symbi init --sandbox landlock`. Exige Landlock ABI 6+, seccomp, namespaces de usuário, montagem e rede sem privilégios, delegação de cgroup v2 e um gerenciador systemd de usuário. Consulte a [configuração no Linux](/landlock-development/) (em inglês).
+
+### Opção 2: Docker (Recomendado)
 
 A maneira mais rápida de obter um runtime funcional é deixar o container fazer o scaffolding do projeto para você:
 
@@ -71,7 +98,7 @@ docker build -t symbi:latest .
 docker run --rm -it -v $(pwd):/workspace symbi:latest bash
 ```
 
-### Opção 2: Instalação Local
+### Opção 3: Instalação Local
 
 Para desenvolvimento local:
 

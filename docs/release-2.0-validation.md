@@ -139,10 +139,11 @@ failure and rerun precedence, and unreadable or ambiguous evidence. Workflow
 syntax, expression and shell linting pass. The fourteen-crate publication graph and
 the offline release-tool regressions pass.
 
-Local tests do not qualify a GitHub release commit. The new manual GitHub job
-must still run successfully after the branch reaches main. This preparation does
-not claim macOS/Windows Landlock support, third-party CLI compatibility, model
-quality, human approval quality, or exactly-once effects in arbitrary services.
+Local tests do not qualify a GitHub release commit. The manual GitHub job must
+pass on the intended release commit; the completed 2.0.0 qualification is recorded
+below. This evidence does not claim macOS/Windows Landlock support, third-party CLI
+compatibility, model quality, human approval quality, or exactly-once effects in
+arbitrary services.
 
 ## Combined security and runtime integration — 2026-10-23
 
@@ -198,3 +199,30 @@ budget recovery and ToolClad reference-vector integration checks also passed.
 The two shipping-CLI skill tests passed on the combined branch, confirming truthful
 failure exits and confined scanning. Existing ignored external-service tests were
 not counted as successes. No workspace-wide test rerun was used for this integration.
+
+## Published 2.0.0 source qualification — 2026-10-23
+
+The public release is bound to commit
+`21471d3a9dea8ccf24d9248ff9338b35a79215e5`. Its corresponding Gitea commit is
+`262c02a8411b8f3491af23e32667d8716d13c3d1`; OSS filtering creates a separate history.
+[Test](https://github.com/ThirdKeyAI/Symbiont/actions/runs/40024802750),
+[container build](https://github.com/ThirdKeyAI/Symbiont/actions/runs/40024802803),
+[documentation](https://github.com/ThirdKeyAI/Symbiont/actions/runs/40024802890), and
+[Linux release qualification](https://github.com/ThirdKeyAI/Symbiont/actions/runs/40024828887)
+all passed on that exact public commit before publication.
+
+The qualification ran the release-profile binary from a clean checkout on Linux
+6.17.0-1022-azure with systemd 255. All six groups passed: onboarding, filesystem
+grants, source access, Git snapshots, managed CLI containment and governed actions.
+The binary hash was
+`409fab080c0fa3b6e92cbd05575987b6da07ee65f556c84839d86844e91b7e72`,
+unchanged throughout the run. The driver ran as a transient service inside the
+delegated systemd user manager; starting that manager without moving the driver
+into its delegated tree had correctly failed the earlier attempt.
+
+The workflow enables unprivileged namespaces only on its disposable runner. It
+does not change operator-host policy. Providers and CLI fixtures are synthetic;
+this is real Linux isolation and lifecycle coverage, not a live-provider cost or
+model-quality evaluation. It does not establish equivalent containment on macOS
+or Windows. See [release verification](release-verification.md) for independent
+artifact checks and [migration](migration-2.0.md) for deployment changes.

@@ -2,6 +2,10 @@
 
 Policy-governed platform for building agentic applications. Execute AI agents and tools under explicit policy, identity, and audit controls.
 
+**Symbiont 2.0:** Start with the [migration guide](migration-2.0.md) and
+[release verification](release-verification.md). Optional [prompt caching](prompt-caching.md)
+and [governed improvements](governed-improvements.md) require explicit opt-in.
+
 ## Start where your job starts
 
 These docs serve three different jobs. They need different pages in a different order, so pick the path rather than reading the list.
@@ -47,7 +51,8 @@ Start by making Symbiont refuse something. This is the same Cedar gate the runti
 **Install:**
 
 ```bash
-curl -fsSL https://symbiont.dev/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ThirdKeyAI/Symbiont/main/scripts/install.sh | bash
+export PATH="$HOME/.symbi/bin:$PATH"
 ```
 
 **Write two policies and evaluate against them:**
@@ -121,9 +126,10 @@ Model output is never treated as execution authority. The runtime controls what 
 | **Tool verification** | [SchemaPin](https://schemapin.org) cryptographic verification of MCP tool schemas before execution |
 | **Agent identity** | [AgentPin](https://agentpin.org) domain-anchored ES256 identity for agents and scheduled tasks |
 | **Reasoning loop** | Typestate-enforced Observe-Reason-Gate-Act cycle with policy gates and circuit breakers |
-| **Sandboxing** | Four OSS backends — Landlock (named, daemon-free), Docker (Tier 1), gVisor (Tier 2), Firecracker microVM (Tier 3) — selectable from the DSL with no Enterprise gating |
+| **Sandboxing** | Landlock is selected per project on Linux and requires a systemd user manager and delegated cgroups. Docker (Tier 1), gVisor (Tier 2) and Firecracker (Tier 3) are selectable per agent in the DSL. All four isolation backends are OSS. |
 | **Protected audit** | Private signed per-run journals under `.symbiont/governed/`; a required write failure stops dispatch |
 | **Optional governed improvements** | [Versioned workflow instructions](governed-improvements.md), signed trial evaluation, exact operator approval, explicit activation and per-run version pinning; disabled until explicitly initialized and selected |
+| **Optional prompt caching** | [Explicit prefix and rolling modes](prompt-caching.md) for direct Anthropic and OpenRouter Anthropic requests; raw token budgets remain unchanged and separate application transports must integrate explicitly |
 | **Secrets management** | Vault/OpenBao integration, AES-256-GCM encrypted storage, scoped per agent |
 | **MCP integration** | Native Model Context Protocol support with governed tool access |
 | **Governed managed CLI** | Run an external AI CLI as a contained child — no source mount, no external network, no host credentials; source access is registered ToolClad tools |

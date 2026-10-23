@@ -28,6 +28,8 @@ Symbiont は、明示的なポリシー、アイデンティティ、監査制�
 
 ---
 
+**Symbiont 2.0：** 更新前に[移行ガイド](docs/migration-2.0.md)と[リリースの検証](docs/ja/release-verification.md)を確認してください。プロンプトキャッシュとガバナンス下の改善機能は明示的な有効化が必要なオプションです。既存エージェントで自動的に有効になることはありません。
+
 ## なぜ Symbiont か
 
 AI エージェントはデモは簡単ですが、信頼を得るのは難しいものです。
@@ -86,16 +88,17 @@ echo "{\"tool_name\":\"system_health\"}" | symbi policy evaluate --stdin --polic
 ### CLI をインストール
 
 ```bash
-# Linux / macOS — installs the `symbi` binary to /usr/local/bin
-curl -fsSL https://symbiont.dev/install.sh | bash
+# Linux / macOS — 最新版を ~/.symbi/bin にインストール
+curl -fsSL https://raw.githubusercontent.com/ThirdKeyAI/Symbiont/main/scripts/install.sh | bash
+export PATH="$HOME/.symbi/bin:$PATH"
 symbi --help
 ```
 
-インストーラーはお使いのプラットフォーム向けにビルド済みのリリースバイナリを取得します。`bash -s -- --version v1.15.2` でバージョンを固定したり、`--dir` でインストール先を変更したりできます。Docker または[ソースからのビルド](#ソースからビルド)をお好みですか？どちらも以下にあります。
+リポジトリのインストーラーは、展開前に HTTPS のリリース一覧に記載された SHA-256 を `sha256sum` または `shasum` で検証します。最新版を `~/.symbi/bin` にインストールしますが、独立した Sigstore ID 検証は行いません。インストール先のルートを変える場合は `bash` プロセスに `SYMBI_INSTALL_DIR` を設定してください。バージョンを固定する場合は手動でダウンロードします。 [2.0 リリースの検証](docs/ja/release-verification.md).
 
 ### 前提条件
 
-* Docker（推奨）または Rust 1.82+
+* Docker（推奨）または Rust 1.89+
 
 ### プロジェクトをスキャフォールドして実行する（Docker、約 60 秒）
 

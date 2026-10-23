@@ -254,13 +254,11 @@ jobs:
             Download the appropriate binary for your platform from the assets below. Verify checksums with `checksums.txt`.
 
             ### Verification
-            Each binary is signed with [Sigstore cosign](https://docs.sigstore.dev/). Verify with:
-            ```bash
-            cosign verify-blob --certificate symbi-*.pem --signature symbi-*.sig symbi-*.tar.gz \
-              --certificate-identity-regexp='^https://github\.com/ThirdKeyAI/Symbiont/\.github/workflows/release-binaries\.yml@refs/(tags/v[0-9]+(\.[0-9]+)*|heads/main)$' \
-              --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
-            ```
-            SHA256 checksums are in `checksums.txt` (also signed).
+            Each archive and `checksums.txt` is signed with Sigstore. Follow the
+            [release verification guide](https://docs.symbiont.dev/release-verification/)
+            for current Cosign commands. Verify the expected release workflow,
+            source commit and checksum before extraction; `release-source.json`
+            is covered by the signed checksum manifest.
           append_body: true
 
   update-homebrew:

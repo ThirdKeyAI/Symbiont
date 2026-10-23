@@ -4,6 +4,9 @@
 
 This guide will walk you through setting up Symbi and creating your first AI agent.
 
+Upgrading from 1.x? Read the [2.0 migration guide](migration-2.0.md) before replacing
+an existing installation. Prompt caching and governed improvements remain optional.
+
 ▶ **Watch the get-started walkthrough:**
 
 [![Symbiont — get started](https://img.youtube.com/vi/RPyKpqKz5ik/hqdefault.jpg)](https://www.youtube.com/watch?v=RPyKpqKz5ik)
@@ -51,11 +54,29 @@ brew install symbi
 
 **macOS / Linux (install script):**
 ```bash
-curl -fsSL https://symbiont.dev/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ThirdKeyAI/Symbiont/main/scripts/install.sh | bash
+export PATH="$HOME/.symbi/bin:$PATH"
+symbi --version
 ```
 
+The repository installer requires Bash, `curl` or `wget`, `tar`, and `sha256sum`
+or `shasum`. It reads the latest release's checksum manifest, selects exactly one
+versioned archive for the detected platform, and verifies its SHA-256 before
+extracting it into `~/.symbi/bin`. Missing or ambiguous entries and checksum
+failures stop installation. To choose another root, set `SYMBI_INSTALL_DIR` on the
+`bash` process. Reload your shell or set `PATH` as above after installation.
+
 **Manual download:**
-Download from [GitHub Releases](https://github.com/thirdkeyai/symbiont/releases) and add to your PATH.
+Download a specific version from [GitHub Releases](https://github.com/ThirdKeyAI/Symbiont/releases).
+Archives are available for Linux x86_64/ARM64, macOS ARM64 and Windows x86_64.
+The shell installer supports the Linux and macOS targets; use the ZIP archive on Windows.
+Follow [release verification](release-verification.md) to check the signed checksum
+manifest, source commit and archive before adding the binary to `PATH`.
+
+Installing a macOS or Windows binary does not provide Landlock isolation.
+Landlock requires Linux ABI 6+, seccomp, unprivileged user/mount/network namespaces,
+cgroup v2 delegation and a systemd user manager. Select it per project with
+`symbi init --sandbox landlock`; see [Linux setup](landlock-development.md).
 
 ### Option 2: Docker (Recommended)
 

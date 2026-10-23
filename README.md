@@ -24,10 +24,11 @@
 
 Symbiont is a Rust-native runtime for executing AI agents and tools under explicit policy, identity, and audit controls.
 
-> **Containment:** See the [operator guide](docs/containment-branch-guide.md)
-> for the CLI, TUI, chat, audit and scheduling changes in 1.21.0.
-> It includes migration steps and the remaining gaps; full containment across all
-> entry points is not established.
+> **Upgrading to 2.0:** Read the [migration guide](docs/migration-2.0.md) for
+> authentication, ownership, skill-signature and resource-limit changes. Optional
+> prompt caching and governed improvements require explicit opt-in. The
+> [containment operator guide](docs/containment-branch-guide.md) describes route
+> coverage and remaining gaps; full containment across all entry points is not established.
 
 Most agent frameworks focus on orchestration. Symbiont focuses on what happens when agents need to run in real environments with real risk: untrusted tools, sensitive data, approval boundaries, audit requirements, and repeatable enforcement.
 
@@ -170,12 +171,18 @@ Hello from the local model.
 ### Install the CLI
 
 ```bash
-# Linux / macOS — installs the `symbi` binary to /usr/local/bin
-curl -fsSL https://symbiont.dev/install.sh | bash
+# Linux / macOS — installs the latest release to ~/.symbi/bin
+curl -fsSL https://raw.githubusercontent.com/ThirdKeyAI/Symbiont/main/scripts/install.sh | bash
+export PATH="$HOME/.symbi/bin:$PATH"
 symbi --help
 ```
 
-The installer fetches the prebuilt release binary for your platform. Pin a version with `bash -s -- --version v1.16.0` or change the target with `--dir`. Prefer Docker or [building from source](#build-from-source)? Both are below.
+The repository installer selects the versioned archive from the release checksum
+manifest and verifies its SHA-256 before extraction, using `sha256sum` or macOS's
+`shasum`. Set `SYMBI_INSTALL_DIR` on the `bash` process to choose another installation
+root. For a pinned version or signature verification, use the
+[manual release verification guide](docs/release-verification.md). Docker and
+[building from source](#build-from-source) are also available.
 
 Already have a Rust toolchain (1.89+)? Install from crates.io instead:
 

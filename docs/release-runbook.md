@@ -123,20 +123,24 @@ they do not trigger the manual Linux qualification on every commit.
 
 ### 8. Create GitHub Release
 
+Gitea and GitHub have different histories because GitHub receives only the OSS
+export. Create the public tag at the qualified **GitHub** commit; never push the
+private source tag object to the public mirror. Check for an existing tag first
+and verify its target instead of replacing it. Creating the public tag explicitly
+also triggers versioned container publication.
+
 ```bash
+gh api repos/ThirdKeyAI/Symbiont/git/refs \
+  -f ref=refs/tags/v<VERSION> -f sha=<FULL_SHA>
 gh release create v<VERSION> --repo ThirdKeyAI/Symbiont \
-  --target <FULL_SHA> \
+  --verify-tag \
   --title "Symbiont v<VERSION>" \
-  --notes "$(cat <<'EOF'
-# Symbiont v<VERSION>
-
-<Release description>
-
-## Full Changelog
-https://github.com/ThirdKeyAI/Symbiont/compare/v<PREV>...v<VERSION>
-EOF
-)"
+  --notes-file /path/to/release-notes.md
 ```
+
+Prepare the notes file with the release overview, migration link, opt-in features
+and changelog before this step. Published releases trigger crates.io and binary
+publication automatically. Keep the tag fixed once publication begins.
 
 ### 9. Publish to crates.io (if needed)
 
@@ -155,6 +159,25 @@ python3 scripts/publish-crates.py --publish
 Registry checks use the exact package version, not search ranking or the newest
 published version. A nonzero Cargo exit fails unless the registry confirms that
 exact version now exists. Upload progress text cannot turn a failed upload green.
+
+### 10. Verify publication and documentation
+
+Wait for **Publish to crates.io**, **Release Binaries** (including the Homebrew
+update), and the tag's **Build and Push Docker Image** run to succeed. Check their
+source SHA, not just the workflow name. Publication is not complete merely because
+the GitHub release page exists.
+
+Use [release verification](release-verification.md) to check all four archive
+checksums and signatures, the signed source record, and both container identities.
+Check each crate's exact registry version, checksum and source provenance. The
+Homebrew formula's three archive hashes must match the release manifest. Exercise
+the downloaded native binary and the documented installer in a temporary home.
+
+Update the English installation, migration and validation pages first, then their
+translations. Build all six documentation sites and verify separate search indexes
+as in `.github/workflows/docs.yml`. Update the release notes after asset upload if
+needed. Documentation or installer fixes on main must not silently move an already
+published tag or replace a published crate version.
 
 
 ## Lessons Learned

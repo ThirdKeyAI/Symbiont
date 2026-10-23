@@ -28,6 +28,8 @@ Symbiont 是一个 Rust 原生运行时，用于在显式策略、身份和审�
 
 ---
 
+**Symbiont 2.0：** 升级前请阅读[迁移指南](docs/migration-2.0.md)和[发布验证指南](docs/zh-cn/release-verification.md)。提示词缓存和受治理改进仍为可选功能，需要显式启用；现有代理不会自动启用这些功能。
+
 ## 为什么选择 Symbiont
 
 AI 智能体易于演示，却难以信任。
@@ -86,16 +88,17 @@ echo "{\"tool_name\":\"system_health\"}" | symbi policy evaluate --stdin --polic
 ### 安装 CLI
 
 ```bash
-# Linux / macOS — installs the `symbi` binary to /usr/local/bin
-curl -fsSL https://symbiont.dev/install.sh | bash
+# Linux / macOS — 将最新版本安装到 ~/.symbi/bin
+curl -fsSL https://raw.githubusercontent.com/ThirdKeyAI/Symbiont/main/scripts/install.sh | bash
+export PATH="$HOME/.symbi/bin:$PATH"
 symbi --help
 ```
 
-安装程序会为你的平台获取预构建的发布二进制文件。可用 `bash -s -- --version v1.15.2` 固定版本，或用 `--dir` 更改目标路径。更喜欢 Docker 或[从源代码构建](#从源代码构建)？两者都在下方。
+仓库安装脚本使用 `sha256sum` 或 `shasum`，在解压前验证 HTTPS 发布清单中的 SHA-256 校验和。它将最新版本安装到 `~/.symbi/bin`，但不执行独立的 Sigstore 身份验证。若需更改安装根目录，请为 `bash` 进程设置 `SYMBI_INSTALL_DIR`。要固定版本，请手动下载指定版本。 [验证 2.0 版本](docs/zh-cn/release-verification.md).
 
 ### 前提条件
 
-* Docker（推荐）或 Rust 1.82+
+* Docker（推荐）或 Rust 1.89+
 
 ### 搭建并运行项目（Docker，约 60 秒）
 
