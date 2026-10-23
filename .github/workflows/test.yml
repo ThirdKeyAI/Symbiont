@@ -32,7 +32,9 @@ jobs:
           persist-credentials: false
           submodules: recursive
       - name: Install protoc
-        run: sudo apt-get install -y protobuf-compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable (pinned)
         with:
           toolchain: stable
@@ -124,7 +126,9 @@ jobs:
           persist-credentials: false
           submodules: recursive
       - name: Install protoc
-        run: sudo apt-get install -y protobuf-compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # pinned action, explicit MSRV toolchain
         with:
           toolchain: "1.89"
@@ -144,7 +148,9 @@ jobs:
           persist-credentials: false
           submodules: recursive
       - name: Install protoc
-        run: sudo apt-get install -y protobuf-compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
       # Pin nightly to avoid str::as_str() breakage in shellexpand 3.1.1
       # (rust-lang/rust#152961). Unpin once revert #152963 lands in nightly.
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable (pinned, used here with explicit toolchain override)

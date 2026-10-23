@@ -11,6 +11,7 @@ on:
       - 'Cargo.lock'
       - 'Dockerfile'
       - '.github/workflows/docker-build.yml'
+      - '.github/workflows/test.yml'
       - '.github/workflows/release-gate.yml'
       - 'scripts/require-release-checks.py'
   pull_request:
@@ -22,6 +23,7 @@ on:
       - 'Cargo.lock'
       - 'Dockerfile'
       - '.github/workflows/docker-build.yml'
+      - '.github/workflows/test.yml'
       - '.github/workflows/release-gate.yml'
       - 'scripts/require-release-checks.py'
 
