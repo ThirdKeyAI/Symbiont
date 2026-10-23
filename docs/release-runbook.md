@@ -121,6 +121,21 @@ out that qualified SHA. A failed, cancelled, or unfinished latest run blocks
 publication even when an earlier run passed. Main container builds require Test;
 they do not trigger the manual Linux qualification on every commit.
 
+Before publishing a new version, run all four release builds without creating a
+tag or uploading release assets. After Test and Linux qualification pass for the
+intended main commit:
+
+```bash
+gh workflow run release-binaries.yml --repo ThirdKeyAI/Symbiont --ref main \
+  -f tag=v<VERSION> -f verify_only=true
+```
+
+Verify the run's source SHA and every matrix job's result. This mode uses the
+planned tag only for archive names; it builds qualified main and skips signing,
+release upload and Homebrew publication. Normal release publication still requires
+an existing reviewed tag. A successful Linux build cannot substitute for the
+Windows or macOS build result.
+
 ### 8. Create GitHub Release
 
 Gitea and GitHub have different histories because GitHub receives only the OSS

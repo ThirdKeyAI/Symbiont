@@ -433,7 +433,7 @@ impl DefaultAgentScheduler {
         if crate::improvement::operational::workflow(&config)
             .map_err(|reason| SchedulerError::SchedulingFailed {
                 agent_id: config.id,
-                reason,
+                reason: reason.into(),
             })?
             .is_some()
         {

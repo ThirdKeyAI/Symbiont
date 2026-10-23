@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Convert the non-Unix scheduler's improvement error to the scheduler's boxed
+  error representation, fixing Windows compilation without enabling unsupported
+  governed execution. CI now checks the Windows CLI before release qualification.
 - The repository installer resolves the latest release's versioned archive from
   its checksum manifest, refuses ambiguous entries, and requires SHA-256
   verification before extraction on Linux and macOS.

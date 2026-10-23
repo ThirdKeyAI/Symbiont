@@ -6,8 +6,12 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to build (e.g. v1.6.1)'
+        description: 'Existing tag, or planned tag when verifying only'
         required: true
+      verify_only:
+        description: 'Build all platforms from qualified main without publishing'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -21,7 +25,7 @@ jobs:
     if: github.event_name == 'release' || github.ref == 'refs/heads/main'
     uses: ./.github/workflows/release-gate.yml
     with:
-      tag: ${{ inputs.tag || github.event.release.tag_name }}
+      tag: ${{ !inputs.verify_only && (inputs.tag || github.event.release.tag_name) || '' }}
 
   release:
     needs: qualify
@@ -50,7 +54,13 @@ jobs:
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
           RELEASE_EVENT: ${{ github.event_name }}
           RELEASE_EVENT_SHA: ${{ github.sha }}
-        run: bash .github/scripts/release-source.sh
+          VERIFY_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.verify_only }}
+        run: |
+          if [[ "$VERIFY_ONLY" == true ]]; then
+            printf 'sha=%s\n' "$RELEASE_EVENT_SHA" >> "$GITHUB_OUTPUT"
+          else
+            bash .github/scripts/release-source.sh
+          fi
       - name: Require the qualified commit
         env:
           SOURCE_SHA: ${{ steps.source.outputs.sha }}
@@ -183,6 +193,7 @@ jobs:
   checksums:
     name: Create checksums and upload
     needs: [release, build]
+    if: github.event_name == 'release' || !inputs.verify_only
     runs-on: ubuntu-latest
     permissions:
       contents: write

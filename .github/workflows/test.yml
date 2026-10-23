@@ -110,6 +110,29 @@ jobs:
       - name: Test session feature (repl-core)
         run: cargo test -p repl-core --features session
 
+  windows-cli:
+    name: Check Windows CLI
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable (pinned)
+        with:
+          toolchain: stable
+          targets: x86_64-pc-windows-msvc
+      - name: Install native dependencies
+        shell: bash
+        run: |
+          choco install protoc --yes
+          vcpkg install openssl:x64-windows-static
+          printf '%s\n' 'OPENSSL_DIR=C:\vcpkg\installed\x64-windows-static' 'OPENSSL_STATIC=1' >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: windows-cli
+      - name: Check shipping CLI and default features
+        run: cargo check --locked -p symbi --target x86_64-pc-windows-msvc -j2
+
   msrv:
     # Verify the declared MSRV (workspace.package.rust-version) actually builds.
     # CI's main job uses `stable`, which silently tolerates newer-than-MSRV APIs;
