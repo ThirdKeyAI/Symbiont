@@ -31,6 +31,11 @@ jobs:
           sudo systemctl start "user@$(id -u).service"
           echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
           echo "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus" >> "$GITHUB_ENV"
+      - name: Check delegated user launch
+        run: |
+          systemd-run --user --wait --pipe --collect --quiet \
+            --service-type=exec --unit=symbi-release-preflight \
+            /usr/bin/cat /proc/self/cgroup
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # pinned
         with:
           toolchain: stable
@@ -38,12 +43,16 @@ jobs:
       - name: Build shipping binary
         run: cargo build --locked --release -p symbi -j2
       - name: Qualify Linux isolation and recovery
-        # Hosted jobs start outside the user's delegated cgroup tree. Enter it
-        # before launching workers, so cgroup migration remains within that tree.
+        # The user manager must spawn the driver inside its delegated tree.
+        # A scope would retain the hosted caller as parent and require migration
+        # across the very delegation boundary being tested.
         run: |
-          systemd-run --user --scope --collect --quiet \
+          systemd-run --user --wait --pipe --collect --quiet \
+            --service-type=exec --working-directory="$PWD" \
             --unit=symbi-release-qualification \
-            python3 scripts/test-landlock-release.py \
+            --setenv=HOME --setenv=XDG_RUNTIME_DIR \
+            --setenv=DBUS_SESSION_BUS_ADDRESS --setenv=PATH=/usr/bin:/bin \
+            /usr/bin/python3 scripts/test-landlock-release.py \
               --binary target/release/symbi \
               --output "$RUNNER_TEMP/landlock-qualification" --require-clean
       - name: Preserve qualification evidence
