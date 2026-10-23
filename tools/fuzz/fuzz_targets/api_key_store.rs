@@ -10,9 +10,9 @@
 
 use libfuzzer_sys::{arbitrary::Arbitrary, fuzz_target};
 use serde_json;
+use std::io::Write;
 use symbi_runtime::api::api_keys::{ApiKeyRecord, ApiKeyStore};
 use tempfile::NamedTempFile;
-use std::io::Write;
 
 #[derive(Arbitrary, Debug)]
 struct Input {
@@ -36,10 +36,7 @@ enum KeyStoreFuzzMode {
         key_id: String,
     },
     /// Validate with revoked key.
-    RevokedKey {
-        raw_key: String,
-        key_id: String,
-    },
+    RevokedKey { raw_key: String, key_id: String },
     /// Validate with wrong key (must fail).
     WrongKey {
         correct_key: String,
@@ -47,9 +44,7 @@ enum KeyStoreFuzzMode {
         key_id: String,
     },
     /// Empty store validation.
-    EmptyStore {
-        raw_key: String,
-    },
+    EmptyStore { raw_key: String },
     /// Multiple records with agent scoping.
     ScopedValidation {
         raw_key: String,
@@ -91,10 +86,12 @@ fuzz_target!(|input: Input| {
         }
 
         KeyStoreFuzzMode::HashAndValidate {
-            raw_key, key_id, description,
+            raw_key,
+            key_id,
+            description,
         } => {
             let raw_key = clamp(raw_key, 256, "test-api-key-1234");
-            let key_id = clamp(key_id, 64, "key-001");
+            let key_id = clamp(key_id, 64, "key-001").replace('.', "-");
             let description = clamp(description, 128, "fuzz test key");
 
             // Hash the key.
@@ -127,24 +124,27 @@ fuzz_target!(|input: Input| {
                 Err(_) => return,
             };
 
-            // Roundtrip: correct key must validate.
-            let validated = store.validate_key(&raw_key);
-            assert!(
-                validated.is_some(),
-                "roundtrip key validation must succeed",
-            );
+            // A store record does not restore legacy unprefixed authentication.
+            assert!(store.validate_key(&raw_key).is_none());
+            assert!(store.validate_key(&format!("{key_id}.")).is_none());
+            assert!(store.validate_key(&format!(".{raw_key}")).is_none());
+            // Roundtrip: the exact prefix selects one record and hashes only its secret.
+            let validated = store.validate_key(&format!("{key_id}.{raw_key}"));
+            assert!(validated.is_some(), "roundtrip key validation must succeed",);
             assert_eq!(validated.unwrap().key_id, key_id);
         }
 
         KeyStoreFuzzMode::CorruptHash {
-            raw_key, corrupt_hash, key_id,
+            raw_key,
+            corrupt_hash,
+            key_id,
         } => {
             let raw_key = clamp(raw_key, 256, "test-key");
             let corrupt_hash = clamp(corrupt_hash, 512, "$argon2id$garbage");
-            let key_id = clamp(key_id, 64, "key-001");
+            let key_id = clamp(key_id, 64, "key-001").replace('.', "-");
 
             let records = vec![ApiKeyRecord {
-                key_id,
+                key_id: key_id.clone(),
                 key_hash: corrupt_hash,
                 agent_scope: None,
                 description: "corrupt hash test".to_string(),
@@ -167,12 +167,12 @@ fuzz_target!(|input: Input| {
             };
 
             // Must not panic — corrupt hash should just fail validation.
-            let _ = store.validate_key(&raw_key);
+            let _ = store.validate_key(&format!("{key_id}.{raw_key}"));
         }
 
         KeyStoreFuzzMode::RevokedKey { raw_key, key_id } => {
             let raw_key = clamp(raw_key, 256, "test-key");
-            let key_id = clamp(key_id, 64, "key-001");
+            let key_id = clamp(key_id, 64, "key-001").replace('.', "-");
 
             let hash = match ApiKeyStore::hash_key(&raw_key) {
                 Ok(h) => h,
@@ -180,7 +180,7 @@ fuzz_target!(|input: Input| {
             };
 
             let records = vec![ApiKeyRecord {
-                key_id,
+                key_id: key_id.clone(),
                 key_hash: hash,
                 agent_scope: None,
                 description: "revoked key".to_string(),
@@ -204,15 +204,19 @@ fuzz_target!(|input: Input| {
 
             // Revoked keys must not validate.
             assert!(
-                store.validate_key(&raw_key).is_none(),
+                store.validate_key(&format!("{key_id}.{raw_key}")).is_none(),
                 "revoked key must not validate",
             );
         }
 
-        KeyStoreFuzzMode::WrongKey { correct_key, wrong_key, key_id } => {
+        KeyStoreFuzzMode::WrongKey {
+            correct_key,
+            wrong_key,
+            key_id,
+        } => {
             let correct = clamp(correct_key, 256, "correct-key");
             let wrong = clamp(wrong_key, 256, "wrong-key");
-            let key_id = clamp(key_id, 64, "key-001");
+            let key_id = clamp(key_id, 64, "key-001").replace('.', "-");
 
             if correct == wrong {
                 return;
@@ -224,7 +228,7 @@ fuzz_target!(|input: Input| {
             };
 
             let records = vec![ApiKeyRecord {
-                key_id,
+                key_id: key_id.clone(),
                 key_hash: hash,
                 agent_scope: None,
                 description: "test".to_string(),
@@ -248,7 +252,7 @@ fuzz_target!(|input: Input| {
 
             // Wrong key must not validate.
             assert!(
-                store.validate_key(&wrong).is_none(),
+                store.validate_key(&format!("{key_id}.{wrong}")).is_none(),
                 "wrong key must not validate",
             );
         }
@@ -264,9 +268,13 @@ fuzz_target!(|input: Input| {
             );
         }
 
-        KeyStoreFuzzMode::ScopedValidation { raw_key, key_id, agents } => {
+        KeyStoreFuzzMode::ScopedValidation {
+            raw_key,
+            key_id,
+            agents,
+        } => {
             let raw_key = clamp(raw_key, 256, "test-key");
-            let key_id = clamp(key_id, 64, "key-001");
+            let key_id = clamp(key_id, 64, "key-001").replace('.', "-");
             let agents: Vec<String> = agents
                 .into_iter()
                 .take(4)
@@ -278,7 +286,11 @@ fuzz_target!(|input: Input| {
                 Err(_) => return,
             };
 
-            let scope = if agents.is_empty() { None } else { Some(agents.clone()) };
+            let scope = if agents.is_empty() {
+                None
+            } else {
+                Some(agents.clone())
+            };
 
             let records = vec![ApiKeyRecord {
                 key_id: key_id.clone(),
@@ -304,7 +316,7 @@ fuzz_target!(|input: Input| {
             };
 
             // Key must validate and preserve scope.
-            let validated = store.validate_key(&raw_key);
+            let validated = store.validate_key(&format!("{key_id}.{raw_key}"));
             assert!(validated.is_some(), "scoped key must validate");
             let v = validated.unwrap();
             assert_eq!(v.key_id, key_id);
