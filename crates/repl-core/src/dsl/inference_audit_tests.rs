@@ -120,8 +120,18 @@ fn read_records(
     ProtectedJournal::verify_run(&reference.audit.path, &key, reference.audit.run_id)
 }
 
-fn verified(reference: &InferenceAuditReference) -> Vec<JournalEntry> {
-    let entries = read_records(reference).unwrap();
+fn verified(reference: &InferenceAuditReference) -> Option<Vec<JournalEntry>> {
+    let entries = match read_records(reference) {
+        Ok(entries) => entries,
+        // Background calls append concurrently. Retry only the explicit
+        // snapshot-race refusal; invalid evidence must still fail the test.
+        Err(JournalError::WriteFailed(message))
+            if message == "journal changed during verification; inspect a stable snapshot" =>
+        {
+            return None;
+        }
+        Err(error) => panic!("audit verification failed: {error}"),
+    };
     let key: [u8; 32] = (0..32)
         .map(|i| u8::from_str_radix(&reference.audit.public_key[i * 2..i * 2 + 2], 16).unwrap())
         .collect::<Vec<_>>()
@@ -141,7 +151,7 @@ fn verified(reference: &InferenceAuditReference) -> Vec<JournalEntry> {
             & 0o777,
         0o600
     );
-    entries
+    Some(entries)
 }
 
 async fn wait_for_calls(provider: &Provider, count: usize) {
@@ -159,17 +169,13 @@ async fn settled(ctx: &ReasoningBuiltinContext, count: usize) -> Vec<Vec<Journal
         loop {
             let snapshot = ctx.audit_references.snapshot().unwrap();
             if snapshot.entries.len() == count {
-                let entries: Option<Vec<_>> = snapshot
-                    .entries
-                    .iter()
-                    .map(|reference| read_records(reference).ok())
-                    .collect();
-                if entries.is_some_and(|entries| {
+                let entries: Option<Vec<_>> = snapshot.entries.iter().map(verified).collect();
+                if let Some(entries) = entries.filter(|entries| {
                     entries.iter().all(|entries| {
                         matches!(entries.last().unwrap().event, LoopEvent::Terminated { .. })
                     })
                 }) {
-                    break snapshot.entries.iter().map(verified).collect();
+                    break entries;
                 }
             }
             tokio::time::sleep(Duration::from_millis(5)).await;
@@ -540,7 +546,17 @@ async fn background_send_requires_durable_acceptance_and_records_later_timeout()
     });
     assert_eq!(builtin_send_to(&args, &ctx).await.unwrap(), DslValue::Null);
     let reference = ctx.audit_references.snapshot().unwrap().entries[0].clone();
-    assert!(verified(&reference)
+    let accepted = tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            if let Some(entries) = verified(&reference) {
+                break entries;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(accepted
         .iter()
         .any(|entry| matches!(entry.event, LoopEvent::DirectInferenceRequested { .. })));
     assert!(matches!(
