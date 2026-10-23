@@ -7,6 +7,13 @@ governed improvements, remain opt-in.
 
 ## Before upgrading
 
+Protected run journals and the execution routes that require them currently need
+Unix. Windows builds support portable CLI functionality; they do not establish
+equivalent support for protected scheduled execution, durable chat admission or
+governed improvements. Those routes refuse unsupported operation. Landlock adds
+Linux-specific kernel and systemd requirements. A successful platform build is
+not a containment qualification for that platform.
+
 Keep a recoverable copy of the project configuration, tool manifests and runtime
 state. Do not delete invocation claims or journals to make an upgrade pass:
 that discards retry history. Stop new admissions and settle or inspect active

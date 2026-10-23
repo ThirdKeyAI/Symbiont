@@ -7,11 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-10-23
+
 ### Fixed
 
 - Convert the non-Unix scheduler's improvement error to the scheduler's boxed
   error representation, fixing Windows compilation without enabling unsupported
   governed execution. CI now checks the Windows CLI before release qualification.
+- Add a verification-only release build that exercises all four binary targets
+  before tags, crates, release assets or versioned containers are published.
 - The repository installer resolves the latest release's versioned archive from
   its checksum manifest, refuses ambiguous entries, and requires SHA-256
   verification before extraction on Linux and macOS.
@@ -21,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Publish exact 2.0.0 qualification evidence and a release-verification guide.
   Update installation paths, Rust requirements, opt-in feature guidance and
   Linux-only Landlock prerequisites in English and all five translations.
+  Clarify the Unix requirement for protected execution and provide 2.0.1
+  verification commands bound to the public release tag.
 
 ## [2.0.0] - 2026-10-23
 

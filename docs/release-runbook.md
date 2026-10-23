@@ -1,6 +1,6 @@
 # Symbiont Release Runbook
 
-Last updated: 2026-10-03
+Last updated: 2026-10-23
 
 ## Pre-Release Checklist
 
@@ -13,8 +13,11 @@ workspace crates in dependency order. It includes optional dependencies and both
 sandbox crates. `tests/e2e` remains unpublished. All local version references must
 match the corresponding package version.
 
-The 1.21.0 preparation updates the main workspace crates and
-`symbi-channel-adapter` to 0.1.6. Unchanged independent helpers retain their versions.
+The 2.0.1 patch release keeps the eleven main workspace crates aligned at 2.0.1.
+Unchanged independent helpers retain their published versions: `symbi-channel-adapter`
+0.1.6, `symbi-approval-relay` 0.1.1 and `symbi-invis-strip` 0.3.0. The 2.0.0 tag
+and published packages remain immutable; 2.0.1 repairs its Windows build and
+installer without replacing those artifacts.
 
 ### 2. Check Published Versions vs Source
 
@@ -89,7 +92,7 @@ git commit -m "Bump workspace crates to v<VERSION>"
 git push origin main
 
 # Sync to GitHub (triggers CI)
-bash scripts/sync_oss_to_github.sh --force
+bash scripts/sync_oss_to_github.sh
 ```
 
 ### 7. Wait for CI
@@ -102,8 +105,9 @@ gh run list --repo ThirdKeyAI/Symbiont --limit 4
 gh run watch <RUN_ID> --repo ThirdKeyAI/Symbiont --exit-status
 ```
 
-Record the intended full commit SHA on GitHub `main`. Both **Test** and **Build
-and Push Docker Image** must pass for that commit. Then dispatch **Linux Landlock
+Record the intended full commit SHA on GitHub `main`. **Test** (including the
+Windows CLI check), **Build and Push Docker Image** and **Documentation** must
+pass for that commit. Then dispatch **Linux Landlock
 release qualification** on `main`, verify that its `head_sha` is the recorded SHA,
 and wait for success before tagging. If `main` moves, do not reuse evidence for a
 different commit. The Linux job exercises the shipping binary on a disposable

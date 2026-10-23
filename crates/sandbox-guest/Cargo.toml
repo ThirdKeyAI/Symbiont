@@ -1,6 +1,6 @@
 [package]
 name = "symbi-sandbox-guest"
-version = "2.0.0"
+version = "2.0.1"
 edition = "2021"
 authors = ["Jascha Wanger / ThirdKey.ai"]
 description = "Versioned guest command transport for Symbiont microVMs"

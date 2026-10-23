@@ -1,10 +1,16 @@
 # Verify the 2.0 release
 
-Download binaries from the [v2.0.0 release](https://github.com/ThirdKeyAI/Symbiont/releases/tag/v2.0.0).
-The public release commit is `21471d3a9dea8ccf24d9248ff9338b35a79215e5`.
-Gitea retains the complete source history; GitHub contains the filtered OSS history,
-so their commit IDs differ. Release signatures and crate provenance refer to the
-public commit above.
+This guide targets the [v2.0.1 release](https://github.com/ThirdKeyAI/Symbiont/releases/tag/v2.0.1).
+Use the archive steps only after its publication is complete and the listed
+assets are present. The 2.0.0 crates and containers remain published, but a Windows
+compile failure prevented its combined binary upload and Homebrew update. The
+2.0.1 patch repairs that build and the repository installer.
+
+Resolve the public release commit from the trusted repository's `v2.0.1` tag,
+as shown below. Do not take the expected commit from an unverified downloaded
+source record. Gitea retains the complete source history; GitHub contains the
+filtered OSS history, so their commit IDs differ. Release signatures and crate
+provenance refer to the public commit.
 
 ## Choose an archive
 
@@ -16,9 +22,14 @@ public commit above.
 | Windows x86_64 | `x86_64-pc-windows-msvc` | `.zip` |
 
 For example, the Linux x86_64 archive is
-`symbi-v2.0.0-x86_64-unknown-linux-gnu.tar.gz`. Intel macOS has no prebuilt archive.
+`symbi-v2.0.1-x86_64-unknown-linux-gnu.tar.gz`. Intel macOS has no prebuilt archive.
 Use source installation there. Platform binaries do not imply Linux-only Landlock
 support on macOS or Windows.
+
+Protected run journals and their dependent execution routes currently require
+Unix. Windows binaries cover portable CLI functionality; protected scheduling,
+durable chat admission and governed improvements refuse unsupported operation.
+A successful Windows compilation does not establish equivalent containment.
 
 ## Verify before extraction
 
@@ -27,8 +38,11 @@ directory. Set `ARCHIVE` to your platform's filename. Download its `.sig` and `.
 alongside the signed checksum manifest and `release-source.json`:
 
 ```bash
-ARCHIVE=symbi-v2.0.0-x86_64-unknown-linux-gnu.tar.gz
-gh release download v2.0.0 --repo ThirdKeyAI/Symbiont \
+set -euo pipefail
+RELEASE_SHA=$(gh api repos/ThirdKeyAI/Symbiont/commits/v2.0.1 --jq .sha)
+[[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+ARCHIVE=symbi-v2.0.1-x86_64-unknown-linux-gnu.tar.gz
+gh release download v2.0.1 --repo ThirdKeyAI/Symbiont \
   --pattern "$ARCHIVE" --pattern "$ARCHIVE.sig" --pattern "$ARCHIVE.pem" \
   --pattern 'checksums.txt*' --pattern release-source.json
 ```
@@ -42,9 +56,9 @@ cosign bundle create --artifact checksums.txt \
   --signature checksums.txt.sig --certificate checksums.txt.pem \
   --out checksums.sigstore.json
 cosign verify-blob --bundle checksums.sigstore.json \
-  --certificate-identity 'https://github.com/ThirdKeyAI/Symbiont/.github/workflows/release-binaries.yml@refs/tags/v2.0.0' \
+  --certificate-identity 'https://github.com/ThirdKeyAI/Symbiont/.github/workflows/release-binaries.yml@refs/tags/v2.0.1' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-  --certificate-github-workflow-sha 21471d3a9dea8ccf24d9248ff9338b35a79215e5 \
+  --certificate-github-workflow-sha "$RELEASE_SHA" \
   checksums.txt
 ```
 
@@ -62,8 +76,8 @@ sha256sum --check selected-checksums.txt
 cat release-source.json
 ```
 
-The source record must contain tag `v2.0.0` and commit
-`21471d3a9dea8ccf24d9248ff9338b35a79215e5`. Extract and run the binary only after
+The source record must contain tag `v2.0.1` and commit
+equal to `$RELEASE_SHA`. Extract and run the binary only after
 verification succeeds. For a separate archive-signature check, repeat the bundle
 creation and verification commands with `"$ARCHIVE"`, `"$ARCHIVE.sig"` and
 `"$ARCHIVE.pem"`. Windows users can run the verification commands in Git Bash or
@@ -72,22 +86,22 @@ use equivalent checksum tooling, then extract the ZIP.
 The [repository installer](https://github.com/ThirdKeyAI/Symbiont/blob/main/scripts/install.sh)
 automatically verifies the archive's checksum from the HTTPS release manifest. It
 does not perform the independent Sigstore identity check above. It installs the
-latest version into `~/.symbi/bin`; use a manual versioned download to pin 2.0.0.
+latest version into `~/.symbi/bin`; use a manual versioned download to pin 2.0.1.
 
 ## Containers and crates
 
-Versioned images are `ghcr.io/thirdkeyai/symbi:2.0.0` and
-`ghcr.io/thirdkeyai/symbi-a2ui:2.0.0`. Verify each image before deployment:
+Versioned images are `ghcr.io/thirdkeyai/symbi:2.0.1` and
+`ghcr.io/thirdkeyai/symbi-a2ui:2.0.1`. Verify each image before deployment:
 
 ```bash
-cosign verify ghcr.io/thirdkeyai/symbi:2.0.0 \
-  --certificate-identity 'https://github.com/ThirdKeyAI/Symbiont/.github/workflows/docker-build.yml@refs/tags/v2.0.0' \
+cosign verify ghcr.io/thirdkeyai/symbi:2.0.1 \
+  --certificate-identity 'https://github.com/ThirdKeyAI/Symbiont/.github/workflows/docker-build.yml@refs/tags/v2.0.1' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-  --certificate-github-workflow-sha 21471d3a9dea8ccf24d9248ff9338b35a79215e5
+  --certificate-github-workflow-sha "$RELEASE_SHA"
 ```
 
 For crates.io, check the exact package version and its non-yanked status. The eleven
-new 2.0.0 crates must have registry checksums matching their downloaded archives and
+new 2.0.1 crates must have registry checksums matching their downloaded archives and
 `.cargo_vcs_info.json` pointing to the public release commit. The unchanged helper
 versions are `symbi-approval-relay` 0.1.1, `symbi-channel-adapter` 0.1.6 and
 `symbi-invis-strip` 0.3.0; they retain their earlier source commits.

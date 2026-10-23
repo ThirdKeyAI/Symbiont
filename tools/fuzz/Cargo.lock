@@ -6220,7 +6220,7 @@ checksum = "ba39f3699c378cd8970968dcbff9c43159ea4cfbd88d43c00b22f2ef10a435d2"
 
 [[package]]
 name = "repl-core"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "bytes",
  "chrono",
@@ -7257,7 +7257,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-dsl"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "anyhow",
  "cc",
@@ -7304,7 +7304,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-runtime"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "aes-gcm",
  "agentpin",
@@ -7377,7 +7377,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-sandbox-guest"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "anyhow",
  "libc",
@@ -7388,7 +7388,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-sandbox-supervisor"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "anyhow",
  "libc",

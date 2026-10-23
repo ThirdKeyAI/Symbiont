@@ -1,6 +1,8 @@
 # Verificar a versão 2.0
 
-Baixe os binários da [versão v2.0.0](https://github.com/ThirdKeyAI/Symbiont/releases/tag/v2.0.0). O commit público é `21471d3a9dea8ccf24d9248ff9338b35a79215e5`. O Gitea mantém o histórico completo; o GitHub contém a exportação OSS filtrada. Por isso os identificadores diferem: as assinaturas e a procedência dos pacotes se referem ao commit público.
+Este guia corresponde à [versão v2.0.1](https://github.com/ThirdKeyAI/Symbiont/releases/tag/v2.0.1). Verifique os arquivos somente após a conclusão da publicação e a disponibilização de todos os recursos indicados. Os crates e contêineres da versão 2.0.0 continuam publicados, mas um erro de compilação no Windows impediu o envio conjunto dos binários e a atualização do Homebrew. A versão 2.0.1 corrige esse erro e o instalador do repositório.
+
+Obtenha o commit público pela tag `v2.0.1` do repositório confiável, conforme mostrado abaixo. Não use como referência um commit extraído de um registro de origem baixado sem verificação. O Gitea mantém o histórico completo; o GitHub contém a exportação OSS filtrada. Os identificadores diferem; as assinaturas e a procedência dos pacotes referem-se ao commit público.
 
 ## Escolher um arquivo
 
@@ -11,15 +13,20 @@ Baixe os binários da [versão v2.0.0](https://github.com/ThirdKeyAI/Symbiont/re
 | macOS ARM64 | `aarch64-apple-darwin` | `.tar.gz` |
 | Windows x86_64 | `x86_64-pc-windows-msvc` | `.zip` |
 
-Exemplo: `symbi-v2.0.0-x86_64-unknown-linux-gnu.tar.gz`. Não há arquivo pré-compilado para macOS Intel; instale a partir do código-fonte. Os binários de macOS e Windows não oferecem isolamento Landlock.
+Exemplo: `symbi-v2.0.1-x86_64-unknown-linux-gnu.tar.gz`. Não há arquivo pré-compilado para macOS Intel; instale a partir do código-fonte. Os binários de macOS e Windows não oferecem isolamento Landlock.
+
+Os diários protegidos de execução e os caminhos que dependem deles exigem Unix atualmente. Os binários para Windows oferecem as funções portáteis da CLI; a execução agendada protegida, a admissão persistente de chat e as melhorias governadas recusam operações não suportadas. Uma compilação bem-sucedida no Windows não comprova isolamento equivalente.
 
 ## Verificar antes de extrair
 
 Estes comandos exigem Bash, GitHub CLI e Cosign 3.1+. Use um diretório vazio e defina `ARCHIVE` com o nome correspondente à sua plataforma. Baixe também `.sig`, `.pem`, o manifesto assinado de somas de verificação e `release-source.json`:
 
 ```bash
-ARCHIVE=symbi-v2.0.0-x86_64-unknown-linux-gnu.tar.gz
-gh release download v2.0.0 --repo ThirdKeyAI/Symbiont \
+set -euo pipefail
+RELEASE_SHA=$(gh api repos/ThirdKeyAI/Symbiont/commits/v2.0.1 --jq .sha)
+[[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+ARCHIVE=symbi-v2.0.1-x86_64-unknown-linux-gnu.tar.gz
+gh release download v2.0.1 --repo ThirdKeyAI/Symbiont \
   --pattern "$ARCHIVE" --pattern "$ARCHIVE.sig" --pattern "$ARCHIVE.pem" \
   --pattern 'checksums.txt*' --pattern release-source.json
 ```
@@ -31,9 +38,9 @@ cosign bundle create --artifact checksums.txt \
   --signature checksums.txt.sig --certificate checksums.txt.pem \
   --out checksums.sigstore.json
 cosign verify-blob --bundle checksums.sigstore.json \
-  --certificate-identity 'https://github.com/ThirdKeyAI/Symbiont/.github/workflows/release-binaries.yml@refs/tags/v2.0.0' \
+  --certificate-identity 'https://github.com/ThirdKeyAI/Symbiont/.github/workflows/release-binaries.yml@refs/tags/v2.0.1' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-  --certificate-github-workflow-sha 21471d3a9dea8ccf24d9248ff9338b35a79215e5 \
+  --certificate-github-workflow-sha "$RELEASE_SHA" \
   checksums.txt
 ```
 
@@ -50,21 +57,21 @@ sha256sum --check selected-checksums.txt
 cat release-source.json
 ```
 
-O registro deve conter a tag `v2.0.0` e o commit `21471d3a9dea8ccf24d9248ff9338b35a79215e5`. Extraia e execute o binário somente após a verificação bem-sucedida. Para verificar a assinatura do arquivo separadamente, repita os comandos com `"$ARCHIVE"`, `"$ARCHIVE.sig"` e `"$ARCHIVE.pem"`. No Windows, use Git Bash ou ferramentas equivalentes e depois extraia o ZIP.
+O registro deve conter a tag `v2.0.1` e o commit `$RELEASE_SHA`. Extraia e execute o binário somente após a verificação bem-sucedida. Para verificar a assinatura do arquivo separadamente, repita os comandos com `"$ARCHIVE"`, `"$ARCHIVE.sig"` e `"$ARCHIVE.pem"`. No Windows, use Git Bash ou ferramentas equivalentes e depois extraia o ZIP.
 
 O instalador do repositório verifica a soma SHA-256 do manifesto HTTPS antes da extração, usando `sha256sum` ou `shasum`. Ele instala a versão mais recente em `~/.symbi/bin` e não faz a verificação independente de identidade Sigstore. Defina `SYMBI_INSTALL_DIR` para o processo `bash` se precisar de outra raiz de instalação. Use um download manual para fixar a versão.
 
 ## Contêineres e crates
 
-As imagens versionadas são `ghcr.io/thirdkeyai/symbi:2.0.0` e `ghcr.io/thirdkeyai/symbi-a2ui:2.0.0`. Verifique ambas antes da implantação:
+As imagens versionadas são `ghcr.io/thirdkeyai/symbi:2.0.1` e `ghcr.io/thirdkeyai/symbi-a2ui:2.0.1`. Verifique ambas antes da implantação:
 
 ```bash
-cosign verify ghcr.io/thirdkeyai/symbi:2.0.0 \
-  --certificate-identity 'https://github.com/ThirdKeyAI/Symbiont/.github/workflows/docker-build.yml@refs/tags/v2.0.0' \
+cosign verify ghcr.io/thirdkeyai/symbi:2.0.1 \
+  --certificate-identity 'https://github.com/ThirdKeyAI/Symbiont/.github/workflows/docker-build.yml@refs/tags/v2.0.1' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-  --certificate-github-workflow-sha 21471d3a9dea8ccf24d9248ff9338b35a79215e5
+  --certificate-github-workflow-sha "$RELEASE_SHA"
 ```
 
-No crates.io, confira a versão exata e se ela não foi retirada. Os onze novos crates 2.0.0 devem corresponder às somas do registro e ter `.cargo_vcs_info.json` apontando para o commit público. Permanecem inalterados `symbi-approval-relay` 0.1.1, `symbi-channel-adapter` 0.1.6 e `symbi-invis-strip` 0.3.0, com seus commits anteriores.
+No crates.io, confira a versão exata e se ela não foi retirada. Os onze novos crates 2.0.1 devem corresponder às somas do registro e ter `.cargo_vcs_info.json` apontando para o commit público. Permanecem inalterados `symbi-approval-relay` 0.1.1, `symbi-channel-adapter` 0.1.6 e `symbi-invis-strip` 0.3.0, com seus commits anteriores.
 
 Consulte a [validação](/release-2.0-validation/) para conhecer os testes e seus limites, e a [migração](/migration-2.0/) antes de atualizar uma implantação (ambas em inglês).
