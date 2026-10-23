@@ -215,6 +215,11 @@ pub enum InferenceError {
 /// - Token usage tracking
 #[async_trait]
 pub trait InferenceProvider: Send + Sync {
+    /// Resolve typed provider defaults before hashing or reserving a request.
+    /// Implementations must be deterministic and idempotent for a given request.
+    fn prepare_options(&self, _options: &mut InferenceOptions) -> Result<(), InferenceError> {
+        Ok(())
+    }
     /// Stable, non-secret configuration identity for opt-in evaluated releases.
     /// Unimplemented providers remain usable for ordinary runs.
     fn configuration_identity(&self) -> Option<String> {

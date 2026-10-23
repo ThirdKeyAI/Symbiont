@@ -7,7 +7,9 @@ use super::{
 };
 use crate::{
     reasoning::{
-        invocation::{open_invocation, ExistingInvocation, OpenInvocation},
+        invocation::{
+            lookup_invocation, open_invocation_with_admission, ExistingInvocation, OpenInvocation,
+        },
         loop_types::JournalWriter,
         run_audit::RunAuditReference,
     },
@@ -46,6 +48,7 @@ pub enum Admission {
 pub(crate) struct ClaimedJournal {
     pub writer: Arc<dyn JournalWriter>,
     pub audit: RunAuditReference,
+    pub improvement: Option<crate::improvement::PinnedImprovement>,
 }
 impl std::fmt::Debug for ClaimedJournal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -67,12 +70,23 @@ impl DefaultAgentScheduler {
         // or a newly allocated execution ID. Agent IDs remain part of authority.
         let request =
             json!({"version": 1, "context": identity.context, "target": config, "input": input});
-        let claim = match open_invocation(
+        let project = self.task_manager.invocation_project()?;
+        if let Some(existing) =
+            lookup_invocation(project, "scheduler:v1", identity.id, &request).await?
+        {
+            return Ok(Admission::Existing(existing));
+        }
+        let improvement = self.task_manager.pin_improvement(&config).await?;
+        let admission = improvement
+            .as_ref()
+            .map(|pin| json!({"improvement": pin.identity()}));
+        let claim = match open_invocation_with_admission(
             self.task_manager.invocation_project()?,
             "scheduler:v1",
             identity.id,
             &request,
             config.id,
+            admission,
         )
         .await?
         {
@@ -91,6 +105,7 @@ impl DefaultAgentScheduler {
                 Some(ClaimedJournal {
                     writer: claim.journal(),
                     audit: audit.clone(),
+                    improvement,
                 }),
             )
             .await

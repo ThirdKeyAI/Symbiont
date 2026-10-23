@@ -33,7 +33,7 @@ Symbiont implements a security-first architecture designed for regulated and hig
 
 ## Multi-Tier Sandboxing
 
-The runtime ships three host-isolation tiers (Tier 1 → Tier 3) plus one hosted-execution backend (E2B). The tiers form a monotonically increasing isolation ladder; E2B is **not** a peer on that ladder — it executes on third-party infrastructure and is documented separately below.
+The runtime ships three numbered host-isolation tiers (Tier 1 → Tier 3), the named `landlock` backend, and one hosted-execution backend (E2B). The numbered tiers form a monotonically increasing isolation ladder. Neither `landlock` nor E2B is a peer on that ladder: Landlock is a daemon-free kernel-enforced backend for one-shot commands, parsers and the managed CLI child, documented in [Landlock (native workers)](#landlock-daemon-free); E2B executes on third-party infrastructure and is documented separately below.
 
 ```mermaid
 graph TB
@@ -861,7 +861,49 @@ impl SecurityAnalyzer {
 
 ## ClawHavoc Skill Scanner
 
-The ClawHavoc scanner provides content-level defense for agent skills. Every skill file is scanned line-by-line before loading, and findings at Critical or High severity block the skill from executing.
+The ClawHavoc scanner provides content-level defense for agent skills. Recognized text files are scanned before loading. Critical or High findings fail the scan. Discovery/read failures, links, special files, and limit violations also fail the scan; a partial scan is never reported as clean.
+
+Content scanning is enabled by default and optional through `SkillsConfig::scan_enabled`.
+Library callers must enforce the scan and signature statuses in `LoadedSkill`.
+Verification applies to the captured bundle; it does not make later reads or
+execution from the original directory immutable.
+
+### Confined reads and signature verification
+
+Skill loading and scanning retain directory handles and refuse links inside the
+bundle. The loader scans the captured instruction text it returns, so replacing
+`SKILL.md` after reading it cannot substitute unscanned instructions. Symlinked
+skill roots are refused; trusted parent-path aliases are resolved at selection.
+
+Signature verification first creates a private snapshot limited to 1,000 files,
+20 directory levels, 16 MiB per file and 64 MiB total. This includes binary assets
+and the signature file. Oversized or linked bundles are rejected before
+cryptographic verification. Signatures now use the `symbi-skill-v2` envelope;
+legacy root-only signatures are refused and must be re-signed with
+`symbi skills sign DIR --key KEY.pem --domain publisher.example`.
+
+`verify_skill_with_discovery(path, discovery, expected_domain)` requires an explicit
+trusted DNS authority and a discovery document obtained through that authority.
+It checks the signature's claimed domain and derives the name, content hash,
+manifest and key identifier from captured content and the trusted key. The
+signed envelope binds the format, normalized domain, name, key identifier,
+signing timestamp and full ordered manifest. Each manifest entry hashes file
+content separately from its path, preventing ambiguous path/content boundaries.
+The timestamp is a publisher claim, not trusted time evidence. Cached pins identify keys; they do
+not verify current content. Loaders without a discovery document report signed
+content as unverified. `symbi skills verify` exits nonzero on all verification or
+discovery failures, and `symbi skills scan` exits nonzero on incomplete scans.
+
+The envelope is a compact UTF-8 JSON array in this order: format, domain, name,
+key identifier, timestamp, and a lexicographically ordered object mapping
+portable slash-separated UTF-8 paths to `sha256:HEX` content digests. Only the
+root `.schemapin.sig` file is excluded. The payload is signed with ECDSA P-256
+and SHA-256; `.schemapin.sig` retains the metadata field names, with
+`schemapin_version = "symbi-skill-v2"` and `skill_hash = SHA256(payload)`.
+Consumers must support this format; legacy SchemaPin skill verifiers cannot
+verify it. Tool-schema signatures and discovery documents retain their existing
+protocols. `scripts/resign_skill.sh` requires the updated executable and checks
+the publisher identity before replacing the published signature.
 
 ### Severity Model
 

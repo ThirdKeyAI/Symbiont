@@ -81,7 +81,7 @@ resolver had to be lifted for this path; see
 
 ## Releasing
 
-See `.claude/RELEASE_RUNBOOK.md` for the full release process, including:
+See `docs/release-runbook.md` for the full release process, including:
 
 - How to determine which crates need version bumps
 - Cross-crate version reference update checklist
@@ -126,7 +126,7 @@ full parse tree, which is for debugging, not for checking.
 
 ## Sandbox Tiers (all OSS)
 
-The tiers form a monotonically increasing host-isolation ladder:
+`tier0`–`tier3` form a monotonically increasing host-isolation ladder. `landlock` is a native Linux tier that sits alongside it rather than on it:
 
 | Tier  | Backend              | Selection                          | Prerequisites |
 |-------|----------------------|------------------------------------|---------------|
@@ -134,8 +134,9 @@ The tiers form a monotonically increasing host-isolation ladder:
 | tier1 | Docker               | default                            | `docker` daemon |
 | tier2 | gVisor (`runsc`)     | `with { sandbox = "gvisor" }`      | `runsc` registered as Docker runtime |
 | tier3 | Firecracker microVM  | `with { sandbox = "firecracker" }` | `firecracker` binary + operator-supplied vmlinux + rootfs.ext4 |
+| landlock | Landlock + seccomp + user/mount namespaces, supervisor-owned workers | project only: `[sandbox] tier = "landlock"` / `symbi init --sandbox landlock` | Linux with Landlock ABI 6+, seccomp, cgroup v2 delegation, a systemd user manager; runtime and supervisor under the same non-root UID |
 
-All three host-isolation tiers ship in the OSS runtime — no "Enterprise" gating on gVisor or Firecracker. Per-agent tier comes from the DSL `with { sandbox = "..." }` block; project default lives in `[sandbox] tier = "..."` in `symbiont.toml`.
+All isolation tiers, including Landlock, ship in the OSS runtime — no "Enterprise" gating on Landlock, gVisor or Firecracker. Per-agent tier comes from the DSL `with { sandbox = "..." }` block; project default lives in `[sandbox] tier = "..."` in `symbiont.toml`. Landlock is selected per project only: the DSL `with` block does not accept it. It runs without Docker or a VM, and missing kernel or service features fail the operation with no host fallback. See `docs/landlock-development.md` and `docs/landlock-supervision.md`.
 
 For Tier 3 setup (kernel + rootfs prep, in-VM init contract, hardening checklist), see `docs/firecracker-setup.md`. Scaffold a tier3 project with:
 
@@ -296,7 +297,7 @@ Changed file grants require a new run. See `docs/interactive-terminal-boundary.m
 
 **Adding a new tool does not require Rust code.** Drop a `.clad.toml` in `tools/`, the runtime picks it up.
 
-**MCP backend (`mcp-client` feature).** A manifest can carry an `[mcp]` block (`server`, `tool`, optional `field_map`) to route the tool to an upstream MCP server over stdio instead of a local binary. Servers are declared in `mcp-config.toml` (per-project, then `~/.symbiont/`). Invocation is SchemaPin-verified fail-closed by default (TOFU key pinning; a post-pin key swap is rejected); `ToolCladExecutor::with_mcp_verification(false)` opts out for local dev. This is how `symbi run` and the DSL `reason()`/`tool_call()` builtins execute real tools — see `docs/mcp-tools.md`.
+**MCP backend (`mcp-client` feature).** A manifest can carry an `[mcp]` block (`server`, `tool`, optional `field_map`) to route the tool to an upstream MCP server over stdio instead of a local binary. Servers are declared in the project’s `mcp-config.toml`; the `~/.symbiont/` fallback is available only outside production. Invocation is SchemaPin-verified fail-closed by default (TOFU key pinning; a post-pin key swap is rejected); `ToolCladExecutor::with_mcp_verification(false)` opts out for local dev. This is how `symbi run` and the DSL `reason()`/`tool_call()` builtins execute real tools — see `docs/mcp-tools.md`.
 
 ## Agent Delegation (chat coordinator)
 
@@ -399,6 +400,8 @@ The runtime API runs on port 8080 (configurable via `--port`):
 - `GET /api/v1/audit/runs/:agent_id/:run_id?public_key=HEX` — Verified operator run view (admin only)
 - `GET /api/v1/sandbox/capacity` — Retained shared worker reservations (admin only)
 - `GET /api/v1/sandbox/workers/:lease/usage` — Separately sampled worker CPU/memory (admin only)
+- `GET /api/v1/improvements/:workflow` — Optional instruction state, history and evidence (admin only)
+- `POST /api/v1/improvements/:workflow/actions` — Signed review import, activation, rollback and enablement (admin only)
 - `GET /api/v1/metrics` — Runtime metrics
 - `GET /swagger-ui` — Interactive API docs
 
@@ -419,7 +422,10 @@ See `crates/runtime/API_REFERENCE.md` for source selection and migration details
 frozen acceptance suite. It does not alter normal agent execution. Ordinary ORGA
 CLI runs select an approved version with `--improvement WORKFLOW`; the additional
 `--improvement-trial SHA256` explicitly runs an unpromoted candidate for evaluation.
-Managed CLI rejects these flags. HTTP, scheduler and chat do not auto-adopt them.
+Managed CLI rejects these flags. Registered HTTP/scheduled ORGA agents opt in with
+operator metadata `improvement_workflow`; queued pins and cached retries retain their
+original versions. Chat does not consume these workflows. The operator HTTP API
+provides inspection, signed Console approval import, explicit activation and rollback.
 
 Artifacts contain instructions, not permissions or executable definitions.
 Approval binds one candidate and passing evaluation; promotion checks the exact
@@ -431,8 +437,9 @@ cleanup, before termination. Unknown effects or usage cannot count as passing
 trial evidence. `export`/`verify` work without Enterprise services.
 
 The private `.symbiont/improvements/` tree and its signing keys must stay outside
-worker access. Local administration trusts the OS operator; it is not an
-enterprise reviewer identity or quorum. See `docs/governed-improvements.md` for
+worker access. Local administration trusts the OS operator. Optional Console approval receipts
+bind an authenticated reviewer using operator-pinned verification keys; they do not
+impose reviewer quorum. See `docs/governed-improvements.md` for
 schema contracts, limits, deployment fingerprints and evidence qualifications.
 Use `scripts/test-governed-improvements.py` for the installed CLI lifecycle check.
 
@@ -440,7 +447,7 @@ Agents defined in the Symbi DSL can:
 
 - Invoke LLMs (OpenRouter, OpenAI, Anthropic) with policy-governed prompts
 - Use skills (verified via SchemaPin cryptographic signatures)
-- Run in sandboxed environments — choose Tier 1 (Docker), Tier 2 (gVisor), or Tier 3 (Firecracker) per agent (all OSS host-isolation tiers); E2B is a separate hosted-cloud backend opt-in via the DSL
+- Run in sandboxed environments — choose Tier 1 (Docker), Tier 2 (gVisor), or Tier 3 (Firecracker) per agent, or Landlock per project on Linux (all OSS isolation tiers); E2B is a separate hosted-cloud backend opt-in via the DSL
 - Operate on cron schedules with timezone support
 - Connect to chat platforms (Slack, Teams, Mattermost) as channel adapters
 - Receive webhooks (GitHub, Stripe, Slack, custom) with signature verification

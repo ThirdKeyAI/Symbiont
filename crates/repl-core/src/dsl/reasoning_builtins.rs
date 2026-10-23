@@ -905,7 +905,8 @@ type = "object"
                 symbi_runtime::toolclad::ToolCladExecutor::new(
                     symbi_runtime::toolclad::manifest::load_manifests_from_dir(
                         &project.path().join("tools"),
-                    ),
+                    )
+                    .unwrap(),
                 )
                 .with_development_host_execution(),
             )),
@@ -974,7 +975,7 @@ min = 1
 max = 5
 clamp = true
 [command]
-template = "/usr/bin/touch '{}/{{count}}'"
+exec = ["/usr/bin/touch", "{}/{{count}}"]
 [output]
 format = "text"
 "#,
@@ -994,7 +995,7 @@ format = "text"
                 reasoning_policy_gate: Some(Arc::new(gate)),
                 tool_executor: Some(Arc::new(
                     symbi_runtime::toolclad::ToolCladExecutor::new(
-                        symbi_runtime::toolclad::manifest::load_manifests_from_dir(&tools),
+                        symbi_runtime::toolclad::manifest::load_manifests_from_dir(&tools).unwrap(),
                     )
                     .with_development_host_execution(),
                 )),
@@ -1352,7 +1353,8 @@ mod audit_tests {
                 symbi_runtime::toolclad::ToolCladExecutor::new(
                     symbi_runtime::toolclad::manifest::load_manifests_from_dir(
                         &project.path().join("tools"),
-                    ),
+                    )
+                    .unwrap(),
                 )
                 .with_development_host_execution(),
             )),
@@ -1545,7 +1547,8 @@ mod audit_tests {
         let executor = symbi_runtime::toolclad::ToolCladExecutor::new(
             symbi_runtime::toolclad::manifest::load_manifests_from_dir(
                 &project.path().join("tools"),
-            ),
+            )
+            .unwrap(),
         )
         .with_development_host_execution();
         let ctx = ReasoningBuiltinContext {
@@ -1775,8 +1778,9 @@ version = "1"
 description = "Write an isolated test result"
 binary = "/bin/sh"
 timeout_seconds = 15
+allow_interpreter = true
 [command]
-template = "/bin/sh -c 'test ! -e {} && test `id -u` = 65534 && printf registered > /workspace/allowed'"
+exec = ["/bin/sh", "-c", "test ! -e {} && test `id -u` = 65534 && printf registered > /workspace/allowed"]
 [output]
 format = "text"
 "#, canary.display())).unwrap();

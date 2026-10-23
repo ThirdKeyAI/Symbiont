@@ -44,9 +44,20 @@ CLI; a run-only view cannot invent a signed `Started` record.
 
 ## Protocol
 
-Authenticate the `/ws/chat` connection using an administrative API credential.
-Scoped keys cannot use the fleet coordinator. Retain the UUID and content before
-transport, then send:
+Authenticate by sending `POST /api/v1/auth/ws-session` with an administrative
+`Authorization: Bearer <key_id>.<secret>` header. The response contains `session`
+and `expires_in: 60`, with `Cache-Control: no-store`. Connect to
+`/ws/chat?session=<ticket>` within 60 seconds. Each ticket can be used once;
+request a fresh ticket for every reconnect. Issuing another ticket for the same
+credential invalidates its outstanding ticket. The server rechecks credential
+policy when consuming the ticket.
+
+Durable credentials in `?token=` URLs are rejected. Unprefixed key-store
+credentials must be reissued; agent-scoped keys cannot use the fleet coordinator.
+`SYMBIONT_REFUSE_LEGACY_API_TOKEN=1` applies to ticket issuance as well as the REST
+API. The bundled client performs the exchange automatically. Configure reverse
+proxies to omit query strings from access logs; runtime request traces record
+only the path. Retain the message UUID and content before transport, then send:
 
 ```json
 {"type":"ChatSend","id":"59e1e64e-4d39-440c-a5b1-577c7172b7d3","content":"Check runtime health"}

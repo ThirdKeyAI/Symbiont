@@ -180,7 +180,7 @@ agent data_analyzer(data: DataSet, options: AnalysisOptions) -> AnalysisResults 
 Das Agentenverhalten lebt im `with`-Block des Agenten (und in `function`-Definitionen) --
 es gibt kein separates `behavior`-Konstrukt. Richtlinienregeln (`allow` / `deny` /
 `require` / `audit`) steuern, was der Agent tun darf. Siehe den
-[DSL-Leitfaden](dsl-guide.md) und die [DSL-Spezifikation](dsl-specification.md) fuer die
+[DSL-Leitfaden](dsl-guide.md) und die [DSL-Spezifikation](/dsl-specification) fuer die
 vollstaendige Grammatik.
 
 ### Eingebaute Funktionen

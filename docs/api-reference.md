@@ -67,7 +67,7 @@ Returns the current system health status and basic runtime information.
 POST /api/v1/workflows/execute
 ```
 
-Administrators submit raw DSL source in `workflow_id`; `parameters` is the invocation input. Omit `agent_id` to allocate a registration, or supply an ID to create or replace it. Agent-scoped keys receive `403 ADMIN_REQUIRED` here and can invoke their registered source through `/agents/{id}/execute`. A `queued` response acknowledges admission; match `execution_id` in `/agents/{id}/history` for the eventual outcome. See the [workflow contract](../crates/runtime/API_REFERENCE.md#execute-workflow) for source selection, validation and migration details.
+Administrators submit raw DSL source in `workflow_id`; `parameters` is the invocation input. Omit `agent_id` to allocate a registration, or supply an ID to create or replace it. Agent-scoped keys receive `403 ADMIN_REQUIRED` here and can invoke their registered source through `/agents/{id}/execute`. A `queued` response acknowledges admission; match `execution_id` in `/agents/{id}/history` for the eventual outcome. See the [workflow contract](https://github.com/ThirdKeyAI/Symbiont/blob/main/crates/runtime/API_REFERENCE.md#execute-workflow) for source selection, validation and migration details.
 
 **Request Body:**
 ```json
@@ -313,7 +313,7 @@ Retrieve a comprehensive metrics snapshot covering scheduler, task manager, load
 }
 ```
 
-The metrics snapshot can also be exported to files (atomic JSON write) or OTLP endpoints using the runtime's `MetricsExporter` system. See the [Metrics & Telemetry](#metrics--telemetry) section below.
+The metrics snapshot can also be exported to files (atomic JSON write) or OTLP endpoints using the runtime's `MetricsExporter` system. See the [Metrics & Telemetry](#metrics-telemetry) section below.
 
 ---
 

@@ -62,6 +62,13 @@ pub fn command() -> Command {
         )
         .subcommand(
             operation(
+                "approve-receipt",
+                "Import an authenticated Console approval using operator-pinned trust keys",
+            )
+            .arg(arg("file")),
+        )
+        .subcommand(
+            operation(
                 "rollback",
                 "Restore a previously activated approved version",
             )
@@ -186,6 +193,9 @@ fn execute(matches: &ArgMatches) -> Result<(serde_json::Value, i32), String> {
         }
         "approve" => {
             serde_json::json!({"approval":store.approve(value("candidate")?,value("evaluation")?,value("rationale")?)?})
+        }
+        "approve-receipt" => {
+            serde_json::json!({"approval":store.approve_receipt(read_json(Path::new(value("file")?))?)?})
         }
         "promote" | "rollback" => {
             let expected = value("expected-active")?;

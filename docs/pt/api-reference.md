@@ -67,7 +67,7 @@ Retorna o status atual de saúde do sistema e informações básicas do runtime.
 POST /api/v1/workflows/execute
 ```
 
-Um administrador envia código DSL em `workflow_id`; `parameters` é a entrada da execução. `agent_id` cria ou substitui um registro; sua omissão aloca um novo ID. Chaves limitadas a um agente recebem `403 ADMIN_REQUIRED` e podem executar o código registrado por `/agents/{id}/execute`. `queued` confirma a admissão; consulte `/agents/{id}/history` pelo `execution_id` para obter o resultado. Veja o [contrato completo](../../crates/runtime/API_REFERENCE.md#execute-workflow).
+Um administrador envia código DSL em `workflow_id`; `parameters` é a entrada da execução. `agent_id` cria ou substitui um registro; sua omissão aloca um novo ID. Chaves limitadas a um agente recebem `403 ADMIN_REQUIRED` e podem executar o código registrado por `/agents/{id}/execute`. `queued` confirma a admissão; consulte `/agents/{id}/history` pelo `execution_id` para obter o resultado. Veja o [contrato completo](https://github.com/ThirdKeyAI/Symbiont/blob/main/crates/runtime/API_REFERENCE.md#execute-workflow).
 
 **Corpo da Solicitação:**
 ```json
@@ -316,7 +316,7 @@ Recupera um snapshot abrangente de métricas cobrindo agendador, gerenciador de 
 }
 ```
 
-O snapshot de métricas também pode ser exportado para arquivos (escrita JSON atômica) ou endpoints OTLP usando o sistema `MetricsExporter` do runtime. Veja a seção [Métricas e Telemetria](#métricas--telemetria) abaixo.
+O snapshot de métricas também pode ser exportado para arquivos (escrita JSON atômica) ou endpoints OTLP usando o sistema `MetricsExporter` do runtime. Veja a seção [Métricas e Telemetria](#metricas-e-telemetria) abaixo.
 
 ---
 

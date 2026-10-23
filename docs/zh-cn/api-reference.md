@@ -67,7 +67,7 @@ GET /api/v1/health
 POST /api/v1/workflows/execute
 ```
 
-管理员在 `workflow_id` 中提交 DSL 源码，`parameters` 作为执行输入。指定 `agent_id` 会创建或替换注册；省略时会分配新 ID。限定代理范围的密钥会收到 `403 ADMIN_REQUIRED`，可通过 `/agents/{id}/execute` 执行已注册的源码。`queued` 仅表示已入队，请在 `/agents/{id}/history` 中按 `execution_id` 查询实际结果。参阅[完整接口约定](../../crates/runtime/API_REFERENCE.md#execute-workflow)。
+管理员在 `workflow_id` 中提交 DSL 源码，`parameters` 作为执行输入。指定 `agent_id` 会创建或替换注册；省略时会分配新 ID。限定代理范围的密钥会收到 `403 ADMIN_REQUIRED`，可通过 `/agents/{id}/execute` 执行已注册的源码。`queued` 仅表示已入队，请在 `/agents/{id}/history` 中按 `execution_id` 查询实际结果。参阅[完整接口约定](https://github.com/ThirdKeyAI/Symbiont/blob/main/crates/runtime/API_REFERENCE.md#execute-workflow)。
 
 **请求体：**
 ```json
@@ -313,6 +313,8 @@ GET /api/v1/metrics
 指标快照还可以使用运行时的 `MetricsExporter` 系统导出到文件（原子 JSON 写入）或 OTLP 端点。参见下方的[指标与遥测](#指标与遥测)部分。
 
 ---
+
+<a id="指标与遥测"></a>
 
 ### 指标与遥测
 

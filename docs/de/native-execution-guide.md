@@ -447,7 +447,7 @@ Vor der Aktivierung nativer Ausfuehrung in jeder Umgebung:
 - [Sicherheitsmodell](security-model.md) - Vollstaendige Sicherheitsarchitektur
 - [Sandbox-Architektur](runtime-architecture.md#sandbox-architecture) - Container-Stufen
 - [Konfigurationsleitfaden](getting-started.md#configuration) - Einrichtungsoptionen
-- [DSL-Sicherheitsanweisungen](dsl-guide.md#security) - Sicherheit auf Agentenebene
+- [DSL-Sicherheitsanweisungen](dsl-guide.md#sicherheitskonfiguration) - Sicherheit auf Agentenebene
 
 ---
 

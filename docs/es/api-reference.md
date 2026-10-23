@@ -67,7 +67,7 @@ Devuelve el estado actual de salud del sistema e informacion basica del runtime.
 POST /api/v1/workflows/execute
 ```
 
-Un administrador envía código DSL en `workflow_id`; `parameters` es la entrada de la ejecución. `agent_id` permite crear o reemplazar un registro; si se omite, se asigna uno nuevo. Las claves limitadas a un agente reciben `403 ADMIN_REQUIRED` y pueden ejecutar su código registrado mediante `/agents/{id}/execute`. `queued` confirma la admisión; consulte `/agents/{id}/history` por `execution_id` para ver el resultado. Véase el [contrato completo](../../crates/runtime/API_REFERENCE.md#execute-workflow).
+Un administrador envía código DSL en `workflow_id`; `parameters` es la entrada de la ejecución. `agent_id` permite crear o reemplazar un registro; si se omite, se asigna uno nuevo. Las claves limitadas a un agente reciben `403 ADMIN_REQUIRED` y pueden ejecutar su código registrado mediante `/agents/{id}/execute`. `queued` confirma la admisión; consulte `/agents/{id}/history` por `execution_id` para ver el resultado. Véase el [contrato completo](https://github.com/ThirdKeyAI/Symbiont/blob/main/crates/runtime/API_REFERENCE.md#execute-workflow).
 
 **Cuerpo de Solicitud:**
 ```json
@@ -316,7 +316,7 @@ Recupera una instantanea de metricas completa cubriendo programador, gestor de t
 }
 ```
 
-La instantanea de metricas tambien puede exportarse a archivos (escritura JSON atomica) o endpoints OTLP usando el sistema `MetricsExporter` del runtime. Consulta la seccion [Metricas y Telemetria](#metricas--telemetria) a continuacion.
+La instantanea de metricas tambien puede exportarse a archivos (escritura JSON atomica) o endpoints OTLP usando el sistema `MetricsExporter` del runtime. Consulta la seccion [Metricas y Telemetria](#metricas-y-telemetria) a continuacion.
 
 ---
 

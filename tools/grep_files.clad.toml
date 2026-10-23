@@ -6,7 +6,10 @@ timeout_seconds = 10
 [args.needle]
 position = 1
 required = true
-type = "string"
+# Data for the fixed source broker, never argv: `literal_text` keeps spaces
+# and punctuation exactly. The broker bounds it to 1024 bytes.
+type = "literal_text"
+pattern = "(?s).{1,1024}"
 description = "Literal UTF-8 text, at most 1024 bytes"
 [source]
 operation = "grep_files"

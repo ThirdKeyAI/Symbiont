@@ -1,5 +1,6 @@
 //! Bounded actors own interactive workers; registry locks never cover I/O.
 use super::{infer_state, parse_session_tool_name, strip_ansi, SessionCall};
+use crate::toolclad::manifest::Manifest;
 use crate::{
     sandbox::{
         command::{CommandBoundary, CommandTier},
@@ -95,8 +96,8 @@ impl SessionManager {
             .commands
             .get(&command_name)
             .ok_or("unknown session command")?;
-        super::validate_terminal_input(call.command, &command.pattern)?;
-        let settings = Settings::new(definition, worker_limit, call.run_deadline)?;
+        super::validate_named_session_command(call.manifest, &command_name, call.command)?;
+        let settings = Settings::new(call.manifest, definition, worker_limit, call.run_deadline)?;
         let file_grants = crate::reasoning::prepared::digest_json(&call.files.descriptor())?;
         let key = crate::reasoning::prepared::digest_json(&serde_json::json!({
             "run": call.run, "binding": call.binding, "contract": call.contract, "manifest": base
@@ -303,6 +304,9 @@ async fn await_cleanup(completions: Vec<watch::Receiver<Completion>>) -> Result<
 struct Settings {
     argv: Vec<String>,
     prompt: regex::Regex,
+    /// Command line (with `{sentinel}`) that makes the far side echo a fresh
+    /// per-interaction sentinel; `None` falls back to end-of-output matching.
+    sentinel: Option<String>,
     life: Instant,
     startup: Duration,
     idle: Duration,
@@ -312,6 +316,7 @@ struct Settings {
 }
 impl Settings {
     fn new(
+        manifest: &Manifest,
         def: &SessionDef,
         worker_limit: Duration,
         owner_deadline: Instant,
@@ -353,9 +358,14 @@ impl Settings {
             .checked_add(Duration::from_secs(def.session_timeout_seconds).min(worker_limit))
             .ok_or("terminal lifetime exceeds supported range")?
             .min(owner_deadline);
+        let sentinel = def.sentinel_command.clone().or_else(|| {
+            (manifest.session_binary().as_deref() == Some("psql"))
+                .then(|| "\\echo {sentinel}".to_string())
+        });
         Ok(Self {
             argv,
             prompt,
+            sentinel,
             life,
             startup: Duration::from_secs(def.startup_timeout_seconds),
             idle: Duration::from_secs(def.idle_timeout_seconds),
@@ -424,11 +434,39 @@ impl LivePty {
         }
         Ok(())
     }
+    /// Write one line; the executor appends the only terminator.
+    async fn write_line(&mut self, line: &str) -> Result<(), String> {
+        self.stdin
+            .write_all(format!("{line}\n").as_bytes())
+            .await
+            .map_err(|e| format!("terminal write failed: {e}"))?;
+        self.stdin
+            .flush()
+            .await
+            .map_err(|e| format!("terminal flush failed: {e}"))
+    }
+
+    /// Wait for the ready prompt (ToolClad S2). With a sentinel command, a
+    /// fresh 128-bit sentinel is sent after the caller's input and the
+    /// interaction completes only when the sentinel appears on a line of its
+    /// own and the prompt then matches at the start of the final line, so a
+    /// prompt-shaped string inside tool output can never frame the result.
+    /// Without one, the prompt must be the final, unterminated line.
     async fn prompt(
         &mut self,
         pattern: &regex::Regex,
         limit: usize,
-    ) -> Result<(String, String), String> {
+        sentinel_command: Option<&str>,
+    ) -> Result<(String, String, &'static str), String> {
+        let sentinel = match sentinel_command {
+            Some(template) => {
+                let token = uuid::Uuid::new_v4().simple().to_string();
+                self.write_line(&template.replace("{sentinel}", &token))
+                    .await?;
+                Some(token)
+            }
+            None => None,
+        };
         let mut output = Vec::new();
         let mut stdout = [0; 8192];
         let mut stderr = [0; 8192];
@@ -441,12 +479,8 @@ impl LivePty {
                     if output.len().saturating_add(size) > limit { return Err("terminal interaction output limit exceeded".into()); }
                     output.extend_from_slice(&stdout[..size]);
                     let text = strip_ansi(&String::from_utf8_lossy(&output));
-                    if let Some(line) = text.lines().last() {
-                        let line = line.trim();
-                        if !line.is_empty() && pattern.is_match(line) {
-                            let prompt = line.to_owned();
-                            return Ok((text, prompt));
-                        }
+                    if let Some(found) = match_prompt(&text, pattern, sentinel.as_deref()) {
+                        return Ok(found);
                     }
                 },
                 read = self.stderr.read(&mut stderr), if !self.stderr_closed => {
@@ -459,6 +493,50 @@ impl LivePty {
     }
     async fn finish(&mut self) -> Result<(), String> {
         self.guard.finish().await
+    }
+}
+
+/// Frame a response: `(output, prompt, anchor)` once the prompt is observed.
+fn match_prompt(
+    text: &str,
+    pattern: &regex::Regex,
+    sentinel: Option<&str>,
+) -> Option<(String, String, &'static str)> {
+    match sentinel {
+        Some(token) => {
+            let mut offset = 0;
+            let mut cut = None;
+            for line in text.split_inclusive('\n') {
+                if cut.is_none() && line.contains(token) {
+                    // The first line naming the sentinel is the echo of the
+                    // sentinel command (or the sentinel itself): output ends here.
+                    cut = Some(offset);
+                }
+                if line.trim_end_matches(['\r', '\n']).trim() == token && line.ends_with('\n') {
+                    let after = &text[offset + line.len()..];
+                    let last = after.rsplit('\n').next().unwrap_or("");
+                    let candidate = last.trim_end();
+                    if !candidate.is_empty()
+                        && !after.ends_with('\n')
+                        && pattern.is_match(candidate)
+                    {
+                        let body = text[..cut.unwrap_or(offset)].to_owned();
+                        return Some((body, candidate.to_owned(), "sentinel"));
+                    }
+                    return None;
+                }
+                offset += line.len();
+            }
+            None
+        }
+        None => {
+            if text.ends_with('\n') {
+                return None;
+            }
+            let line = text.rsplit('\n').next()?.trim();
+            (!line.is_empty() && pattern.is_match(line))
+                .then(|| (text.to_owned(), line.to_owned(), "end_of_output"))
+        }
     }
 }
 
@@ -617,11 +695,13 @@ async fn run_actor(
                 return Err("terminal maximum interactions exhausted".into());
             }
             if count == 0 {
-                let (output, _) = tokio::time::timeout_at(
+                let (output, _, _) = tokio::time::timeout_at(
                     start_deadline.into(),
-                    live.as_mut()
-                        .unwrap()
-                        .prompt(&settings.prompt, settings.output),
+                    live.as_mut().unwrap().prompt(
+                        &settings.prompt,
+                        settings.output,
+                        settings.sentinel.as_deref(),
+                    ),
                 )
                 .await
                 .map_err(|_| "terminal startup timed out")??;
@@ -644,18 +724,15 @@ async fn run_actor(
                 Some(&command_name),
             )?;
             let pty = live.as_mut().unwrap();
-            pty.stdin
-                .write_all(format!("{command}\n").as_bytes())
-                .await
-                .map_err(|e| format!("terminal write failed: {e}"))?;
-            pty.stdin
-                .flush()
-                .await
-                .map_err(|e| format!("terminal flush failed: {e}"))?;
+            pty.write_line(&command).await?;
             let limit = bounded_deadline(settings.interaction, deadline.min(settings.life));
-            let (output, prompt) = tokio::time::timeout_at(
+            let (output, prompt, anchor) = tokio::time::timeout_at(
                 limit.into(),
-                pty.prompt(&settings.prompt, settings.output),
+                pty.prompt(
+                    &settings.prompt,
+                    settings.output,
+                    settings.sentinel.as_deref(),
+                ),
             )
             .await
             .map_err(|_| "terminal response timed out")??;
@@ -672,7 +749,7 @@ async fn run_actor(
                 "session_closed": false, "created_files": [],
                 "file_publication": if files.has_output() { "pending" } else { "none" },
                 "duration_ms":started.elapsed().as_millis(), "timestamp":chrono::Utc::now().to_rfc3339(),
-                "exit_code":null, "stderr":"", "results":{"output":output,"prompt":prompt,
+                "exit_code":null, "stderr":"", "results":{"output":output,"prompt":prompt,"prompt_anchor":anchor,
                     "session_state":infer_state(&prompt),"interaction_count":count}
             }))
         };
@@ -785,5 +862,39 @@ mod tests {
                 .contains("removal failure"));
         }
         assert_eq!(manager.registry.lock().unwrap().slots.len(), 1);
+    }
+
+    fn re(p: &str) -> regex::Regex {
+        regex::Regex::new(&format!(r"\A(?:{p})\z")).unwrap()
+    }
+
+    #[test]
+    fn prompt_inside_output_cannot_frame_a_sentinel_interaction() {
+        let p = re("db=>");
+        let token = "0123456789abcdef0123456789abcdef";
+        // A row that looks like the prompt, before the sentinel: not done.
+        assert!(match_prompt("db=>\n", &p, Some(token)).is_none());
+        assert!(match_prompt("row\ndb=> ", &p, Some(token)).is_none());
+        // The echoed sentinel command is not the sentinel line.
+        let echoed = format!("row\n\\echo {token}\ndb=> ");
+        assert!(match_prompt(&echoed, &p, Some(token)).is_none());
+        let done = format!("row\ndb=> \\echo {token}\n{token}\ndb=> ");
+        let (body, prompt, anchor) = match_prompt(&done, &p, Some(token)).unwrap();
+        assert_eq!(prompt, "db=>");
+        assert_eq!(anchor, "sentinel");
+        assert_eq!(body, "row\n");
+        // Output after the sentinel that ends with a newline is not a prompt.
+        assert!(match_prompt(&format!("{token}\ndb=>\n"), &p, Some(token)).is_none());
+    }
+
+    #[test]
+    fn end_of_output_matching_requires_an_unterminated_final_line() {
+        let p = re("db=>");
+        assert!(match_prompt("db=>\nmore\n", &p, None).is_none());
+        assert!(match_prompt("db=>\n", &p, None).is_none());
+        assert_eq!(
+            match_prompt("rows\ndb=> ", &p, None).unwrap().2,
+            "end_of_output"
+        );
     }
 }

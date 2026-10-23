@@ -1,0 +1,57 @@
+name: Qualify release commit
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        default: ''
+      sha:
+        type: string
+        default: ''
+      checks:
+        type: string
+        default: all
+    outputs:
+      sha:
+        value: ${{ jobs.qualify.outputs.sha }}
+      tag:
+        value: ${{ jobs.qualify.outputs.tag }}
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 125
+    outputs:
+      sha: ${{ steps.source.outputs.sha }}
+      tag: ${{ steps.source.outputs.tag }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve and pin canonical source
+        id: source
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          SOURCE_SHA: ${{ inputs.sha || github.sha }}
+        shell: bash
+        run: |
+          if [[ -n "$RELEASE_TAG" ]]; then
+            [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]
+            SOURCE_SHA=$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")
+          fi
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$SOURCE_SHA" origin/main
+          echo "sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+      - name: Require successful checks for that exact commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          REQUIRED_CHECKS: ${{ inputs.checks }}
+        run: python3 scripts/require-release-checks.py --sha "$SOURCE_SHA" --checks "$REQUIRED_CHECKS" --wait-seconds 7200

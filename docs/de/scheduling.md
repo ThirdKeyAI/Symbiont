@@ -175,100 +175,92 @@ Der Heartbeat-Agent folgt diesem Zyklus:
 
 ## CLI-Befehle
 
-Der Befehl `symbi cron` bietet vollstaendige Lebenszyklus-Verwaltung:
+`symbi cron` verwaltet den Lebenszyklus geplanter Auftraege. Jeder
+Unterbefehl unten wird mit den Optionen gezeigt, die er tatsaechlich
+akzeptiert; fuehren Sie `symbi cron <subcommand> --help` aus, um dies gegen
+Ihren Build zu pruefen.
 
 ### Auftraege auflisten
 
 ```bash
-# Alle Auftraege auflisten
 symbi cron list
-
-# Nach Status filtern
-symbi cron list --status active
-symbi cron list --status paused
-
-# Nach Agent filtern
-symbi cron list --agent "reporter-agent"
-
-# JSON-Ausgabe
-symbi cron list --format json
 ```
+
+`list` nimmt keine Optionen. Verwenden Sie `symbi cron status <job-id>` fuer
+die Details eines einzelnen Auftrags oder `symbi cron history`, um
+Ausfuehrungsdatensaetze zu filtern.
 
 ### Auftrag hinzufuegen
 
-```bash
-# Aus DSL-Datei
-symbi cron add --file agent.symbi --schedule "daily-report"
+`--name`, `--cron` und `--agent` sind erforderlich. Der Agent muss bereits
+registriert sein; `add` liest keine DSL-Datei.
 
-# Inline-Definition (JSON)
-symbi cron add --json '{
-  "name": "quick-task",
-  "agent_id": "agent-123",
-  "cron_expr": "0 0 * * * *"
-}'
+```bash
+symbi cron add --name "daily-report" --cron "0 0 9 * * * *" --agent reporter
+
+# Zeitzone (Standard UTC) und Richtlinie festlegen und nach einem Lauf deaktivieren
+symbi cron add --name "one-off" --cron "0 */5 * * * * *" --agent reporter \
+  --tz "America/New_York" --policy strict --one-shot
 ```
 
-### Auftrag entfernen
+| Option | Erforderlich | Bedeutung |
+|---|---|---|
+| `--name <NAME>` | ja | Auftragsname |
+| `--cron <EXPR>` | ja | Cron-Ausdruck, sieben Felder (Sekunden zuerst) |
+| `--agent <AGENT>` | ja | Name des registrierten Agenten, der ausgefuehrt werden soll |
+| `--tz <TIMEZONE>` | nein | IANA-Zeitzone, Standard UTC |
+| `--policy <POLICY>` | nein | Auf den Lauf anzuwendende Richtlinie |
+| `--one-shot` | nein | Einmal ausfuehren, dann den Auftrag deaktivieren |
+
+### Entfernen, Pausieren, Fortsetzen
+
+Jeder Befehl nimmt eine einzelne Auftrags-UUID und keine Optionen.
 
 ```bash
-# Nach Job-ID
 symbi cron remove <job-id>
-
-# Nach Name
-symbi cron remove --name "daily-report"
-
-# Erzwungenes Entfernen (Bestaetigung ueberspringen)
-symbi cron remove <job-id> --force
-```
-
-### Pausieren/Fortsetzen
-
-```bash
-# Auftrag pausieren (stoppt Planung, behaelt Zustand)
-symbi cron pause <job-id>
-
-# Pausierten Auftrag fortsetzen
-symbi cron resume <job-id>
+symbi cron pause <job-id>    # stoppt die Planung, behaelt den Zustand
+symbi cron resume <job-id>   # nicht aufgeloeste Vorkommen blockieren ein Fortsetzen
 ```
 
 ### Status
 
 ```bash
-# Auftragsdetails mit naechster Ausfuehrungszeit
 symbi cron status <job-id>
-
-# Die letzten 10 Ausfuehrungsdatensaetze einbeziehen
-symbi cron status <job-id> --history 10
-
-# Ueberwachungsmodus (automatische Aktualisierung alle 5 Sekunden)
-symbi cron status <job-id> --watch
 ```
+
+`status` nimmt eine Auftrags-UUID und keine Optionen. Es berichtet die Details
+des Auftrags und die letzten Ausfuehrungen, einschliesslich eines
+`Reconciled`-Status mit dem urspruenglichen Fehler und der Aufloesung des
+Betreibers, wenn ein Aufruf abgeglichen wurde.
 
 ### Sofort ausfuehren
 
 ```bash
-# Sofortige Ausfuehrung ausloesen (umgeht den Zeitplan)
 symbi cron run <job-id>
-
-# Mit benutzerdefinierter Eingabe
-symbi cron run <job-id> --input "Check production database"
 ```
+
+Loest den Auftrag sofort erzwungen aus. Eine manuelle Ausloesung erfordert
+ueber die REST-Oberflaeche ein administratives Token und eine
+`Idempotency-Key`-UUID; verwenden Sie dieselbe UUID erneut, um einen Versuch
+zu wiederholen, nicht um zweimal auszufuehren. Siehe
+[Scheduler-Wiederholungszustaende](/scheduler-idempotency) und
+[Cron-Wiederherstellung](/cron-recovery).
 
 ### Verlauf
 
 ```bash
-# Ausfuehrungsverlauf eines Auftrags anzeigen
-symbi cron history <job-id>
+# Letzte Ausfuehrungen ueber alle Auftraege hinweg (standardmaessig 20)
+symbi cron history
 
-# Letzte 20 Ausfuehrungen
-symbi cron history <job-id> --limit 20
-
-# Nach Status filtern
-symbi cron history <job-id> --status failed
-
-# Als CSV exportieren
-symbi cron history <job-id> --format csv > runs.csv
+# Ein einzelner Auftrag, mit explizitem Datensatzlimit
+symbi cron history --job <job-id> --limit 50
 ```
+
+| Option | Bedeutung |
+|---|---|
+| `--job <JOB_ID>` | Auf einen Auftrag filtern |
+| `--limit <N>` | Maximale Anzahl anzuzeigender Datensaetze, Standard 20 |
+
 
 ## Heartbeat-Muster
 
@@ -575,15 +567,21 @@ schedule {
 **Wiederherstellung:**
 
 ```bash
-# Dead-Letter-Auftraege auflisten
-symbi cron list --status dead_letter
+# Auftraege auflisten und den deaktivierten finden
+symbi cron list
 
-# Fehlerursachen ueberpruefen
-symbi cron history <job-id> --status failed
+# Seine Ausfuehrungsdatensaetze pruefen, einschliesslich der Fehlschlaege
+symbi cron history --job <job-id>
 
-# Auftrag nach Behebung zuruecksetzen
-symbi cron reset <job-id>
+# Nach Behebung der Ursache wieder aktivieren
+symbi cron resume <job-id>
 ```
+
+`cron list` und `cron history` filtern nicht nach Status; lesen Sie die
+Statusspalte aus `list` oder die Ausfuehrungsdatensaetze aus `history`. Es gibt
+keinen Unterbefehl `cron reset` -- `resume` aktiviert einen Auftrag wieder, und
+ein nicht aufgeloestes Vorkommen blockiert das Fortsetzen, bis ein Betreiber es
+abgleicht.
 
 ### AgentPin-Verifizierung
 
@@ -941,11 +939,11 @@ Oder programmatisch ueber die Runtime-HTTP-API — siehe [API-Referenz](/api-ref
 1. Auftragsstatus pruefen: `symbi cron status <job-id>`
 2. Cron-Ausdruck verifizieren: [crontab.guru](https://crontab.guru/) verwenden
 3. Scheduler-Gesundheit pruefen: `curl http://localhost:8080/api/v1/health/scheduler`
-4. Logs ueberpruefen: `symbi logs --filter scheduler --level debug`
+4. Logs ueberpruefen: `symbi logs --lines 200` (`--follow` hinzufuegen, um zu streamen)
 
 ### Auftrag schlaegt wiederholt fehl
 
-1. Verlauf anzeigen: `symbi cron history <job-id> --status failed`
+1. Verlauf anzeigen: `symbi cron history --job <job-id>`
 2. Fehlermeldungen in Ausfuehrungsdatensaetzen pruefen
 3. Agentenkonfiguration und -faehigkeiten verifizieren
 4. Agent ausserhalb des Schedulers testen: `symbi run <agent-id> --input "test"`
@@ -953,10 +951,10 @@ Oder programmatisch ueber die Runtime-HTTP-API — siehe [API-Referenz](/api-ref
 
 ### Dead-Letter-Auftrag
 
-1. Dead-Letter-Auftraege auflisten: `symbi cron list --status dead_letter`
-2. Fehlermuster ueberpruefen: `symbi cron history <job-id>`
+1. Auftraege auflisten und den deaktivierten finden: `symbi cron list`
+2. Fehlermuster ueberpruefen: `symbi cron history --job <job-id>`
 3. Grundursache beheben (Agentencode, Berechtigungen, externe Abhaengigkeiten)
-4. Auftrag zuruecksetzen: `symbi cron reset <job-id>`
+4. Auftrag wieder aktivieren: `symbi cron resume <job-id>`
 
 ### Hoher Speicherverbrauch
 

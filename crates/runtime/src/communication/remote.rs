@@ -204,33 +204,29 @@ fn truncate_for_error(s: &str, limit: usize) -> String {
 }
 
 fn check_base_url_security(base_url: &str, has_token: bool) -> Result<(), String> {
-    let lowered = base_url.to_ascii_lowercase();
+    let parsed = url::Url::parse(base_url).map_err(|_| "invalid remote bus URL")?;
+    if !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err("remote bus URL must not contain credentials, query, or fragment".into());
+    }
     let strict = std::env::var("SYMBIONT_REMOTE_BUS_REQUIRE_TLS")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
-
-    if lowered.starts_with("https://") {
+    if parsed.scheme() == "https" && parsed.host().is_some() {
         return Ok(());
     }
-
-    if !lowered.starts_with("http://") {
-        // Let reqwest surface the error at send time; this helper only
-        // gates on the http/https distinction.
-        return Ok(());
+    if parsed.scheme() != "http" || parsed.host().is_none() {
+        return Err("remote bus requires an HTTP or HTTPS URL".into());
     }
-
-    // http:// — inspect the host. Loopback is fine for dev.
-    let host_and_rest = &base_url[7..];
-    let host = host_and_rest
-        .split_once('/')
-        .map(|(h, _)| h)
-        .unwrap_or(host_and_rest);
-    let host = host.split_once('@').map(|(_, h)| h).unwrap_or(host);
-    let host_only = host.rsplit_once(':').map(|(h, _)| h).unwrap_or(host);
-
-    let is_loopback = matches!(host_only, "localhost" | "127.0.0.1" | "::1" | "[::1]")
-        || host_only.starts_with("127.")
-        || host_only.ends_with(".localhost");
+    let is_loopback = match parsed.host() {
+        Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+        Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+        Some(url::Host::Domain(host)) => host == "localhost",
+        None => false,
+    };
 
     if is_loopback {
         return Ok(());
@@ -280,17 +276,12 @@ impl RemoteCommunicationBus {
     /// bearer token and message bodies in transit. If
     /// `SYMBIONT_REMOTE_BUS_REQUIRE_TLS=1` is set in the environment, such
     /// URLs are rejected at construction time instead of warned.
-    pub fn new(base_url: &str, token: Option<String>, local_agent_id: AgentId) -> Self {
-        Self::try_new(base_url, token, local_agent_id).unwrap_or_else(|msg| {
-            // Fall back to attempting construction anyway for backward
-            // compatibility. Callers that want strict behavior should use
-            // `try_new` directly. Log loudly so operators see it.
-            tracing::error!(
-                "RemoteCommunicationBus rejected URL, falling back to unsafe construction: {}",
-                msg
-            );
-            Self::new_unchecked(base_url, None, local_agent_id)
-        })
+    pub fn new(
+        base_url: &str,
+        token: Option<String>,
+        local_agent_id: AgentId,
+    ) -> Result<Self, String> {
+        Self::try_new(base_url, token, local_agent_id)
     }
 
     /// Fallible constructor that enforces TLS when
@@ -303,22 +294,27 @@ impl RemoteCommunicationBus {
     ) -> Result<Self, String> {
         let trimmed = base_url.trim_end_matches('/');
         check_base_url_security(trimmed, token.is_some())?;
-        Ok(Self::new_unchecked(trimmed, token, local_agent_id))
+        Self::new_unchecked(trimmed, token, local_agent_id)
     }
 
     /// Construct without running URL safety checks. Internal helper.
-    fn new_unchecked(base_url: &str, token: Option<String>, local_agent_id: AgentId) -> Self {
+    fn new_unchecked(
+        base_url: &str,
+        token: Option<String>,
+        local_agent_id: AgentId,
+    ) -> Result<Self, String> {
         let client = Client::builder()
             .timeout(Duration::from_secs(30))
+            .redirect(reqwest::redirect::Policy::none())
             .build()
-            .unwrap_or_default();
-        Self {
+            .map_err(|e| format!("remote HTTP client: {e}"))?;
+        Ok(Self {
             client,
             base_url: base_url.trim_end_matches('/').to_string(),
             token,
             local_agent_id,
             jwt_provider: None,
-        }
+        })
     }
 
     /// Install a JWT provider so every outbound message carries a fresh
@@ -354,6 +350,8 @@ impl RemoteCommunicationBus {
         path: &str,
         body: Option<Value>,
     ) -> Result<Value, CommunicationError> {
+        check_base_url_security(&self.base_url, self.token.is_some())
+            .map_err(CommunicationError::ConnectionFailed)?;
         let mut req = self.client.request(method.clone(), self.url(path));
         if let Some(ref token) = self.token {
             req = req.bearer_auth(token);
@@ -554,6 +552,8 @@ impl CommunicationBus for RemoteCommunicationBus {
     }
 
     async fn check_health(&self) -> Result<ComponentHealth, CommunicationError> {
+        check_base_url_security(&self.base_url, self.token.is_some())
+            .map_err(CommunicationError::ConnectionFailed)?;
         let mut req = self.client.get(self.url("/api/v1/health"));
         if let Some(ref token) = self.token {
             req = req.bearer_auth(token);
@@ -616,13 +616,15 @@ mod tests {
     #[test]
     fn test_trim_trailing_slash() {
         let bus =
-            RemoteCommunicationBus::new("http://example.com:8080/", None, AgentId(Uuid::nil()));
-        assert_eq!(bus.base_url, "http://example.com:8080");
+            RemoteCommunicationBus::new("https://example.com:8080/", None, AgentId(Uuid::nil()))
+                .unwrap();
+        assert_eq!(bus.base_url, "https://example.com:8080");
     }
 
     #[test]
     fn test_url_construction() {
-        let bus = RemoteCommunicationBus::new("http://localhost:8080", None, AgentId(Uuid::nil()));
+        let bus = RemoteCommunicationBus::new("http://localhost:8080", None, AgentId(Uuid::nil()))
+            .unwrap();
         assert_eq!(
             bus.url("/api/v1/health"),
             "http://localhost:8080/api/v1/health"
@@ -637,10 +639,11 @@ mod tests {
     #[serial_test::serial(remote_bus_tls_env)]
     fn test_debug_hides_token() {
         let bus = RemoteCommunicationBus::new(
-            "http://example.com",
+            "https://example.com",
             Some("super-secret".to_string()),
             AgentId(Uuid::nil()),
-        );
+        )
+        .unwrap();
         let debug_str = format!("{:?}", bus);
         assert!(!debug_str.contains("super-secret"));
         assert!(debug_str.contains("has_token: true"));
@@ -648,7 +651,8 @@ mod tests {
 
     #[test]
     fn test_create_internal_message_has_empty_signature() {
-        let bus = RemoteCommunicationBus::new("http://example.com", None, AgentId(Uuid::nil()));
+        let bus =
+            RemoteCommunicationBus::new("https://example.com", None, AgentId(Uuid::nil())).unwrap();
         let sender = AgentId(Uuid::new_v4());
         let recipient = AgentId(Uuid::new_v4());
         let msg = bus.create_internal_message(
@@ -685,6 +689,17 @@ mod tests {
     fn test_url_security_strict_rejects_plaintext_public() {
         std::env::set_var("SYMBIONT_REMOTE_BUS_REQUIRE_TLS", "1");
         let r = check_base_url_security("http://public.example.com", true);
+        for url in [
+            "http://127.attacker.example",
+            "http://localhost.attacker.example",
+            "http://user@127.attacker.example",
+            "file:///tmp/socket",
+        ] {
+            assert!(
+                RemoteCommunicationBus::new(url, None, AgentId(Uuid::nil())).is_err(),
+                "{url}"
+            );
+        }
         std::env::remove_var("SYMBIONT_REMOTE_BUS_REQUIRE_TLS");
         assert!(r.is_err(), "public http with strict flag must be rejected");
     }
@@ -699,8 +714,34 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial(remote_bus_tls_env)]
+    async fn newly_required_tls_blocks_both_messages_and_health() {
+        let previous = std::env::var("SYMBIONT_REMOTE_BUS_REQUIRE_TLS").ok();
+        std::env::remove_var("SYMBIONT_REMOTE_BUS_REQUIRE_TLS");
+        let bus =
+            RemoteCommunicationBus::new("http://public.example.invalid", None, AgentId::new())
+                .unwrap();
+        std::env::set_var("SYMBIONT_REMOTE_BUS_REQUIRE_TLS", "1");
+        let health = bus.check_health().await;
+        let request = bus.request_json(Method::GET, "/api/v1/health", None).await;
+        match previous {
+            Some(value) => std::env::set_var("SYMBIONT_REMOTE_BUS_REQUIRE_TLS", value),
+            None => std::env::remove_var("SYMBIONT_REMOTE_BUS_REQUIRE_TLS"),
+        }
+        assert!(matches!(
+            health,
+            Err(CommunicationError::ConnectionFailed(_))
+        ));
+        assert!(matches!(
+            request,
+            Err(CommunicationError::ConnectionFailed(_))
+        ));
+    }
+
+    #[tokio::test]
     async fn test_unsupported_subscribe_returns_error() {
-        let bus = RemoteCommunicationBus::new("http://example.com", None, AgentId(Uuid::nil()));
+        let bus =
+            RemoteCommunicationBus::new("https://example.com", None, AgentId(Uuid::nil())).unwrap();
         let result = bus
             .subscribe(AgentId(Uuid::nil()), "topic".to_string())
             .await;

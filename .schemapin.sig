@@ -1,13 +1,13 @@
 {
-  "schemapin_version": "1.3",
-  "skill_name": "Symbiont",
-  "skill_hash": "sha256:ccc97caf7025e5339c7062b9036e24805e6785a77036874262c3659d1573145b",
-  "signature": "MEYCIQCepxQnGcjNCCo1E1rQ0FiHUp7C6a+6RuTh4NArpWo+cQIhAJtZq+xLruIPsEKo5Z0VxTflVveLIPdIqPRtKPR4/Z9+",
-  "signed_at": "2026-06-10T05:37:32Z",
+  "schemapin_version": "symbi-skill-v2",
+  "skill_name": "symbiont",
+  "skill_hash": "sha256:f317bd333b39b6735a8b0f27bf7473b49de3328465670aef2f16ce6cb0f30e87",
+  "signature": "MEUCIC+9gZ8J2hKD+IyHviqKeeU4WPX84LJ4PkYC1yd1eebDAiEAwhQfm8Exyh5QZQWfCTHcYDVRHolPpNsJITh62OeEfmA=",
+  "signed_at": "2026-10-23T17:29:42.057040669+00:00",
   "domain": "symbiont.dev",
   "signer_kid": "sha256:0fa46514f2ddce1503878d4594dd12617706de946a716cecd60533428b53f862",
   "file_manifest": {
-    "CHANGELOG.md": "sha256:86b4dd106dff6ccb44188519f1ecaba630c60a05647f3f2910db5ff9aef6b2ce",
-    "SKILL.md": "sha256:054220502dacd74bd85a781c520fdb77eba96ecef3a0263b783622c7c2c62faa"
+    "CHANGELOG.md": "sha256:3164ac790ab7485242123c93dc9984d702170232dc0120c52629aa536362918a",
+    "SKILL.md": "sha256:96d3c7855433501d59051703be1f22a0613cba8322c9d969f2d9d1f9253a2e27"
   }
 }

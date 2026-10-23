@@ -321,7 +321,7 @@ fn manifests(allow_shell: bool) -> Vec<(String, Manifest)> {
     }
     definitions.into_iter().map(|(name, description, approval, args, template)| {
         let manifest = serde_json::from_value(serde_json::json!({
-            "tool": {"name":name,"version":"2","binary":if name == "shell" {"sh"} else {"false"},"description":description,"human_approval":approval,"timeout_seconds":30},
+            "tool": {"name":name,"version":"2","binary":if name == "shell" {"sh"} else {"false"},"description":description,"human_approval":approval,"timeout_seconds":30,"allow_interpreter":name == "shell"},
             "args":args,"command":{"template":template},"output":{"format":"text"}
         })).expect("fixed workspace tool manifest");
         (name.into(), manifest)

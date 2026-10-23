@@ -258,6 +258,10 @@ fn contract(value: &Value, limit: usize) -> Result<(String, u64), InferenceError
 
 #[async_trait]
 impl InferenceProvider for AuditedProvider {
+    fn prepare_options(&self, options: &mut InferenceOptions) -> Result<(), InferenceError> {
+        self.inner.prepare_options(options)
+    }
+
     fn input_token_reservation(
         &self,
         conversation: &Conversation,
@@ -271,6 +275,9 @@ impl InferenceProvider for AuditedProvider {
         conversation: &Conversation,
         options: &InferenceOptions,
     ) -> Result<InferenceResponse, InferenceError> {
+        let mut options = options.clone();
+        self.prepare_options(&mut options)?;
+        let options = &options;
         let call_id = uuid::Uuid::new_v4().to_string();
         let (request_hash, request_bytes) = contract(
             &json!({"conversation":conversation,"options":options}),

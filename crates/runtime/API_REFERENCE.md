@@ -610,6 +610,41 @@ This API reference provides complete type definitions and interface specificatio
 
 ## HTTP API Reference
 
+### Optional instruction releases
+
+Registered ORGA agents opt in through trusted `AgentConfig.metadata`:
+`improvement_workflow = "claims"`. The CLI registration and schedule loaders also
+copy this file-level DSL metadata. Caller execution parameters cannot select a
+workflow or replace its system prompt. Admission pins the active approved version;
+queued work and saved HTTP/scheduler retries retain that version across promotion
+or disablement. Other registrations retain their ordinary execution behavior.
+
+These administration endpoints require an unscoped administrative token:
+
+| Method and path | Operation |
+| --- | --- |
+| `GET /api/v1/improvements/:workflow` | Inspect signed state and history; optional `candidate`, `evaluation`, `approval` query digests |
+| `POST /api/v1/improvements/:workflow/actions` | Perform one explicitly tagged action below |
+
+```json
+{"action":"inspect","candidate":"SHA256","evaluation":"SHA256"}
+{"action":"approve","receipt":{"decision":{},"key_id":"SHA256","signature":"HEX"}}
+{"action":"activate","candidate":"SHA256","approval":"SHA256","expected_active":null,"rollback":false}
+{"action":"set_enabled","enabled":false}
+```
+
+The approval example abbreviates `decision`; use a complete signed Console receipt.
+The runtime verifies it against the private operator-owned trust configuration,
+not a key or reviewer supplied as request authority. Approval import does not
+activate. Activation requires the exact observed `expected_active` digest (or
+`null` for the first version); rollback uses a prior approved candidate and
+`rollback: true`. Unknown fields are rejected. Invalid, missing or busy workflow
+operations return 409; agent-scoped credentials return 403. These endpoints do not
+initialize workflows, collect trials or enable the feature automatically.
+
+See [governed improvements](../../docs/governed-improvements.md) for complete
+configuration, receipt contracts, execution-profile compatibility and limits.
+
 ### Overview
 
 The HTTP API provides RESTful endpoints for external system integration. This API is optional and requires the `http-api` feature flag to be enabled.
@@ -893,7 +928,9 @@ The HTTP API includes middleware for:
 - Bearer authentication on protected routes
 - Security response headers
 
-Administrative endpoints additionally reject agent-scoped keys. Health is public;
+Key-store credentials must use `<key_id>.<secret>`; legacy unprefixed credentials
+must be reissued. Validation uses the key ID to select one record and never scans
+all stored password hashes. Administrative endpoints additionally reject agent-scoped keys. Health is public;
 callback routes use their route-specific verification. Swagger is opt-in and
 protected by bearer authentication.
 
@@ -910,6 +947,11 @@ resume and further execution of that job. See [cron recovery](../../docs/cron-re
 for project storage migration, timer identities and restart behavior.
 
 ## Coordinator chat admission
+
+First exchange an administrative bearer credential at `POST /api/v1/auth/ws-session`
+for a single-use ticket with a 60-second lifetime, then connect to
+`/ws/chat?session=<ticket>`. Reconnects require a fresh ticket. Durable `?token=`
+credentials are no longer accepted. See [chat authentication](../../docs/chat-recovery.md#protocol).
 
 Coordinator WebSocket messages at `/ws/chat` require a retained non-nil UUID in
 `ChatSend.id`. The server durably admits that caller/content identity before
@@ -956,3 +998,13 @@ and successful/handler-generated error responses are not cacheable. These are
 live observations, not signed run snapshots. See
 [worker capacity](../../docs/worker-capacity.md) for response fields, units,
 backend semantics and deployment scope.
+
+## Remote communication bus construction
+
+`RemoteCommunicationBus::new(...)` now returns `Result<Self, String>`, as does
+`try_new(...)`. Propagate construction errors instead of continuing with a
+partially configured client. With `SYMBIONT_REMOTE_BUS_REQUIRE_TLS=1`, public
+plaintext endpoints are refused; only literal loopback addresses and exact
+`localhost` retain the HTTP development exception. HTTP redirects are disabled.
+TLS policy is checked again for messages and health probes, and invalid URLs or
+HTTP-client construction errors never select an unsafe fallback.

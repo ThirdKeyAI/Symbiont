@@ -396,6 +396,7 @@ Governance plugins: [`symbi-claude-code`](https://github.com/thirdkeyai/symbi-cl
 * [Security Model](https://docs.symbiont.dev/security-model)
 * [Runtime Architecture](https://docs.symbiont.dev/runtime-architecture)
 * [Reasoning Loop Guide](https://docs.symbiont.dev/reasoning-loop)
+* [Optional Prompt Caching](docs/prompt-caching.md) — explicit SDK controls and cache usage without changing raw token budgets
 * [DSL Guide](https://docs.symbiont.dev/dsl-guide)
 * [API Reference](https://docs.symbiont.dev/api-reference)
 

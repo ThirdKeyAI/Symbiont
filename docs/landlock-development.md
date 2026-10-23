@@ -122,7 +122,10 @@ max_file_bytes = 1048576
 ```
 
 Only the input snapshots and reserved output files are bound into that workspace.
-Inputs are read-only; bound files cannot be replaced by unlinking their paths. Backend IP access remains denied by default; an explicit `require_network = false` allows IP sockets for those backend workers. Managed CLI always keeps its private network namespace.
+Inputs are read-only; bound files cannot be replaced by unlinking their paths.
+Backend IP access remains denied by default. `require_network = false` is a
+development-only opt-out and is refused in production. Managed CLI always keeps
+its private network namespace.
 File-size limits apply to descendants. A successful output is published without
 replacing an existing destination, after whole-cgroup cleanup is confirmed.
 Failure, timeout or uncertain cleanup does not publish it. Custom parsers receive
@@ -198,6 +201,18 @@ shell uses its exact approval workflow. Selecting Landlock does not implicitly
 register additional tools or grant writes.
 
 ## Focused verification
+
+The complete Linux release check is available without containers or model keys:
+
+```sh
+python3 scripts/test-landlock-release.py --binary /absolute/path/symbi --output /absolute/new/qualification
+```
+
+It requires the actual kernel and service facilities and refuses missing support.
+The output includes private fixtures containing signing keys: share only the
+top-level JSON reports and logs, never `private-actions/`. The dedicated GitHub
+workflow uses a disposable Ubuntu 24.04 runner and records the kernel, systemd,
+source SHA and binary hash; unsupported runner images fail rather than skip tests.
 
 The shipping drivers use synthetic sources, local providers and disposable user
 services. They require the actual kernel/service features and fail if absent:

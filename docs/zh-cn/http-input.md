@@ -26,7 +26,7 @@ HTTP 输入模块包含：
 
 ## 配置
 
-HTTP 输入模块使用 [`HttpInputConfig`](../crates/runtime/src/http_input/config.rs) 结构进行配置：
+HTTP 输入模块使用 [`HttpInputConfig`](https://github.com/ThirdKeyAI/Symbiont/blob/main/crates/runtime/src/http_input/config.rs) 结构进行配置：
 
 ### 基本配置
 
@@ -87,7 +87,7 @@ let routing_rules = vec![
 
 ### 响应控制
 
-使用 [`ResponseControlConfig`](../crates/runtime/src/http_input/config.rs) 自定义 HTTP 响应：
+使用 [`ResponseControlConfig`](https://github.com/ThirdKeyAI/Symbiont/blob/main/crates/runtime/src/http_input/config.rs) 自定义 HTTP 响应：
 
 ```rust
 use symbiont_runtime::http_input::ResponseControlConfig;
@@ -135,19 +135,17 @@ let config = HttpInputConfig {
 ```rust
 let config = HttpInputConfig {
     jwt_public_key_path: Some("/path/to/jwt/ed25519-public.pem".to_string()),
+    jwt_issuer: Some("https://identity.example.com".to_string()),
+    jwt_audience: Some("symbiont-http-input".to_string()),
     ..Default::default()
 };
 ```
 
-密钥加载器接受 Ed25519 PEM 或原始公钥字节，用于 EdDSA 验证。JWT 必须带有有效的
-`exp` 和非空的 `sub`（最多 512 字节）。过期校验允许五秒的时钟偏差。若提供了
-`iss`，则它必须非空且不超过 2,048 字节。使用相同的签名 subject、issuer 和已配置
-的密钥续签令牌，可以保持其调用方身份不变。
+JWT 必须包含 `exp`、`sub`、`iss` 和 `aud`。签发者必须与 `jwt_issuer` 匹配，受众必须包含 `jwt_audience`。启用 JWT 认证时，这两个配置项均为必填。`sub` 不能为空且不得超过 512 字节；过期校验允许五秒的时钟偏差。使用相同主体、签发者和密钥续签时，调用者身份保持不变。
 
-此 HTTP 输入验证器**不**强制 audience 或 issuer 白名单。已配置的密钥就是其信任
-权威；请为该权威使用一个专用密钥。签名中的 issuer 会参与构成重试身份，但并不
-构成 issuer 白名单。即使已配置 webhook 签名验证，仍然需要 Bearer 认证；webhook
-签名只是一项附加检查。
+迁移时请配置预期的签发者和受众，并为本服务签发令牌。即使使用相同密钥，为其他服务签发的令牌也会被拒绝。Webhook 签名验证仍作为额外校验。
+
+<a id="健康端点"></a>
 
 #### 健康端点
 
@@ -200,7 +198,7 @@ start_http_input(config, Some(runtime), Some(secrets_config)).await?;
 
 ### 示例智能体定义
 
-在 [`webhook_handler.symbi`](../agents/webhook_handler.symbi) 中创建 webhook 处理程序智能体：
+在 [`webhook_handler.symbi`](https://github.com/ThirdKeyAI/Symbiont/blob/main/agents/webhook_handler.symbi) 中创建 webhook 处理程序智能体：
 
 ```dsl
 agent webhook_handler(body: JSON) -> Maybe<Alert> {
@@ -470,8 +468,8 @@ INFO LLM invocation completed for agent webhook_handler: latency=4821ms tool_run
 - [DSL 指南](dsl-guide.md)
 - [API 参考](api-reference.md)
 - [推理循环 (ORGA)](reasoning-loop.md)
-- [ToolClad 工具契约](toolclad.md)
-- [智能体运行时文档](../crates/runtime/README.md)
+- [ToolClad 工具契约](/toolclad)
+- [智能体运行时文档](https://github.com/ThirdKeyAI/Symbiont/blob/main/crates/runtime/README.md)
 
 若一个被保留的调用已有运维核销结论，它会返回 HTTP 409 和 `status: "reconciled"`、
 其原始审计引用，以及一份独立签名的 `resolution` 回执。它不会返回伪造的成功结果，

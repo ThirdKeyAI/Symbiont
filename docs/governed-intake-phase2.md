@@ -103,9 +103,9 @@ See [release validation](release-1.21-validation.md) for the accompanying checks
 
 ## Reproduction and limits
 
-Use the [frozen phase 2 protocol](../examples/governed-improvements/document-intake-phase2/contract.md),
-[comparison driver](../scripts/test-intake-phase2.py), and
-[action driver](../scripts/test-intake-actions.py). Each driver retains a private
+Use the [frozen phase 2 protocol](https://github.com/ThirdKeyAI/Symbiont/blob/main/examples/governed-improvements/document-intake-phase2/contract.md),
+[comparison driver](https://github.com/ThirdKeyAI/Symbiont/blob/main/scripts/test-intake-phase2.py), and
+[action driver](https://github.com/ThirdKeyAI/Symbiont/blob/main/scripts/test-intake-actions.py). Each driver retains a private
 project, exact inputs and outputs, configuration hashes, signed journals,
 verification results and CLI logs. Output includes private signing keys and must
 remain outside version control.

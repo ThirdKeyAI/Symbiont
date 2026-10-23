@@ -127,7 +127,7 @@ La salida del modelo nunca se trata como autoridad de ejecucion. El runtime cont
 | **Verificacion de herramientas** | Verificacion criptografica [SchemaPin](https://schemapin.org) de esquemas de herramientas MCP antes de la ejecucion |
 | **Identidad de agentes** | Identidad ES256 anclada al dominio con [AgentPin](https://agentpin.org) para agentes y tareas programadas |
 | **Bucle de razonamiento** | Ciclo Observe-Reason-Gate-Act con aplicacion de typestate, compuertas de politicas y circuit breakers |
-| **Sandboxing** | Tres niveles OSS — Docker (Nivel 1), gVisor (Nivel 2), microVM Firecracker (Nivel 3) — seleccionables desde el DSL sin restricciones Enterprise |
+| **Sandboxing** | Cuatro backends OSS — Landlock (con nombre, sin demonio), Docker (Nivel 1), gVisor (Nivel 2), microVM Firecracker (Nivel 3) — seleccionables desde el DSL sin restricciones Enterprise |
 | **Auditoria protegida** | Diarios privados firmados por ejecucion bajo `.symbiont/governed/`; el fallo de una escritura obligatoria detiene el despacho |
 | **Mejoras gobernadas opcionales** | [Instrucciones de flujo de trabajo versionadas](/governed-improvements), evaluacion de pruebas firmada, aprobacion exacta del operador, activacion explicita y fijacion de version por ejecucion; desactivadas hasta que se inicializan y seleccionan explicitamente |
 | **Gestion de secretos** | Integracion con Vault/OpenBao, almacenamiento cifrado AES-256-GCM, con alcance por agente |

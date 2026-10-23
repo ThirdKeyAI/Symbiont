@@ -483,7 +483,7 @@ Suggested Fix: [if applicable]
 
 ### Codigo de Conducta
 
-Estamos comprometidos a proporcionar un entorno acogedor e inclusivo para todos los contribuyentes. Por favor lea y siga nuestro [Codigo de Conducta](CODE_OF_CONDUCT.md).
+Estamos comprometidos a proporcionar un entorno acogedor e inclusivo para todos los contribuyentes. Por favor lea y siga nuestro [Codigo de Conducta](https://github.com/ThirdKeyAI/Symbiont/blob/main/CODE_OF_CONDUCT.md).
 
 **Principios Clave:**
 - **Respeto**: Tratar a todos los miembros de la comunidad con respeto

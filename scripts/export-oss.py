@@ -13,11 +13,13 @@ FILES = {'README.md', 'README.zh-cn.md', 'README.es.md', 'README.pt.md', 'README
          'README.de.md', 'Cargo.toml', 'Cargo.lock', 'LICENSE', 'CODE_OF_CONDUCT.md',
          'SECURITY.md', 'CHANGELOG.md', '.gitignore', '.dockerignore', '.env.example',
          'Dockerfile', 'deny.toml', 'justfile', 'logo-hz.png', 'symbi-trans.png',
-         'SKILL.md', '.schemapin.sig', 'context7.json', 'AGENTS.md', 'CLAUDE.md',
-         'Cross.toml', 'zensical.toml'}
+         'SKILL.md', '.schemapin.sig', 'context7.json', 'AGENTS.md',
+         'Cross.toml', 'zensical.toml', 'zensical.de.toml', 'zensical.es.toml',
+         'zensical.ja.toml', 'zensical.pt.toml', 'zensical.zh-cn.toml'}
 # Explicit public tooling; private sync, deployment and signing scripts stay out.
 SCRIPTS = {
     'install.sh', 'publish-crates.py', 'export-oss.py', 'test-release-tools.py',
+    'require-release-checks.py', 'test-release-checks.py', 'test-landlock-release.py',
     'test-governed-improvements.py', 'test-intake-improvements.py',
     'test-intake-phase2.py', 'test-intake-actions.py', 'delegated_service_fixture.py',
     'developer_onboarding_fixture.py', 'test-landlock-onboarding.py',
@@ -36,7 +38,7 @@ def allowed(path):
         return False
     if any(p == '.env' or (p.startswith('.env.') and p != '.env.example') for p in parts):
         return False
-    if parts[:2] in [('docs', 'plans'), ('docs', 'superpowers')]:
+    if parts[:2] == ('docs', 'plans'):
         return False
     return (parts[0] in ROOTS or path.as_posix() in FILES
             or len(parts) == 2 and parts[0] == 'scripts' and parts[1] in SCRIPTS)
@@ -90,10 +92,6 @@ def export(source, destination):
             continue
         if any(parent.is_symlink() for parent in path.parents if parent != source and source in parent.parents):
             raise ValueError(f'linked parent in OSS source: {relative}')
-        # The repository's instruction alias is a tracked link to AGENTS.md.
-        # Materialize that exact alias as a regular file; no other link is copied.
-        if relative.as_posix() == 'CLAUDE.md' and path.is_symlink() and path.readlink() == Path('AGENTS.md'):
-            path = source / 'AGENTS.md'
         check_file(path, relative)
         target = destination / relative
         target.parent.mkdir(parents=True, exist_ok=True)

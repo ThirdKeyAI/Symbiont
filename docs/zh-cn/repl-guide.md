@@ -159,7 +159,7 @@ agent data_analyzer(data: DataSet, options: AnalysisOptions) -> AnalysisResults 
 智能体的行为存在于该智能体的 `with` 块中（以及 `function` 定义中）——
 没有单独的 `behavior` 构造。策略规则（`allow` / `deny` /
 `require` / `audit`）用于限制智能体可执行的操作。完整语法请参见
-[DSL 指南](dsl-guide.md) 和 [DSL 规范](dsl-specification.md)。
+[DSL 指南](dsl-guide.md) 和 [DSL 规范](/dsl-specification)。
 
 ### 内置函数
 

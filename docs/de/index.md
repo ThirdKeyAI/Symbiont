@@ -125,7 +125,7 @@ Modellausgaben werden niemals als Ausfuehrungsberechtigung behandelt. Das Runtim
 | **Tool-Verifikation** | [SchemaPin](https://schemapin.org) kryptographische Verifikation von MCP-Tool-Schemas vor der Ausfuehrung |
 | **Agenten-Identitaet** | [AgentPin](https://agentpin.org) domainverankerte ES256-Identitaet fuer Agenten und geplante Aufgaben |
 | **Reasoning-Schleife** | Typestate-erzwungener Observe-Reason-Gate-Act-Zyklus mit Richtlinien-Gates und Circuit Breakern |
-| **Sandboxing** | Drei OSS-Stufen — Docker (Tier 1), gVisor (Tier 2), Firecracker microVM (Tier 3) — aus der DSL waehlbar, ohne Enterprise-Gating |
+| **Sandboxing** | Vier OSS-Backends — Landlock (benannt, ohne Daemon), Docker (Tier 1), gVisor (Tier 2), Firecracker microVM (Tier 3) — aus der DSL waehlbar, ohne Enterprise-Gating |
 | **Geschuetztes Audit** | Private signierte Journale pro Lauf unter `.symbiont/governed/`; ein fehlgeschlagener erforderlicher Schreibvorgang stoppt den Dispatch |
 | **Optionale gesteuerte Verbesserungen** | [Versionierte Workflow-Anweisungen](/governed-improvements), signierte Testauswertung, exakte Betreibergenehmigung, explizite Aktivierung und Versionsbindung pro Lauf; deaktiviert, bis sie explizit initialisiert und ausgewaehlt werden |
 | **Geheimnismanagement** | Vault/OpenBao-Integration, AES-256-GCM-verschluesselter Speicher, pro Agent isoliert |

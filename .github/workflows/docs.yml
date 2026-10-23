@@ -4,7 +4,7 @@ on:
     branches: [main]
     paths:
       - 'docs/**'
-      - 'zensical.toml'
+      - 'zensical*.toml'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
@@ -26,11 +26,56 @@ jobs:
     steps:
       - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: 3.x
       - run: pip install zensical
+      # English first: --clean wipes site/, so it has to precede the language
+      # builds that write into site/<lang>. Each language is a separate build
+      # so each gets its own search index; one build over docs/ puts every
+      # language in a single index and search returns unreadable results.
       - run: zensical build --clean
+      - name: Build translated sites
+        run: |
+          for lang in de es ja pt zh-cn; do
+            echo "::group::$lang"
+            zensical build -f "zensical.$lang.toml"
+            echo "::endgroup::"
+          done
+      - name: Verify each language has its own search index
+        run: |
+          python3 - <<'CHECK'
+          import json, pathlib, sys
+          langs = ["de", "es", "ja", "pt", "zh-cn"]
+          expected = {"de": "de", "es": "es", "ja": "ja", "pt": "pt", "zh-cn": "zh"}
+          failed = False
+          for label, path, want in [("en", "site/search.json", "en")] + [
+              (l, f"site/{l}/search.json", expected[l]) for l in langs
+          ]:
+              p = pathlib.Path(path)
+              if not p.exists():
+                  print(f"{label}: missing {path}")
+                  failed = True
+                  continue
+              index = json.loads(p.read_text())
+              if index["config"]["lang"] != [want]:
+                  print(f"{label}: index language {index['config']['lang']}, expected ['{want}']")
+                  failed = True
+              foreign = sorted(
+                  {
+                      r.get("location", "").split("/")[0]
+                      for r in index["items"]
+                  }
+                  & (set(langs) - {label})
+              )
+              if foreign:
+                  print(f"{label}: index also contains {foreign}")
+                  failed = True
+              print(f"{label}: {len(index['items'])} records, lang={index['config']['lang']}")
+          sys.exit(1 if failed else 0)
+          CHECK
       - run: echo 'docs.symbiont.dev' > site/CNAME
       - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
         with:

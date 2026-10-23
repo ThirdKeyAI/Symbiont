@@ -489,7 +489,7 @@ Vorgeschlagene Behebung: [falls zutreffend]
 
 ### Verhaltenskodex
 
-Wir sind bestrebt, eine einladende und integrative Umgebung fuer alle Mitwirkenden zu schaffen. Bitte lesen und befolgen Sie unseren [Verhaltenskodex](CODE_OF_CONDUCT.md).
+Wir sind bestrebt, eine einladende und integrative Umgebung fuer alle Mitwirkenden zu schaffen. Bitte lesen und befolgen Sie unseren [Verhaltenskodex](https://github.com/ThirdKeyAI/Symbiont/blob/main/CODE_OF_CONDUCT.md).
 
 **Grundprinzipien:**
 - **Respekt**: Alle Community-Mitglieder mit Respekt behandeln

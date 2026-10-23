@@ -2,70 +2,41 @@
 //! configured MCP server over stdio — replacing the old fabricated
 //! `"status":"delegated"` stub — using an in-memory registry so the test
 //! doesn't depend on `mcp-config.toml` or the process's working directory.
-#![cfg(feature = "mcp-client")]
+#![cfg(all(feature = "mcp-client", feature = "toolclad-direct"))]
 
 use std::collections::HashMap;
 
 use symbi_runtime::integrations::mcp::registry::McpServerRegistry;
-use symbi_runtime::toolclad::manifest::{
-    ArgDef, CommandDef, Manifest, McpProxyDef, OutputDef, ToolMeta,
-};
+use symbi_runtime::toolclad::manifest::{parse_manifest, Manifest};
 use symbi_runtime::toolclad::ToolCladExecutor;
 
 fn build_echo_manifest() -> Manifest {
-    let mut args = HashMap::new();
-    args.insert(
-        "text".to_string(),
-        ArgDef {
-            position: 1,
-            required: true,
-            type_name: "string".to_string(),
-            description: "Text to echo".to_string(),
-            allowed: None,
-            default: None,
-            pattern: None,
-            sanitize: None,
-            min: None,
-            max: None,
-            clamp: false,
-            schemes: None,
-            scope_check: false,
-            feeds_decision: false,
-        },
-    );
+    parse_manifest(
+        r#"
+[tool]
+name = "echo"
+version = "1.0.0"
+description = "Echo via MCP proxy"
 
-    Manifest {
-        filesystem: None,
-        source: None,
-        tool: ToolMeta {
-            name: "echo".to_string(),
-            version: "1.0.0".to_string(),
-            binary: String::new(),
-            description: "Echo via MCP proxy".to_string(),
-            mode: "oneshot".to_string(),
-            timeout_seconds: 30,
-            risk_tier: "low".to_string(),
-            human_approval: false,
-            cedar: None,
-            evidence: None,
-        },
-        args,
-        command: CommandDef::default(),
-        output: OutputDef {
-            format: "json".to_string(),
-            parser: None,
-            envelope: true,
-            schema: serde_json::json!({"type": "object"}),
-        },
-        http: None,
-        mcp: Some(McpProxyDef {
-            server: "echo".to_string(),
-            tool: "echo".to_string(),
-            field_map: HashMap::new(),
-        }),
-        session: None,
-        browser: None,
-    }
+[args.text]
+position = 1
+required = true
+type = "string"
+description = "Text to echo"
+
+[mcp]
+server = "echo"
+tool = "echo"
+
+[output]
+format = "json"
+
+[output.schema]
+type = "object"
+"#,
+        &HashMap::new(),
+    )
+    .expect("echo manifest")
 }
 
 /// Build an in-memory registry pointing the "echo" server at the

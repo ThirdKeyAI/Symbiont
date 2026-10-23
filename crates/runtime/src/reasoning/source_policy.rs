@@ -368,7 +368,7 @@ position = 1
 required = true
 type = "string"
 [command]
-template = "/usr/bin/touch {path}"
+exec = ["/usr/bin/touch", "{path}"]
 [output]
 format = "text"
 "#,

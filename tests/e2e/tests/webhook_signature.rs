@@ -38,6 +38,8 @@ async fn spawn_http_input(secret: &str) -> (String, tokio::task::JoinHandle<()>)
         agent: AgentId::new(),
         auth_header: None,
         jwt_public_key_path: None,
+        jwt_issuer: None,
+        jwt_audience: None,
         max_body_bytes: 65_536,
         concurrency: 4,
         routing_rules: None,

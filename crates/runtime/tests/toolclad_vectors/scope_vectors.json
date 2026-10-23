@@ -1,0 +1,47 @@
+{
+  "_comment": "Cross-language scope validation test vectors. All ToolClad implementations MUST pass these.",
+  "version": "1.0.0",
+  "vectors": {
+    "ipv4_in_cidr": [
+      { "ip": "10.0.1.5", "cidr": "10.0.1.0/24", "expected": true },
+      { "ip": "10.0.2.5", "cidr": "10.0.1.0/24", "expected": false },
+      { "ip": "10.0.1.0", "cidr": "10.0.1.0/24", "expected": true, "note": "network address" },
+      { "ip": "10.0.1.255", "cidr": "10.0.1.0/24", "expected": true, "note": "broadcast address" },
+      { "ip": "192.168.1.1", "cidr": "192.168.0.0/16", "expected": true },
+      { "ip": "172.16.0.1", "cidr": "192.168.0.0/16", "expected": false },
+      { "ip": "10.0.0.1", "cidr": "10.0.0.1/32", "expected": true, "note": "single host" },
+      { "ip": "10.0.0.2", "cidr": "10.0.0.1/32", "expected": false }
+    ],
+    "ipv6_in_cidr": [
+      { "ip": "2001:db8::1", "cidr": "2001:db8::/32", "expected": true },
+      { "ip": "2001:db9::1", "cidr": "2001:db8::/32", "expected": false },
+      { "ip": "::1", "cidr": "::1/128", "expected": true, "note": "loopback" }
+    ],
+    "hostname_wildcard_match": [
+      { "hostname": "app.example.com", "pattern": "*.example.com", "expected": true },
+      { "hostname": "example.com", "pattern": "*.example.com", "expected": false, "note": "wildcard does not match apex" },
+      { "hostname": "deep.sub.example.com", "pattern": "*.example.com", "expected": true, "note": "wildcard matches multi-level subdomain" },
+      { "hostname": "example.com", "pattern": "example.com", "expected": true, "note": "exact match" },
+      { "hostname": "notexample.com", "pattern": "example.com", "expected": false },
+      { "hostname": "evil-example.com", "pattern": "*.example.com", "expected": false, "note": "must be subdomain, not suffix" }
+    ],
+    "scope_target_validation": [
+      { "value": "10.0.1.1", "valid": true, "note": "simple IPv4" },
+      { "value": "2001:db8::1", "valid": true, "note": "IPv6" },
+      { "value": "example.com", "valid": true, "note": "hostname" },
+      { "value": "sub.example.com", "valid": true, "note": "subdomain" },
+      { "value": "10.0.1.0/24", "valid": true, "note": "CIDR notation" },
+      { "value": "*.example.com", "valid": false, "note": "wildcards rejected" },
+      { "value": "example.com; rm -rf /", "valid": false, "note": "injection attempt" },
+      { "value": "$(whoami).evil.com", "valid": false, "note": "command substitution" },
+      { "value": "example.com\nmalicious.com", "valid": false, "note": "newline injection" },
+      { "value": "", "valid": false, "note": "empty string" },
+      { "value": "10.0.1.1|cat /etc/passwd", "valid": false, "note": "pipe injection" }
+    ],
+    "url_scope_check": [
+      { "url": "https://api.example.com/v1", "allowed_hosts": ["api.example.com"], "expected": true },
+      { "url": "https://evil.com/api", "allowed_hosts": ["api.example.com"], "expected": false },
+      { "url": "https://api.example.com.evil.com/v1", "allowed_hosts": ["api.example.com"], "expected": false, "note": "suffix attack" }
+    ]
+  }
+}

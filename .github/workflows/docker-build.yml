@@ -11,6 +11,8 @@ on:
       - 'Cargo.lock'
       - 'Dockerfile'
       - '.github/workflows/docker-build.yml'
+      - '.github/workflows/release-gate.yml'
+      - 'scripts/require-release-checks.py'
   pull_request:
     branches: [ main ]
     paths:
@@ -20,6 +22,8 @@ on:
       - 'Cargo.lock'
       - 'Dockerfile'
       - '.github/workflows/docker-build.yml'
+      - '.github/workflows/release-gate.yml'
+      - 'scripts/require-release-checks.py'
 
 env:
   REGISTRY: ghcr.io
@@ -30,8 +34,17 @@ env:
 # permissions and skip the registry login / push / cosign-sign steps.
 permissions:
   contents: read
+  actions: read
 
 jobs:
+  qualify:
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/release-gate.yml
+    with:
+      sha: ${{ github.sha }}
+      tag: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+      checks: ${{ startsWith(github.ref, 'refs/tags/') && 'all' || 'test' }}
+
   # ---------------------------------------------------------------------------
   # PR validation: build only, no registry login, no push, no signing.
   # Runs with read-only permissions — no OIDC token issuance from this job.
@@ -46,6 +59,8 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      with:
+        persist-credentials: false
 
     - name: Extract metadata
       id: meta
@@ -81,6 +96,8 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      with:
+        persist-credentials: false
 
     - name: Extract metadata
       id: meta
@@ -110,6 +127,7 @@ jobs:
   # ---------------------------------------------------------------------------
   build-symbi:
     name: Build and Push Symbi Runtime
+    needs: qualify
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
@@ -120,6 +138,9 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      with:
+        ref: ${{ needs.qualify.outputs.sha }}
+        persist-credentials: false
 
     - name: Log in to Container Registry
       uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
@@ -147,7 +168,7 @@ jobs:
     - name: Determine build profile
       id: profile
       run: |
-        if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+        if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
           echo "profile=release" >> "$GITHUB_OUTPUT"
         else
           echo "profile=ci" >> "$GITHUB_OUTPUT"
@@ -172,16 +193,17 @@ jobs:
 
     - name: Sign image with cosign
       run: |
-        images="${{ steps.meta.outputs.tags }}"
-        for image in ${images//,/ }; do
+        for image in ${IMAGES//,/ }; do
           echo "Signing image: $image"
           cosign sign --yes "$image"
         done
       env:
         COSIGN_EXPERIMENTAL: "1"
+        IMAGES: ${{ steps.meta.outputs.tags }}
 
   build-a2ui:
     name: Build and Push Operations Console (a2ui)
+    needs: qualify
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
@@ -192,6 +214,9 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      with:
+        ref: ${{ needs.qualify.outputs.sha }}
+        persist-credentials: false
 
     - name: Log in to Container Registry
       uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
@@ -234,10 +259,10 @@ jobs:
 
     - name: Sign image with cosign
       run: |
-        images="${{ steps.meta.outputs.tags }}"
-        for image in ${images//,/ }; do
+        for image in ${IMAGES//,/ }; do
           echo "Signing image: $image"
           cosign sign --yes "$image"
         done
       env:
         COSIGN_EXPERIMENTAL: "1"
+        IMAGES: ${{ steps.meta.outputs.tags }}

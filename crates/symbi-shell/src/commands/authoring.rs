@@ -55,6 +55,9 @@ pub fn tool(app: &mut App, args: &str) -> CommandResult {
 
     let prompt = format!(
         "Generate a ToolClad TOML manifest (.clad.toml) for the following tool:\n\n{}\n\n\
+         Use the exec = [...] command form, set end_of_options = \"--\" when the tool honors it, \
+         set block_internal = true on every network-target argument, and never use an \
+         interpreter (sh, python, env, ...) as the executable. \
          Validate with validate_toolclad; if it fails, fix and re-validate (cap: 2 attempts). \
          As soon as validation passes, call save_artifact to write the manifest to \
          tools/<tool_name>.clad.toml — the user's description above IS the approval. \

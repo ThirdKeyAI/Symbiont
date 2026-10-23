@@ -362,6 +362,8 @@ agent privacy_preserving_agent(sensitive_data: PersonalInfo) -> Statistics {
 }
 ```
 
+<a id="security-configuration"></a>
+
 ### 安全配置
 
 ```rust
@@ -745,7 +747,7 @@ agent fraud_detector(transaction: Transaction) -> FraudAssessment {
 
 ## 下一步
 
-- **[DSL 规范](dsl-specification.md)** - 完整语言规范参考
+- **[DSL 规范](/dsl-specification)** - 完整语言规范参考
 - **[运行时架构](/runtime-architecture)** - 了解智能体如何执行
 - **[安全模型](/security-model)** - 学习安全实现
 - **[API 参考](/api-reference)** - 完整的函数和类型参考

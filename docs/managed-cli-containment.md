@@ -32,7 +32,7 @@ volumes = ["/srv/source:/source:ro"]
 
 [managed_cli.inference]
 base_url = "https://api.anthropic.com"
-model = "claude-sonnet-4-5-20250929"
+model = "claude-sonnet-5-5"
 api_key_env = "REVIEW_PROVIDER_KEY"
 max_requests = 32
 max_output_tokens_per_request = 4096

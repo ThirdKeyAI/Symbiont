@@ -465,6 +465,14 @@ impl HttpApiServer {
             // run stats so it requires auth. /api/v1/status is an aggregated rollup
             // useful for operators and monitoring.
             let protected_router = Router::new()
+                .route(
+                    "/api/v1/improvements/:workflow",
+                    get(super::improvements::inspect),
+                )
+                .route(
+                    "/api/v1/improvements/:workflow/actions",
+                    post(super::improvements::act),
+                )
                 .route("/api/v1/workflows/execute", post(execute_workflow))
                 .route("/api/v1/metrics", get(get_metrics))
                 .route("/api/v1/health/scheduler", get(get_scheduler_health))
@@ -492,11 +500,17 @@ impl HttpApiServer {
         }
 
         // WebSocket coordinator chat endpoint.
-        // Auth is handled inside the handler (token from query params),
-        // so the route is not wrapped with auth_middleware.
+        // Ticket issuance validates the bearer header; upgrades consume one-use tickets.
         if let Some(ref coordinator_state) = self.coordinator_state {
             let ws_router = Router::new()
                 .route("/ws/chat", get(super::ws_handler::ws_chat_handler))
+                .route(
+                    "/api/v1/auth/ws-session",
+                    post(super::ws_handler::ws_session_handler),
+                )
+                .layer(axum::Extension(Arc::new(
+                    super::ws_handler::WsTickets::default(),
+                )))
                 .with_state(coordinator_state.clone());
             router = router.merge(ws_router);
         }
@@ -565,7 +579,9 @@ impl HttpApiServer {
 
         // Add middleware conditionally
         if self.config.enable_tracing {
-            router = router.layer(TraceLayer::new_for_http());
+            router = router.layer(TraceLayer::new_for_http().make_span_with(|req: &axum::http::Request<axum::body::Body>| {
+                tracing::info_span!("http_request", method = %req.method(), path = %req.uri().path())
+            }));
         }
 
         if self.config.enable_cors {

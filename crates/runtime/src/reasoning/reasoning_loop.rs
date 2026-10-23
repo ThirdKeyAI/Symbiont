@@ -967,14 +967,17 @@ min = 1
 max = 5
 clamp = true
 [command]
-template = "/usr/bin/touch {count}"
+exec = ["/usr/bin/touch", "{count}"]
 [output]
 format = "text"
 "#,
         )
         .unwrap();
         manifest.tool.human_approval = approval;
-        manifest.command.template = Some(format!("/usr/bin/touch '{}/{{count}}'", dir.display()));
+        manifest.command.exec = Some(vec![
+            "/usr/bin/touch".into(),
+            format!("{}/{{count}}", dir.display()),
+        ]);
         manifest
     }
 
@@ -1074,10 +1077,11 @@ format = "text"
             let mut manifest = prepared_fixture(dir.path(), approval);
             let count = manifest.args.remove("count").unwrap();
             manifest.args.insert("input".into(), count);
-            manifest.command.template = manifest
-                .command
-                .template
-                .map(|template| template.replace("{count}", "{input}"));
+            manifest.command.exec = manifest.command.exec.map(|exec| {
+                exec.into_iter()
+                    .map(|token| token.replace("{count}", "{input}"))
+                    .collect()
+            });
             let mut runner = make_runner(Arc::new(MockProvider::new(Vec::new())));
             runner.executor = Arc::new(
                 crate::toolclad::executor::ToolCladExecutor::new(vec![(
@@ -1353,7 +1357,7 @@ position = 1
 required = true
 type = "string"
 [command]
-template = "/usr/bin/touch '{path}'"
+exec = ["/usr/bin/touch", "{path}"]
 [output]
 format = "text"
 "#,

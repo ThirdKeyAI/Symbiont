@@ -92,7 +92,7 @@ pub(super) fn receipt_path(store: &Path, scope: &str, id: Uuid) -> Result<PathBu
     )))
 }
 
-pub(super) fn locked_claim(project: &Path, scope: &str, id: Uuid) -> Result<File, String> {
+pub(super) fn locked_claim(project: &Path, scope: &str, id: Uuid) -> Result<LockedFile, String> {
     if scope.is_empty() || scope.len() > 256 {
         return Err("invalid invocation scope".into());
     }
@@ -107,10 +107,8 @@ pub(super) fn locked_claim(project: &Path, scope: &str, id: Uuid) -> Result<File
         .open(store.join(format!("{}.jsonl", digest.trim_start_matches("sha256:"))))
         .map_err(|e| e.to_string())?;
     validate_file(&file)?;
-    if !try_lock(&file)? {
-        return Err("invocation is still owned; reconciliation refused".into());
-    }
-    Ok(file)
+    LockedFile::acquire(file)?
+        .ok_or_else(|| "invocation is still owned; reconciliation refused".into())
 }
 
 pub(super) fn capture(
@@ -135,16 +133,18 @@ pub(super) fn capture(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("invalid invocation evidence: {e}"))?;
     let [Record::Claim {
-        version: 1,
+        version,
         scope: saved_scope,
         id: saved_id,
         request_hash,
         agent_id,
         run_id,
+        admission,
     }, Record::Audit { reference }, rest @ ..] = records.as_slice()
     else {
         return Err("reconciliation requires a complete claim identity and audit reference".into());
     };
+    super::validate_admission(*version, admission.as_ref())?;
     if saved_scope != scope
         || *saved_id != id
         || reference.run_id != *run_id
@@ -184,9 +184,12 @@ pub(super) fn capture(
             Some(LoopEvent::Started {
                 execution_context, ..
             }) if execution_context.get("invocation")
-                == Some(
-                    &serde_json::json!({"id": id, "scope": scope, "request_hash": request_hash}),
-                ) => {}
+                == Some(&super::claim_context(
+                    id,
+                    scope,
+                    request_hash,
+                    admission.as_ref(),
+                )) => {}
             _ => return Err("signed run does not bind the invocation claim".into()),
         }
         let digest = prefix.snapshot_sha256.clone();

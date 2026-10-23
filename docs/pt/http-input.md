@@ -31,7 +31,7 @@ O módulo é compilado condicionalmente com a flag de recurso `http-input` e int
 
 ## Configuração
 
-O módulo de Entrada HTTP é configurado usando a estrutura [`HttpInputConfig`](../crates/runtime/src/http_input/config.rs):
+O módulo de Entrada HTTP é configurado usando a estrutura [`HttpInputConfig`](https://github.com/ThirdKeyAI/Symbiont/blob/main/crates/runtime/src/http_input/config.rs):
 
 ### Configuração Básica
 
@@ -92,7 +92,7 @@ let routing_rules = vec![
 
 ### Controle de Resposta
 
-Personalizar respostas HTTP com [`ResponseControlConfig`](../crates/runtime/src/http_input/config.rs):
+Personalizar respostas HTTP com [`ResponseControlConfig`](https://github.com/ThirdKeyAI/Symbiont/blob/main/crates/runtime/src/http_input/config.rs):
 
 ```rust
 use symbiont_runtime::http_input::ResponseControlConfig;
@@ -140,23 +140,15 @@ Configurar autenticação baseada em JWT com chaves públicas Ed25519:
 ```rust
 let config = HttpInputConfig {
     jwt_public_key_path: Some("/path/to/jwt/ed25519-public.pem".to_string()),
+    jwt_issuer: Some("https://identity.example.com".to_string()),
+    jwt_audience: Some("symbiont-http-input".to_string()),
     ..Default::default()
 };
 ```
 
-O carregador de chaves aceita PEM Ed25519 ou bytes brutos de chave pública para a
-verificação EdDSA. Os JWTs devem ter um `exp` válido e um `sub` não vazio (de no
-máximo 512 bytes). A validação de expiração tolera cinco segundos de desvio de
-relógio. Se fornecido, `iss` deve ser não vazio e ter no máximo 2.048 bytes.
-Renovar um token com o mesmo subject assinado, o mesmo emissor e a mesma chave
-configurada preserva a identidade do chamador.
+Os JWTs devem conter `exp`, `sub`, `iss` e `aud`. O emissor deve corresponder a `jwt_issuer` e a audiência deve incluir `jwt_audience`. Ambos os valores de configuração são obrigatórios quando a autenticação JWT está ativa. O sujeito não pode estar vazio nem exceder 512 bytes. A expiração permite cinco segundos de diferença de relógio. A renovação com o mesmo sujeito, emissor e chave preserva a identidade do chamador.
 
-Este verificador de Entrada HTTP **não** aplica uma allowlist de audience ou de
-emissor. A chave configurada é a sua autoridade de confiança; use uma chave
-dedicada a essa autoridade. Um emissor assinado contribui para a identidade em
-retentativas, mas não estabelece uma allowlist de emissores. A autenticação
-Bearer é obrigatória mesmo quando a verificação de assinatura de webhook está
-configurada; a assinatura do webhook é uma verificação adicional.
+Migração: configure o emissor e a audiência esperados e emita tokens para este serviço. Tokens para outros serviços são rejeitados mesmo quando usam a mesma chave. A assinatura do webhook continua sendo uma verificação adicional.
 
 #### Endpoint de Saúde
 
@@ -209,7 +201,7 @@ start_http_input(config, Some(runtime), Some(secrets_config)).await?;
 
 ### Exemplo de Definição de Agente
 
-Criar um agente manipulador de webhook em [`webhook_handler.symbi`](../agents/webhook_handler.symbi):
+Criar um agente manipulador de webhook em [`webhook_handler.symbi`](https://github.com/ThirdKeyAI/Symbiont/blob/main/agents/webhook_handler.symbi):
 
 ```dsl
 agent webhook_handler(body: JSON) -> Maybe<Alert> {
@@ -445,7 +437,7 @@ let config = HttpInputConfig {
 
 ### Integração com Verificação de Saúde
 
-O módulo de Entrada HTTP não inclui um endpoint de saúde dedicado. Use o endpoint de saúde da API principal (`/api/v1/health`) para integração com load balancers e monitoramento. Veja a seção [Endpoint de Saúde](#endpoint-de-saúde) acima para detalhes.
+O módulo de Entrada HTTP não inclui um endpoint de saúde dedicado. Use o endpoint de saúde da API principal (`/api/v1/health`) para integração com load balancers e monitoramento. Veja a seção [Endpoint de Saúde](#endpoint-de-saude) acima para detalhes.
 
 ## Tratamento de Erros
 
@@ -505,8 +497,8 @@ O módulo integra-se com o sistema de métricas do runtime Symbiont para fornece
 - [Guia DSL](dsl-guide.md)
 - [Referência da API](api-reference.md)
 - [Loop de Raciocínio (ORGA)](reasoning-loop.md)
-- [Contratos de Ferramentas ToolClad](toolclad.md)
-- [Documentação do Runtime de Agentes](../crates/runtime/README.md)
+- [Contratos de Ferramentas ToolClad](/toolclad)
+- [Documentação do Runtime de Agentes](https://github.com/ThirdKeyAI/Symbiont/blob/main/crates/runtime/README.md)
 
 Uma invocação retida com uma resolução do operador retorna HTTP 409 e
 `status: "reconciled"`, a referência de auditoria original dela e um recibo de

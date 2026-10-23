@@ -160,100 +160,84 @@ schedule {
 
 ## CLI 命令
 
-`symbi cron` 命令提供完整的生命周期管理：
+`symbi cron` 管理计划任务的生命周期。下面每个子命令都只列出它实际接受的
+选项；请运行 `symbi cron <subcommand> --help` 与您的构建版本核对。
 
 ### 列出任务
 
 ```bash
-# 列出所有任务
 symbi cron list
-
-# 按状态过滤
-symbi cron list --status active
-symbi cron list --status paused
-
-# 按智能体过滤
-symbi cron list --agent "reporter-agent"
-
-# JSON 输出
-symbi cron list --format json
 ```
+
+`list` 不接受任何选项。查看单个任务的详情请用
+`symbi cron status <job-id>`，过滤运行记录请用 `symbi cron history`。
 
 ### 添加任务
 
-```bash
-# 从 DSL 文件添加
-symbi cron add --file agent.symbi --schedule "daily-report"
+`--name`、`--cron` 和 `--agent` 为必填选项。智能体必须已经注册；`add`
+不会读取 DSL 文件。
 
-# 内联定义（JSON）
-symbi cron add --json '{
-  "name": "quick-task",
-  "agent_id": "agent-123",
-  "cron_expr": "0 0 * * * *"
-}'
+```bash
+symbi cron add --name "daily-report" --cron "0 0 9 * * * *" --agent reporter
+
+# 指定时区（默认 UTC）和策略，并在运行一次后禁用
+symbi cron add --name "one-off" --cron "0 */5 * * * * *" --agent reporter \
+  --tz "America/New_York" --policy strict --one-shot
 ```
 
-### 删除任务
+| 选项 | 必填 | 含义 |
+|---|---|---|
+| `--name <NAME>` | 是 | 任务名称 |
+| `--cron <EXPR>` | 是 | Cron 表达式，共七个字段（秒在最前） |
+| `--agent <AGENT>` | 是 | 要执行的已注册智能体名称 |
+| `--tz <TIMEZONE>` | 否 | IANA 时区，默认为 UTC |
+| `--policy <POLICY>` | 否 | 应用于本次运行的策略 |
+| `--one-shot` | 否 | 只运行一次，随后禁用该任务 |
+
+### 删除、暂停、恢复
+
+三者都只接受一个任务 UUID，不接受任何选项。
 
 ```bash
-# 按任务 ID 删除
 symbi cron remove <job-id>
-
-# 按名称删除
-symbi cron remove --name "daily-report"
-
-# 强制删除（跳过确认）
-symbi cron remove <job-id> --force
-```
-
-### 暂停/恢复
-
-```bash
-# 暂停任务（停止调度，保留状态）
-symbi cron pause <job-id>
-
-# 恢复已暂停的任务
-symbi cron resume <job-id>
+symbi cron pause <job-id>    # 停止调度，保留状态
+symbi cron resume <job-id>   # 存在未解决的执行时无法恢复
 ```
 
 ### 状态
 
 ```bash
-# 查看任务详情和下次运行时间
 symbi cron status <job-id>
-
-# 包含最近 10 条运行记录
-symbi cron status <job-id> --history 10
-
-# 监视模式（每 5 秒自动刷新）
-symbi cron status <job-id> --watch
 ```
+
+`status` 只接受一个任务 UUID，不接受任何选项。它会报告该任务的详情和
+最近的运行记录；若某次调用已经核销，还会包含 `Reconciled` 状态、原始错误
+以及运维方的处理结论。
 
 ### 立即运行
 
 ```bash
-# 触发立即执行（绕过调度计划）
 symbi cron run <job-id>
-
-# 使用自定义输入
-symbi cron run <job-id> --input "Check production database"
 ```
+
+强制立即触发该任务。通过 REST 接口手动触发需要管理员令牌和一个
+`Idempotency-Key` UUID；重试时请复用同一个 UUID，而不要用它再运行一次。
+参见[调度器重试状态](/scheduler-idempotency)和 [cron 恢复](/cron-recovery)。
 
 ### 历史记录
 
 ```bash
-# 查看任务的运行历史
-symbi cron history <job-id>
+# 所有任务的最近运行记录（默认 20 条）
+symbi cron history
 
-# 最近 20 次运行
-symbi cron history <job-id> --limit 20
-
-# 按状态过滤
-symbi cron history <job-id> --status failed
-
-# 导出为 CSV
-symbi cron history <job-id> --format csv > runs.csv
+# 单个任务，并显式指定记录条数上限
+symbi cron history --job <job-id> --limit 50
 ```
+
+| 选项 | 含义 |
+|---|---|
+| `--job <JOB_ID>` | 只过滤出一个任务 |
+| `--limit <N>` | 显示的最大记录条数，默认 20 |
 
 ## 心跳模式
 
@@ -560,15 +544,19 @@ schedule {
 **恢复操作：**
 
 ```bash
-# 列出死信队列中的任务
-symbi cron list --status dead_letter
+# 列出任务并找出已被禁用的那一个
+symbi cron list
 
-# 查看失败原因
-symbi cron history <job-id> --status failed
+# 查看它的运行记录，其中包括失败记录
+symbi cron history --job <job-id>
 
-# 修复后将任务重置为活跃状态
-symbi cron reset <job-id>
+# 修复成因后重新启用
+symbi cron resume <job-id>
 ```
+
+`cron list` 和 `cron history` 不按状态过滤；请从 `list` 的状态列读取状态，或从
+`history` 读取运行记录。并不存在 `cron reset` 子命令 —— `resume` 才是重新启用
+任务的命令；若存在未解决的执行，恢复会被阻止，直至运维方完成核销。
 
 ### AgentPin 验证
 
@@ -926,11 +914,11 @@ pub enum SecurityEventType {
 1. 检查任务状态：`symbi cron status <job-id>`
 2. 验证 cron 表达式：使用 [crontab.guru](https://crontab.guru/)
 3. 检查调度器健康状态：`curl http://localhost:8080/api/v1/health/scheduler`
-4. 查看日志：`symbi logs --filter scheduler --level debug`
+4. 查看日志：`symbi logs --lines 200`（加上 `--follow` 可流式输出）
 
 ### 任务反复失败
 
-1. 查看历史记录：`symbi cron history <job-id> --status failed`
+1. 查看历史记录：`symbi cron history --job <job-id>`
 2. 检查运行记录中的错误信息
 3. 验证智能体配置和能力
 4. 在调度器外部测试智能体：`symbi run <agent-id> --input "test"`
@@ -938,10 +926,10 @@ pub enum SecurityEventType {
 
 ### 死信队列中的任务
 
-1. 列出死信任务：`symbi cron list --status dead_letter`
-2. 审查失败模式：`symbi cron history <job-id>`
+1. 列出任务并找出已被禁用的那一个：`symbi cron list`
+2. 审查失败模式：`symbi cron history --job <job-id>`
 3. 修复根本原因（智能体代码、权限、外部依赖）
-4. 重置任务：`symbi cron reset <job-id>`
+4. 重新启用任务：`symbi cron resume <job-id>`
 
 ### 高内存使用
 

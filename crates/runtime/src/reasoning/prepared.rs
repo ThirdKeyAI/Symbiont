@@ -449,7 +449,7 @@ position = 1
 required = true
 type = "string"
 [command]
-template = "/usr/bin/touch {value}"
+exec = ["/usr/bin/touch", "{value}"]
 [output]
 format = "text"
 "#,
@@ -552,10 +552,10 @@ format = "text"
         let dir = tempfile::tempdir().unwrap();
         let (_, mut manifest, _, _) = fixture(&dir.path().join("unused"), false);
         manifest.args.get_mut("value").unwrap().type_name = "scoped_host".into();
-        manifest.command.template = Some(format!(
-            "/usr/bin/touch '{}/{{value}}'",
-            dir.path().display()
-        ));
+        manifest.command.exec = Some(vec![
+            "/usr/bin/touch".into(),
+            format!("{}/{{value}}", dir.path().display()),
+        ]);
         let custom = HashMap::from([(
             "scoped_host".into(),
             ArgDef {

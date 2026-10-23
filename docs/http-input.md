@@ -28,7 +28,7 @@ The module is conditionally compiled with the `http-input` feature flag and inte
 
 ## Configuration
 
-The HTTP Input module is configured using the [`HttpInputConfig`](../crates/runtime/src/http_input/config.rs) structure:
+The HTTP Input module is configured using the [`HttpInputConfig`](https://github.com/ThirdKeyAI/Symbiont/blob/main/crates/runtime/src/http_input/config.rs) structure:
 
 ### Basic Configuration
 
@@ -56,6 +56,8 @@ let config = HttpInputConfig {
 | `agent` | `AgentId` | New ID | Default agent to invoke for requests |
 | `auth_header` | `Option<String>` | `None` | Bearer token for authentication |
 | `jwt_public_key_path` | `Option<String>` | `None` | Path to JWT public key file |
+| `jwt_issuer` | `Option<String>` | `None` | Required expected issuer when JWT authentication is enabled |
+| `jwt_audience` | `Option<String>` | `None` | Required expected audience when JWT authentication is enabled |
 | `max_body_bytes` | `usize` | `65536` | Maximum request body size (64 KB) |
 | `concurrency` | `usize` | `10` | Maximum concurrent requests |
 | `routing_rules` | `Option<Vec<AgentRoutingRule>>` | `None` | Request routing rules |
@@ -89,7 +91,7 @@ let routing_rules = vec![
 
 ### Response Control
 
-Customize HTTP responses with [`ResponseControlConfig`](../crates/runtime/src/http_input/config.rs):
+Customize HTTP responses with [`ResponseControlConfig`](https://github.com/ThirdKeyAI/Symbiont/blob/main/crates/runtime/src/http_input/config.rs):
 
 ```rust
 use symbiont_runtime::http_input::ResponseControlConfig;
@@ -137,21 +139,22 @@ Configure JWT-based authentication with Ed25519 public keys:
 ```rust
 let config = HttpInputConfig {
     jwt_public_key_path: Some("/path/to/jwt/ed25519-public.pem".to_string()),
+    jwt_issuer: Some("https://identity.example.com".to_string()),
+    jwt_audience: Some("symbiont-http-input".to_string()),
     ..Default::default()
 };
 ```
 
 The key loader accepts Ed25519 PEM or raw public-key bytes for EdDSA verification.
-JWTs must have a valid `exp` and a nonempty `sub` (at most 512 bytes). Expiry
-validation permits five seconds of clock skew. If supplied, `iss` must be
-nonempty and at most 2,048 bytes. Renewing a token with the same signed subject,
-issuer and configured key preserves its caller identity.
+JWTs must contain `exp`, `sub`, `iss` and `aud`. The subject must be nonempty
+and at most 512 bytes; the issuer must match `jwt_issuer`, and the audience must
+include `jwt_audience`. Startup rejects JWT configuration without both expected
+values. Expiry validation permits five seconds of clock skew. Renewing a token
+with the same signed subject, issuer and configured key preserves its caller identity.
 
-This HTTP Input verifier does **not** enforce an audience or issuer allowlist.
-The configured key is its trust authority; use a key dedicated to that authority.
-A signed issuer contributes to retry identity, but does not establish an issuer
-allowlist. Bearer authentication is required even when webhook signature
-verification is configured; the webhook signature is an additional check.
+Migration: configure the issuer and audience used by your identity provider and
+issue tokens for this service. A token signed by the same key for a different
+service is rejected. Webhook signature verification remains an additional check.
 
 #### Health Endpoint
 
@@ -204,7 +207,7 @@ start_http_input(config, Some(runtime), Some(secrets_config)).await?;
 
 ### Example Agent Definition
 
-Create a webhook handler agent in [`webhook_handler.symbi`](../agents/webhook_handler.symbi):
+Create a webhook handler agent in [`webhook_handler.symbi`](https://github.com/ThirdKeyAI/Symbiont/blob/main/agents/webhook_handler.symbi):
 
 ```dsl
 agent webhook_handler(body: JSON) -> Maybe<Alert> {
@@ -488,7 +491,7 @@ The module integrates with the Symbiont runtime's metrics system to provide:
 - [API Reference](api-reference.md)
 - [Reasoning Loop (ORGA)](reasoning-loop.md)
 - [ToolClad Tool Contracts](toolclad.md)
-- [Agent Runtime Documentation](../crates/runtime/README.md)
+- [Agent Runtime Documentation](https://github.com/ThirdKeyAI/Symbiont/blob/main/crates/runtime/README.md)
 
 A retained invocation with an operator resolution returns HTTP 409 and
 `status: "reconciled"`, its original audit reference and a separate signed

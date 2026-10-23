@@ -67,7 +67,7 @@ GET /api/v1/health
 POST /api/v1/workflows/execute
 ```
 
-管理者は `workflow_id` に DSL ソースを送信し、`parameters` は実行入力になります。`agent_id` を指定すると登録を作成または置換し、省略すると新しい ID を割り当てます。エージェントに限定されたキーは `403 ADMIN_REQUIRED` となり、登録済みソースを `/agents/{id}/execute` から実行できます。`queued` は受付を示します。`/agents/{id}/history` の `execution_id` で実際の結果を確認してください。[詳細な仕様](../../crates/runtime/API_REFERENCE.md#execute-workflow)を参照してください。
+管理者は `workflow_id` に DSL ソースを送信し、`parameters` は実行入力になります。`agent_id` を指定すると登録を作成または置換し、省略すると新しい ID を割り当てます。エージェントに限定されたキーは `403 ADMIN_REQUIRED` となり、登録済みソースを `/agents/{id}/execute` から実行できます。`queued` は受付を示します。`/agents/{id}/history` の `execution_id` で実際の結果を確認してください。[詳細な仕様](https://github.com/ThirdKeyAI/Symbiont/blob/main/crates/runtime/API_REFERENCE.md#execute-workflow)を参照してください。
 
 **リクエストボディ：**
 ```json
@@ -309,6 +309,8 @@ GET /api/v1/metrics
 メトリクススナップショットは、ランタイムの `MetricsExporter` システムを使用してファイル（アトミックJSON書き込み）またはOTLPエンドポイントにもエクスポートできます。以下の[メトリクスとテレメトリ](#メトリクスとテレメトリ)セクションを参照してください。
 
 ---
+
+<a id="メトリクスとテレメトリ"></a>
 
 ### メトリクスとテレメトリ
 

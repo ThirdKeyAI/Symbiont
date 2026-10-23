@@ -127,7 +127,7 @@ Symbiont はエージェントの意図と実行権限を分離します：
 | **ツール検証** | 実行前に [SchemaPin](https://schemapin.org) による MCP ツールスキーマの暗号学的検証 |
 | **エージェントアイデンティティ** | [AgentPin](https://agentpin.org) によるエージェントとスケジュールタスクのドメイン固定 ES256 アイデンティティ |
 | **推論ループ** | ポリシーゲートとサーキットブレーカーを備えた型状態強制の Observe-Reason-Gate-Act サイクル |
-| **サンドボックス** | 3つの OSS ティア — Docker（Tier 1）、gVisor（Tier 2）、Firecracker microVM（Tier 3） — Enterprise ゲーティングなしで DSL から選択可能 |
+| **サンドボックス** | 4つの OSS バックエンド — Landlock（番号ではなく名前で指定、デーモン不要）、Docker（Tier 1）、gVisor（Tier 2）、Firecracker microVM（Tier 3） — Enterprise ゲーティングなしで DSL から選択可能 |
 | **保護された監査** | `.symbiont/governed/` 配下の、実行ごとの非公開な署名付きジャーナル。必須の書き込みが失敗した場合はディスパッチを停止します |
 | **オプションのガバナンス下の改善** | [バージョン管理されたワークフロー指示](/governed-improvements)、署名付きの試行評価、運用者による厳密な承認、明示的な有効化、実行ごとのバージョン固定。明示的に初期化して選択するまでは無効です |
 | **シークレット管理** | Vault/OpenBao 統合、AES-256-GCM 暗号化ストレージ、エージェントごとのスコープ |

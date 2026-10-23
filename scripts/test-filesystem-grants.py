@@ -154,12 +154,13 @@ target.write_text(json.dumps(result))
                 code += 'print(' + repr(parser_code) + ')\n'
             else:
                 code += 'print(json.dumps(result))\n'
-            manifest = '[tool]\nname="files"\nversion="1"\nbinary="python3"\ndescription="Declared file operation"\ntimeout_seconds=10\n'
+            manifest = '[tool]\nname="files"\nversion="1"\nbinary="python3"\ndescription="Declared file operation"\ntimeout_seconds=10\nallow_interpreter=true\n'
             for index, argument in enumerate(['input', 'output']):
                 manifest += f'[args.{argument}]\nposition={index + 1}\nrequired=true\ntype="path"\n'
-            # JSON encoding gives TOML a literal single argv script after parsing.
-            import shlex
-            manifest += '[command]\ntemplate=' + json.dumps('python3 -c ' + shlex.quote(code) + ' {input} {output}') + '\n'
+            # Literal braces in the fixed script are escaped for ToolClad, and
+            # exec preserves the script as a single, operator-authored argument.
+            manifest += '[command]\nexec=' + json.dumps(
+                ['python3', '-c', code.replace('{', '{{').replace('}', '}}'), '{input}', '{output}']) + '\n'
             manifest += '[output]\nformat="json"\n'
             if name == 'parser':
                 manifest += 'parser=' + json.dumps('custom:' + backend.python) + '\n'

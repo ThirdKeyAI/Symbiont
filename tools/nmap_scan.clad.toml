@@ -3,11 +3,12 @@
 
 [tool]
 name = "nmap_scan"
-version = "1.0.1"
+version = "1.1.0"
 binary = "nmap"
 description = "Network port scanning and service detection"
 timeout_seconds = 600
 risk_tier = "low"
+network_egress = true
 
 [tool.cedar]
 resource = "Tool::NmapScan"
@@ -24,6 +25,10 @@ hash = "sha256"
 position = 1
 required = true
 type = "scope_target"
+# nmap connects to this target: refuse loopback, private and metadata ranges.
+# A CIDR must not overlap a blocked range; a hostname must resolve to public
+# addresses only.
+block_internal = true
 description = "Target CIDR, IP, or hostname"
 
 [args.scan_type]
@@ -44,7 +49,19 @@ description = "Optional fixed flag: -n disables DNS, -Pn skips host discovery"
 # --- Command Construction ---
 
 [command]
-template = "nmap {_scan_flags} --max-rate {max_rate} -oX {_output_file} --no-stylesheet -v {_extra_flags} {target}"
+# Each element is one argv entry. `{_scan_type_flags}` is the only multi-token
+# placeholder and its text comes from the mapping table below. The XML report
+# goes to stdout (`-oX -`), which the runtime captures, hashes and stores as
+# evidence; the tool never writes to a host path.
+exec = [
+    "nmap",
+    "{_scan_type_flags}",
+    "--max-rate", "{max_rate}",
+    "-oX", "-",
+    "--no-stylesheet",
+    "{_extra_flags}",
+    "{target}",
+]
 
 [command.conditionals]
 extra_flags = { when = "extra_flags != ''", template = "{extra_flags}" }
@@ -67,6 +84,7 @@ vuln_script = "-sV --script=vuln --script-timeout 60s"
 format = "xml"
 parser = "builtin:xml"
 envelope = true
+max_bytes = 8388608
 
 [output.schema]
 type = "object"

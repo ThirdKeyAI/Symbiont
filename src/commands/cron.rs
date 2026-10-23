@@ -149,6 +149,11 @@ async fn cmd_add(matches: &ArgMatches) {
                 std::process::exit(1);
             }
         };
+        let metadata = symbi_runtime::improvement::operational::registration_metadata(&source)
+            .unwrap_or_else(|error| {
+                eprintln!("Invalid improvement selection: {error}");
+                std::process::exit(1);
+            });
         let agent_config = symbi_runtime::types::AgentConfig {
             id: symbi_runtime::types::AgentId::new(),
             name: selected_name,
@@ -158,7 +163,7 @@ async fn cmd_add(matches: &ArgMatches) {
             resource_limits: symbi_runtime::types::ResourceLimits::default(),
             capabilities: vec![],
             policies: vec![],
-            metadata: std::collections::HashMap::new(),
+            metadata,
             priority: symbi_runtime::types::Priority::Normal,
         };
 

@@ -566,6 +566,33 @@ impl Store {
         evaluation: &str,
         rationale: &str,
     ) -> Result<String, String> {
+        self.record_approval(candidate, evaluation, rationale, None)
+    }
+
+    pub fn approve_receipt(&self, receipt: review::ReviewReceipt) -> Result<String, String> {
+        let trust: review::ReviewTrust = serde_json::from_slice(&read_bytes(
+            &self.project.join(".symbiont/console-review-trust.json"),
+            true,
+        )?)
+        .map_err(|e| e.to_string())?;
+        receipt.verify(&trust, &self.state.workflow, chrono::Utc::now())?;
+        let request = receipt.decision.request.clone();
+        let rationale = receipt.decision.rationale.clone();
+        self.record_approval(
+            &request.candidate,
+            &request.evaluation,
+            &rationale,
+            Some(receipt),
+        )
+    }
+
+    fn record_approval(
+        &self,
+        candidate: &str,
+        evaluation: &str,
+        rationale: &str,
+        console_review: Option<review::ReviewReceipt>,
+    ) -> Result<String, String> {
         self.enabled()?;
         self.check_deployment()?;
         self.candidate(candidate)?;
@@ -589,6 +616,7 @@ impl Store {
                 rationale: rationale.into(),
                 operator_uid: uid(),
                 recorded_at: chrono::Utc::now(),
+                console_review,
             },
         )
     }

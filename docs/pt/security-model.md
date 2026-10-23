@@ -38,7 +38,7 @@ O Symbiont implementa uma arquitetura de segurança em primeiro lugar projetada 
 
 ## Sandboxing de Múltiplas Camadas
 
-O runtime entrega três camadas de isolamento no host (Tier 1 → Tier 3) mais um backend de execução hospedada (E2B). As camadas formam uma escada de isolamento monotonicamente crescente; o E2B **não** é um par nessa escada — executa em infraestrutura de terceiros e é documentado separadamente abaixo.
+O runtime entrega três camadas numeradas de isolamento no host (Tier 1 → Tier 3), o backend nomeado `landlock` e um backend de execução hospedada (E2B). As camadas numeradas formam uma escada de isolamento monotonicamente crescente. Nem o `landlock` nem o E2B são pares nessa escada: o Landlock é um backend sem daemon, aplicado pelo kernel, para comandos de execução única, parsers e o processo filho da CLI gerenciada, documentado em [Landlock (workers nativos)](#landlock-daemon-free); o E2B executa em infraestrutura de terceiros e é documentado separadamente abaixo.
 
 ```mermaid
 graph TB

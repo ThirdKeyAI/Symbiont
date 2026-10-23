@@ -7,9 +7,12 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
+pub mod administration;
 pub mod evaluation;
 #[cfg(unix)]
 mod execution;
+pub mod operational;
+pub mod review;
 #[cfg(unix)]
 mod store;
 #[cfg(unix)]
@@ -218,6 +221,8 @@ pub struct Approval {
     pub rationale: String,
     pub operator_uid: u32,
     pub recorded_at: chrono::DateTime<chrono::Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub console_review: Option<review::ReviewReceipt>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -754,7 +754,7 @@ agent fraud_detector(transaction: Transaction) -> FraudAssessment {
 
 ## Próximos Passos
 
-- **[Especificação do DSL](dsl-specification.md)** - Referência completa da especificação da linguagem
+- **[Especificação do DSL](/dsl-specification)** - Referência completa da especificação da linguagem
 - **[Arquitetura do Runtime](/runtime-architecture)** - Entenda como os agentes executam
 - **[Modelo de Segurança](/security-model)** - Aprenda sobre implementação de segurança
 - **[Referência da API](/api-reference)** - Referência completa de funções e tipos

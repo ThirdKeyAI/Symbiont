@@ -29,6 +29,8 @@ fn create_test_config(port: u16) -> HttpInputConfig {
         agent: AgentId::new(),
         auth_header: Some("Bearer test-token-123".to_string()),
         jwt_public_key_path: None,
+        jwt_issuer: None,
+        jwt_audience: None,
         max_body_bytes: 1024, // 1KB for testing payload size limits
         concurrency: 5,
         routing_rules: None,

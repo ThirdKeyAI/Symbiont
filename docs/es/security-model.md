@@ -38,7 +38,7 @@ Symbiont implementa una arquitectura de seguridad primero disenada para entornos
 
 ## Sandboxing de Multiples Niveles
 
-El runtime ofrece tres niveles de aislamiento del host (Nivel 1 → Nivel 3) mas un backend de ejecucion alojada (E2B). Los niveles forman una escalera de aislamiento monotonicamente creciente; E2B **no** es un par en esa escalera — se ejecuta sobre infraestructura de terceros y se documenta por separado mas abajo.
+El runtime ofrece tres niveles numerados de aislamiento del host (Nivel 1 → Nivel 3), el backend con nombre `landlock` y un backend de ejecucion alojada (E2B). Los niveles numerados forman una escalera de aislamiento monotonicamente creciente. Ni `landlock` ni E2B es un par en esa escalera: Landlock es un backend sin demonio aplicado por el kernel para comandos de un solo uso, parsers y el proceso hijo de CLI administrada, documentado en [Landlock (workers nativos)](#landlock-daemon-free); E2B se ejecuta sobre infraestructura de terceros y se documenta por separado mas abajo.
 
 ```mermaid
 graph TB

@@ -198,6 +198,15 @@ impl AgentLoop<Reasoning> {
             ..Default::default()
         };
 
+        if let Err(error) = provider.prepare_options(&mut options) {
+            return Err(LoopTermination {
+                reason: LoopTerminationReason::Error {
+                    message: format!("Invalid inference options: {error}"),
+                },
+                state: self.state,
+            });
+        }
+
         let input_reservation =
             match provider.input_token_reservation(&self.state.conversation, &options) {
                 Ok(tokens) => tokens,

@@ -223,6 +223,8 @@ impl Default for SchedulerConfig {
 pub struct ScheduledTask {
     #[cfg(unix)]
     pub(crate) claimed_journal: Option<invocations::ClaimedJournal>,
+    #[cfg(unix)]
+    pub(crate) improvement: Option<crate::improvement::PinnedImprovement>,
     pub input: serde_json::Value,
     pub handle: task_manager::TaskHandle,
     pub agent_id: AgentId,
@@ -236,11 +238,20 @@ pub struct ScheduledTask {
 }
 
 impl ScheduledTask {
+    /// The immutable version selected by the scheduler before queue admission.
+    /// Custom executors that opt in must pass this pin to the governed runner.
+    #[cfg(unix)]
+    pub fn improvement(&self) -> Option<&crate::improvement::PinnedImprovement> {
+        self.improvement.as_ref()
+    }
+
     pub fn new(config: AgentConfig) -> Self {
         let now = SystemTime::now();
         Self {
             #[cfg(unix)]
             claimed_journal: None,
+            #[cfg(unix)]
+            improvement: None,
             input: serde_json::Value::Null,
             handle: task_manager::TaskHandle::new(config.id),
             agent_id: config.id,
@@ -401,9 +412,35 @@ impl DefaultAgentScheduler {
         let mut task = ScheduledTask::new(config.clone());
         task.input = input;
         #[cfg(unix)]
-        if let Some(journal) = claimed_journal {
-            task.handle = task_manager::TaskHandle::with_run_id(config.id, journal.audit.run_id);
-            task.claimed_journal = Some(journal);
+        {
+            if let Some(journal) = claimed_journal {
+                task.handle =
+                    task_manager::TaskHandle::with_run_id(config.id, journal.audit.run_id);
+                task.improvement = journal.improvement.clone();
+                task.claimed_journal = Some(journal);
+            } else {
+                task.improvement =
+                    self.task_manager
+                        .pin_improvement(&config)
+                        .await
+                        .map_err(|reason| SchedulerError::SchedulingFailed {
+                            agent_id: config.id,
+                            reason: reason.into(),
+                        })?;
+            }
+        }
+        #[cfg(not(unix))]
+        if crate::improvement::operational::workflow(&config)
+            .map_err(|reason| SchedulerError::SchedulingFailed {
+                agent_id: config.id,
+                reason,
+            })?
+            .is_some()
+        {
+            return Err(SchedulerError::SchedulingFailed {
+                agent_id: config.id,
+                reason: "governed improvements require Unix".into(),
+            });
         }
         let handle = task.handle.clone();
         self.registered_agents.insert(config.id, config);
@@ -664,6 +701,12 @@ impl AgentScheduler for DefaultAgentScheduler {
     }
 
     async fn register_agent(&self, config: AgentConfig) -> Result<AgentId, SchedulerError> {
+        crate::improvement::operational::workflow(&config).map_err(|reason| {
+            SchedulerError::SchedulingFailed {
+                agent_id: config.id,
+                reason: reason.into(),
+            }
+        })?;
         let _dispatch = self.dispatch_lock.lock().await;
         if !*self.is_running.read() {
             return Err(SchedulerError::ShuttingDown);

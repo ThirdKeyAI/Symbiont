@@ -182,7 +182,14 @@ pub async fn run(matches: &ArgMatches) {
 
     // Load ToolClad manifests from tools/
     let toolclad_manifests =
-        symbi_runtime::toolclad::manifest::load_manifests_from_dir(Path::new("tools"));
+        match symbi_runtime::toolclad::manifest::load_manifests_from_dir(Path::new("tools")) {
+            Ok(manifests) => manifests,
+            Err(error) => {
+                // A shipped tool must never silently disappear at startup.
+                eprintln!("✗ {error}");
+                std::process::exit(1);
+            }
+        };
     if !toolclad_manifests.is_empty() {
         println!("✓ {} tool(s) loaded from tools/", toolclad_manifests.len());
         for (name, manifest) in &toolclad_manifests {
@@ -327,6 +334,8 @@ pub async fn run(matches: &ArgMatches) {
         response_control: None,
         forward_headers: vec![],
         jwt_public_key_path: None,
+        jwt_issuer: None,
+        jwt_audience: None,
         webhook_verify: None,
     };
 
@@ -946,6 +955,13 @@ async fn load_dsl_schedules(cron: &symbi_runtime::CronScheduler) -> usize {
                                                 continue;
                                             }
                                         };
+                                        let metadata = match symbi_runtime::improvement::operational::registration_metadata(&selected_source) {
+                                            Ok(metadata) => metadata,
+                                            Err(error) => {
+                                                eprintln!("Invalid improvement selection for '{name}': {error}");
+                                                continue;
+                                            }
+                                        };
                                         let agent_config = symbi_runtime::types::AgentConfig {
                                             id: symbi_runtime::types::AgentId::new(),
                                             name,
@@ -957,7 +973,7 @@ async fn load_dsl_schedules(cron: &symbi_runtime::CronScheduler) -> usize {
                                                 symbi_runtime::types::ResourceLimits::default(),
                                             capabilities: vec![],
                                             policies: vec![],
-                                            metadata: std::collections::HashMap::new(),
+                                            metadata,
                                             priority: symbi_runtime::types::Priority::Normal,
                                         };
 
@@ -1043,6 +1059,16 @@ async fn load_agents_into_registry(runtime: &AgentRuntime) -> Vec<(String, Agent
                         }
                     };
 
+                    let metadata =
+                        match symbi_runtime::improvement::operational::registration_metadata(
+                            &source,
+                        ) {
+                            Ok(metadata) => metadata,
+                            Err(error) => {
+                                eprintln!("Invalid improvement selection for '{name}': {error}");
+                                continue;
+                            }
+                        };
                     let agent_config = symbi_runtime::types::AgentConfig {
                         id: symbi_runtime::types::AgentId::new(),
                         name: name.clone(),
@@ -1052,7 +1078,7 @@ async fn load_agents_into_registry(runtime: &AgentRuntime) -> Vec<(String, Agent
                         resource_limits: symbi_runtime::types::ResourceLimits::default(),
                         capabilities: vec![symbi_runtime::types::Capability::Computation],
                         policies: vec![],
-                        metadata: std::collections::HashMap::new(),
+                        metadata,
                         priority: symbi_runtime::types::Priority::Normal,
                     };
 

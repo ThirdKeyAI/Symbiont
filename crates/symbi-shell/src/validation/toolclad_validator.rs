@@ -22,6 +22,25 @@ pub fn validate_toolclad(
         }
     };
 
+    // The runtime's own loader and lints: one implementation, so an authored
+    // manifest is judged exactly as the executor will judge it (unknown keys,
+    // interpreter argv[0] without allow_interpreter, egress targets without
+    // block_internal, placeholder hygiene, ...).
+    match symbi_runtime::toolclad::parse_manifest(toml_text, &std::collections::HashMap::new()) {
+        Ok(manifest) => {
+            for warning in symbi_runtime::toolclad::manifest::lint(&manifest) {
+                issues.push(ValidationIssue {
+                    severity: Severity::Warning,
+                    message: warning,
+                });
+            }
+        }
+        Err(error) => issues.push(ValidationIssue {
+            severity: Severity::Error,
+            message: format!("manifest does not load: {error}"),
+        }),
+    }
+
     let tool = doc.get("tool");
 
     // Check risk tier
@@ -149,15 +168,102 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_valid_manifest() {
-        let toml = r#"
+    const VALID: &str = r#"
 [tool]
 name = "my_tool"
+version = "1.0.0"
+binary = "wc"
+description = "Count lines"
 risk_tier = "low"
+
+[args.path]
+position = 1
+required = true
+type = "path"
+
+[command]
+exec = ["wc", "-l", "{path}"]
+end_of_options = "--"
+
+[output]
+format = "text"
 "#;
-        let issues = validate_toolclad(toml, &test_constraints()).unwrap();
-        assert!(issues.is_empty());
+
+    #[test]
+    fn test_valid_manifest() {
+        let issues = validate_toolclad(VALID, &test_constraints()).unwrap();
+        assert!(issues.is_empty(), "{issues:?}");
+    }
+
+    #[test]
+    fn generated_manifests_go_through_the_runtime_loader() {
+        let shell = VALID.replace("binary = \"wc\"", "binary = \"sh\"").replace(
+            "exec = [\"wc\", \"-l\", \"{path}\"]",
+            "exec = [\"sh\", \"-c\", \"{path}\"]",
+        );
+        let issues = validate_toolclad(&shell, &test_constraints()).unwrap();
+        assert!(issues
+            .iter()
+            .any(|i| matches!(i.severity, Severity::Error) && i.message.contains("interpreter")));
+
+        let allowed = shell.replace(
+            "risk_tier = \"low\"",
+            "risk_tier = \"low\"\nallow_interpreter = true",
+        );
+        let issues = validate_toolclad(&allowed, &test_constraints()).unwrap();
+        assert!(issues
+            .iter()
+            .any(|i| matches!(i.severity, Severity::Warning)
+                && i.message.contains("allow_interpreter")));
+
+        let typo = VALID.replace(
+            "risk_tier = \"low\"",
+            "risk_tier = \"low\"\ntiemout_seconds = 5",
+        );
+        let issues = validate_toolclad(&typo, &test_constraints()).unwrap();
+        assert!(issues.iter().any(|i| i.message.contains("does not load")));
+    }
+
+    #[test]
+    fn operands_without_end_of_options_and_unscoped_urls_are_flagged() {
+        let unfenced = VALID
+            .replace("end_of_options = \"--\"\n", "")
+            .replace("\"-l\", ", "");
+        let issues = validate_toolclad(&unfenced, &test_constraints()).unwrap();
+        assert!(
+            issues.iter().any(|i| i.message.contains("without `--`")),
+            "{issues:?}"
+        );
+
+        let url = r#"
+[tool]
+name = "fetch"
+version = "1"
+binary = "curl"
+description = "d"
+[args.url]
+position = 1
+required = true
+type = "url"
+block_internal = true
+[command]
+exec = ["curl", "--", "{url}"]
+[output]
+format = "text"
+"#;
+        let issues = validate_toolclad(url, &test_constraints()).unwrap();
+        assert!(
+            issues
+                .iter()
+                .any(|i| i.message.contains("without scope_check")),
+            "{issues:?}"
+        );
+        let unguarded = url.replace("block_internal = true\n", "");
+        let issues = validate_toolclad(&unguarded, &test_constraints()).unwrap();
+        assert!(
+            issues.iter().any(|i| i.message.contains("block_internal")),
+            "{issues:?}"
+        );
     }
 
     #[test]

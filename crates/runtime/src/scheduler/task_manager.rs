@@ -43,6 +43,20 @@ impl TaskManager {
         self.executor.invocation_project()
     }
 
+    #[cfg(unix)]
+    pub(crate) async fn pin_improvement(
+        &self,
+        config: &AgentConfig,
+    ) -> Result<Option<crate::improvement::PinnedImprovement>, String> {
+        if crate::improvement::operational::workflow(config)?.is_none() {
+            return Ok(None);
+        }
+        if !self.executor.supports_improvements() {
+            return Err("execution service does not support governed improvements".into());
+        }
+        crate::improvement::operational::pin_registered(self.invocation_project()?, config).await
+    }
+
     pub async fn start_task(&self, task: super::ScheduledTask) -> Result<(), SchedulerError> {
         let handle = task.handle.clone();
         if handle.completion().is_some() {
@@ -263,6 +277,8 @@ pub struct TaskCompletion {
     pub total_usage: Option<crate::reasoning::inference::Usage>,
     #[serde(default)]
     pub budget: Option<crate::reasoning::budget::BudgetSnapshot>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub improvement: Option<serde_json::Value>,
 }
 impl TaskCompletion {
     pub fn new(task: &super::ScheduledTask, status: TaskStatus, error: Option<String>) -> Self {
@@ -276,6 +292,10 @@ impl TaskCompletion {
             audit: None,
             total_usage: None,
             budget: None,
+            #[cfg(unix)]
+            improvement: task.improvement.as_ref().map(|pin| pin.identity()),
+            #[cfg(not(unix))]
+            improvement: None,
         }
     }
 }

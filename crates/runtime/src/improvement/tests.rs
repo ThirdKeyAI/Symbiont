@@ -213,6 +213,63 @@ mod storage {
     }
 
     #[tokio::test]
+    async fn console_receipts_require_operator_trust_and_a_passing_exact_evaluation() {
+        use review::{ReviewDecision, ReviewReceipt, ReviewRequest, ReviewTrust};
+        let root = tempfile::tempdir().unwrap();
+        let store = init(root.path());
+        let candidate = store.propose(proposal()).unwrap();
+        let reference = signed_trial(root.path(), &candidate, "expected").await;
+        let (evaluation, _) = store
+            .evaluate(&candidate, &[reference], &ExactAnswerEvaluator)
+            .unwrap();
+        let key = ed25519_dalek::SigningKey::from_bytes(&[29; 32]);
+        let now = chrono::Utc::now();
+        let receipt = ReviewReceipt::sign(
+            ReviewDecision {
+                schema_version: 1,
+                request: ReviewRequest {
+                    workspace: "regulated".into(),
+                    runtime: "intake".into(),
+                    workflow: "claims".into(),
+                    candidate: candidate.clone(),
+                    evaluation,
+                },
+                approval_id: "review1".into(),
+                reviewer: "authenticated-reviewer".into(),
+                decided_at: now,
+                issued_at: now,
+                expires_at: now + chrono::Duration::minutes(15),
+                rationale: "Reviewed evidence".into(),
+            },
+            &key,
+        )
+        .unwrap();
+        assert!(store.approve_receipt(receipt.clone()).is_err());
+        let path = root.path().join(".symbiont/console-review-trust.json");
+        let trust = ReviewTrust {
+            workspace: "regulated".into(),
+            runtime: "intake".into(),
+            public_keys: vec![hex::encode(key.verifying_key().as_bytes())],
+        };
+        std::fs::write(&path, serde_json::to_vec(&trust).unwrap()).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let approval = store.approve_receipt(receipt.clone()).unwrap();
+        let document = store.export_document("approval", Some(&approval)).unwrap();
+        assert_eq!(
+            document["payload"]["console_review"]["decision"]["reviewer"],
+            "authenticated-reviewer"
+        );
+        assert!(store.state().active.is_none());
+        let mut wrong = receipt.decision.clone();
+        wrong.request.evaluation = "c".repeat(64);
+        assert!(store
+            .approve_receipt(ReviewReceipt::sign(wrong, &key).unwrap())
+            .is_err());
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(store.approve_receipt(receipt).is_err());
+    }
+
+    #[tokio::test]
     async fn complete_lifecycle_binds_approval_rolls_back_and_keeps_pinned_versions() {
         let root = tempfile::tempdir().unwrap();
         let mut store = init(root.path());

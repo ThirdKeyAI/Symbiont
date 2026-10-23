@@ -10,6 +10,9 @@ pub mod server;
 pub mod routes;
 
 #[cfg(feature = "http-api")]
+pub mod improvements;
+
+#[cfg(feature = "http-api")]
 pub mod middleware;
 
 #[cfg(all(unix, feature = "http-api"))]

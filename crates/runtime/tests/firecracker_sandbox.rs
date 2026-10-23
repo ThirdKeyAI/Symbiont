@@ -2,14 +2,13 @@
 //! ToolClad. Explicit runs require locally provisioned artifacts; nothing is downloaded.
 #![cfg(target_os = "linux")]
 use std::{collections::HashMap, path::PathBuf, time::Duration};
-use symbi_runtime::{
-    sandbox::{
-        command::{CommandBoundary, CommandTier},
-        supervisor::SupervisorConfig,
-        FirecrackerConfig, FirecrackerRunner, SandboxRunner,
-    },
-    toolclad::{Manifest, ToolCladExecutor},
+use symbi_runtime::sandbox::{
+    command::{CommandBoundary, CommandTier},
+    supervisor::SupervisorConfig,
+    FirecrackerConfig, FirecrackerRunner, SandboxRunner,
 };
+#[cfg(any(feature = "toolclad-direct", feature = "cli-executor"))]
+use symbi_runtime::toolclad::{Manifest, ToolCladExecutor};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 struct Fixture {
@@ -21,7 +20,7 @@ struct Fixture {
 #[path = "firecracker_sandbox/cli.rs"]
 mod cli;
 
-#[cfg(feature = "toolclad-session")]
+#[cfg(all(feature = "toolclad-session", feature = "toolclad-direct"))]
 mod terminal {
     use super::*;
     use symbi_runtime::toolclad::session_executor::SessionExecutor;
@@ -688,6 +687,7 @@ async fn missing_guest_init_and_stale_guest_cannot_report_success() {
     fixture.settled().await;
 }
 
+#[cfg(feature = "toolclad-direct")]
 #[test]
 #[ignore = "requires KVM, Firecracker, matching guest rootfs and kernel"]
 fn toolclad_command_uses_selected_vm() {
@@ -701,7 +701,7 @@ binary = "/bin/printf"
 description = "Guest output fixture"
 timeout_seconds = 10
 [command]
-template = "/bin/printf '%s' '{message}'"
+exec = ["/bin/printf", "%s", "{message}"]
 [args.message]
 position = 1
 type = "literal_text"

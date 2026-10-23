@@ -35,6 +35,7 @@ struct ToolCladSnapshot {
     manifest: Manifest,
     validated: HashMap<String, String>,
     argv: Option<Vec<String>>,
+    injected: super::command::Injected,
     boundary: CommandBoundary,
     files: FileAccessPlan,
     source: Option<SourcePlan>,
@@ -70,6 +71,11 @@ pub struct ToolCladExecutor {
     /// so a malformed scope cannot silently turn into unrestricted dispatch.
     scope: Result<Option<super::scope::Scope>, String>,
     boundary: Result<CommandBoundary, String>,
+    /// A manifest that fails load-time validation disables the executor:
+    /// `validate_configuration` reports it and no call is prepared.
+    manifest_error: Option<String>,
+    /// Project directory used to anchor the MCP server registry.
+    project_dir: Option<std::path::PathBuf>,
 }
 
 impl ToolCladExecutor {
@@ -105,6 +111,16 @@ impl ToolCladExecutor {
         let session_executor = super::session_executor::SessionExecutor::new(session_manifests);
         let browser_executor = super::browser_executor::BrowserExecutor::new(browser_manifests);
 
+        let mut errors: Vec<String> = manifests
+            .iter()
+            .filter_map(|(name, m)| {
+                m.validate(&custom_types)
+                    .err()
+                    .map(|e| format!("manifest '{name}': {e}"))
+            })
+            .collect();
+        errors.sort();
+        let manifest_error = (!errors.is_empty()).then(|| errors.join("; "));
         let manifest_map: HashMap<String, Manifest> = manifests.into_iter().collect();
         Self {
             executor_id: uuid::Uuid::new_v4(),
@@ -118,7 +134,18 @@ impl ToolCladExecutor {
             enforce_mcp_verification: true,
             scope: Ok(None),
             boundary: Ok(CommandBoundary::default()),
+            manifest_error,
+            project_dir: None,
         }
+    }
+
+    /// An executor that refuses every call because the project's manifests
+    /// failed to load. `validate_configuration` reports the error, so a run
+    /// fails at startup instead of silently missing tools.
+    pub fn failed(error: String) -> Self {
+        let mut executor = Self::new(Vec::new());
+        executor.manifest_error = Some(error);
+        executor
     }
 
     /// Select an operator-owned command boundary. The selection is part of
@@ -137,6 +164,7 @@ impl ToolCladExecutor {
 
     pub fn with_project_sandbox(mut self, project: &std::path::Path) -> Self {
         self.executor_id = uuid::Uuid::new_v4();
+        self.project_dir = Some(project.to_path_buf());
         self.session_executor = super::session_executor::SessionExecutor::new(
             self.manifests
                 .iter()
@@ -163,6 +191,7 @@ impl ToolCladExecutor {
     /// Load project scope for arguments that require a scoped destination.
     pub fn with_project_scope(mut self, project_dir: &std::path::Path) -> Self {
         self.executor_id = uuid::Uuid::new_v4();
+        self.project_dir = Some(project_dir.to_path_buf());
         self.scope = super::scope::Scope::load(project_dir);
         self
     }
@@ -239,7 +268,12 @@ impl ToolCladExecutor {
 
         Ok((
             manifest,
-            self.validate_arguments(name, &manifest.args, args_json)?,
+            self.validate_arguments(
+                name,
+                &manifest.args,
+                args_json,
+                super::command::exec_was_declared(manifest),
+            )?,
         ))
     }
 
@@ -248,7 +282,11 @@ impl ToolCladExecutor {
         name: &str,
         definitions: &HashMap<String, ArgDef>,
         args_json: &str,
+        exec_mode: bool,
     ) -> Result<HashMap<String, String>, String> {
+        if let Some(error) = &self.manifest_error {
+            return Err(format!("ToolClad configuration error: {error}"));
+        }
         // Parse arguments from JSON
         let args: HashMap<String, serde_json::Value> = serde_json::from_str(args_json)
             .map_err(|e| format!("Invalid arguments JSON: {}", e))?;
@@ -274,7 +312,7 @@ impl ToolCladExecutor {
             } else if arg_def.required {
                 return Err(format!("Missing required argument: {}", arg_name));
             } else if let Some(default) = &arg_def.default {
-                default.to_string().trim_matches('"').to_string()
+                super::command::toml_value_to_string(default)
             } else {
                 String::new()
             };
@@ -285,7 +323,7 @@ impl ToolCladExecutor {
                 } else {
                     Some(&self.custom_types)
                 };
-                let cleaned = validator::validate_arg_with_custom(arg_def, &value, custom)
+                let cleaned = validator::validate_arg_in(arg_def, &value, custom, exec_mode)
                     .map_err(|e| format!("Validation failed for '{}': {}", arg_name, e))?;
                 if validator::requires_scope(arg_def, custom)? {
                     scope
@@ -305,8 +343,14 @@ impl ToolCladExecutor {
         Ok(validated)
     }
 
-    /// Execute a single tool call against a manifest.
+    /// Execute a single tool call against a manifest without a policy grant.
+    ///
+    /// Ungoverned: no Cedar evaluation, approval relay, or effect journal.
+    /// Compiled only for unit tests and the `toolclad-direct` fixture
+    /// feature, and refused in production.
+    #[cfg(any(test, feature = "toolclad-direct"))]
     pub fn execute_tool(&self, name: &str, args_json: &str) -> Result<serde_json::Value, String> {
+        refuse_direct_dispatch_in_production()?;
         let (manifest, validated) = self.parse_and_validate(name, args_json)?;
         if manifest.tool.human_approval {
             return Err(
@@ -315,7 +359,7 @@ impl ToolCladExecutor {
         }
 
         if tokio::runtime::Handle::try_current().is_ok() {
-            return Err("tools in an async runtime must use execute_actions".into());
+            return Err("tools in an async runtime must use governed dispatch".into());
         }
         let boundary = self.boundary.as_ref().map_err(Clone::clone)?;
         let timeout = Duration::from_secs(manifest.tool.timeout_seconds);
@@ -336,9 +380,13 @@ impl ToolCladExecutor {
                 Self::execute_http_backend(name, manifest, &validated, timeout, boundary, None)
                     .await
             } else {
-                let argv = build_argv(manifest, &validated)?;
+                let injected = super::command::Injected::fresh();
+                let argv = super::command::build_argv(manifest, &validated, &injected)?;
                 let files = Self::prepare_files(manifest, boundary, &validated)?;
-                Self::execute_shell_backend(name, manifest, &argv, timeout, boundary, &files).await
+                Self::execute_shell_backend(
+                    name, manifest, &argv, &injected, timeout, boundary, &files,
+                )
+                .await
             }
         })
     }
@@ -390,11 +438,13 @@ impl ToolCladExecutor {
         name: &str,
         manifest: &Manifest,
         argv: &[String],
+        injected: &super::command::Injected,
         timeout: Duration,
         boundary: &CommandBoundary,
         files: &FileAccessPlan,
     ) -> Result<serde_json::Value, String> {
-        // Display only; dispatch uses the immutable argv prepared before policy.
+        // Display only; dispatch uses the immutable argv prepared before
+        // policy. Commands never carry secrets, so the argv is safe to show.
         let command = argv.join(" ");
         files.check_publication_authority()?;
         let start = std::time::Instant::now();
@@ -405,20 +455,19 @@ impl ToolCladExecutor {
             .await
             .map_err(|e| format!("Tool '{name}': {e}"))?;
         let duration_ms = start.elapsed().as_millis() as u64;
-        let stdout = output.stdout;
-        let stderr = output.stderr;
+        let max = manifest.output.max_bytes as usize;
+        let (stdout, stdout_cut) = cap_text(output.stdout, max);
+        let (stderr, stderr_cut) = cap_text(output.stderr, max);
+        let truncated =
+            stdout_cut || stderr_cut || output.stdout_truncated || output.stderr_truncated;
 
-        // Parse output using the manifest's format/parser configuration
-        let parsed = parse_output_with_boundary(
+        let (status_override, parsed) = checked_results(
             manifest,
             &stdout,
             timeout.saturating_sub(start.elapsed()),
             boundary,
         )
         .await?;
-
-        // Validate parsed output against schema (warnings only, non-fatal)
-        let schema_warnings = validate_output_schema(&parsed, &manifest.output.schema);
         let created_files = if output.success {
             if start.elapsed() >= timeout {
                 return Err("tool deadline expired before file publication".into());
@@ -428,55 +477,38 @@ impl ToolCladExecutor {
             serde_json::json!([])
         };
 
-        // Build evidence envelope
-        let scan_id = format!(
-            "{}-{}",
-            chrono::Utc::now().timestamp(),
-            uuid::Uuid::new_v4().as_fields().0
-        );
-        let status = if output.success { "success" } else { "error" };
-
-        // Hash output for evidence chain
-        use sha2::{Digest, Sha256};
-        let mut hasher = Sha256::new();
-        hasher.update(stdout.as_bytes());
-        let hash = format!("sha256:{}", hex::encode(hasher.finalize()));
+        let status = match status_override {
+            Some(status) => status,
+            None if output.success => "success",
+            None => "error",
+        };
+        let hash = sha256_hex(stdout.as_bytes());
+        let evidence = super::evidence::store(manifest, &injected.scan_id, stdout.as_bytes())?;
 
         let mut envelope = serde_json::json!({
             "status": status,
-            "scan_id": scan_id,
+            "scan_id": injected.scan_id,
             "tool": name,
             "command": command,
             "duration_ms": duration_ms,
             "timestamp": chrono::Utc::now().to_rfc3339(),
             "output_hash": hash,
+            "output_truncated": truncated,
+            "exit_code": output.exit_code,
+            "stderr": stderr,
             "results": parsed,
             "created_files": created_files,
         });
-
-        // Attach stderr and exit_code to the results
-        if let Some(obj) = envelope.as_object_mut() {
-            if let Some(results) = obj.get_mut("results").and_then(|r| r.as_object_mut()) {
-                if !stderr.is_empty() {
-                    results.insert(
-                        "stderr".to_string(),
-                        serde_json::Value::String(stderr.clone()),
-                    );
-                }
-                results.insert("exit_code".to_string(), serde_json::json!(output.exit_code));
-            }
+        if let Some(stored) = evidence {
+            envelope["output_file"] = serde_json::json!(stored.file.to_string_lossy());
         }
-
-        // Attach schema warnings if any
-        if !schema_warnings.is_empty() {
-            if let Some(obj) = envelope.as_object_mut() {
-                obj.insert(
-                    "schema_warnings".to_string(),
-                    serde_json::json!(schema_warnings),
-                );
+        // Keep stderr and exit_code next to the results for existing readers.
+        if let Some(results) = envelope.get_mut("results").and_then(|r| r.as_object_mut()) {
+            if !stderr.is_empty() {
+                results.insert("stderr".to_string(), serde_json::Value::String(stderr));
             }
+            results.insert("exit_code".to_string(), serde_json::json!(output.exit_code));
         }
-
         Ok(envelope)
     }
 
@@ -498,16 +530,16 @@ impl ToolCladExecutor {
         if timeout.is_zero() {
             return Err(format!("HTTP tool '{name}' timed out before execution"));
         }
-        let (method_value, url) = resolve_http_destination(http, validated)?;
+        let (method_value, url) = resolve_http_destination(http, validated, None)?;
         let method = method_value.to_string();
         let client = crate::net_guard::build_ssrf_safe_client(timeout)
             .map_err(|e| format!("Failed to construct HTTP client: {e}"))?;
         let mut request = client.request(method_value, &url);
         for (key, value) in &http.headers {
-            request = request.header(key, render_http_template(value, validated)?);
+            request = request.header(key, render_http_header(key, value, validated)?);
         }
         if let Some(body) = &http.body_template {
-            request = request.body(render_http_template(body, validated)?);
+            request = request.body(render_http_body(body, validated)?);
         }
         let request = request
             .build()
@@ -517,7 +549,7 @@ impl ToolCladExecutor {
             request,
             journal,
             start.checked_add(timeout).ok_or("HTTP deadline overflow")?,
-            10 * 1024 * 1024,
+            usize::try_from(manifest.output.max_bytes).unwrap_or(usize::MAX),
         )
         .await?;
         let status_code = response.status;
@@ -529,8 +561,7 @@ impl ToolCladExecutor {
             (200..300).contains(&status_code)
         };
 
-        // Parse response
-        let results = parse_output_with_boundary(
+        let (status_override, results) = checked_results(
             manifest,
             &response_body,
             timeout.saturating_sub(start.elapsed()),
@@ -538,20 +569,16 @@ impl ToolCladExecutor {
         )
         .await?;
         let duration_ms = start.elapsed().as_millis() as u64;
-
-        let scan_id = format!(
-            "{}-{}",
-            chrono::Utc::now().timestamp(),
-            uuid::Uuid::new_v4().as_fields().0
-        );
-
-        use sha2::{Digest, Sha256};
-        let mut hasher = Sha256::new();
-        hasher.update(response_body.as_bytes());
-        let hash = format!("sha256:{}", hex::encode(hasher.finalize()));
-
-        Ok(serde_json::json!({
-            "status": if is_success { "success" } else { "error" },
+        let scan_id = super::command::new_scan_id();
+        let hash = sha256_hex(response_body.as_bytes());
+        let evidence = super::evidence::store(manifest, &scan_id, response_body.as_bytes())?;
+        let status = match status_override {
+            Some(status) => status,
+            None if is_success => "success",
+            None => "error",
+        };
+        let mut envelope = serde_json::json!({
+            "status": status,
             "scan_id": scan_id,
             "tool": name,
             "http_method": method,
@@ -563,14 +590,18 @@ impl ToolCladExecutor {
             "exit_code": if is_success { 0 } else { status_code as i32 },
             "stderr": "",
             "results": results
-        }))
+        });
+        if let Some(stored) = evidence {
+            envelope["output_file"] = serde_json::json!(stored.file.to_string_lossy());
+        }
+        Ok(envelope)
     }
 
     /// Execute an MCP proxy backend tool by loading the on-disk server
     /// registry (`./mcp-config.toml`) and dispatching to the real stdio MCP
     /// client. See [`Self::execute_mcp_backend_async_with_registry`] for the
     /// injectable-registry variant used by tests.
-    #[cfg(feature = "mcp-client")]
+    #[cfg(all(feature = "mcp-client", any(test, feature = "toolclad-direct")))]
     async fn execute_mcp_backend_async(
         &self,
         name: &str,
@@ -586,7 +617,7 @@ impl ToolCladExecutor {
     /// registry instead of loading `./mcp-config.toml` from the process's
     /// working directory. `pub` so integration tests can inject an in-memory
     /// registry rather than relying on CWD games.
-    #[cfg(feature = "mcp-client")]
+    #[cfg(all(feature = "mcp-client", any(test, feature = "toolclad-direct")))]
     pub async fn execute_mcp_backend_async_with_registry(
         &self,
         registry: &crate::integrations::mcp::registry::McpServerRegistry,
@@ -594,6 +625,7 @@ impl ToolCladExecutor {
         manifest: &Manifest,
         validated: &HashMap<String, String>,
     ) -> Result<serde_json::Value, String> {
+        refuse_direct_dispatch_in_production()?;
         let declared = self
             .manifests
             .get(name)
@@ -610,6 +642,7 @@ impl ToolCladExecutor {
             name,
             &declared.args,
             &serde_json::to_string(validated).map_err(|e| e.to_string())?,
+            super::command::exec_was_declared(declared),
         )?;
         let boundary = self.boundary.as_ref().map_err(Clone::clone)?;
         let files = Self::prepare_files(declared, boundary, &normalized)?;
@@ -680,7 +713,7 @@ impl ToolCladExecutor {
 
     /// Honest, fail-closed fallback when the crate is built without
     /// `mcp-client`: no fabricated result, just a clear error.
-    #[cfg(not(feature = "mcp-client"))]
+    #[cfg(all(not(feature = "mcp-client"), any(test, feature = "toolclad-direct")))]
     async fn execute_mcp_backend_async(
         &self,
         _name: &str,
@@ -689,6 +722,15 @@ impl ToolCladExecutor {
     ) -> Result<serde_json::Value, String> {
         Err("MCP execution requires the 'mcp-client' feature".to_string())
     }
+}
+
+/// Ungoverned direct dispatch exists for fixtures only.
+#[cfg(any(test, feature = "toolclad-direct"))]
+pub(crate) fn refuse_direct_dispatch_in_production() -> Result<(), String> {
+    if crate::env::is_production().map_err(|e| e.to_string())? {
+        return Err("ungoverned ToolClad dispatch is forbidden in production".into());
+    }
+    Ok(())
 }
 
 /// Map validated local argument names to the upstream MCP tool's expected
@@ -753,6 +795,9 @@ fn coerce_arg_value(type_name: &str, value: &str) -> serde_json::Value {
 #[async_trait]
 impl ActionExecutor for ToolCladExecutor {
     fn validate_configuration(&self) -> Result<(), String> {
+        if let Some(error) = &self.manifest_error {
+            return Err(error.clone());
+        }
         self.scope.as_ref().map_err(Clone::clone)?;
         for manifest in self.manifests.values() {
             manifest.validate_source_backend()?;
@@ -795,6 +840,10 @@ impl ActionExecutor for ToolCladExecutor {
         } else {
             ceiling.clone()
         };
+        if let Some(error) = &self.manifest_error {
+            return Err(format!("ToolClad configuration error: {error}"));
+        }
+        let injected = super::command::Injected::fresh();
         let mut needs_approval = manifest.tool.human_approval;
         let validated = match manifest.tool.mode.as_str() {
             "session" => {
@@ -807,26 +856,30 @@ impl ActionExecutor for ToolCladExecutor {
                     .and_then(|s| s.commands.get(command_name))
                     .ok_or("unknown session command")?;
                 needs_approval |= command.human_approval;
-                let mut definitions = command.args.clone();
-                definitions.insert(
-                    "command".into(),
-                    ArgDef {
-                        required: true,
-                        type_name: "string".into(),
-                        pattern: Some(command.pattern.clone()),
-                        ..Default::default()
-                    },
-                );
-                let values = self.validate_arguments(name, &definitions, arguments)?;
-                super::session_executor::validate_terminal_input(
-                    &values["command"],
-                    &command.pattern,
+                let mut supplied: serde_json::Map<String, serde_json::Value> =
+                    serde_json::from_str(arguments)
+                        .map_err(|e| format!("Invalid arguments JSON: {e}"))?;
+                let input = match supplied.remove("command") {
+                    Some(serde_json::Value::String(input)) => input,
+                    _ => return Err("session command requires a string 'command' argument".into()),
+                };
+                let mut values = self.validate_arguments(
+                    name,
+                    &command.args,
+                    &serde_json::Value::Object(supplied).to_string(),
+                    false,
                 )?;
+                // One validation function for every session path.
+                super::session_executor::validate_session_command(manifest, command, &input)?;
+                values.insert("command".into(), input);
                 if command.extract_target {
                     let pattern = regex::Regex::new(&format!(r"\A(?:{})\z", command.pattern))
                         .map_err(|e| e.to_string())?;
                     let target = pattern.captures(&values["command"]).and_then(|captures| captures.name("target").map(|m| m.as_str().to_owned()))
                         .ok_or("scoped session patterns must capture the actual target as (?P<target>...)")?;
+                    // Link-local, metadata and internal names are refused for
+                    // every destination, scoped or not.
+                    super::hostpolicy::enforce_target_policy("target", &target)?;
                     self.scope
                         .as_ref()
                         .map_err(Clone::clone)?
@@ -849,7 +902,24 @@ impl ActionExecutor for ToolCladExecutor {
                     .get(command_name)
                     .ok_or("unknown browser command")?;
                 needs_approval |= command.human_approval;
-                let mut values = self.validate_arguments(name, &command.args, arguments)?;
+                // A navigation URL is judged by the browser network policy,
+                // which canonicalizes it, applies the domain scope, and refuses
+                // private addresses unless an exact `private_origins` grant
+                // exists (the browser's explicit exception to block_internal).
+                let mut supplied: serde_json::Map<String, serde_json::Value> =
+                    serde_json::from_str(arguments)
+                        .map_err(|e| format!("Invalid arguments JSON: {e}"))?;
+                let mut definitions = command.args.clone();
+                let navigation = (command_name == "navigate").then(|| {
+                    definitions.remove("url");
+                    supplied.remove("url")
+                });
+                let mut values = self.validate_arguments(
+                    name,
+                    &definitions,
+                    &serde_json::Value::Object(supplied).to_string(),
+                    false,
+                )?;
                 let scope = browser
                     .scope
                     .as_ref()
@@ -858,11 +928,12 @@ impl ActionExecutor for ToolCladExecutor {
                     scope,
                     browser.network.as_ref(),
                 )?;
-                if command_name == "navigate" {
-                    let url = policy.check_destination(
-                        values.get("url").map(String::as_str).unwrap_or(""),
-                        "GET",
-                    )?;
+                if let Some(raw) = navigation {
+                    let raw = match raw {
+                        Some(serde_json::Value::String(url)) => url,
+                        _ => return Err("navigate requires a string 'url' argument".into()),
+                    };
+                    let url = policy.check_destination(&raw, "GET")?;
                     values.insert("url".into(), url.to_string());
                 }
                 values
@@ -876,10 +947,18 @@ impl ActionExecutor for ToolCladExecutor {
             &validated,
             Duration::from_secs(manifest.tool.timeout_seconds).min(config.tool_timeout),
         )?;
-        let boundary = source
+        let mut boundary = source
             .as_ref()
             .map(|s| s.execution_boundary(&boundary))
             .unwrap_or(boundary);
+        if manifest.tool.mode == "session" && !manifest.tool.network_egress {
+            // A session gets sandbox network only when its manifest declares
+            // egress.
+            boundary = boundary.without_network();
+        }
+        if let Some(limits) = &manifest.tool.limits {
+            boundary = boundary.with_tool_limits(limits)?;
+        }
         let files = Self::prepare_files(manifest, ceiling, &validated)?;
         let mut boundary_descriptor = boundary.descriptor()?;
         boundary_descriptor["filesystem"] = source
@@ -891,13 +970,20 @@ impl ActionExecutor for ToolCladExecutor {
             && manifest.mcp.is_none()
             && manifest.source.is_none()
         {
-            Some(build_argv(manifest, &validated)?)
+            Some(super::command::build_argv(manifest, &validated, &injected)?)
         } else {
             None
         };
         #[cfg(feature = "mcp-client")]
         let mcp_registry = if manifest.mcp.is_some() {
-            Some(crate::integrations::mcp::registry::McpServerRegistry::load()?)
+            Some(match &self.project_dir {
+                Some(project) => {
+                    crate::integrations::mcp::registry::McpServerRegistry::load_for_project(
+                        project,
+                    )?
+                }
+                None => crate::integrations::mcp::registry::McpServerRegistry::load()?,
+            })
         } else {
             None
         };
@@ -946,7 +1032,16 @@ impl ActionExecutor for ToolCladExecutor {
         } else {
             "selected_command_boundary"
         };
-        let mut resolved = serde_json::json!({"command_boundary": boundary_descriptor, "execution_transport": transport});
+        let command_name = name.strip_prefix(&format!("{base}."));
+        let risk_tier = manifest.effective_risk_tier(command_name);
+        // ToolClad's default gate: high and critical tiers need a human.
+        needs_approval |= super::manifest::tier_rank(&risk_tier) >= 3;
+        let mut resolved = serde_json::json!({
+            "command_boundary": boundary_descriptor,
+            "execution_transport": transport,
+            "risk_tier": risk_tier,
+            "base_tool": manifest.tool.name,
+        });
         if manifest.tool.mode == "session" {
             let command = name
                 .strip_prefix(&format!("{base}."))
@@ -963,7 +1058,8 @@ impl ActionExecutor for ToolCladExecutor {
             resolved["argv"] = serde_json::json!(argv);
         }
         if let Some(http) = &manifest.http {
-            let (method, url) = resolve_http_destination(http, &validated)?;
+            let scope = self.scope.as_ref().map_err(Clone::clone)?.as_ref();
+            let (method, url) = resolve_http_destination(http, &validated, scope)?;
             resolved["http_method"] = serde_json::json!(method.as_str());
             resolved["http_url"] = serde_json::json!(url);
         }
@@ -1002,6 +1098,7 @@ impl ActionExecutor for ToolCladExecutor {
                 manifest: manifest.clone(),
                 validated,
                 argv,
+                injected,
                 boundary: boundary.clone(),
                 files,
                 source,
@@ -1161,6 +1258,7 @@ impl ActionExecutor for ToolCladExecutor {
                                 &name,
                                 manifest,
                                 snapshot.argv.as_deref().ok_or("missing prepared argv")?,
+                                &snapshot.injected,
                                 timeout,
                                 &snapshot.boundary,
                                 &files,
@@ -1190,177 +1288,28 @@ impl ActionExecutor for ToolCladExecutor {
         observations
     }
 
+    /// Raw proposals never execute here. A ToolClad call needs an
+    /// authorization grant from the governed dispatcher (policy gate, scope,
+    /// approval relay), which arrives through `execute_authorized`.
     async fn execute_actions(
         &self,
         actions: &[ProposedAction],
-        config: &LoopConfig,
+        _config: &LoopConfig,
         _circuit_breakers: &CircuitBreakerRegistry,
     ) -> Vec<Observation> {
-        let mut observations = Vec::new();
-
-        for action in actions {
-            if let ProposedAction::ToolCall {
-                call_id,
-                name,
-                arguments,
-            } = action
-            {
-                if !self.handles(name) {
-                    continue; // Not a ToolClad tool — skip
-                }
-
-                let base = name.split('.').next().unwrap_or(name);
-                let requires_approval = self.manifests.get(base).is_some_and(|manifest| {
-                    manifest.tool.human_approval
-                        || name.split_once('.').is_some_and(|(_, command)| {
-                            manifest
-                                .session
-                                .as_ref()
-                                .and_then(|s| s.commands.get(command))
-                                .is_some_and(|c| c.human_approval)
-                                || manifest
-                                    .browser
-                                    .as_ref()
-                                    .and_then(|s| s.commands.get(command))
-                                    .is_some_and(|c| c.human_approval)
-                        })
-                });
-                if requires_approval {
-                    observations.push(Observation::tool_error(name, "tool requires an authorized exact-call approval; use governed dispatch").with_call_id(call_id.clone()));
-                    continue;
-                }
-
-                let is_mcp_tool = self
-                    .manifests
-                    .get(name.as_str())
-                    .map(|m| m.mcp.is_some())
-                    .unwrap_or(false);
-                let is_http_tool = self.manifests.get(name).is_some_and(|m| m.http.is_some());
-
-                // Dispatch to appropriate executor based on tool type. MCP
-                // tools are awaited directly here rather than going through
-                // the sync `execute_tool` -> `block_on` bridge, since this
-                // loop already runs on an async runtime.
-                let result = if self.session_executor.handles(name) {
-                    match self.prepare_action(action, config) {
-                        Ok(prepared) => {
-                            let snapshot = prepared
-                                .backend::<ToolCladSnapshot>()
-                                .expect("prepared ToolClad snapshot");
-                            let now = std::time::Instant::now();
-                            let run = format!("sdk:{}", self.executor_id);
-                            let budget =
-                                Duration::from_secs(snapshot.manifest.tool.timeout_seconds)
-                                    .min(config.tool_timeout);
-                            match (
-                                now.checked_add(budget),
-                                self.session_executor.sdk_run_deadline(config.timeout),
-                            ) {
-                                (Some(deadline), Ok(run_deadline)) => {
-                                    self.session_executor
-                                        .execute_prepared(super::session_executor::SessionCall {
-                                            tool: name,
-                                            manifest: &snapshot.manifest,
-                                            command: snapshot
-                                                .validated
-                                                .get("command")
-                                                .expect("validated terminal command"),
-                                            boundary: &snapshot.boundary,
-                                            files: &snapshot.files,
-                                            contract: &prepared
-                                                .contract()
-                                                .expect("terminal contract")
-                                                .digest,
-                                            run: &run,
-                                            binding: &run,
-                                            run_deadline,
-                                            deadline,
-                                        })
-                                        .await
-                                }
-                                (_, Err(error)) => Err(error),
-                                _ => Err("terminal deadline overflow".into()),
-                            }
-                        }
-                        Err(error) => Err(error),
-                    }
-                } else if self.browser_executor.handles(name) {
-                    self.browser_executor
-                        .execute_browser_command(name, arguments)
-                } else if is_mcp_tool {
-                    match self.parse_and_validate(name, arguments) {
-                        Ok((manifest, validated)) => {
-                            // Bound the MCP call: it spawns a subprocess and does
-                            // a stdio handshake with no inherent deadline, so a
-                            // hung/slow server would otherwise hang the caller
-                            // indefinitely (the DSL `tool_call()` path has no
-                            // outer timeout). Use the tool's declared deadline,
-                            // capped by config; an exhausted budget never spawns.
-                            let call_timeout = Duration::from_secs(manifest.tool.timeout_seconds)
-                                .min(config.tool_timeout);
-                            match tokio::time::timeout(
-                                call_timeout,
-                                self.execute_mcp_backend_async(name, manifest, &validated),
-                            )
-                            .await
-                            {
-                                Ok(r) => r,
-                                Err(_) => Err(format!(
-                                    "MCP tool '{}' timed out after {:?}",
-                                    name, call_timeout
-                                )),
-                            }
-                        }
-                        Err(e) => Err(e),
-                    }
-                } else {
-                    async {
-                        let (manifest, validated) = self.parse_and_validate(name, arguments)?;
-                        let boundary = self.boundary.as_ref().map_err(Clone::clone)?;
-                        let timeout = Duration::from_secs(manifest.tool.timeout_seconds)
-                            .min(config.tool_timeout);
-                        if let Some(source) =
-                            Self::prepare_source(manifest, boundary, &validated, timeout)?
-                        {
-                            source
-                                .execute_prepared(name, std::time::Instant::now() + timeout)
-                                .await
-                        } else if is_http_tool {
-                            Self::execute_http_backend(
-                                name, manifest, &validated, timeout, boundary, None,
-                            )
-                            .await
-                        } else {
-                            let argv = build_argv(manifest, &validated)?;
-                            let files = Self::prepare_files(manifest, boundary, &validated)?;
-                            Self::execute_shell_backend(
-                                name, manifest, &argv, timeout, boundary, &files,
-                            )
-                            .await
-                        }
-                    }
-                    .await
-                };
-
-                let (content, is_error) = match result {
-                    Ok(envelope) => (
-                        serde_json::to_string_pretty(&envelope).unwrap_or_default(),
-                        envelope.get("status").and_then(|s| s.as_str()) == Some("error"),
-                    ),
-                    Err(e) => (format!("ToolClad error: {}", e), true),
-                };
-
-                observations.push(Observation {
-                    source: format!("toolclad:{}", name),
-                    content,
-                    is_error,
-                    call_id: Some(call_id.clone()),
-                    metadata: HashMap::new(),
-                });
-            }
-        }
-
-        observations
+        actions
+            .iter()
+            .filter_map(|action| match action {
+                ProposedAction::ToolCall { call_id, name, .. } if self.handles(name) => Some(
+                    Observation::tool_error(
+                        name,
+                        "ToolClad tool calls require an authorization grant; use governed dispatch",
+                    )
+                    .with_call_id(call_id.clone()),
+                ),
+                _ => None,
+            })
+            .collect()
     }
 
     fn tool_definitions(&self) -> Vec<ToolDefinition> {
@@ -1539,209 +1488,159 @@ async fn parse_output_with_boundary(
     parse_output(manifest, raw_output, timeout)
 }
 
-// ---- Output Schema Validation ----
+// ---- Output caps, schema validation and evidence ----
 
-/// Validate parsed output against the manifest's output schema.
-/// Returns a list of warnings (never fails — partial results are OK).
-fn validate_output_schema(parsed: &serde_json::Value, schema: &serde_json::Value) -> Vec<String> {
-    let mut warnings = Vec::new();
+/// XML containing a DTD is refused before parsing: entity expansion on
+/// attacker-influenced output is a memory-exhaustion primitive.
+pub const XML_DTD_REFUSED: &str =
+    "XML output contains a DOCTYPE or ENTITY declaration; refusing to parse";
 
-    // If schema has no properties defined, skip validation
-    let properties = match schema.get("properties").and_then(|p| p.as_object()) {
-        Some(props) => props,
-        None => return warnings,
-    };
-
-    // If parsed output is wrapped as raw_output, skip property checks
-    if parsed.get("raw_output").is_some() {
-        return warnings;
+/// Trim captured text to at most `max` bytes on a character boundary.
+fn cap_text(mut text: String, max: usize) -> (String, bool) {
+    if text.len() <= max {
+        return (text, false);
     }
-
-    // Check required properties
-    let required: Vec<&str> = schema
-        .get("required")
-        .and_then(|r| r.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
-        .unwrap_or_default();
-
-    for key in required {
-        if parsed.get(key).is_none() {
-            warnings.push(format!(
-                "Required property '{}' missing from parsed output",
-                key
-            ));
-        }
+    let mut end = max;
+    while !text.is_char_boundary(end) {
+        end -= 1;
     }
-
-    // Check declared properties exist and types match
-    for (key, prop_schema) in properties {
-        if let Some(value) = parsed.get(key) {
-            if let Some(expected_type) = prop_schema.get("type").and_then(|t| t.as_str()) {
-                let type_ok = match expected_type {
-                    "string" => value.is_string(),
-                    "number" => value.is_number(),
-                    "integer" => value.is_i64() || value.is_u64(),
-                    "boolean" => value.is_boolean(),
-                    "array" => value.is_array(),
-                    "object" => value.is_object(),
-                    "null" => value.is_null(),
-                    _ => true, // Unknown type — don't warn
-                };
-                if !type_ok {
-                    warnings.push(format!(
-                        "Property '{}' has type '{}' but expected '{}'",
-                        key,
-                        json_type_name(value),
-                        expected_type
-                    ));
-                }
-            }
-        }
-    }
-
-    warnings
+    text.truncate(end);
+    (text, true)
 }
 
-/// Return a human-readable type name for a JSON value.
-fn json_type_name(value: &serde_json::Value) -> &'static str {
-    match value {
-        serde_json::Value::Null => "null",
-        serde_json::Value::Bool(_) => "boolean",
-        serde_json::Value::Number(_) => "number",
-        serde_json::Value::String(_) => "string",
-        serde_json::Value::Array(_) => "array",
-        serde_json::Value::Object(_) => "object",
-    }
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    format!("sha256:{}", hex::encode(Sha256::digest(bytes)))
 }
 
-/// Parse trusted command syntax before inserting argument values. Each value
-/// stays in its original argv element, including quotes, spaces, and backslashes.
+/// Parse `raw` and check it against `[output.schema]`, failing closed: a
+/// schema violation replaces the results with
+/// `{"schema_error": "<pointer>: <message>", "raw_output": raw}` and sets the
+/// status to `schema_error`. It is never skipped.
+async fn checked_results(
+    manifest: &Manifest,
+    raw: &str,
+    timeout: Duration,
+    boundary: &CommandBoundary,
+) -> Result<(Option<&'static str>, serde_json::Value), String> {
+    let xml = manifest.output.parser.as_deref() == Some("builtin:xml")
+        || (manifest.output.parser.is_none() && manifest.output.format == "xml");
+    if xml {
+        let upper = raw.to_ascii_uppercase();
+        if upper.contains("<!DOCTYPE") || upper.contains("<!ENTITY") {
+            return Err(XML_DTD_REFUSED.into());
+        }
+    }
+    let parsed = parse_output_with_boundary(manifest, raw, timeout, boundary).await?;
+    Ok(
+        match super::schema::validate(&manifest.output.schema, &parsed) {
+            Ok(()) => (None, parsed),
+            Err(message) => (
+                Some("schema_error"),
+                serde_json::json!({"schema_error": message, "raw_output": raw}),
+            ),
+        },
+    )
+}
+
+/// Test helper: build argv with a fresh injected scan id.
+#[cfg(test)]
 fn build_argv(manifest: &Manifest, args: &HashMap<String, String>) -> Result<Vec<String>, String> {
-    let template = manifest
-        .command
-        .template
-        .as_ref()
-        .ok_or("No command template defined (and no custom executor)")?;
+    super::command::build_argv(manifest, args, &super::command::Injected::fresh())
+}
 
-    let mut result = template.clone();
+// ---- HTTP backend ----
 
-    // Apply defaults
-    for (key, val) in &manifest.command.defaults {
-        let placeholder = format!("{{{}}}", key);
-        if result.contains(&placeholder) && !args.contains_key(key) {
-            result = result.replace(&placeholder, val.to_string().trim_matches('"'));
-        }
-    }
-
-    // Apply mappings — e.g., scan_type -> _scan_flags
-    for (arg_name, mapping) in &manifest.command.mappings {
-        if let Some(arg_value) = args.get(arg_name) {
-            if let Some(flags) = mapping.get(arg_value) {
-                // Convention: _{arg_name}_flags or _scan_flags
-                let mapped_var = format!("{{_{}_flags}}", arg_name);
-                result = result.replace(&mapped_var, flags);
-                // Also try the generic _scan_flags pattern
-                result = result.replace("{_scan_flags}", flags);
-            }
-        }
-    }
-
-    // Apply conditionals
-    for (cond_name, cond_def) in &manifest.command.conditionals {
-        let placeholder = format!("{{_{}}}", cond_name);
-        if evaluate_condition(&cond_def.when, args) {
-            result = result.replace(&placeholder, &cond_def.template);
+/// The literal host of a manifest `http.url`. The scheme and host must not
+/// contain a placeholder: the host is the SSRF boundary and stays
+/// manifest-controlled.
+pub(crate) fn http_url_literal_host(url: &str) -> Result<String, String> {
+    let (scheme, rest) = url.split_once("://").ok_or_else(|| {
+        if url
+            .split(['/', '?', '#'])
+            .next()
+            .unwrap_or("")
+            .contains('{')
+        {
+            "http.url may not interpolate into the scheme or host".to_string()
         } else {
-            result = result.replace(&placeholder, "");
+            format!("http.url '{url}' must be an absolute http or https URL")
+        }
+    })?;
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    if scheme.contains('{') || authority.contains(['{', '}']) {
+        return Err("http.url may not interpolate into the scheme or host".into());
+    }
+    if !matches!(scheme.to_ascii_lowercase().as_str(), "http" | "https") {
+        return Err(format!(
+            "http.url scheme '{scheme}' is not allowed (use http or https)"
+        ));
+    }
+    if authority.contains('@') {
+        return Err("http.url must not carry credentials; use headers".into());
+    }
+    let host = if authority.starts_with('[') {
+        authority
+            .find(']')
+            .map_or(authority, |i| &authority[..=i])
+            .to_string()
+    } else {
+        authority
+            .rsplit_once(':')
+            .map_or(authority, |(h, _)| h)
+            .to_string()
+    };
+    if host.is_empty() {
+        return Err(format!("http.url '{url}' has no host"));
+    }
+    Ok(host)
+}
+
+/// Refuse an HTTP header name that is not an RFC 9110 token.
+pub(crate) fn check_header_name(name: &str) -> Result<(), String> {
+    let tchar = |b: u8| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b);
+    if name.is_empty() || !name.bytes().all(tchar) {
+        return Err(format!(
+            "http header name '{}' is not a valid token",
+            name.escape_default()
+        ));
+    }
+    Ok(())
+}
+
+/// Percent-encode every byte outside the RFC 3986 unreserved set, so an
+/// interpolated value can never add `/`, `?`, `#`, `&`, `=` or `%` to the URL.
+pub(crate) fn percent_encode(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for &b in value.as_bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
         }
     }
-
-    // Only operator-authored fragments have been expanded so far. Model input
-    // must never participate in quote parsing or create additional argv elements.
-    let tokens = split_command_to_argv(&result)?;
-    let mut values = args.clone();
-    values.insert(
-        "_scan_id".into(),
-        chrono::Utc::now().timestamp().to_string(),
-    );
-    values.insert("_output_file".into(), "/dev/null".into());
-    values.insert("_evidence_dir".into(), "/tmp/evidence".into());
-
-    if values
-        .keys()
-        .any(|key| tokens[0].contains(&format!("{{{key}}}")))
-    {
-        return Err("Command executable must be fixed by the manifest".into());
-    }
-    // Empty values must retain their slots: dropping an option's empty value
-    // could turn the next operand into that option's value. Optional syntax
-    // must be omitted explicitly through a trusted conditional fragment.
-    Ok(tokens
-        .into_iter()
-        .map(|token| interpolate_argument(&token, &values))
-        .collect())
+    out
 }
 
-fn interpolate_argument(template: &str, values: &HashMap<String, String>) -> String {
-    let mut output = String::new();
-    let mut rest = template;
-    while let Some(start) = rest.find('{') {
-        output.push_str(&rest[..start]);
-        let Some(end) = rest[start..].find('}') else {
-            output.push_str(&rest[start..]);
-            return output;
-        };
-        let end = start + end;
-        let key = &rest[start + 1..end];
-        match values.get(key) {
-            Some(value) => output.push_str(value),
-            None => output.push_str(&rest[start..=end]),
-        }
-        rest = &rest[end + 1..];
-    }
-    output.push_str(rest);
-    output
+/// JSON-escape a value for placement inside a JSON string literal.
+fn json_escape(value: &str) -> String {
+    let quoted = serde_json::to_string(value).unwrap_or_default();
+    quoted[1..quoted.len() - 1].to_string()
 }
 
-/// Simple condition evaluator for `when` expressions.
-fn evaluate_condition(when: &str, args: &HashMap<String, String>) -> bool {
-    // Support: "argname != ''" and "argname == 'value'" and "argname != 0"
-    let when = when.trim();
-
-    if when.contains(" and ") {
-        return when
-            .split(" and ")
-            .all(|part| evaluate_condition(part, args));
-    }
-
-    if when.contains("!=") {
-        let parts: Vec<&str> = when.splitn(2, "!=").collect();
-        let key = parts[0].trim();
-        let expected = parts[1].trim().trim_matches('\'').trim_matches('"');
-        let actual = args.get(key).map(|s| s.as_str()).unwrap_or("");
-        return actual != expected;
-    }
-
-    if when.contains("==") {
-        let parts: Vec<&str> = when.splitn(2, "==").collect();
-        let key = parts[0].trim();
-        let expected = parts[1].trim().trim_matches('\'').trim_matches('"');
-        let actual = args.get(key).map(|s| s.as_str()).unwrap_or("");
-        return actual == expected;
-    }
-
-    false
-}
-
-/// Resolve the same destination before policy evaluation and before dispatch.
-/// Credentials belong in explicit headers/body, not implicit URL userinfo.
+/// Resolve the same destination before policy evaluation and before
+/// dispatch. Argument values are percent-encoded into the path and query;
+/// the scheme and host are literal manifest text. With a project scope the
+/// resolved URL must be in scope.
 fn resolve_http_destination(
     http: &super::manifest::HttpDef,
     args: &HashMap<String, String>,
+    scope: Option<&super::scope::Scope>,
 ) -> Result<(reqwest::Method, String), String> {
     if http.url.contains("{_secret:") {
         return Err("HTTP secret placeholders must use headers or the request body".into());
     }
+    http_url_literal_host(&http.url)?;
     let method = match http.method.to_ascii_uppercase().as_str() {
         "GET" => reqwest::Method::GET,
         "POST" => reqwest::Method::POST,
@@ -1751,27 +1650,38 @@ fn resolve_http_destination(
         "HEAD" => reqwest::Method::HEAD,
         other => return Err(format!("Unsupported HTTP method: {other}")),
     };
-    let value = render_http_template(&http.url, args)?;
+    let value = render_http_template(&http.url, args, percent_encode)?;
     if value.len() > 8192 || value.bytes().any(|byte| byte.is_ascii_control()) {
         return Err("HTTP URL contains control characters or exceeds 8 KiB".into());
     }
-    let parsed = url::Url::parse(&value).map_err(|e| format!("Invalid HTTP URL: {e}"))?;
-    if !parsed.username().is_empty() || parsed.password().is_some() {
-        return Err("HTTP URL credentials require explicit headers instead".into());
+    let parsed = super::validator::strict_url_parse(&value)?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err("HTTP URL must use http or https".into());
     }
     let url = parsed.to_string();
     crate::net_guard::reject_ssrf_url(&url)?;
+    if let Some(scope) = scope {
+        scope
+            .check(&url)
+            .map_err(|e| format!("Scope denied HTTP destination: {e}"))?;
+    }
     Ok((method, url))
 }
 
-/// Expand only placeholders present in the operator's HTTP template.
-/// Argument and secret values are data and are never scanned for placeholders.
-fn render_http_template(template: &str, args: &HashMap<String, String>) -> Result<String, String> {
-    let pattern =
-        regex::Regex::new(r"\{(_secret:)?([a-zA-Z0-9_]+)\}").expect("valid template pattern");
+/// Expand only placeholders present in the operator's HTTP template, in one
+/// pass: argument and secret values are data and are never rescanned.
+/// Argument values pass through `encode`; secrets are inserted verbatim.
+fn render_http_template(
+    template: &str,
+    args: &HashMap<String, String>,
+    encode: impl Fn(&str) -> String,
+) -> Result<String, String> {
+    static PATTERN: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"\{(_secret:)?([a-zA-Z0-9_]+)\}").expect("valid template pattern")
+    });
     let mut output = String::new();
     let mut end = 0;
-    for capture in pattern.captures_iter(template) {
+    for capture in PATTERN.captures_iter(template) {
         let span = capture.get(0).expect("matched placeholder");
         output.push_str(&template[end..span.start()]);
         if capture.get(1).is_some() {
@@ -1781,11 +1691,10 @@ fn render_http_template(template: &str, args: &HashMap<String, String>) -> Resul
                 .map_err(|_| format!("Secret '{name}' not found (set {key})"))?;
             output.push_str(&value);
         } else {
-            output.push_str(
-                args.get(&capture[2])
-                    .map(String::as_str)
-                    .unwrap_or(span.as_str()),
-            );
+            match args.get(&capture[2]) {
+                Some(value) => output.push_str(&encode(value)),
+                None => return Err(format!("unresolved HTTP placeholder '{}'", span.as_str())),
+            }
         }
         end = span.end();
     }
@@ -1793,59 +1702,25 @@ fn render_http_template(template: &str, args: &HashMap<String, String>) -> Resul
     Ok(output)
 }
 
-/// Split a command string into argv (program + arguments).
-///
-/// Handles single and double quoting so that arguments containing spaces
-/// are preserved as a single element. Does NOT invoke a shell — this
-/// prevents shell metacharacter injection.
-fn split_command_to_argv(command: &str) -> Result<Vec<String>, String> {
-    let mut argv = Vec::new();
-    let mut current = String::new();
-    let mut chars = command.chars().peekable();
-    let mut in_single_quote = false;
-    let mut in_double_quote = false;
-    let mut started = false;
+/// Render one header value; CR, LF and NUL are refused after interpolation.
+fn render_http_header(
+    name: &str,
+    template: &str,
+    args: &HashMap<String, String>,
+) -> Result<String, String> {
+    check_header_name(name)?;
+    let value = render_http_template(template, args, str::to_string)?;
+    if value.contains(['\r', '\n', '\0']) {
+        return Err(format!(
+            "http header '{name}' contains a CR, LF or NUL after interpolation"
+        ));
+    }
+    Ok(value)
+}
 
-    while let Some(c) = chars.next() {
-        match c {
-            '\'' if !in_double_quote => {
-                in_single_quote = !in_single_quote;
-                started = true;
-            }
-            '"' if !in_single_quote => {
-                in_double_quote = !in_double_quote;
-                started = true;
-            }
-            '\\' if !in_single_quote => {
-                if let Some(next) = chars.next() {
-                    current.push(next);
-                    started = true;
-                } else {
-                    return Err("Trailing escape in command template".into());
-                }
-            }
-            c if c.is_whitespace() && !in_single_quote && !in_double_quote => {
-                if started {
-                    argv.push(std::mem::take(&mut current));
-                    started = false;
-                }
-            }
-            _ => {
-                current.push(c);
-                started = true;
-            }
-        }
-    }
-    if started {
-        argv.push(current);
-    }
-    if in_single_quote || in_double_quote {
-        return Err("Unterminated quote in command template".to_string());
-    }
-    if argv.is_empty() || argv[0].is_empty() {
-        return Err("Empty command after template interpolation".to_string());
-    }
-    Ok(argv)
+/// Render the body; argument values are JSON-escaped.
+fn render_http_body(template: &str, args: &HashMap<String, String>) -> Result<String, String> {
+    render_http_template(template, args, json_escape)
 }
 
 /// Generate MCP-compatible ToolDefinitions from a manifest.
@@ -2001,19 +1876,21 @@ position = 1
 type = "worker_path"
 required = true
 [command]
-template = "cat '{path}'"
+exec = ["cat", "{path}"]
 [output]
 format = "text"
 "#,
         )
         .unwrap();
-        let mut executor = ToolCladExecutor::new(vec![("path_fixture".into(), manifest)]);
-        executor.custom_types.insert(
-            "worker_path".into(),
-            ArgDef {
-                type_name: "path".into(),
-                ..Default::default()
-            },
+        let executor = ToolCladExecutor::with_custom_types(
+            vec![("path_fixture".into(), manifest)],
+            HashMap::from([(
+                "worker_path".into(),
+                ArgDef {
+                    type_name: "path".into(),
+                    ..Default::default()
+                },
+            )]),
         );
         let config = LoopConfig {
             tool_definitions: executor.tool_definitions(),
@@ -2057,13 +1934,13 @@ format = "text"
 name = "http_fixture"
 version = "1"
 description = "HTTP canonical destination fixture"
-[args.url]
+[args.page]
 position = 1
-type = "url"
+type = "string"
 required = true
 [http]
 method = "get"
-url = "{url}"
+url = "https://example.com/public/{page}"
 [output]
 format = "json"
 "#,
@@ -2074,12 +1951,12 @@ format = "json"
             tool_definitions: executor.tool_definitions(),
             ..Default::default()
         };
-        let prepare = |url: &str| {
+        let prepare = |page: &str| {
             executor.prepare_action(
                 &ProposedAction::ToolCall {
                     call_id: "destination".into(),
                     name: "http_fixture".into(),
-                    arguments: serde_json::json!({"url":url}).to_string(),
+                    arguments: serde_json::json!({"page":page}).to_string(),
                 },
                 &config,
             )
@@ -2087,26 +1964,82 @@ format = "json"
         let gate = CedarPolicyGate::deny_by_default();
         gate.add_policy(CedarPolicy {
             name:"destination".into(),active:true,
-            source:r#"permit(principal, action == Action::"tool_call::http_fixture", resource) when { context.invocation.resolved.http_method == "GET" && context.invocation.resolved.http_url == "https://example.com/public/" };"#.into(),
+            source:r#"permit(principal, action == Action::"tool_call::http_fixture", resource) when { context.invocation.resolved.http_method == "GET" && context.invocation.resolved.http_url == "https://example.com/public/index" };"#.into(),
         }).await;
         let state = LoopState::new(crate::types::AgentId::new(), Conversation::new());
-        let allowed = prepare("HTTPS://EXAMPLE.COM:443/public/").unwrap();
+        let allowed = prepare("index").unwrap();
         assert!(matches!(
             gate.evaluate_prepared(&state.agent_id, &allowed, &state)
                 .await,
             LoopDecision::Allow
         ));
-        let changed = prepare("https://example.com/public/../admin").unwrap();
+        // A value cannot change the URL structure: separators are encoded.
+        let changed = prepare("..%2Fadmin").unwrap();
         assert_eq!(
             changed.policy_context()["resolved"]["http_url"],
-            "https://example.com/admin"
+            "https://example.com/public/..%252Fadmin"
         );
         assert!(matches!(
             gate.evaluate_prepared(&state.agent_id, &changed, &state)
                 .await,
             LoopDecision::Deny { .. }
         ));
-        assert!(prepare("https://user:password@example.com/public/").is_err());
+    }
+
+    #[test]
+    fn http_placeholders_cannot_choose_scheme_or_host() {
+        for url in [
+            "{url}",
+            "https://{host}/x",
+            "{scheme}://example.com/",
+            "https://u@example.com/",
+        ] {
+            let manifest: Manifest = toml::from_str(&format!(
+                "[tool]\nname = \"h\"\nversion = \"1\"\ndescription = \"d\"\n[args.url]\ntype = \"string\"\n[args.host]\ntype = \"string\"\n[args.scheme]\ntype = \"string\"\n[http]\nmethod = \"GET\"\nurl = \"{url}\"\n[output]\nformat = \"json\"\n"
+            ))
+            .unwrap();
+            assert!(manifest.validate(&HashMap::new()).is_err(), "{url}");
+        }
+    }
+
+    #[test]
+    fn http_values_are_encoded_escaped_and_scoped() {
+        let args = HashMap::from([
+            ("q".to_string(), "a/b?c#d&e=f%".to_string()),
+            ("msg".to_string(), "say \"hi\"\n".to_string()),
+            ("hdr".to_string(), "x\r\nInjected: 1".to_string()),
+        ]);
+        assert_eq!(
+            render_http_template("https://example.com/s?q={q}", &args, percent_encode).unwrap(),
+            "https://example.com/s?q=a%2Fb%3Fc%23d%26e%3Df%25"
+        );
+        assert_eq!(
+            render_http_body(r#"{"text": "{msg}"}"#, &args).unwrap(),
+            r#"{"text": "say \"hi\"\n"}"#
+        );
+        assert!(render_http_header("X-Note", "{hdr}", &args).is_err());
+        assert!(render_http_header("Bad Name", "v", &args).is_err());
+        assert!(
+            render_http_template("https://example.com/{missing}", &args, percent_encode).is_err()
+        );
+        let http = super::super::manifest::HttpDef {
+            method: "GET".into(),
+            url: "https://example.com/s?q={q}".into(),
+            headers: HashMap::new(),
+            body_template: None,
+            success_status: vec![],
+            error_status: vec![],
+        };
+        let scope = super::super::scope::Scope {
+            domains: vec!["other.example".into()],
+            ..Default::default()
+        };
+        assert!(resolve_http_destination(&http, &args, Some(&scope)).is_err());
+        let scope = super::super::scope::Scope {
+            domains: vec!["example.com".into()],
+            ..Default::default()
+        };
+        assert!(resolve_http_destination(&http, &args, Some(&scope)).is_ok());
     }
 
     #[test]
@@ -2128,6 +2061,7 @@ human_approval = true
 position = 0
 required = true
 type = "url"
+block_internal = true
 [output]
 format = "json"
 "#,
@@ -2282,7 +2216,7 @@ position = 1
 required = true
 type = "scope_target"
 [command]
-template = "/usr/bin/printf '%s' '{target}'"
+exec = ["/usr/bin/printf", "%s", "{target}"]
 [output]
 format = "text"
 "#,
@@ -2325,8 +2259,8 @@ format = "text"
             ("other".into(), "unexpected expansion".into()),
         ]);
         assert_eq!(
-            render_http_template("https://example.com/{query}/{missing}", &args).unwrap(),
-            "https://example.com/{_secret:unavailable_test_key}/{other}/{missing}"
+            render_http_template("https://example.com/{query}", &args, str::to_string).unwrap(),
+            "https://example.com/{_secret:unavailable_test_key}/{other}"
         );
     }
 
@@ -2339,6 +2273,7 @@ format = "text"
         let result = render_http_template(
             "Bearer {_secret:http_template_fixture}",
             &HashMap::from([("other".into(), "unexpected expansion".into())]),
+            str::to_string,
         );
         match saved {
             Some(value) => std::env::set_var(key, value),
@@ -2395,7 +2330,7 @@ format = "text"
     }
 
     #[tokio::test]
-    async fn http_dispatch_reports_network_errors_without_a_nested_runtime() {
+    async fn http_dispatch_requires_a_grant_and_has_no_nested_runtime() {
         let manifest: Manifest = toml::from_str(
             r#"
 [tool]
@@ -2413,11 +2348,8 @@ format = "text"
         .unwrap();
         let executor = ToolCladExecutor::new(vec![("http_fixture".into(), manifest)])
             .with_development_host_execution();
-        // example.invalid is a reserved TLD, so resolution fails immediately and
-        // the budget is never the thing under test. A 50ms budget expired before
-        // dispatch under parallel load, producing a third error the assertion
-        // below does not accept; give enough headroom that the network error is
-        // what actually surfaces.
+        // A raw proposal never reaches the network: it is refused for lack
+        // of an authorization grant, before any resolution or connection.
         let config = LoopConfig {
             tool_timeout: Duration::from_secs(5),
             ..Default::default()
@@ -2433,28 +2365,131 @@ format = "text"
         assert_eq!(observations.len(), 1);
         assert!(observations[0].is_error);
         assert!(
-            observations[0].content.contains("HTTP request failed")
-                || observations[0]
-                    .content
-                    .contains("HTTP request deadline expired"),
+            observations[0].content.contains("authorization grant"),
             "{}",
             observations[0].content
         );
-        assert!(!observations[0].content.contains("worker failed"));
         // A synchronous invocation from a runtime also fails explicitly,
         // instead of trying to start a nested synchronous runtime.
         assert!(executor
             .execute_tool("http_fixture", "{}")
             .unwrap_err()
-            .contains("must use execute_actions"));
+            .contains("must use governed dispatch"));
+    }
+
+    #[test]
+    fn direct_dispatch_is_refused_in_production() {
+        const CHILD: &str = "SYMBI_TOOLCLAD_DIRECT_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            let manifest = super::super::manifest::parse_manifest(
+                "[tool]\nname = \"t\"\nversion = \"1\"\nbinary = \"echo\"\ndescription = \"d\"\n[command]\nexec = [\"echo\"]\n[output]\nformat = \"text\"\n",
+                &HashMap::new(),
+            )
+            .unwrap();
+            let executor = ToolCladExecutor::new(vec![("t".into(), manifest)]);
+            let error = executor.execute_tool("t", "{}").unwrap_err();
+            assert!(error.contains("forbidden in production"), "{error}");
+            return;
+        }
+        let child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "toolclad::executor::tests::direct_dispatch_is_refused_in_production",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .env("SYMBIONT_ENV", "production")
+            .output()
+            .unwrap();
+        assert!(
+            child.status.success(),
+            "{}",
+            String::from_utf8_lossy(&child.stdout)
+        );
+    }
+
+    #[tokio::test]
+    async fn raw_proposals_are_refused_without_an_authorization_grant() {
+        let manifest = super::super::manifest::parse_manifest(
+            "[tool]\nname = \"t\"\nversion = \"1\"\nbinary = \"echo\"\ndescription = \"d\"\n[command]\nexec = [\"echo\"]\n[output]\nformat = \"text\"\n",
+            &HashMap::new(),
+        )
+        .unwrap();
+        let executor =
+            ToolCladExecutor::new(vec![("t".into(), manifest)]).with_development_host_execution();
+        let observations = executor
+            .execute_actions(
+                &[ProposedAction::ToolCall {
+                    call_id: "c".into(),
+                    name: "t".into(),
+                    arguments: "{}".into(),
+                }],
+                &LoopConfig::default(),
+                &CircuitBreakerRegistry::default(),
+            )
+            .await;
+        assert_eq!(observations.len(), 1);
+        assert!(observations[0].is_error);
+        assert!(observations[0].content.contains("authorization grant"));
+    }
+
+    #[test]
+    fn high_risk_tiers_require_approval_and_expose_tier_to_cedar() {
+        let manifest = super::super::manifest::parse_manifest(
+            "[tool]\nname = \"t\"\nversion = \"1\"\nbinary = \"echo\"\ndescription = \"d\"\nrisk_tier = \"critical\"\n[command]\nexec = [\"echo\"]\n[output]\nformat = \"text\"\n",
+            &HashMap::new(),
+        )
+        .unwrap();
+        let executor =
+            ToolCladExecutor::new(vec![("t".into(), manifest)]).with_development_host_execution();
+        let config = LoopConfig {
+            tool_definitions: executor.tool_definitions(),
+            ..Default::default()
+        };
+        let prepared = executor
+            .prepare_action(
+                &ProposedAction::ToolCall {
+                    call_id: "c".into(),
+                    name: "t".into(),
+                    arguments: "{}".into(),
+                },
+                &config,
+            )
+            .unwrap();
+        assert!(prepared.contract().unwrap().requires_approval);
+        assert_eq!(
+            prepared.policy_context()["resolved"]["risk_tier"],
+            "critical"
+        );
+        assert_eq!(prepared.policy_context()["resolved"]["base_tool"], "t");
+    }
+
+    #[test]
+    fn invalid_manifests_disable_the_executor() {
+        let manifest: Manifest = toml::from_str(
+            "[tool]\nname = \"t\"\nversion = \"1\"\nbinary = \"curl\"\ndescription = \"d\"\n[args.u]\ntype = \"url\"\n[command]\nexec = [\"curl\", \"{u}\"]\n[output]\nformat = \"text\"\n",
+        )
+        .unwrap();
+        let executor = ToolCladExecutor::new(vec![("t".into(), manifest)]);
+        assert!(executor
+            .validate_configuration()
+            .unwrap_err()
+            .contains("block_internal"));
+    }
+
+    fn public_resolver(_: &str) -> std::io::Result<Vec<std::net::IpAddr>> {
+        Ok(vec!["93.184.216.34".parse().unwrap()])
     }
 
     #[test]
     fn curl_headers_cannot_add_options_or_read_files() {
-        let manifest: Manifest = toml::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../tools/curl_fetch.clad.toml"
-        )))
+        let manifest = super::super::manifest::parse_manifest(
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../tools/curl_fetch.clad.toml"
+            )),
+            &HashMap::new(),
+        )
         .unwrap();
         let executor = ToolCladExecutor::new(vec![("curl_fetch".into(), manifest)])
             .with_development_host_execution()
@@ -2462,60 +2497,135 @@ format = "text"
                 domains: vec!["example.com".into()],
                 ..Default::default()
             });
-        for headers in [
-            "@/tmp/fixture",
-            "X-Test: good\r\nInjected: bad",
-            "X-Test: good\0bad",
-        ] {
-            let json = serde_json::json!({"url":"https://example.com/", "headers":headers});
+        super::super::hostpolicy::with_test_resolver(public_resolver, || {
+            for headers in [
+                "@/tmp/fixture",
+                "<x",
+                "X-Test: good\r\nInjected: bad",
+                "X-Test: good\0bad",
+                "X-Test: ok' --output /tmp/unwanted -H 'X-End: ok",
+                "-H @/etc/passwd",
+            ] {
+                let json = serde_json::json!({"url":"https://example.com/", "headers":headers});
+                assert!(
+                    executor
+                        .parse_and_validate("curl_fetch", &json.to_string())
+                        .is_err(),
+                    "accepted {headers:?}"
+                );
+            }
+            // The SY-TC-1 parser differential is refused before scope.
+            let json = serde_json::json!({"url":"http://example.com\\@169.254.169.254/"});
             assert!(executor
                 .parse_and_validate("curl_fetch", &json.to_string())
                 .is_err());
-        }
-        let header = "X-Test: ok' --output /tmp/unwanted -H 'X-End: ok";
-        let json = serde_json::json!({"url":"https://example.com/", "headers":header});
-        let (manifest, args) = executor
+            let header = "X-Test: one two --output /tmp/unwanted";
+            let json = serde_json::json!({"url":"https://example.com", "headers":header});
+            let (manifest, args) = executor
+                .parse_and_validate("curl_fetch", &json.to_string())
+                .unwrap();
+            let argv = build_argv(manifest, &args).unwrap();
+            let index = argv.iter().position(|s| s == "-H").unwrap();
+            assert_eq!(argv[index + 1], header);
+            assert!(!argv.iter().any(|s| s == "--output"));
+            assert!(argv.iter().any(|s| s == "\\n%{http_code}"));
+            assert_eq!(&argv[argv.len() - 2..], ["--", "https://example.com/"]);
+        });
+        // Without a resolver answer the hostname cannot be shown public.
+        let json = serde_json::json!({"url":"https://example.com/"});
+        assert!(executor
             .parse_and_validate("curl_fetch", &json.to_string())
-            .unwrap();
-        let argv = build_argv(manifest, &args).unwrap();
-        let index = argv.iter().position(|s| s == "-H").unwrap();
-        assert_eq!(argv[index + 1], header);
-        assert!(!argv.iter().any(|s| s == "--output"));
-        assert_eq!(&argv[argv.len() - 2..], ["--", "https://example.com/"]);
+            .is_err());
     }
 
     #[test]
     fn nmap_extra_flags_are_limited_to_fixed_options() {
-        let manifest: Manifest = toml::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../tools/nmap_scan.clad.toml"
-        )))
+        let manifest = super::super::manifest::parse_manifest(
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../tools/nmap_scan.clad.toml"
+            )),
+            &HashMap::new(),
+        )
         .unwrap();
         let executor = ToolCladExecutor::new(vec![("nmap_scan".into(), manifest)])
             .with_development_host_execution()
             .with_scope(super::super::scope::Scope {
                 domains: vec!["example.com".into()],
+                targets: vec!["10.0.0.0/8".into()],
                 ..Default::default()
             });
-        for extra in ["--script=/tmp/fixture.lua", "-n -Pn", "--datadir=/tmp"] {
-            let json = serde_json::json!({
-                "target": "example.com", "scan_type": "ping", "extra_flags": extra
-            });
+        super::super::hostpolicy::with_test_resolver(public_resolver, || {
+            for extra in ["--script=/tmp/fixture.lua", "-n -Pn", "--datadir=/tmp"] {
+                let json = serde_json::json!({
+                    "target": "example.com", "scan_type": "ping", "extra_flags": extra
+                });
+                assert!(executor
+                    .parse_and_validate("nmap_scan", &json.to_string())
+                    .is_err());
+            }
+            // In scope but internal: block_internal refuses it.
+            let json = serde_json::json!({"target": "10.0.0.5", "scan_type": "ping"});
             assert!(executor
                 .parse_and_validate("nmap_scan", &json.to_string())
                 .is_err());
+            for extra in ["", "-n", "-Pn"] {
+                let json = serde_json::json!({
+                    "target": "example.com", "scan_type": "ping", "extra_flags": extra
+                });
+                let (manifest, args) = executor
+                    .parse_and_validate("nmap_scan", &json.to_string())
+                    .unwrap();
+                let argv = build_argv(manifest, &args).unwrap();
+                assert_eq!(argv.last().unwrap(), "example.com");
+                assert_eq!(argv.iter().any(|arg| arg == extra), !extra.is_empty());
+                let ox = argv.iter().position(|a| a == "-oX").unwrap();
+                assert_eq!(argv[ox + 1], "-");
+                assert_eq!(&argv[1..3], ["-sn", "-PE"]);
+            }
+        });
+    }
+
+    #[test]
+    fn shipped_manifests_load_under_the_strict_rules() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let tools = load_manifests_from_dir_for_test(&root.join("tools"));
+        for expected in [
+            "curl_fetch",
+            "dig_lookup",
+            "whois_lookup",
+            "nmap_scan",
+            "submit_triage",
+            "git_diff",
+            "git_log",
+            "git_staged_diff",
+            "git_status",
+            "list_files",
+            "grep_files",
+            "read_file",
+        ] {
+            assert!(tools.iter().any(|(n, _)| n == expected), "{expected}");
         }
-        for extra in ["", "-n", "-Pn"] {
-            let json = serde_json::json!({
-                "target": "example.com", "scan_type": "ping", "extra_flags": extra
-            });
-            let (manifest, args) = executor
-                .parse_and_validate("nmap_scan", &json.to_string())
-                .unwrap();
-            let argv = build_argv(manifest, &args).unwrap();
-            assert_eq!(argv.last().unwrap(), "example.com");
-            assert_eq!(argv.iter().any(|arg| arg == extra), !extra.is_empty());
-        }
+        let example = load_manifests_from_dir_for_test(&root.join("examples/governed-tool/tools"));
+        let (_, wordcount) = &example[0];
+        let args = HashMap::from([
+            ("mode".to_string(), "words".to_string()),
+            ("path".to_string(), "notes.txt".to_string()),
+        ]);
+        assert_eq!(
+            build_argv(wordcount, &args).unwrap(),
+            ["wc", "--words", "--", "notes.txt"]
+        );
+        let (_, whois) = tools.iter().find(|(n, _)| n == "whois_lookup").unwrap();
+        let args = HashMap::from([("target".to_string(), "93.184.216.34".to_string())]);
+        assert_eq!(
+            build_argv(whois, &args).unwrap(),
+            ["whois", "--", "93.184.216.34"]
+        );
+    }
+
+    fn load_manifests_from_dir_for_test(dir: &std::path::Path) -> Vec<(String, Manifest)> {
+        super::super::manifest::load_manifests_from_dir_with_types(dir, &HashMap::new()).unwrap()
     }
 
     #[cfg(unix)]
@@ -2533,7 +2643,7 @@ position = 1
 required = true
 type = "literal_text"
 [command]
-template = "/usr/bin/printf '%s' '{message}'"
+exec = ["/usr/bin/printf", "%s", "{message}"]
 [output]
 format = "text"
 "#,
@@ -2569,8 +2679,9 @@ type = "string"
 position = 2
 required = true
 type = "string"
+allow_leading_dash = true
 [command]
-template = "/usr/bin/printf '%s|%s' '{left}' '{right}'"
+exec = ["/usr/bin/printf", "%s|%s", "{left}", "{right}"]
 [output]
 format = "text"
 "#,
@@ -2605,8 +2716,9 @@ version = "1"
 binary = "/bin/sh"
 description = "Parser deadline fixture"
 timeout_seconds = 2
+allow_interpreter = true
 [command]
-template = "/bin/sh -c 'sleep 1; printf raw'"
+exec = ["/bin/sh", "-c", "sleep 1; printf raw"]
 [output]
 format = "json"
 "#,
@@ -2633,21 +2745,25 @@ format = "json"
     #[test]
     fn trusted_template_quotes_and_empty_arguments_are_preserved() {
         assert_eq!(
-            split_command_to_argv("echo '' \"\" 'two  spaces'").unwrap(),
+            super::super::command::tokenize_template("echo '' \"\" 'two  spaces'").unwrap(),
             ["echo", "", "", "two  spaces"]
         );
-        assert!(split_command_to_argv("echo trailing\\").is_err());
+        assert!(super::super::command::tokenize_template("echo trailing\\").is_err());
     }
 
     #[test]
     fn inserted_values_are_not_expanded_again() {
+        let manifest: Manifest = toml::from_str(
+            "[tool]\nname = \"t\"\nversion = \"1\"\nbinary = \"echo\"\ndescription = \"d\"\n[args.first]\ntype = \"literal_text\"\n[args.second]\ntype = \"literal_text\"\n[command]\nexec = [\"echo\", \"prefix={first}\"]\n[output]\nformat = \"text\"\n",
+        )
+        .unwrap();
         let values = HashMap::from([
             ("first".into(), "{second}".into()),
             ("second".into(), "changed".into()),
         ]);
         assert_eq!(
-            interpolate_argument("prefix={first}", &values),
-            "prefix={second}"
+            build_argv(&manifest, &values).unwrap(),
+            ["echo", "prefix={second}"]
         );
     }
 
@@ -2660,8 +2776,15 @@ name = "scan"
 version = "1"
 binary = "scan"
 description = "Mapping fixture"
+[args.mode]
+type = "enum"
+allowed = ["fast"]
+[args.target]
+type = "string"
+[args.optional]
+type = "string"
 [command]
-template = "scan {_scan_flags} -- {target} {optional}"
+template = "scan {_mode_flags} -- {target} {optional}"
 [command.mappings.mode]
 fast = "--fast --rate 100"
 [output]
@@ -2697,6 +2820,8 @@ name = "fixture"
 version = "1"
 binary = "fixture"
 description = "Executable selection fixture"
+[args.program]
+type = "string"
 [command]
 template = "{program} value"
 [output]
@@ -3135,81 +3260,134 @@ type = "object"
         std::env::remove_var("SYMBIONT_TOOLCLAD_ALLOWED_PARSERS");
     }
 
-    // ---- Schema Validation Tests ----
+    // ---- Schema Validation Tests (fail-closed) ----
+
+    fn schema_check(parsed: serde_json::Value, schema: serde_json::Value) -> Result<(), String> {
+        super::super::schema::validate(&schema, &parsed)
+    }
 
     #[test]
     fn test_validate_schema_no_properties() {
-        let parsed = serde_json::json!({"foo": "bar"});
-        let schema = serde_json::json!({"type": "object"});
-        let warnings = validate_output_schema(&parsed, &schema);
-        assert!(warnings.is_empty());
+        assert!(schema_check(
+            serde_json::json!({"foo": "bar"}),
+            serde_json::json!({"type": "object"})
+        )
+        .is_ok());
     }
 
     #[test]
     fn test_validate_schema_missing_required() {
-        let parsed = serde_json::json!({"foo": "bar"});
-        let schema = serde_json::json!({
-            "type": "object",
-            "required": ["missing_key"],
-            "properties": {
-                "missing_key": {"type": "string"}
-            }
-        });
-        let warnings = validate_output_schema(&parsed, &schema);
-        assert_eq!(warnings.len(), 1);
-        assert!(warnings[0].contains("missing_key"));
+        let error = schema_check(
+            serde_json::json!({"foo": "bar"}),
+            serde_json::json!({
+                "type": "object",
+                "required": ["missing_key"],
+                "properties": {"missing_key": {"type": "string"}}
+            }),
+        )
+        .unwrap_err();
+        assert!(error.contains("missing_key"), "{error}");
     }
 
     #[test]
     fn test_validate_schema_type_mismatch() {
-        let parsed = serde_json::json!({"count": "not_a_number"});
-        let schema = serde_json::json!({
-            "type": "object",
-            "properties": {
-                "count": {"type": "number"}
-            }
-        });
-        let warnings = validate_output_schema(&parsed, &schema);
-        assert_eq!(warnings.len(), 1);
-        assert!(warnings[0].contains("count"));
-        assert!(warnings[0].contains("number"));
+        let error = schema_check(
+            serde_json::json!({"count": "not_a_number"}),
+            serde_json::json!({
+                "type": "object",
+                "properties": {"count": {"type": "number"}}
+            }),
+        )
+        .unwrap_err();
+        assert!(
+            error.contains("/count") && error.contains("number"),
+            "{error}"
+        );
     }
 
     #[test]
-    fn test_validate_schema_raw_output_skips() {
-        let parsed = serde_json::json!({"raw_output": "some text"});
-        let schema = serde_json::json!({
-            "type": "object",
-            "required": ["specific_field"],
-            "properties": {
-                "specific_field": {"type": "string"}
-            }
-        });
-        let warnings = validate_output_schema(&parsed, &schema);
-        assert!(warnings.is_empty());
+    fn test_validate_schema_raw_output_is_not_exempt() {
+        // Text output is validated like any other: a schema that requires a
+        // field the parser cannot produce fails closed instead of passing.
+        assert!(schema_check(
+            serde_json::json!({"raw_output": "some text"}),
+            serde_json::json!({
+                "type": "object",
+                "required": ["specific_field"],
+                "properties": {"specific_field": {"type": "string"}}
+            }),
+        )
+        .is_err());
     }
 
     #[test]
     fn test_validate_schema_all_types() {
-        let parsed = serde_json::json!({
-            "s": "hello",
-            "n": 42,
-            "b": true,
-            "a": [1, 2],
-            "o": {"nested": true}
-        });
-        let schema = serde_json::json!({
-            "type": "object",
-            "properties": {
-                "s": {"type": "string"},
-                "n": {"type": "number"},
-                "b": {"type": "boolean"},
-                "a": {"type": "array"},
-                "o": {"type": "object"}
-            }
-        });
-        let warnings = validate_output_schema(&parsed, &schema);
-        assert!(warnings.is_empty());
+        assert!(schema_check(
+            serde_json::json!({
+                "s": "hello", "n": 42, "b": true, "a": [1, 2], "o": {"nested": true}
+            }),
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "s": {"type": "string"},
+                    "n": {"type": "number"},
+                    "b": {"type": "boolean"},
+                    "a": {"type": "array"},
+                    "o": {"type": "object"}
+                }
+            }),
+        )
+        .is_ok());
+    }
+
+    #[tokio::test]
+    async fn schema_violations_replace_results_and_set_schema_error() {
+        let manifest: Manifest = toml::from_str(
+            "[tool]\nname = \"t\"\nversion = \"1\"\nbinary = \"echo\"\ndescription = \"d\"\n[command]\nexec = [\"echo\"]\n[output]\nformat = \"json\"\n[output.schema]\ntype = \"object\"\nrequired = [\"ok\"]\n",
+        )
+        .unwrap();
+        let boundary = CommandBoundary::development_host();
+        let (status, results) = checked_results(
+            &manifest,
+            r#"{"other": 1}"#,
+            Duration::from_secs(5),
+            &boundary,
+        )
+        .await
+        .unwrap();
+        assert_eq!(status, Some("schema_error"));
+        assert!(results["schema_error"].as_str().unwrap().contains("ok"));
+        assert_eq!(results["raw_output"], r#"{"other": 1}"#);
+        let (status, _) = checked_results(
+            &manifest,
+            r#"{"ok": true}"#,
+            Duration::from_secs(5),
+            &boundary,
+        )
+        .await
+        .unwrap();
+        assert_eq!(status, None);
+        let mut xml = manifest.clone();
+        xml.output.format = "xml".into();
+        xml.output.schema = serde_json::Value::Null;
+        assert!(checked_results(
+            &xml,
+            "<!DOCTYPE x [<!ENTITY a \"b\">]><x/>",
+            Duration::from_secs(5),
+            &boundary
+        )
+        .await
+        .is_err());
+    }
+
+    #[test]
+    fn output_capture_is_capped_on_a_character_boundary() {
+        let (text, cut) = cap_text("aé".repeat(4), 5);
+        assert!(cut);
+        assert!(text.len() <= 5 && text.is_char_boundary(text.len()));
+        let (text, cut) = cap_text("short".into(), 10);
+        assert!(!cut);
+        assert_eq!(text, "short");
     }
 
     #[test]

@@ -20,7 +20,7 @@ HTTP 入力モジュールは以下で構成されています：
 
 ## 設定
 
-HTTP 入力モジュールは [`HttpInputConfig`](../crates/runtime/src/http_input/config.rs) 構造体を使用して設定されます：
+HTTP 入力モジュールは [`HttpInputConfig`](https://github.com/ThirdKeyAI/Symbiont/blob/main/crates/runtime/src/http_input/config.rs) 構造体を使用して設定されます：
 
 ### 基本設定
 
@@ -81,7 +81,7 @@ let routing_rules = vec![
 
 ### レスポンス制御
 
-[`ResponseControlConfig`](../crates/runtime/src/http_input/config.rs) を使用して HTTP レスポンスをカスタマイズ：
+[`ResponseControlConfig`](https://github.com/ThirdKeyAI/Symbiont/blob/main/crates/runtime/src/http_input/config.rs) を使用して HTTP レスポンスをカスタマイズ：
 
 ```rust
 use symbiont_runtime::http_input::ResponseControlConfig;
@@ -129,13 +129,17 @@ Ed25519公開鍵によるJWTベース認証を設定：
 ```rust
 let config = HttpInputConfig {
     jwt_public_key_path: Some("/path/to/jwt/ed25519-public.pem".to_string()),
+    jwt_issuer: Some("https://identity.example.com".to_string()),
+    jwt_audience: Some("symbiont-http-input".to_string()),
     ..Default::default()
 };
 ```
 
-鍵ローダーは、EdDSA 検証のために Ed25519 の PEM または生の公開鍵バイト列を受け付けます。JWT には有効な `exp` と、空でない（最大 512 バイトの）`sub` が必要です。有効期限の検証では 5 秒のクロックスキューが許容されます。`iss` を指定する場合は、空でない最大 2,048 バイトの値である必要があります。署名された subject、issuer、設定された鍵が同じであれば、トークンを更新しても呼び出し元の識別情報は維持されます。
+JWT には `exp`、`sub`、`iss`、`aud` が必要です。発行者は `jwt_issuer` と一致し、対象には `jwt_audience` が含まれている必要があります。JWT 認証を使用する場合、この二つの設定は必須です。`sub` は空でない 512 バイト以下の値とし、有効期限には 5 秒の時刻ずれを許容します。同じ subject、issuer、鍵による更新では呼び出し元の識別を維持します。
 
-この HTTP 入力の検証器は、audience や issuer の許可リストを**強制しません**。設定された鍵がその信頼の根拠となるため、その権限専用の鍵を使用してください。署名された issuer は再試行時の識別に寄与しますが、issuer の許可リストを構成するものではありません。webhook 署名の検証を設定している場合でも Bearer 認証は必須であり、webhook 署名は追加の検査という位置づけです。
+移行時には期待する発行者と対象を設定し、このサービス用のトークンを発行してください。同じ鍵で署名されていても、別のサービス用のトークンは拒否されます。Webhook の署名検証は追加の検査として引き続き必要です。
+
+<a id="ヘルスエンドポイント"></a>
 
 #### ヘルスエンドポイント
 
@@ -188,7 +192,7 @@ start_http_input(config, Some(runtime), Some(secrets_config)).await?;
 
 ### エージェント定義例
 
-[`webhook_handler.symbi`](../agents/webhook_handler.symbi) で webhook ハンドラーエージェントを作成：
+[`webhook_handler.symbi`](https://github.com/ThirdKeyAI/Symbiont/blob/main/agents/webhook_handler.symbi) で webhook ハンドラーエージェントを作成：
 
 ```dsl
 agent webhook_handler(body: JSON) -> Maybe<Alert> {
@@ -422,7 +426,7 @@ INFO LLM invocation completed for agent webhook_handler: latency=4821ms tool_run
 - [DSL ガイド](dsl-guide.md)
 - [API リファレンス](api-reference.md)
 - [推論ループ (ORGA)](reasoning-loop.md)
-- [ToolClad ツールコントラクト](toolclad.md)
-- [エージェントランタイムドキュメント](../crates/runtime/README.md)
+- [ToolClad ツールコントラクト](/toolclad)
+- [エージェントランタイムドキュメント](https://github.com/ThirdKeyAI/Symbiont/blob/main/crates/runtime/README.md)
 
 運用者による解決が記録された呼び出しは、HTTP 409 と `status: "reconciled"`、元の監査参照、および個別に署名された `resolution` のレシートを返します。成功結果を捏造して返すことも、再度実行することもありません。[運用者による突き合わせ](/invocation-reconciliation)を参照してください。

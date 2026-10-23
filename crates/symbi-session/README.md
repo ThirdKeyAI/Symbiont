@@ -115,6 +115,5 @@ part of the deferred cross-instance work above.
 
 ## Design notes
 
-See the design + viability analysis under `docs/superpowers/specs/` and
-`docs/superpowers/plans/` (`2026-06-15-symbi-session-*`). The crate is
-dependency-light on purpose so the JS/Python SDKs can mirror the lattice/FSM.
+The crate is dependency-light on purpose so the JS/Python SDKs can mirror the
+lattice/FSM.

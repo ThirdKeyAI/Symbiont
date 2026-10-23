@@ -43,6 +43,12 @@ nav = [
 extra_css = ["stylesheets/extra.css"]
 extra_javascript = ["javascripts/extra.js"]
 
+# Each language builds from its own config into site/<lang>, so each gets its
+# own search index. The translated trees must stay out of the English build or
+# the English index absorbs every language.
+[project.plugins.exclude]
+glob = ["de/*", "es/*", "ja/*", "pt/*", "zh-cn/*"]
+
 [project.theme]
 language = "en"
 favicon = "favicon-32x32.png"

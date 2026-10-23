@@ -83,6 +83,137 @@ impl CommandBoundary {
         }
         boundary
     }
+    /// Remove sandbox network access: Docker and gVisor switch to
+    /// `network_mode = "none"` and Landlock denies sockets. Firecracker
+    /// guests have no network interface.
+    pub fn without_network(&self) -> Self {
+        let mut boundary = self.clone();
+        boundary.docker.network_mode = "none".into();
+        boundary.gvisor.docker.network_mode = "none".into();
+        #[cfg(target_os = "linux")]
+        {
+            boundary.landlock.require_network = true;
+        }
+        boundary
+    }
+
+    /// Apply a manifest's `[tool.limits]` by tightening the selected tier.
+    /// A declared limit the tier cannot express refuses the call rather than
+    /// running without it.
+    pub fn with_tool_limits(
+        &self,
+        limits: &crate::toolclad::manifest::ToolLimits,
+    ) -> Result<Self, String> {
+        let mut boundary = self.clone();
+        let unsupported = |name: &str| {
+            Err(format!(
+                "tool.limits.{name} cannot be enforced by the selected sandbox tier"
+            ))
+        };
+        match boundary.tier {
+            CommandTier::Docker | CommandTier::GVisor => {
+                let config = if boundary.tier == CommandTier::Docker {
+                    &mut boundary.docker
+                } else {
+                    &mut boundary.gvisor.docker
+                };
+                if let Some(n) = limits.nproc {
+                    config.pids_limit = config.pids_limit.min(u32::try_from(n).unwrap_or(u32::MAX));
+                }
+                if let Some(n) = limits.nofile {
+                    config.open_files_limit = Some(n.min(1024));
+                }
+                if let Some(n) = limits.fsize_bytes {
+                    config.max_file_bytes = config.max_file_bytes.min(n);
+                }
+                if let Some(n) = limits.address_space_bytes {
+                    let current = config
+                        .memory_limit
+                        .as_deref()
+                        .and_then(|m| m.parse::<u64>().ok())
+                        .unwrap_or(u64::MAX);
+                    if config.memory_limit.is_some() && current == u64::MAX {
+                        // A suffixed limit ("512m"): normalize through bytes.
+                        let memory = config.memory_limit.as_deref().unwrap_or("");
+                        let digits =
+                            memory.trim_end_matches(['b', 'k', 'm', 'g', 'B', 'K', 'M', 'G']);
+                        let factor = match memory.as_bytes().last().map(u8::to_ascii_lowercase) {
+                            Some(b'k') => 1024,
+                            Some(b'm') => 1024 * 1024,
+                            Some(b'g') => 1024 * 1024 * 1024,
+                            _ => 1,
+                        };
+                        let bytes = digits
+                            .parse::<u64>()
+                            .map_err(|e| e.to_string())?
+                            .saturating_mul(factor);
+                        config.memory_limit = Some(bytes.min(n).to_string());
+                    } else {
+                        config.memory_limit = Some(current.min(n).to_string());
+                    }
+                }
+                if let Some(n) = limits.cpu_seconds {
+                    config.max_execution_time =
+                        config.max_execution_time.min(Duration::from_secs(n));
+                }
+            }
+            #[cfg(target_os = "linux")]
+            CommandTier::Landlock => {
+                if limits.nofile.is_some() {
+                    return unsupported("nofile");
+                }
+                if limits.fsize_bytes.is_some() {
+                    return unsupported("fsize_bytes");
+                }
+                if let Some(n) = limits.nproc {
+                    boundary.landlock.pids_limit = boundary
+                        .landlock
+                        .pids_limit
+                        .min(u32::try_from(n).unwrap_or(u32::MAX));
+                }
+                if let Some(n) = limits.address_space_bytes {
+                    let mib = u32::try_from((n / (1024 * 1024)).max(1)).unwrap_or(u32::MAX);
+                    boundary.landlock.memory_mib = boundary.landlock.memory_mib.min(mib);
+                }
+                if let Some(n) = limits.cpu_seconds {
+                    boundary.landlock.max_execution_time = boundary
+                        .landlock
+                        .max_execution_time
+                        .min(Duration::from_secs(n));
+                }
+            }
+            CommandTier::Firecracker => {
+                for (name, set) in [
+                    ("nproc", limits.nproc.is_some()),
+                    ("nofile", limits.nofile.is_some()),
+                    ("fsize_bytes", limits.fsize_bytes.is_some()),
+                ] {
+                    if set {
+                        return unsupported(name);
+                    }
+                }
+                let config = boundary
+                    .firecracker
+                    .as_mut()
+                    .ok_or("missing Firecracker configuration")?;
+                if let Some(n) = limits.address_space_bytes {
+                    let mib = u32::try_from((n / (1024 * 1024)).max(1)).unwrap_or(u32::MAX);
+                    config.mem_mib = config.mem_mib.min(mib);
+                }
+                if let Some(n) = limits.cpu_seconds {
+                    config.max_execution_time =
+                        config.max_execution_time.min(Duration::from_secs(n));
+                }
+            }
+            _ => {
+                if *limits != crate::toolclad::manifest::ToolLimits::default() {
+                    return unsupported("*");
+                }
+            }
+        }
+        Ok(boundary)
+    }
+
     /// Intersect the selected container's limits with the agent's limits.
     pub fn tighten_resources(
         &mut self,
@@ -316,6 +447,15 @@ impl CommandBoundary {
             }
             #[cfg(target_os = "linux")]
             CommandTier::Landlock => {
+                if !self.landlock.require_network
+                    && crate::env::is_production().map_err(|e| e.to_string())?
+                {
+                    return Err(
+                        "Landlock require_network = false is forbidden in production; \
+                         keep network denied and use governed HTTP tools for outbound requests"
+                            .into(),
+                    );
+                }
                 self.landlock.validate()?;
                 super::landlock::validate_roots(&self.landlock, &self.roots)?;
                 self.validate_protected_roots(&self.roots.source_roots)?;
@@ -427,6 +567,7 @@ impl CommandBoundary {
                 "memory_limit": config.memory_limit.as_deref().unwrap_or(""),
                 "cpu_limit": config.cpu_limit.unwrap_or(0.0).to_string(),
                 "pids_limit": config.pids_limit, "user": config.user,
+                "open_files_limit": config.open_files_limit.unwrap_or(1024).min(1024),
                 "max_execution_seconds": config.max_execution_time.as_secs(),
                 "max_output_bytes": config.max_output_bytes,
                 "max_file_bytes": config.max_file_bytes,
@@ -820,6 +961,106 @@ pub(super) fn check_binary(binary: &str, argument: &str, timeout: Duration) -> a
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::toolclad::manifest::ToolLimits;
+
+    #[test]
+    fn tool_limits_tighten_containers_and_refuse_what_a_tier_cannot_express() {
+        let limits = ToolLimits {
+            nproc: Some(8),
+            nofile: Some(64),
+            fsize_bytes: Some(4096),
+            address_space_bytes: Some(64 * 1024 * 1024),
+            cpu_seconds: Some(5),
+        };
+        let docker = CommandBoundary::default()
+            .with_tool_limits(&limits)
+            .unwrap();
+        assert_eq!(docker.docker.pids_limit, 8);
+        assert_eq!(docker.docker.open_files_limit, Some(64));
+        assert_eq!(docker.docker.max_file_bytes, 4096);
+        assert_eq!(docker.docker.memory_limit.as_deref(), Some("67108864"));
+        assert_eq!(docker.docker.max_execution_time, Duration::from_secs(5));
+        // Limits only ever lower the operator's ceiling.
+        let loose = ToolLimits {
+            nproc: Some(100_000),
+            ..Default::default()
+        };
+        let docker = CommandBoundary::default().with_tool_limits(&loose).unwrap();
+        assert_eq!(docker.docker.pids_limit, DockerConfig::default().pids_limit);
+        assert!(CommandBoundary::development_host()
+            .with_tool_limits(&limits)
+            .is_err());
+        assert!(CommandBoundary::development_host()
+            .with_tool_limits(&ToolLimits::default())
+            .is_ok());
+        #[cfg(target_os = "linux")]
+        {
+            let landlock = CommandBoundary {
+                tier: CommandTier::Landlock,
+                ..Default::default()
+            };
+            assert!(landlock.with_tool_limits(&limits).is_err());
+            let partial = ToolLimits {
+                nproc: Some(4),
+                ..Default::default()
+            };
+            assert_eq!(
+                landlock
+                    .with_tool_limits(&partial)
+                    .unwrap()
+                    .landlock
+                    .pids_limit,
+                4
+            );
+        }
+    }
+
+    #[test]
+    fn sessions_without_declared_egress_get_no_network() {
+        let mut boundary = CommandBoundary::default();
+        boundary.docker.network_mode = "bridge".into();
+        boundary.gvisor.docker.network_mode = "bridge".into();
+        #[cfg(target_os = "linux")]
+        {
+            boundary.landlock.require_network = false;
+        }
+        let closed = boundary.without_network();
+        assert_eq!(closed.docker.network_mode, "none");
+        assert_eq!(closed.gvisor.docker.network_mode, "none");
+        #[cfg(target_os = "linux")]
+        assert!(closed.landlock.require_network);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn landlock_network_is_refused_in_production() {
+        const CHILD: &str = "SYMBI_LANDLOCK_NETWORK_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            let mut boundary = CommandBoundary {
+                tier: CommandTier::Landlock,
+                ..Default::default()
+            };
+            boundary.landlock.require_network = false;
+            let error = boundary.validate().unwrap_err();
+            assert!(error.contains("require_network"), "{error}");
+            return;
+        }
+        let child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "sandbox::command::tests::landlock_network_is_refused_in_production",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .env("SYMBIONT_ENV", "production")
+            .output()
+            .unwrap();
+        assert!(
+            child.status.success(),
+            "{}",
+            String::from_utf8_lossy(&child.stdout)
+        );
+    }
 
     #[cfg(target_os = "linux")]
     #[test]

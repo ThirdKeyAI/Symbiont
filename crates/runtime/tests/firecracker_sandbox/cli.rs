@@ -170,6 +170,7 @@ name = "count_fixture"
 version = "1"
 description = "Actual normalized guest file effect"
 binary = "python3"
+allow_interpreter = true
 [args.count]
 position = 1
 type = "integer"
@@ -178,7 +179,7 @@ min = 1
 max = 5
 clamp = true
 [command]
-template = "python3 -c 'from pathlib import Path; p=Path(\"/tmp/tool-effect\"); p.write_text(\"{count}\"); print(p.read_text())'"
+exec = ["python3", "-c", "from pathlib import Path; p=Path(\"/tmp/tool-effect\"); p.write_text(\"{count}\"); print(p.read_text())"]
 [output]
 format = "text"
 "#).unwrap();

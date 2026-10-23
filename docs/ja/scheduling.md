@@ -159,100 +159,77 @@ schedule {
 
 ## CLIコマンド
 
-`symbi cron`コマンドにより、完全なライフサイクル管理が可能です：
+`symbi cron` はスケジュールされたジョブのライフサイクルを管理します。以下の各サブコマンドは、実際に受け付けるオプションとともに記載しています。お使いのビルドで確認するには `symbi cron <subcommand> --help` を実行してください。
 
 ### ジョブ一覧
 
 ```bash
-# すべてのジョブを一覧表示
 symbi cron list
-
-# ステータスでフィルタリング
-symbi cron list --status active
-symbi cron list --status paused
-
-# エージェントでフィルタリング
-symbi cron list --agent "reporter-agent"
-
-# JSON出力
-symbi cron list --format json
 ```
+
+`list` はオプションを取りません。個別のジョブの詳細には `symbi cron status <job-id>` を、実行記録の絞り込みには `symbi cron history` を使用してください。
 
 ### ジョブ追加
 
-```bash
-# DSLファイルから追加
-symbi cron add --file agent.symbi --schedule "daily-report"
+`--name`、`--cron`、`--agent` は必須です。エージェントは事前に登録されている必要があります。`add` は DSL ファイルを読み込みません。
 
-# インライン定義（JSON）
-symbi cron add --json '{
-  "name": "quick-task",
-  "agent_id": "agent-123",
-  "cron_expr": "0 0 * * * *"
-}'
+```bash
+symbi cron add --name "daily-report" --cron "0 0 9 * * * *" --agent reporter
+
+# タイムゾーン（既定は UTC）とポリシーを指定し、1回実行したら無効化する
+symbi cron add --name "one-off" --cron "0 */5 * * * * *" --agent reporter \
+  --tz "America/New_York" --policy strict --one-shot
 ```
 
-### ジョブ削除
+| オプション | 必須 | 意味 |
+|---|---|---|
+| `--name <NAME>` | はい | ジョブ名 |
+| `--cron <EXPR>` | はい | cron式、7フィールド（秒が先頭） |
+| `--agent <AGENT>` | はい | 実行する登録済みエージェント名 |
+| `--tz <TIMEZONE>` | いいえ | IANA タイムゾーン、既定は UTC |
+| `--policy <POLICY>` | いいえ | 実行に適用するポリシー |
+| `--one-shot` | いいえ | 1回だけ実行し、その後ジョブを無効化 |
+
+### 削除、一時停止、再開
+
+いずれもジョブの UUID を1つ取り、オプションはありません。
 
 ```bash
-# ジョブIDで削除
 symbi cron remove <job-id>
-
-# 名前で削除
-symbi cron remove --name "daily-report"
-
-# 強制削除（確認をスキップ）
-symbi cron remove <job-id> --force
-```
-
-### 一時停止/再開
-
-```bash
-# ジョブを一時停止（スケジューリングを停止、状態は保持）
-symbi cron pause <job-id>
-
-# 一時停止中のジョブを再開
-symbi cron resume <job-id>
+symbi cron pause <job-id>    # スケジューリングを停止、状態は保持
+symbi cron resume <job-id>   # 未解決の実行がある場合は再開できない
 ```
 
 ### ステータス
 
 ```bash
-# 次回実行時刻を含むジョブ詳細
 symbi cron status <job-id>
-
-# 直近10件の実行記録を含む
-symbi cron status <job-id> --history 10
-
-# ウォッチモード（5秒ごとに自動更新）
-symbi cron status <job-id> --watch
 ```
+
+`status` はジョブの UUID を取り、オプションはありません。ジョブの詳細と直近の実行を報告します。呼び出しが突き合わせ済みの場合は、元のエラーと運用者による解決内容を含む `Reconciled` ステータスも表示されます。
 
 ### 即時実行
 
 ```bash
-# 即時実行をトリガー（スケジュールをバイパス）
 symbi cron run <job-id>
-
-# カスタム入力付きで実行
-symbi cron run <job-id> --input "Check production database"
 ```
+
+ジョブを即時に強制実行します。REST サーフェス経由の手動実行には管理者トークンと `Idempotency-Key` の UUID が必要です。2回実行するのではなく再試行するために、同じ UUID を再利用してください。[スケジューラーの再試行状態](/scheduler-idempotency)および [cron の復旧](/cron-recovery)を参照してください。
 
 ### 履歴
 
 ```bash
-# ジョブの実行履歴を表示
-symbi cron history <job-id>
+# すべてのジョブにわたる直近の実行（既定は20件）
+symbi cron history
 
-# 直近20件の実行
-symbi cron history <job-id> --limit 20
-
-# ステータスでフィルタリング
-symbi cron history <job-id> --status failed
-
-# CSVにエクスポート
-symbi cron history <job-id> --format csv > runs.csv
+# 1つのジョブに絞り、件数上限を明示
+symbi cron history --job <job-id> --limit 50
 ```
+
+| オプション | 意味 |
+|---|---|
+| `--job <JOB_ID>` | 1つのジョブに絞り込む |
+| `--limit <N>` | 表示する最大件数、既定は20 |
 
 ## ハートビートパターン
 
@@ -559,15 +536,17 @@ schedule {
 **復旧：**
 
 ```bash
-# デッドレター化されたジョブを一覧表示
-symbi cron list --status dead_letter
+# ジョブを一覧表示し、無効化されたものを探す
+symbi cron list
 
-# 失敗理由を確認
-symbi cron history <job-id> --status failed
+# 失敗分も含めて、そのジョブの実行記録を確認
+symbi cron history --job <job-id>
 
-# 修正後にジョブをアクティブにリセット
-symbi cron reset <job-id>
+# 原因を修正したうえで再度有効化
+symbi cron resume <job-id>
 ```
+
+`cron list` と `cron history` はステータスによる絞り込みを行いません。`list` のステータス列を読むか、`history` の実行記録を確認してください。`cron reset` というサブコマンドは存在しません。ジョブを再度有効化するのは `resume` であり、未解決の実行がある場合は運用者がそれを突き合わせるまで再開はブロックされます。
 
 ### AgentPin検証
 
@@ -925,11 +904,11 @@ pub enum SecurityEventType {
 1. ジョブのステータスを確認: `symbi cron status <job-id>`
 2. cron式を検証: [crontab.guru](https://crontab.guru/)を使用
 3. スケジューラーのヘルスを確認: `curl http://localhost:8080/api/v1/health/scheduler`
-4. ログを確認: `symbi logs --filter scheduler --level debug`
+4. ログを確認: `symbi logs --lines 200`（ストリーミングするには `--follow` を追加）
 
 ### ジョブが繰り返し失敗する
 
-1. 履歴を表示: `symbi cron history <job-id> --status failed`
+1. 履歴を表示: `symbi cron history --job <job-id>`
 2. 実行記録のエラーメッセージを確認
 3. エージェントの設定とケイパビリティを検証
 4. スケジューラー外でエージェントをテスト: `symbi run <agent-id> --input "test"`
@@ -937,10 +916,10 @@ pub enum SecurityEventType {
 
 ### デッドレター化されたジョブ
 
-1. デッドレタージョブを一覧表示: `symbi cron list --status dead_letter`
-2. 失敗パターンを確認: `symbi cron history <job-id>`
+1. ジョブを一覧表示し、無効化されたものを探す: `symbi cron list`
+2. 失敗パターンを確認: `symbi cron history --job <job-id>`
 3. 根本原因を修正（エージェントコード、権限、外部依存関係）
-4. ジョブをリセット: `symbi cron reset <job-id>`
+4. ジョブを再度有効化: `symbi cron resume <job-id>`
 
 ### 高メモリ使用量
 

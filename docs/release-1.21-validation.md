@@ -80,3 +80,7 @@ still considers owned — rather than lost or duplicated ownership. The working
 hypothesis is that the owner's descriptor is closed on a blocking thread, so the
 lock is released slightly after the handle is dropped. This is unresolved and
 should be confirmed before any claim that releasing a claim is synchronous.
+
+Follow-up: [2.0 validation](release-2.0-validation.md) records a deterministic
+duplicate-descriptor lock lifetime case and the explicit-release change. That
+case does not establish the sole cause of the intermittent 1.21 failure above.

@@ -195,6 +195,8 @@ docker run --rm -v $(pwd):/workspace ghcr.io/thirdkeyai/symbi:latest \
 
 这将在主机的当前目录中填充完整的项目树。
 
+<a id="configuration"></a>
+
 ### 配置文件
 
 | 配置文件 | 创建的内容 |

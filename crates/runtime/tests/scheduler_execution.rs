@@ -111,6 +111,14 @@ impl Fixture {
             r#"from pathlib import Path; import sys, os, json, time; token=sys.argv[1]; delay=float(sys.argv[2]); p=Path("/workspace"); (p/(token+".started")).write_text("started"); print("started",flush=True); time.sleep(delay); result={{"token":token,"uid":os.getuid(),"host_visible":Path("{}").exists(),"ambient_visible":"SYMBI_DOCKER_AMBIENT_CANARY" in os.environ,"memory":Path("/sys/fs/cgroup/memory.max").read_text().strip(),"cpu":Path("/sys/fs/cgroup/cpu.max").read_text().strip()}}; text=json.dumps(result); (p/(token+".json")).write_text(text); print(text)"#,
             root.path().join("host-canary").display()
         );
+        // Literal braces in trusted manifest text are written as `{{`/`}}`.
+        let exec = serde_json::json!([
+            "python3",
+            "-c",
+            source.replace('{', "{{").replace('}', "}}"),
+            "{token}",
+            "{delay}"
+        ]);
         let manifest = format!(
             r#"
 [tool]
@@ -118,6 +126,7 @@ name = "record_payload"
 version = "1"
 description = "Record a scheduled test payload"
 binary = "python3"
+allow_interpreter = true
 timeout_seconds = 25
 human_approval = {approval}
 [args.token]
@@ -131,7 +140,7 @@ type = "integer"
 min = 0
 max = 15
 [command]
-template = '''python3 -c '{source}' {{token}} {{delay}}'''
+exec = {exec}
 [output]
 format = "text"
 "#

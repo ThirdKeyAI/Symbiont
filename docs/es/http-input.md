@@ -31,7 +31,7 @@ El modulo se compila condicionalmente con el flag de caracteristica `http-input`
 
 ## Configuracion
 
-El modulo de Entrada HTTP se configura usando la estructura [`HttpInputConfig`](../crates/runtime/src/http_input/config.rs):
+El modulo de Entrada HTTP se configura usando la estructura [`HttpInputConfig`](https://github.com/ThirdKeyAI/Symbiont/blob/main/crates/runtime/src/http_input/config.rs):
 
 ### Configuracion Basica
 
@@ -92,7 +92,7 @@ let routing_rules = vec![
 
 ### Control de Respuestas
 
-Personalizar respuestas HTTP con [`ResponseControlConfig`](../crates/runtime/src/http_input/config.rs):
+Personalizar respuestas HTTP con [`ResponseControlConfig`](https://github.com/ThirdKeyAI/Symbiont/blob/main/crates/runtime/src/http_input/config.rs):
 
 ```rust
 use symbiont_runtime::http_input::ResponseControlConfig;
@@ -140,23 +140,15 @@ Configurar autenticacion basada en JWT con claves publicas Ed25519:
 ```rust
 let config = HttpInputConfig {
     jwt_public_key_path: Some("/path/to/jwt/ed25519-public.pem".to_string()),
+    jwt_issuer: Some("https://identity.example.com".to_string()),
+    jwt_audience: Some("symbiont-http-input".to_string()),
     ..Default::default()
 };
 ```
 
-El cargador de claves acepta PEM de Ed25519 o bytes de clave publica en bruto para
-la verificacion EdDSA. Los JWT deben tener un `exp` valido y un `sub` no vacio (de
-512 bytes como maximo). La validacion de la expiracion admite cinco segundos de
-desfase de reloj. Si se proporciona, `iss` debe ser no vacio y de 2048 bytes como
-maximo. Renovar un token con el mismo sujeto firmado, el mismo emisor y la misma
-clave configurada conserva la identidad de su llamante.
+Los JWT deben contener `exp`, `sub`, `iss` y `aud`. El emisor debe coincidir con `jwt_issuer` y la audiencia debe incluir `jwt_audience`. Ambos valores de configuración son obligatorios cuando se utiliza autenticación JWT. El sujeto no puede estar vacío ni superar 512 bytes. Se permiten cinco segundos de desfase para la expiración. La renovación con el mismo sujeto, emisor y clave conserva la identidad del llamante.
 
-Este verificador de la Entrada HTTP **no** aplica una audiencia ni una lista de
-emisores permitidos. La clave configurada es su autoridad de confianza; usa una
-clave dedicada a esa autoridad. Un emisor firmado contribuye a la identidad de
-reintento, pero no establece una lista de emisores permitidos. La autenticacion
-Bearer es obligatoria incluso cuando se configura la verificacion de firma de
-webhooks; la firma del webhook es una comprobacion adicional.
+Migración: configure el emisor y la audiencia esperados y emita tokens para este servicio. Los tokens para otros servicios se rechazan aunque usen la misma clave. La firma del webhook sigue siendo una comprobación adicional.
 
 #### Endpoint de Salud
 
@@ -209,7 +201,7 @@ start_http_input(config, Some(runtime), Some(secrets_config)).await?;
 
 ### Ejemplo de Definicion de Agente
 
-Crear un agente manejador de webhook en [`webhook_handler.symbi`](../agents/webhook_handler.symbi):
+Crear un agente manejador de webhook en [`webhook_handler.symbi`](https://github.com/ThirdKeyAI/Symbiont/blob/main/agents/webhook_handler.symbi):
 
 ```dsl
 agent webhook_handler(body: JSON) -> Maybe<Alert> {
@@ -507,8 +499,8 @@ El modulo se integra con el sistema de metricas del runtime Symbiont para propor
 - [Guia DSL](dsl-guide.md)
 - [Referencia de API](api-reference.md)
 - [Bucle de Razonamiento (ORGA)](reasoning-loop.md)
-- [Contratos de Herramientas ToolClad](toolclad.md)
-- [Documentacion del Runtime de Agentes](../crates/runtime/README.md)
+- [Contratos de Herramientas ToolClad](/toolclad)
+- [Documentacion del Runtime de Agentes](https://github.com/ThirdKeyAI/Symbiont/blob/main/crates/runtime/README.md)
 
 Una invocacion retenida con una resolucion del operador devuelve HTTP 409 y
 `status: "reconciled"`, su referencia de auditoria original y un recibo de

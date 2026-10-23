@@ -1,6 +1,6 @@
 //! Real Docker integration through ToolClad's public execution surface.
 //! Requires the locally cached python:3.12-slim image; never pulls an image.
-#![cfg(unix)]
+#![cfg(all(unix, feature = "toolclad-direct"))]
 use std::{path::Path, time::Duration};
 use symbi_runtime::{
     sandbox::command::CommandBoundary,
@@ -16,14 +16,17 @@ version = "1"
 binary = "/usr/local/bin/python3"
 description = "Container execution fixture"
 timeout_seconds = 15
+allow_interpreter = true
 [command]
-template = "placeholder"
+exec = ["/usr/local/bin/python3"]
 [output]
 format = "json"
 "#,
     )
     .unwrap();
-    manifest.command.template = Some(command.into());
+    // The fixture command is trusted test text; each shell word becomes one
+    // argv entry, so `{message}` is a whole token.
+    manifest.command.exec = Some(shlex::split(command).expect("fixture argv"));
     manifest
 }
 

@@ -584,6 +584,8 @@ Gemini CLI拡張機能は、`excludeTools` マニフェストによるブロッ�
 
 ---
 
+<a id="configuration"></a>
+
 ## 設定
 
 ### 環境変数

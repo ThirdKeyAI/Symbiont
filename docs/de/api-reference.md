@@ -67,7 +67,7 @@ Gibt den aktuellen Systemgesundheitsstatus und grundlegende Runtime-Informatione
 POST /api/v1/workflows/execute
 ```
 
-Administratoren uebermitteln rohen DSL-Quelltext in `workflow_id`; `parameters` wird als Eingabe des Aufrufs verwendet. Lassen Sie `agent_id` weg, um eine Registrierung zu vergeben, oder geben Sie eine ID an, um sie zu erstellen oder zu ersetzen. Auf Agenten beschraenkte Schluessel erhalten hier `403 ADMIN_REQUIRED` und koennen ihren registrierten Quelltext ueber `/agents/{id}/execute` aufrufen. Eine `queued`-Antwort bestaetigt die Aufnahme; ordnen Sie `execution_id` in `/agents/{id}/history` zu, um das endgueltige Ergebnis zu erhalten. Siehe den [Workflow-Vertrag](../../crates/runtime/API_REFERENCE.md#execute-workflow) fuer Details zu Quellenauswahl, Validierung und Migration.
+Administratoren uebermitteln rohen DSL-Quelltext in `workflow_id`; `parameters` wird als Eingabe des Aufrufs verwendet. Lassen Sie `agent_id` weg, um eine Registrierung zu vergeben, oder geben Sie eine ID an, um sie zu erstellen oder zu ersetzen. Auf Agenten beschraenkte Schluessel erhalten hier `403 ADMIN_REQUIRED` und koennen ihren registrierten Quelltext ueber `/agents/{id}/execute` aufrufen. Eine `queued`-Antwort bestaetigt die Aufnahme; ordnen Sie `execution_id` in `/agents/{id}/history` zu, um das endgueltige Ergebnis zu erhalten. Siehe den [Workflow-Vertrag](https://github.com/ThirdKeyAI/Symbiont/blob/main/crates/runtime/API_REFERENCE.md#execute-workflow) fuer Details zu Quellenauswahl, Validierung und Migration.
 
 **Request Body:**
 ```json
@@ -316,7 +316,7 @@ Ruft einen umfassenden Metriken-Snapshot ab, der Scheduler, Task-Manager, Load B
 }
 ```
 
-Der Metriken-Snapshot kann auch in Dateien (atomischer JSON-Schreibvorgang) oder OTLP-Endpunkte exportiert werden, indem das `MetricsExporter`-System der Runtime verwendet wird. Siehe den Abschnitt [Metriken und Telemetrie](#metriken--telemetrie) weiter unten.
+Der Metriken-Snapshot kann auch in Dateien (atomischer JSON-Schreibvorgang) oder OTLP-Endpunkte exportiert werden, indem das `MetricsExporter`-System der Runtime verwendet wird. Siehe den Abschnitt [Metriken und Telemetrie](#metriken-und-telemetrie) weiter unten.
 
 ---
 

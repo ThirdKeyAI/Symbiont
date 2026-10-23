@@ -4,6 +4,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch: {}
 
 # Least privilege: this workflow only checks out and builds/tests the code.
 permissions:
@@ -28,6 +29,7 @@ jobs:
           df -h /
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          persist-credentials: false
           submodules: recursive
       - name: Install protoc
         run: sudo apt-get install -y protobuf-compiler
@@ -38,6 +40,7 @@ jobs:
       - name: Validate release graph and offline release tooling
         run: |
           python3 scripts/test-release-tools.py
+          python3 scripts/test-release-checks.py
           python3 scripts/publish-crates.py
       - run: cargo fmt --check
       # --all-targets so test and bench code is linted too. Without it a
@@ -58,9 +61,9 @@ jobs:
           cargo test -p symbi-runtime --lib sandbox::docker::tests::e2e:: -- --ignored --test-threads=2
       - name: Lint Cedar policies
         run: |
-          files=$(git ls-files '*.cedar' 2>/dev/null || true)
-          if [ -n "$files" ]; then
-            python3 .github/scripts/lint-cedar-policies.py $files
+          mapfile -d '' files < <(git ls-files -z -- '*.cedar')
+          if [ "${#files[@]}" -gt 0 ]; then
+            python3 .github/scripts/lint-cedar-policies.py "${files[@]}"
           else
             echo "No .cedar files tracked — skipping lint."
           fi
@@ -83,13 +86,12 @@ jobs:
       # downloads unsuitable for CI — those stay covered by the clippy step above.
       - name: Test major features
         run: cargo test -p symbi-runtime --features http-api,cloud-llm,cedar,metrics,cron
-      # MCP-backed tool execution. The mcp_*.rs / toolclad_mcp.rs suites are
-      # `#![cfg(feature = "mcp-client")]`, so without this step they are only
-      # ever compiled by the all-features clippy above — never executed. That
-      # left the SchemaPin verification and stdio round-trip assertions
-      # unverified. The tests spawn a local fixture server; no network.
+      # MCP-backed tool execution uses a local fixture server. Direct ToolClad
+      # fixture dispatch is enabled separately and never in shipping binaries.
       - name: Test mcp-client feature
         run: cargo test -p symbi-runtime --features mcp-client
+      - name: Test ToolClad MCP fixture dispatch
+        run: cargo test -p symbi-runtime --features mcp-client,toolclad-direct --test toolclad_mcp
       # Browser backend seam — currently honest-error only, but the tests assert
       # that (no fabricated success), which is worth keeping executed.
       - name: Test toolclad-browser feature
@@ -119,6 +121,7 @@ jobs:
           df -h /
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          persist-credentials: false
           submodules: recursive
       - name: Install protoc
         run: sudo apt-get install -y protobuf-compiler
@@ -138,6 +141,7 @@ jobs:
           df -h /
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          persist-credentials: false
           submodules: recursive
       - name: Install protoc
         run: sudo apt-get install -y protobuf-compiler

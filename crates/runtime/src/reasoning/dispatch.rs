@@ -500,13 +500,14 @@ version = "1"
 binary = "/usr/bin/touch"
 description = "Journal checkpoint fixture"
 [command]
-template = "/usr/bin/touch"
+exec = ["/usr/bin/touch"]
 [output]
 format = "text"
 "#,
             )
             .unwrap();
-            manifest.command.template = Some(format!("/usr/bin/touch {}", marker.display()));
+            manifest.command.exec =
+                Some(vec!["/usr/bin/touch".into(), marker.display().to_string()]);
             manifest.tool.human_approval = approval;
             let executor = ToolCladExecutor::new(vec![("fixture".into(), manifest)])
                 .with_development_host_execution();

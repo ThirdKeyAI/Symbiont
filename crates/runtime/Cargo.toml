@@ -1,6 +1,6 @@
 [package]
 name = "symbi-runtime"
-version = "1.21.1"
+version = "2.0.0"
 edition = "2021"
 authors = ["Jascha Wanger / ThirdKey.ai"]
 description = "Agent Runtime System for the Symbi platform"
@@ -70,10 +70,10 @@ name = "echo_mcp_server"
 path = "tests/fixtures/echo_mcp_server.rs"
 required-features = ["mcp-client"]
 [dependencies]
-symbi-sandbox-guest = { path = "../sandbox-guest", version = "1.21.1" }
-symbi-sandbox-supervisor = { path = "../sandbox-supervisor", version = "1.21.1" }
-symbi-dsl = { path = "../dsl", version = "1.21.1" }
-symbi-session = { path = "../symbi-session", version = "1.21.1", optional = true }
+symbi-sandbox-guest = { path = "../sandbox-guest", version = "2.0.0" }
+symbi-sandbox-supervisor = { path = "../sandbox-supervisor", version = "2.0.0" }
+symbi-dsl = { path = "../dsl", version = "2.0.0" }
+symbi-session = { path = "../symbi-session", version = "2.0.0", optional = true }
 symbi-invis-strip = { path = "../symbi-invis-strip", version = "0.3.0" }
 symbi-channel-adapter = { path = "../channel-adapter", version = "0.1.6", default-features = false }
 tokio = { version = "1.0", features = ["full"] }
@@ -98,6 +98,8 @@ dirs = "5.0"
 futures = "0.3"
 bytes = { version = "1.0", features = ["serde"] }
 tempfile = "3.0"
+cap-std = "4.0.3"
+cap-fs-ext = "4.0.3"
 # Vector backends (all optional)
 lancedb = { version = "0.26", optional = true }
 arrow-array = { version = "57", optional = true }
@@ -151,7 +153,7 @@ cedar-policy = { version = "4", optional = true }
 # separate feature) because the `echo_mcp_server` test fixture bin — a real
 # rmcp *server* used to exercise the client end-to-end over stdio — is itself
 # gated on `mcp-client` and shares this same dependency declaration.
-rmcp = { version = "1.4", default-features = false, features = ["client", "transport-child-process", "server", "macros", "transport-io"], optional = true }
+rmcp = { version = "2.1", default-features = false, features = ["client", "transport-child-process", "server", "macros", "transport-io"], optional = true }
 # JSON schema derive for the `echo_mcp_server` test fixture's tool params.
 # rmcp's own `server` feature (enabled above) already depends on schemars
 # transitively; this adds a direct `schemars::` path for our own crate code.
@@ -204,6 +206,7 @@ cron = ["dep:cron", "dep:chrono-tz", "dep:rusqlite"]
 native-sandbox = ["rlimit"]
 cli-executor = []
 toolclad-session = []  # Interactive PTYs are allocated inside the selected container.
+toolclad-direct = []  # Ungoverned direct ToolClad dispatch for test fixtures only; refused in production. Never enable in a deployed build.
 toolclad-browser = []  # CDP browser backend seam; empty until the driver dep lands. Not in default/full — no build implies browser execution works.
 mcp-client = ["dep:rmcp", "dep:schemars"]  # MCP client (stdio child-process transport) — toml already a non-optional dep; schemars backs the echo_mcp_server test fixture's tool params
 metrics = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp"]

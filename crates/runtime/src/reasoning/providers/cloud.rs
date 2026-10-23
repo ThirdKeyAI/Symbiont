@@ -7,7 +7,16 @@
 use crate::http_input::llm_client::{LlmClient, LlmProvider};
 use crate::reasoning::conversation::Conversation;
 use crate::reasoning::inference::*;
+use crate::reasoning::prompt_cache::{
+    CacheUsageObservation, CacheUsageObserver, PromptCache, PromptCacheConfig, ProviderUsage,
+    OPTIONS_KEY,
+};
 use async_trait::async_trait;
+use std::sync::Arc;
+
+#[cfg(test)]
+#[path = "cloud_cache_tests.rs"]
+mod cache_tests;
 
 /// Map an Anthropic `stop_reason` string to a [`FinishReason`].
 ///
@@ -31,78 +40,34 @@ fn parse_token_usage(
     value: Option<&serde_json::Value>,
     anthropic: bool,
 ) -> Result<Usage, InferenceError> {
-    let Some(value) = value.filter(|value| !value.is_null()) else {
-        return Ok(Usage::default());
-    };
-    if !value.is_object() {
-        return Err(InferenceError::ParseError("usage must be an object".into()));
-    }
-    let count = |key: &str| -> Result<Option<u32>, InferenceError> {
-        value
-            .get(key)
-            .map(|value| {
-                value
-                    .as_u64()
-                    .and_then(|n| u32::try_from(n).ok())
-                    .ok_or_else(|| {
-                        InferenceError::ParseError(format!("invalid token count: {key}"))
-                    })
-            })
-            .transpose()
-    };
-    let (input, output, total) = if anthropic {
-        let input = count("input_tokens")?;
-        let output = count("output_tokens")?;
-        let creation = count("cache_creation_input_tokens")?.unwrap_or(0);
-        let read = count("cache_read_input_tokens")?.unwrap_or(0);
-        let (Some(input), Some(output)) = (input, output) else {
-            return Ok(Usage::default());
-        };
-        let input = input
-            .checked_add(creation)
-            .and_then(|n| n.checked_add(read))
-            .ok_or_else(|| InferenceError::ParseError("input token count overflow".into()))?;
-        let total = input
-            .checked_add(output)
-            .ok_or_else(|| InferenceError::ParseError("total token count overflow".into()))?;
-        (input, output, total)
+    let report = if anthropic {
+        ProviderUsage::from_anthropic(value)?
     } else {
-        let (input, output, total) = (
-            count("prompt_tokens")?,
-            count("completion_tokens")?,
-            count("total_tokens")?,
-        );
-        let (Some(input), Some(output), Some(total)) = (input, output, total) else {
-            return Ok(Usage::default());
-        };
-        if input.checked_add(output).is_none_or(|sum| sum > total) {
-            return Err(InferenceError::ParseError(
-                "inconsistent total token count".into(),
-            ));
-        }
-        (input, output, total)
+        ProviderUsage::from_chat_completions(value)?
     };
-    Ok(Usage {
-        prompt_tokens: input,
-        completion_tokens: output,
-        total_tokens: total,
-    })
+    Ok(report.usage)
 }
 
 /// Cloud inference provider wrapping `LlmClient`.
 pub struct CloudInferenceProvider {
     client: LlmClient,
+    prompt_cache: Option<PromptCacheConfig>,
+    cache_usage_observer: Option<Arc<CacheUsageObserver>>,
 }
 
 impl CloudInferenceProvider {
     /// Create a new cloud provider wrapping an existing LlmClient.
     pub fn new(client: LlmClient) -> Self {
-        Self { client }
+        Self {
+            client,
+            prompt_cache: None,
+            cache_usage_observer: None,
+        }
     }
 
     /// Auto-detect from environment, returning None if no API key is set.
     pub fn from_env() -> Option<Self> {
-        LlmClient::from_env().map(|c| Self { client: c })
+        LlmClient::from_env().map(Self::new)
     }
 
     /// Like `from_env`, but also accepts an optional `SecretStore` so API
@@ -114,9 +79,78 @@ impl CloudInferenceProvider {
     pub async fn from_env_or_secrets(
         store: Option<std::sync::Arc<dyn crate::secrets::SecretStore + Send + Sync>>,
     ) -> Option<Self> {
-        LlmClient::from_env_or_secrets(store)
-            .await
-            .map(|c| Self { client: c })
+        LlmClient::from_env_or_secrets(store).await.map(Self::new)
+    }
+
+    /// Opt into a provider default for direct calls and reasoning loops. Explicit
+    /// per-request options take precedence. This is configuration, not a tenant policy.
+    pub fn with_prompt_cache(mut self, config: PromptCacheConfig) -> Self {
+        self.prompt_cache = Some(config);
+        self
+    }
+
+    /// Receive advisory usage for successful responses without changing raw budgets.
+    pub fn with_cache_usage_observer(mut self, observer: Arc<CacheUsageObserver>) -> Self {
+        self.cache_usage_observer = Some(observer);
+        self
+    }
+
+    fn supports_prompt_cache(&self, model: &str) -> bool {
+        matches!(self.client.provider(), LlmProvider::Anthropic)
+            || (matches!(self.client.provider(), LlmProvider::OpenRouter)
+                && model
+                    .strip_prefix('~')
+                    .unwrap_or(model)
+                    .starts_with("anthropic/"))
+    }
+
+    fn build_request_body(
+        &self,
+        conversation: &Conversation,
+        options: &InferenceOptions,
+    ) -> Result<serde_json::Value, InferenceError> {
+        let mut options = options.clone();
+        self.prepare_options(&mut options)?;
+        let direct = matches!(self.client.provider(), LlmProvider::Anthropic);
+        let mut body = if direct {
+            self.build_anthropic_body(conversation, &options)
+        } else {
+            self.build_openai_body(conversation, &options)
+        };
+        let Some(config) = options.prompt_cache()? else {
+            return Ok(body);
+        };
+        let marker = config.ttl.marker();
+        if direct {
+            // Only touch API cache-marker positions, never tool argument data.
+            for key in ["system", "tools"] {
+                if let Some(blocks) = body.get_mut(key).and_then(|v| v.as_array_mut()) {
+                    for block in blocks {
+                        if let Some(object) = block.as_object_mut() {
+                            if object.remove("cache_control").is_some()
+                                && config.mode != PromptCache::Off
+                            {
+                                object.insert("cache_control".into(), marker.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        } else if config.mode != PromptCache::Off {
+            if let Some(first) = body["messages"].as_array_mut().and_then(|v| v.first_mut()) {
+                if first["role"] == "system" {
+                    if let Some(text) = first["content"].as_str().filter(|s| !s.is_empty()) {
+                        first["content"] = serde_json::json!([
+                            {"type":"text","text":text,"cache_control":marker.clone()}
+                        ]);
+                    }
+                }
+            }
+        }
+        if config.mode == PromptCache::Rolling {
+            body["cache_control"] = marker;
+        }
+        Ok(body)
     }
 
     /// Build the request body for OpenAI-compatible APIs (OpenAI, OpenRouter).
@@ -296,7 +330,9 @@ impl CloudInferenceProvider {
         // is shared by every Anthropic-routed call, and a hardcoded default
         // would silently change behavior for callers that don't want it.
         for (k, v) in &options.extra {
-            body[k] = v.clone();
+            if k != OPTIONS_KEY {
+                body[k] = v.clone();
+            }
         }
 
         body
@@ -461,17 +497,43 @@ impl CloudInferenceProvider {
 
 #[async_trait]
 impl InferenceProvider for CloudInferenceProvider {
+    fn prepare_options(&self, options: &mut InferenceOptions) -> Result<(), InferenceError> {
+        if options.prompt_cache()?.is_none() {
+            if let Some(config) = self.prompt_cache {
+                options.set_prompt_cache(config);
+            }
+        }
+        if let Some(config) = options.prompt_cache()? {
+            let model = options
+                .model
+                .as_deref()
+                .unwrap_or_else(|| self.client.model());
+            if config.mode != PromptCache::Off && !self.supports_prompt_cache(model) {
+                return Err(InferenceError::InvalidRequest(
+                    "selected provider/model does not support explicit prompt caching".into(),
+                ));
+            }
+            // Legacy raw extras remain supported without typed caching. Mixing
+            // both would let an override replace the governed cache policy.
+            if ["cache_control", "messages", "system", "tools", "model"]
+                .iter()
+                .any(|key| options.extra.contains_key(*key))
+            {
+                return Err(InferenceError::InvalidRequest(
+                    "typed prompt caching conflicts with raw request overrides".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
     fn input_token_reservation(
         &self,
         conversation: &Conversation,
         options: &InferenceOptions,
     ) -> Result<u32, InferenceError> {
         // Include the actual provider tool/schema wrappers as well as messages.
-        let body = if matches!(self.client.provider(), LlmProvider::Anthropic) {
-            self.build_anthropic_body(conversation, options)
-        } else {
-            self.build_openai_body(conversation, options)
-        };
+        let body = self.build_request_body(conversation, options)?;
         let bytes = serde_json::to_vec(&body)
             .map_err(|error| InferenceError::InvalidRequest(error.to_string()))?;
         input_reservation_from_bytes(bytes.len())
@@ -482,6 +544,9 @@ impl InferenceProvider for CloudInferenceProvider {
         conversation: &Conversation,
         options: &InferenceOptions,
     ) -> Result<InferenceResponse, InferenceError> {
+        let mut options = options.clone();
+        self.prepare_options(&mut options)?;
+        let options = &options;
         // Access reqwest client and provider info through the LlmClient
         // We need to make the HTTP call ourselves since LlmClient::chat_completion
         // only supports simple system+user messages without tools.
@@ -524,11 +589,7 @@ impl InferenceProvider for CloudInferenceProvider {
             return self.parse_anthropic_response(&resp_json, model);
         }
 
-        let body = if is_anthropic {
-            self.build_anthropic_body(conversation, options)
-        } else {
-            self.build_openai_body(conversation, options)
-        };
+        let body = self.build_request_body(conversation, options)?;
 
         // Build and send the HTTP request using reqwest
         let http_client = reqwest::Client::builder()
@@ -662,11 +723,24 @@ impl InferenceProvider for CloudInferenceProvider {
             );
         }
 
-        if is_anthropic {
-            self.parse_anthropic_response(&resp_json, model)
+        let response = if is_anthropic {
+            self.parse_anthropic_response(&resp_json, model)?
         } else {
-            self.parse_openai_response(&resp_json, model)
+            self.parse_openai_response(&resp_json, model)?
+        };
+        if let Some(observer) = &self.cache_usage_observer {
+            let reported = if is_anthropic {
+                ProviderUsage::from_anthropic(resp_json.get("usage"))?
+            } else {
+                ProviderUsage::from_chat_completions(resp_json.get("usage"))?
+            };
+            observer(&CacheUsageObservation {
+                provider: self.provider_name().into(),
+                model: response.model.clone(),
+                reported,
+            });
         }
+        Ok(response)
     }
 
     fn provider_name(&self) -> &str {
@@ -688,13 +762,18 @@ impl InferenceProvider for CloudInferenceProvider {
         let region = self.client.region();
         #[cfg(not(feature = "bedrock"))]
         let region = "";
-        crate::reasoning::prepared::digest_json(&serde_json::json!([
+        let mut identity = serde_json::json!([
             self.provider_name(),
             self.client.model(),
             self.client.base_url(),
             region
-        ]))
-        .ok()
+        ]);
+        if let Some(config) = self.prompt_cache {
+            identity
+                .as_array_mut()?
+                .push(serde_json::to_value(config).ok()?);
+        }
+        crate::reasoning::prepared::digest_json(&identity).ok()
     }
 
     fn supports_native_tools(&self) -> bool {

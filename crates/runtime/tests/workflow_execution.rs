@@ -165,7 +165,7 @@ impl Fixture {
         let inner = GovernedAgentExecutor::new(root.path())
             .unwrap()
             .with_provider(Arc::new(Provider))
-            .with_policy_gate(gate);
+            .with_policy_gate(gate.clone());
         runtime.scheduler = Arc::new(
             DefaultAgentScheduler::new_with_executor(
                 scheduler_config,
@@ -208,7 +208,15 @@ impl Fixture {
             api_keys_file: Some(key_path),
             serve_agents_md: false,
         })
-        .with_runtime_provider(runtime.clone());
+        .with_runtime_provider(runtime.clone())
+        .with_coordinator(Arc::new(
+            symbi_runtime::api::coordinator::CoordinatorState::new(
+                Arc::new(Provider),
+                gate,
+                runtime.clone(),
+            )
+            .with_audit_project(root.path()),
+        ));
         let server = tokio::spawn(async move { server.start().await.unwrap() });
         tokio::time::timeout(Duration::from_secs(5), async {
             while tokio::net::TcpStream::connect(("127.0.0.1", port))
@@ -545,5 +553,77 @@ async fn saved_agent_result_is_bound_to_the_verified_api_key() {
     assert_eq!(status, 409);
     assert_eq!(changed["status"], "conflict");
     assert!(fixture.observed.try_recv().is_err());
+    fixture.shutdown().await;
+}
+
+/// Exercise ticket exchange and WebSocket upgrades over the production router.
+#[tokio::test]
+async fn chat_ticket_exchange_rejects_durable_urls_and_replays() {
+    use futures::{SinkExt, StreamExt};
+    use tokio_tungstenite::{
+        connect_async,
+        tungstenite::{Error, Message},
+    };
+    let fixture = Fixture::new(1).await;
+    let session_url = format!("{}/auth/ws-session", fixture.base);
+    let ws_base = fixture
+        .base
+        .replace("http://", "ws://")
+        .replace("/api/v1", "/ws/chat");
+    for key in ["invalid", fixture.scoped.as_str()] {
+        let response = fixture
+            .client
+            .post(&session_url)
+            .bearer_auth(key)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 401);
+    }
+    let exchange = || async {
+        let response = fixture
+            .client
+            .post(&session_url)
+            .bearer_auth(&fixture.admin)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        assert_eq!(response.headers()["cache-control"], "no-store");
+        let body: Value = response.json().await.unwrap();
+        assert_eq!(body["expires_in"], 60);
+        body["session"].as_str().unwrap().to_owned()
+    };
+    let superseded = exchange().await;
+    let ticket = exchange().await;
+    for url in [
+        format!("{ws_base}?token={}", fixture.admin),
+        format!("{ws_base}?session={superseded}"),
+    ] {
+        let result = connect_async(url).await;
+        assert!(matches!(result, Err(Error::Http(ref r)) if r.status() == 401));
+    }
+    let url = format!("{ws_base}?session={ticket}");
+    let (mut socket, response) = connect_async(&url).await.unwrap();
+    assert_eq!(response.status(), 101);
+    let replay = connect_async(&url).await;
+    assert!(matches!(replay, Err(Error::Http(ref r)) if r.status() == 401));
+    socket.send(Message::Ping(vec![1, 2, 3])).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let Some(Ok(Message::Pong(payload))) = socket.next().await {
+                assert_eq!(payload, vec![1, 2, 3]);
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    socket.close(None).await.unwrap();
+    let replacement = exchange().await;
+    let (mut reconnected, _) = connect_async(format!("{ws_base}?session={replacement}"))
+        .await
+        .unwrap();
+    reconnected.close(None).await.unwrap();
     fixture.shutdown().await;
 }

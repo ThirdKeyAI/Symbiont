@@ -10,15 +10,56 @@ on:
         required: true
 
 permissions:
-  contents: write
-  id-token: write
+  contents: read
+  actions: read
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  qualify:
+    if: github.event_name == 'release' || github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/release-gate.yml
+    with:
+      tag: ${{ inputs.tag || github.event.release.tag_name }}
+
+  release:
+    needs: qualify
+    name: Validate release tag
+    if: github.event_name == 'release' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      sha: ${{ steps.source.outputs.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+          ref: main
+          fetch-depth: 0
+      - name: Validate tag
+        id: version
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
+        run: bash .github/scripts/release-tag.sh
+      - name: Bind release to reviewed source
+        id: source
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          RELEASE_EVENT: ${{ github.event_name }}
+          RELEASE_EVENT_SHA: ${{ github.sha }}
+        run: bash .github/scripts/release-source.sh
+      - name: Require the qualified commit
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          QUALIFIED_SHA: ${{ needs.qualify.outputs.sha }}
+        run: test "$SOURCE_SHA" = "$QUALIFIED_SHA"
+
   build:
     name: Build ${{ matrix.target }}
+    needs: release
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -40,6 +81,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+          ref: ${{ needs.release.outputs.sha }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable (pinned)
@@ -64,8 +108,7 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           vcpkg install openssl:x64-windows-static
-          echo "OPENSSL_DIR=C:\vcpkg\installed\x64-windows-static" >> $GITHUB_ENV
-          echo "OPENSSL_STATIC=1" >> $GITHUB_ENV
+          printf '%s\n' 'OPENSSL_DIR=C:\vcpkg\installed\x64-windows-static' 'OPENSSL_STATIC=1' >> "$GITHUB_ENV"
         shell: bash
 
       - name: Install cross (Linux aarch64 only)
@@ -99,43 +142,35 @@ jobs:
             cargo build --release --target ${{ matrix.target }} ${FEATURES:+--features $FEATURES} -j2
           fi
 
-      - name: Determine version
-        id: version
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "version=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
-          else
-            echo "version=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
-          fi
-
       - name: Package (Unix)
         if: runner.os != 'Windows'
         shell: bash
+        env:
+          VERSION: ${{ needs.release.outputs.tag }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
           ARCHIVE="symbi-${VERSION}-${{ matrix.target }}.tar.gz"
           mkdir -p staging
           cp target/${{ matrix.target }}/release/symbi staging/
           cp LICENSE README.md staging/
           cd staging
-          tar czf "../${ARCHIVE}" *
+          tar czf "../${ARCHIVE}" -- *
           cd ..
-          echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
+          echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: bash
+        env:
+          VERSION: ${{ needs.release.outputs.tag }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
           ARCHIVE="symbi-${VERSION}-${{ matrix.target }}.zip"
           mkdir -p staging
           cp target/${{ matrix.target }}/release/symbi.exe staging/
           cp LICENSE README.md staging/
           cd staging
-          7z a "../${ARCHIVE}" *
+          7z a "../${ARCHIVE}" ./*
           cd ..
-          echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
+          echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
 
       - name: Upload artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -145,8 +180,11 @@ jobs:
 
   checksums:
     name: Create checksums and upload
-    needs: build
+    needs: [release, build]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -160,10 +198,18 @@ jobs:
         with:
           cosign-release: 'v2.2.3'
 
+      - name: Record release source
+        env:
+          RELEASE_TAG: ${{ needs.release.outputs.tag }}
+          SOURCE_SHA: ${{ needs.release.outputs.sha }}
+        run: |
+          jq -n --arg tag "$RELEASE_TAG" --arg commit "$SOURCE_SHA" \
+            '{tag: $tag, commit: $commit}' > artifacts/release-source.json
+
       - name: Generate checksums
         run: |
           cd artifacts
-          sha256sum * > checksums.txt
+          sha256sum -- * > checksums.txt
           cat checksums.txt
 
       - name: Sign artifacts with cosign
@@ -179,19 +225,10 @@ jobs:
         env:
           COSIGN_EXPERIMENTAL: "1"
 
-      - name: Determine tag
-        id: tag
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
-          else
-            echo "tag=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
-          fi
-
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
-          tag_name: ${{ steps.tag.outputs.tag }}
+          tag_name: ${{ needs.release.outputs.tag }}
           files: artifacts/*
           body: |
             ## Pre-Built Binaries
@@ -226,7 +263,7 @@ jobs:
 
   update-homebrew:
     name: Update Homebrew formula
-    needs: checksums
+    needs: [release, checksums]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
@@ -239,35 +276,22 @@ jobs:
       - name: Generate checksums
         run: |
           cd artifacts
-          sha256sum * > checksums.txt
+          sha256sum -- * > checksums.txt
 
-      - name: Determine version
-        id: version
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ github.event.inputs.tag }}"
-          else
-            TAG="${{ github.event.release.tag_name }}"
-          fi
-          echo "tag=${TAG}" >> $GITHUB_OUTPUT
-          echo "version=${TAG#v}" >> $GITHUB_OUTPUT
-
-      # Use actions/checkout to clone the tap repo — this configures the
-      # credential helper from the PAT properly, avoiding the
-      # "password authentication not supported" failure mode that can
-      # hit manually-constructed https://x-access-token: URLs.
       - name: Checkout homebrew-tap
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: thirdkeyai/homebrew-tap
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: homebrew-tap
+          persist-credentials: false
 
       - name: Update Homebrew formula
+        id: formula
         working-directory: homebrew-tap
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-
           # Extract SHA256 values from the release artifacts
           DARWIN_ARM64=$(grep "aarch64-apple-darwin" ../artifacts/checksums.txt | awk '{print $1}')
           LINUX_ARM64=$(grep "aarch64-unknown-linux-gnu" ../artifacts/checksums.txt | awk '{print $1}')
@@ -295,4 +319,20 @@ jobs:
           fi
 
           git commit -m "Update symbi to ${VERSION}"
-          git push
+          printf 'changed=true\n' >> "$GITHUB_OUTPUT"
+
+      - name: Push Homebrew formula
+        if: steps.formula.outputs.changed == 'true'
+        working-directory: homebrew-tap
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          case "$(git remote get-url origin)" in
+            https://github.com/thirdkeyai/homebrew-tap|https://github.com/thirdkeyai/homebrew-tap.git) ;;
+            *) printf '%s\n' 'Unexpected tap remote' >&2; exit 1 ;;
+          esac
+          AUTH=$(printf 'x-access-token:%s' "$HOMEBREW_TAP_TOKEN" | base64 -w0)
+          GIT_CONFIG_COUNT=1 \
+          GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${AUTH}" \
+            git -c credential.helper= push origin HEAD

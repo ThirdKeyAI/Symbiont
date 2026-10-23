@@ -170,100 +170,88 @@ O agente heartbeat segue este ciclo:
 
 ## Comandos CLI
 
-O comando `symbi cron` fornece gerenciamento completo do ciclo de vida:
+O `symbi cron` gerencia o ciclo de vida das tarefas agendadas. Cada subcomando
+abaixo é mostrado com as opções que ele realmente aceita; execute
+`symbi cron <subcomando> --help` para confirmar no seu build.
 
 ### Listar Tarefas
 
 ```bash
-# Listar todas as tarefas
 symbi cron list
-
-# Filtrar por status
-symbi cron list --status active
-symbi cron list --status paused
-
-# Filtrar por agente
-symbi cron list --agent "reporter-agent"
-
-# Saída em JSON
-symbi cron list --format json
 ```
+
+O `list` não aceita opções. Use `symbi cron status <job-id>` para o detalhe de
+uma tarefa, ou `symbi cron history` para filtrar registros de execução.
 
 ### Adicionar Tarefa
 
-```bash
-# A partir de arquivo DSL
-symbi cron add --file agent.symbi --schedule "daily-report"
+`--name`, `--cron` e `--agent` são obrigatórios. O agente já deve estar
+registrado; o `add` não lê um arquivo DSL.
 
-# Definição inline (JSON)
-symbi cron add --json '{
-  "name": "quick-task",
-  "agent_id": "agent-123",
-  "cron_expr": "0 0 * * * *"
-}'
+```bash
+symbi cron add --name "daily-report" --cron "0 0 9 * * * *" --agent reporter
+
+# Fixar um fuso horário (padrão UTC) e uma política, e desativar após uma execução
+symbi cron add --name "one-off" --cron "0 */5 * * * * *" --agent reporter \
+  --tz "America/New_York" --policy strict --one-shot
 ```
 
-### Remover Tarefa
+| Opção | Obrigatória | Significado |
+|---|---|---|
+| `--name <NAME>` | sim | Nome da tarefa |
+| `--cron <EXPR>` | sim | Expressão cron, sete campos (segundos primeiro) |
+| `--agent <AGENT>` | sim | Nome do agente registrado que será executado |
+| `--tz <TIMEZONE>` | não | Fuso horário IANA, padrão UTC |
+| `--policy <POLICY>` | não | Política a aplicar à execução |
+| `--one-shot` | não | Executar uma vez e depois desativar a tarefa |
+
+### Remover, Pausar, Retomar
+
+Cada um recebe um único UUID de tarefa e nenhuma opção.
 
 ```bash
-# Por ID da tarefa
 symbi cron remove <job-id>
-
-# Por nome
-symbi cron remove --name "daily-report"
-
-# Remoção forçada (pular confirmação)
-symbi cron remove <job-id> --force
-```
-
-### Pausar/Retomar
-
-```bash
-# Pausar tarefa (para agendamento, preserva estado)
-symbi cron pause <job-id>
-
-# Retomar tarefa pausada
-symbi cron resume <job-id>
+symbi cron pause <job-id>    # para o agendamento, preserva o estado
+symbi cron resume <job-id>   # ocorrências não resolvidas bloqueiam a retomada
 ```
 
 ### Status
 
 ```bash
-# Detalhes da tarefa com próximo horário de execução
 symbi cron status <job-id>
-
-# Incluir os últimos 10 registros de execução
-symbi cron status <job-id> --history 10
-
-# Modo observação (atualização automática a cada 5s)
-symbi cron status <job-id> --watch
 ```
+
+O `status` recebe um UUID de tarefa e nenhuma opção. Ele reporta o detalhe da
+tarefa e as execuções recentes, incluindo um status `Reconciled` com o erro
+original e a resolução do operador quando uma invocação foi reconciliada.
 
 ### Executar Agora
 
 ```bash
-# Disparar execução imediata (ignora agendamento)
 symbi cron run <job-id>
-
-# Com entrada personalizada
-symbi cron run <job-id> --input "Check production database"
 ```
+
+Dispara a tarefa imediatamente, à força. Um disparo manual exige um token
+administrativo e um UUID em `Idempotency-Key` na superfície REST; reutilize o
+mesmo UUID para repetir a tentativa em vez de executar duas vezes. Veja
+[estados de repetição do agendador](/scheduler-idempotency) e
+[recuperação do cron](/cron-recovery).
 
 ### Histórico
 
 ```bash
-# Ver histórico de execução de uma tarefa
-symbi cron history <job-id>
+# Execuções recentes de todas as tarefas (20 por padrão)
+symbi cron history
 
-# Últimas 20 execuções
-symbi cron history <job-id> --limit 20
-
-# Filtrar por status
-symbi cron history <job-id> --status failed
-
-# Exportar para CSV
-symbi cron history <job-id> --format csv > runs.csv
+# Uma única tarefa, com um limite explícito de registros
+symbi cron history --job <job-id> --limit 50
 ```
+
+| Opção | Significado |
+|---|---|
+| `--job <JOB_ID>` | Filtrar para uma única tarefa |
+| `--limit <N>` | Máximo de registros a exibir, padrão 20 |
+
 
 ## Padrão Heartbeat
 
@@ -570,15 +558,20 @@ schedule {
 **Recuperação:**
 
 ```bash
-# Listar tarefas em dead-letter
-symbi cron list --status dead_letter
+# Listar as tarefas e encontrar a que foi desativada
+symbi cron list
 
-# Revisar motivos de falha
-symbi cron history <job-id> --status failed
+# Revisar os registros de execução dela, incluindo as falhas
+symbi cron history --job <job-id>
 
-# Resetar tarefa para ativa após correção
-symbi cron reset <job-id>
+# Reativar após corrigir a causa
+symbi cron resume <job-id>
 ```
+
+O `cron list` e o `cron history` não filtram por status; leia a coluna de status
+do `list`, ou os registros de execução do `history`. Não existe o subcomando
+`cron reset` -- o `resume` reativa uma tarefa, e uma ocorrência não resolvida
+bloqueia a retomada até que um operador a reconcilie.
 
 ### Verificação AgentPin
 
@@ -936,11 +929,11 @@ Ou programaticamente via API HTTP do runtime — veja [Referência da API](/api-
 1. Verifique o status da tarefa: `symbi cron status <job-id>`
 2. Verifique a expressão cron: Use [crontab.guru](https://crontab.guru/)
 3. Verifique a saúde do agendador: `curl http://localhost:8080/api/v1/health/scheduler`
-4. Revise os logs: `symbi logs --filter scheduler --level debug`
+4. Revise os logs: `symbi logs --lines 200` (adicione `--follow` para acompanhar em tempo real)
 
 ### Tarefa Falhando Repetidamente
 
-1. Veja o histórico: `symbi cron history <job-id> --status failed`
+1. Veja o histórico: `symbi cron history --job <job-id>`
 2. Verifique mensagens de erro nos registros de execução
 3. Verifique a configuração e capacidades do agente
 4. Teste o agente fora do agendador: `symbi run <agent-id> --input "test"`
@@ -948,10 +941,10 @@ Ou programaticamente via API HTTP do runtime — veja [Referência da API](/api-
 
 ### Tarefa em Dead-Letter
 
-1. Liste tarefas em dead-letter: `symbi cron list --status dead_letter`
-2. Revise o padrão de falha: `symbi cron history <job-id>`
+1. Liste as tarefas e encontre a que foi desativada: `symbi cron list`
+2. Revise o padrão de falha: `symbi cron history --job <job-id>`
 3. Corrija a causa raiz (código do agente, permissões, dependências externas)
-4. Resete a tarefa: `symbi cron reset <job-id>`
+4. Reative a tarefa: `symbi cron resume <job-id>`
 
 ### Alto Uso de Memória
 

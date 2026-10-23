@@ -42,7 +42,7 @@ Symbiont implementiert eine sicherheitsorientierte Architektur, die fuer regulie
 
 ## Mehrstufige Sandbox
 
-Die Laufzeitumgebung liefert drei Host-Isolationsstufen (Stufe 1 → Stufe 3) plus ein Hosted-Execution-Backend (E2B). Die Stufen bilden eine monoton zunehmende Isolationsleiter; E2B ist **kein** Peer auf dieser Leiter — es laeuft auf Drittanbieter-Infrastruktur und wird unten separat dokumentiert.
+Die Laufzeitumgebung liefert drei nummerierte Host-Isolationsstufen (Stufe 1 → Stufe 3), das benannte `landlock`-Backend und ein Hosted-Execution-Backend (E2B). Die nummerierten Stufen bilden eine monoton zunehmende Isolationsleiter. Weder `landlock` noch E2B ist ein Peer auf dieser Leiter: Landlock ist ein Daemon-freies, kernel-durchgesetztes Backend fuer einmalige Befehle, Parser und den verwalteten CLI-Kindprozess, dokumentiert unter [Landlock (native Worker)](#landlock-daemon-free); E2B laeuft auf Drittanbieter-Infrastruktur und wird unten separat dokumentiert.
 
 ```mermaid
 graph TB

@@ -358,6 +358,7 @@ async fn sdk_verification_failure_does_not_publish_startup_writes() {
     assert!(!directory.path().join("output/events").exists());
 }
 
+#[cfg(feature = "toolclad-direct")]
 #[tokio::test]
 #[ignore = "requires Docker and cached python:3.12-slim"]
 async fn toolclad_sdk_helper_enforces_registered_file_grants() {

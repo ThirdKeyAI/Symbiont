@@ -174,6 +174,26 @@ impl ReasoningLoopRunner {
         config: LoopConfig,
         pinned: &PinnedImprovement,
     ) -> Result<LoopResult, String> {
+        self.run_with_improvement_cancellable(
+            agent_id,
+            conversation,
+            config,
+            pinned,
+            tokio_util::sync::CancellationToken::new(),
+        )
+        .await
+    }
+
+    /// Retain the approved instruction snapshot while the owning route controls
+    /// cancellation and waits for the normal runner's cleanup acknowledgement.
+    pub async fn run_with_improvement_cancellable(
+        &self,
+        agent_id: crate::types::AgentId,
+        conversation: Conversation,
+        config: LoopConfig,
+        pinned: &PinnedImprovement,
+        cancellation: tokio_util::sync::CancellationToken,
+    ) -> Result<LoopResult, String> {
         let binding = pinned.binding(self.provider.as_ref(), &config, &conversation)?;
         if self.journal.audit_reference().is_none() {
             return Err("improvement execution requires protected run evidence".into());
@@ -192,7 +212,7 @@ impl ReasoningLoopRunner {
             delegation: self.delegation.clone(),
         };
         Ok(runner
-            .run(agent_id, pinned.augment(conversation), config)
+            .run_cancellable(agent_id, pinned.augment(conversation), config, cancellation)
             .await)
     }
 }

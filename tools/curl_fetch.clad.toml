@@ -1,13 +1,15 @@
 # ToolClad manifest: HTTP request via curl
-# Demonstrates: url type with scope check, enum for methods, conditionals
+# Demonstrates: url type with scope check and egress policy, enum for methods,
+# conditionals, exec-form command, and allow_whitespace for a header value.
 
 [tool]
 name = "curl_fetch"
-version = "1.0.1"
+version = "1.1.0"
 binary = "curl"
 description = "HTTP request with headers and response capture"
 timeout_seconds = 30
 risk_tier = "low"
+network_egress = true
 
 [tool.cedar]
 resource = "Tool::HttpFetch"
@@ -19,6 +21,9 @@ required = true
 type = "url"
 schemes = ["http", "https"]
 scope_check = true
+# curl dials this URL: refuse loopback, private and metadata hosts. A hostname
+# must resolve to public addresses only.
+block_internal = true
 description = "URL to fetch"
 
 [args.method]
@@ -34,18 +39,34 @@ position = 3
 required = false
 type = "regex_match"
 pattern = "\\A[A-Za-z0-9!#$%&'*+.^_`|~-]+:[^\\r\\n\\x00]*\\z"
-default = ""
+# "Key: Value" contains a space. In the exec form the value stays exactly one
+# argv entry, so the space cannot add arguments. The pattern (unlike a plain
+# `string`) also refuses `@file` and `<file` header inputs, and quotes,
+# control characters and a leading dash are refused by the type rules.
+allow_whitespace = true
 description = "One extra HTTP header as Key: Value; file inputs are not allowed"
 
 [command]
-template = "curl -s -S -X {method} --max-time 25 -w '\\n%{http_code}' {_header_flags} -- {url}"
+exec = [
+    "curl",
+    "-s", "-S",
+    "-X", "{method}",
+    "--max-time", "25",
+    "-w", "\\n%{{http_code}}",
+    "{_header_flags}",
+    "--",
+    "{url}",
+]
+# `{{` and `}}` are literal braces: curl receives the write-out format
+# `\n%{http_code}`, not a placeholder.
 
 [command.conditionals]
-header_flags = { when = "headers != ''", template = "-H '{headers}'" }
+header_flags = { when = "headers != ''", template = "-H {headers}" }
 
 [output]
 format = "text"
 envelope = true
+max_bytes = 8388608
 
 [output.schema]
 type = "object"

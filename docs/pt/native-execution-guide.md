@@ -440,10 +440,10 @@ Antes de habilitar a execução nativa em qualquer ambiente:
 
 ## Documentação Relacionada
 
-- [Modelo de Segurança](security-model.pt.md) - Arquitetura completa de segurança
-- [Arquitetura de Sandbox](runtime-architecture.pt.md#sandbox-architecture) - Níveis de container
-- [Guia de Configuração](getting-started.pt.md#configuration) - Opções de configuração
-- [Diretivas de Segurança DSL](dsl-guide.pt.md#security) - Segurança no nível do agente
+- [Modelo de Segurança](security-model.md) - Arquitetura completa de segurança
+- [Arquitetura de Sandbox](runtime-architecture.md#sandbox-architecture) - Níveis de container
+- [Guia de Configuração](getting-started.md#configuration) - Opções de configuração
+- [Diretivas de Segurança DSL](dsl-guide.md#configuracao-de-seguranca) - Segurança no nível do agente
 
 ---
 

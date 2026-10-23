@@ -7,7 +7,31 @@ use std::collections::HashMap;
 use std::path::Path;
 use symbi_runtime::reasoning::executor::ActionExecutor;
 use symbi_runtime::toolclad::executor::ToolCladExecutor;
-use symbi_runtime::toolclad::manifest::{load_manifest, load_manifests_from_dir};
+use symbi_runtime::toolclad::manifest::{
+    load_custom_types, load_manifest_with_types, load_manifests_from_dir_with_types, ArgDef,
+    Manifest,
+};
+
+/// Project custom types; a malformed `toolclad.toml` is a hard error.
+fn custom_types() -> HashMap<String, ArgDef> {
+    load_custom_types(Path::new(".")).unwrap_or_else(|e| {
+        eprintln!("ERROR: {e}");
+        std::process::exit(1);
+    })
+}
+
+/// Every manifest in `tools/`. Any load failure is reported and exits: a
+/// tool must never silently disappear from the listing.
+fn load_tools() -> Vec<(String, Manifest)> {
+    load_manifests_from_dir_with_types(Path::new("tools"), &custom_types()).unwrap_or_else(|e| {
+        eprintln!("ERROR: {e}");
+        std::process::exit(1);
+    })
+}
+
+fn load_manifest(path: &Path) -> Result<Manifest, String> {
+    load_manifest_with_types(path, &custom_types())
+}
 
 pub async fn run(matches: &ArgMatches) {
     match matches.subcommand() {
@@ -44,7 +68,7 @@ pub async fn run(matches: &ArgMatches) {
 }
 
 fn cmd_list() {
-    let manifests = load_manifests_from_dir(Path::new("tools"));
+    let manifests = load_tools();
     if manifests.is_empty() {
         println!("No tools found in tools/");
         return;
@@ -119,7 +143,7 @@ fn cmd_validate(file: Option<&str>) {
 }
 
 fn cmd_test(name: &str, arg_strs: &[String]) {
-    let manifests = load_manifests_from_dir(Path::new("tools"));
+    let manifests = load_tools();
     let manifest = manifests.iter().find(|(n, _)| n == name).map(|(_, m)| m);
 
     let manifest = match manifest {
@@ -141,114 +165,130 @@ fn cmd_test(name: &str, arg_strs: &[String]) {
     do_test(manifest, arg_strs);
 }
 
-fn do_test(manifest: &symbi_runtime::toolclad::manifest::Manifest, arg_strs: &[String]) {
+fn do_test(manifest: &Manifest, arg_strs: &[String]) {
     let args = parse_arg_pairs(arg_strs);
+    match dry_run(manifest, &args, &custom_types()) {
+        Ok(lines) => {
+            for line in lines {
+                println!("{line}");
+            }
+            println!("\n  [dry run — command not executed]");
+        }
+        Err(lines) => {
+            for line in lines {
+                eprintln!("{line}");
+            }
+            println!("\n  [dry run — validation failed, command not constructed]");
+            std::process::exit(1);
+        }
+    }
+}
 
-    println!("  Manifest:  {}", manifest.tool.name);
-    println!("  Binary:    {}", manifest.tool.binary);
-    println!("  Timeout:   {}s", manifest.tool.timeout_seconds);
-    println!("  Risk:      {}", manifest.tool.risk_tier);
-    println!();
-
-    // Validate each argument
+/// Validate arguments exactly as the executor does and show the argv that
+/// `build_argv` produces — each element is one argv entry, never re-split.
+fn dry_run(
+    manifest: &Manifest,
+    args: &HashMap<String, String>,
+    custom: &HashMap<String, ArgDef>,
+) -> Result<Vec<String>, Vec<String>> {
+    let mut out = vec![
+        format!("  Manifest:  {}", manifest.tool.name),
+        format!("  Binary:    {}", manifest.tool.binary),
+        format!("  Timeout:   {}s", manifest.tool.timeout_seconds),
+        format!("  Risk:      {}", manifest.tool.risk_tier),
+        String::new(),
+    ];
+    let exec_mode = symbi_runtime::toolclad::command::exec_was_declared(manifest);
     let mut validated: HashMap<String, String> = HashMap::new();
-    let mut has_error = false;
-
-    for (arg_name, arg_def) in &manifest.args {
+    let mut failed = false;
+    let mut names: Vec<&String> = manifest.args.keys().collect();
+    names.sort();
+    for arg_name in names {
+        let arg_def = &manifest.args[arg_name];
         let value = args.get(arg_name).cloned().unwrap_or_else(|| {
             arg_def
                 .default
                 .as_ref()
-                .map(|d| d.to_string().trim_matches('"').to_string())
+                .map(|d| match d {
+                    toml::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                })
                 .unwrap_or_default()
         });
-
         if value.is_empty() && arg_def.required {
-            eprintln!(
+            out.push(format!(
                 "  ✗ {} ({}): MISSING — required",
                 arg_name, arg_def.type_name
-            );
-            has_error = true;
+            ));
+            failed = true;
             continue;
         }
-
         if value.is_empty() {
-            println!("  ○ {} ({}): <empty>", arg_name, arg_def.type_name);
+            out.push(format!("  ○ {} ({}): <empty>", arg_name, arg_def.type_name));
             validated.insert(arg_name.clone(), value);
             continue;
         }
-
-        match symbi_runtime::toolclad::validator::validate_arg(arg_def, &value) {
+        match symbi_runtime::toolclad::validator::validate_arg_in(
+            arg_def,
+            &value,
+            Some(custom),
+            exec_mode,
+        ) {
             Ok(cleaned) => {
-                println!("  ✓ {} ({}): {} → OK", arg_name, arg_def.type_name, cleaned);
+                out.push(format!(
+                    "  ✓ {} ({}): {} → OK",
+                    arg_name, arg_def.type_name, cleaned
+                ));
                 validated.insert(arg_name.clone(), cleaned);
             }
             Err(e) => {
-                eprintln!(
+                out.push(format!(
                     "  ✗ {} ({}): {} → FAILED: {}",
                     arg_name, arg_def.type_name, value, e
-                );
-                has_error = true;
+                ));
+                failed = true;
             }
         }
     }
-
-    if has_error {
-        println!("\n  [dry run — validation failed, command not constructed]");
-        std::process::exit(1);
+    if failed {
+        return Err(out);
     }
-
-    // Build command
-    let _executor = ToolCladExecutor::new(vec![(manifest.tool.name.clone(), manifest.clone())]);
-    // Use the internal build_command logic via a simple approach
-    println!();
+    out.push(String::new());
     if let Some(source) = &manifest.source {
-        println!(
+        out.push(format!(
             "  Source:    {:?} (fixed broker; no source read during dry run)",
             source.operation
-        );
-    } else if let Some(template) = &manifest.command.template {
-        let mut cmd = template.clone();
-        // Apply defaults
-        for (key, val) in &manifest.command.defaults {
-            let placeholder = format!("{{{}}}", key);
-            if cmd.contains(&placeholder) && !validated.contains_key(key) {
-                cmd = cmd.replace(&placeholder, val.to_string().trim_matches('"'));
-            }
-        }
-        // Apply mappings
-        for (arg_name, mapping) in &manifest.command.mappings {
-            if let Some(arg_value) = validated.get(arg_name) {
-                if let Some(flags) = mapping.get(arg_value) {
-                    cmd = cmd.replace(&format!("{{_{}_flags}}", arg_name), flags);
-                    cmd = cmd.replace("{_scan_flags}", flags);
-                }
-            }
-        }
-        // Interpolate args
-        for (key, value) in &validated {
-            cmd = cmd.replace(&format!("{{{}}}", key), value);
-        }
-        // Clean placeholders
-        cmd = cmd
-            .replace("{_output_file}", "/dev/null")
-            .replace("{_scan_id}", "<scan-id>")
-            .replace("{_evidence_dir}", "<evidence-dir>");
-        let cmd = cmd.split_whitespace().collect::<Vec<_>>().join(" ");
-        println!("  Command:   {}", cmd);
+        ));
     } else if let Some(executor) = &manifest.command.executor {
-        println!("  Executor:  {}", executor);
+        out.push(format!("  Executor:  {executor}"));
+    } else if manifest.command.exec.is_some() || manifest.command.template.is_some() {
+        let injected = symbi_runtime::toolclad::command::Injected {
+            scan_id: "<scan-id>".into(),
+        };
+        match symbi_runtime::toolclad::command::build_argv(manifest, &validated, &injected) {
+            Ok(argv) => {
+                out.push(format!(
+                    "  Argv:      {}",
+                    serde_json::to_string(&argv).unwrap_or_default()
+                ));
+            }
+            Err(e) => {
+                out.push(format!("  ✗ command construction failed: {e}"));
+                return Err(out);
+            }
+        }
     }
-
     if let Some(cedar) = &manifest.tool.cedar {
-        println!("  Cedar:     {} / {}", cedar.resource, cedar.action);
+        out.push(format!(
+            "  Cedar:     {} / {}",
+            cedar.resource, cedar.action
+        ));
     }
-
-    println!("\n  [dry run — command not executed]");
+    Ok(out)
 }
 
 fn cmd_schema(name: &str) {
-    let manifests = load_manifests_from_dir(Path::new("tools"));
+    let manifests = load_tools();
     let manifest = manifests.iter().find(|(n, _)| n == name).map(|(_, m)| m);
 
     let manifest = match manifest {
@@ -267,7 +307,7 @@ fn cmd_schema(name: &str) {
     print_schema(manifest);
 }
 
-fn print_schema(manifest: &symbi_runtime::toolclad::manifest::Manifest) {
+fn print_schema(manifest: &Manifest) {
     let executor = ToolCladExecutor::new(vec![(manifest.tool.name.clone(), manifest.clone())]);
     let defs = executor.tool_definitions();
     if let Some(td) = defs.first() {
@@ -344,7 +384,7 @@ type = "string"
 description = "TODO: describe the target"
 
 [command]
-template = "{name} {{target}}"
+exec = ["{name}", "{{target}}"]
 
 [output]
 format = "text"
@@ -380,12 +420,59 @@ description = "Tool output"
     );
 }
 
-fn print_manifest_summary(m: &symbi_runtime::toolclad::manifest::Manifest) {
+fn print_manifest_summary(m: &Manifest) {
     println!("  Binary:    {}", m.tool.binary);
     println!("  Timeout:   {}s", m.tool.timeout_seconds);
     println!("  Risk:      {}", m.tool.risk_tier);
     println!("  Args:      {}", m.args.len());
     if let Some(cedar) = &m.tool.cedar {
         println!("  Cedar:     {} / {}", cedar.resource, cedar.action);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dry_run_prints_the_real_argv_without_resplitting() {
+        let manifest = symbi_runtime::toolclad::parse_manifest(
+            r#"
+[tool]
+name = "fetch"
+version = "1"
+binary = "printf"
+description = "d"
+[args.header]
+position = 1
+type = "string"
+allow_whitespace = true
+[args.kind]
+position = 2
+type = "enum"
+allowed = ["a", "b"]
+[command]
+exec = ["printf", "{_kind_flags}", "{header}"]
+end_of_options = "--"
+[command.mappings.kind]
+a = "-x -y"
+b = ""
+[output]
+format = "text"
+"#,
+            &HashMap::new(),
+        )
+        .unwrap();
+        let mut args = HashMap::new();
+        args.insert("header".to_string(), "X-A: one two".to_string());
+        args.insert("kind".to_string(), "a".to_string());
+        let lines = dry_run(&manifest, &args, &HashMap::new()).unwrap();
+        let argv = lines.iter().find(|l| l.contains("Argv:")).unwrap();
+        assert!(
+            argv.contains(r#"["printf","-x","-y","--","X-A: one two"]"#),
+            "{argv}"
+        );
+        args.insert("header".to_string(), "-H @/etc/passwd".to_string());
+        assert!(dry_run(&manifest, &args, &HashMap::new()).is_err());
     }
 }

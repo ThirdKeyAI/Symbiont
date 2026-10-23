@@ -5,7 +5,7 @@ use super::{
     coordinator::CoordinatorState,
     traits::RuntimeApiProvider,
     types::*,
-    ws_handler::ws_chat_handler,
+    ws_handler::{ws_chat_handler, ws_session_handler, WsTickets},
     ws_types::ServerMessage,
 };
 use crate::{
@@ -410,6 +410,11 @@ impl Fixture {
         let store = Arc::new(ApiKeyStore::load_from_file(&keys).unwrap());
         let router = axum::Router::new()
             .route("/ws/chat", axum::routing::get(ws_chat_handler))
+            .route(
+                "/api/v1/auth/ws-session",
+                axum::routing::post(ws_session_handler),
+            )
+            .layer(axum::Extension(Arc::new(WsTickets::default())))
             .with_state(state.clone())
             .layer(axum::Extension(store));
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -430,14 +435,37 @@ impl Fixture {
             server,
         }
     }
-    async fn connect(&self) -> Socket {
+    async fn ticket(&self, credential: &str) -> reqwest::Response {
+        reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap()
+            .post(format!("http://{}/api/v1/auth/ws-session", self.address))
+            .bearer_auth(credential)
+            .send()
+            .await
+            .unwrap()
+    }
+    async fn connect_as(&self, credential: &str) -> Socket {
+        let ticket: serde_json::Value = self
+            .ticket(credential)
+            .await
+            .error_for_status()
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
         tokio_tungstenite::connect_async(format!(
-            "ws://{}/ws/chat?token=fixture.test-only-secret",
-            self.address
+            "ws://{}/ws/chat?session={}",
+            self.address,
+            ticket["session"].as_str().unwrap()
         ))
         .await
         .unwrap()
         .0
+    }
+    async fn connect(&self) -> Socket {
+        self.connect_as("fixture.test-only-secret").await
     }
     async fn finish(self) {
         self.stop.cancel();
@@ -498,14 +526,8 @@ async fn audit(socket: &mut Socket, fixture: &Fixture) -> RunAuditReference {
 async fn websocket_turns_persist_before_effects_and_release_connection_ownership() {
     let fixture = Fixture::start(Mode::Normal, false).await;
     for token in ["", "scoped.test-only-secret", "fixture.wrong-secret"] {
-        let denied = tokio_tungstenite::connect_async(format!(
-            "ws://{}/ws/chat?token={token}",
-            fixture.address
-        ))
-        .await;
-        assert!(
-            matches!(denied,Err(tokio_tungstenite::tungstenite::Error::Http(response)) if response.status()==401)
-        );
+        let denied = fixture.ticket(token).await;
+        assert_eq!(denied.status(), 401);
     }
     let mut socket = fixture.connect().await;
     let mut runs = Vec::new();
@@ -607,8 +629,19 @@ async fn websocket_disconnect_cancels_inference_and_retains_terminal_audit() {
     tokio::time::timeout(Duration::from_secs(2), async {
         loop {
             let entries =
-                ProtectedJournal::verify_run(&audit.path, &fixture.probe.key, audit.run_id)
-                    .unwrap();
+                match ProtectedJournal::verify_run(&audit.path, &fixture.probe.key, audit.run_id) {
+                    Ok(entries) => entries,
+                    // Cancellation appends concurrently. Retry only the explicit
+                    // snapshot-race refusal; malformed or invalid evidence still fails.
+                    Err(crate::reasoning::loop_types::JournalError::WriteFailed(message))
+                        if message
+                            == "journal changed during verification; inspect a stable snapshot" =>
+                    {
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                        continue;
+                    }
+                    Err(error) => panic!("terminal audit verification failed: {error}"),
+                };
             if matches!(
                 entries.last().unwrap().event,
                 LoopEvent::Terminated {
@@ -920,13 +953,7 @@ async fn chat_ids_return_saved_results_across_connections_and_bind_the_caller_an
     let mut reconnected = fixture.connect().await;
     identified(&mut reconnected, id, "Inspect system health", true).await;
     assert!(completed_chat(&mut reconnected).await.2);
-    let mut other = tokio_tungstenite::connect_async(format!(
-        "ws://{}/ws/chat?token=other.test-only-secret",
-        fixture.address
-    ))
-    .await
-    .unwrap()
-    .0;
+    let mut other = fixture.connect_as("other.test-only-secret").await;
     identified(&mut other, id, "Inspect system health", true).await;
     assert!(
         matches!(next(&mut other).await, ServerMessage::Error {code,..} if code=="INVOCATION_CONFLICT")

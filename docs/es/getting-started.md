@@ -636,6 +636,8 @@ Consulta [symbi-gemini-cli](https://github.com/thirdkeyai/symbi-gemini-cli) para
 
 ---
 
+<a id="configuration"></a>
+
 ## Configuracion
 
 ### Variables de Entorno

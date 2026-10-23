@@ -8,6 +8,7 @@
 pub mod conversation;
 pub mod inference;
 pub mod output_schema;
+pub mod prompt_cache;
 pub mod providers;
 pub mod schema_validation;
 

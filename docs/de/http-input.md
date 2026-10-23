@@ -30,7 +30,7 @@ Das Modul wird bedingt mit dem `http-input` Feature-Flag kompiliert und integrie
 
 ## Konfiguration
 
-Das HTTP-Eingabe-Modul wird mit der [`HttpInputConfig`](../crates/runtime/src/http_input/config.rs) Struktur konfiguriert:
+Das HTTP-Eingabe-Modul wird mit der [`HttpInputConfig`](https://github.com/ThirdKeyAI/Symbiont/blob/main/crates/runtime/src/http_input/config.rs) Struktur konfiguriert:
 
 ### Grundkonfiguration
 
@@ -91,7 +91,7 @@ let routing_rules = vec![
 
 ### Antwort-Kontrolle
 
-HTTP-Antworten mit [`ResponseControlConfig`](../crates/runtime/src/http_input/config.rs) anpassen:
+HTTP-Antworten mit [`ResponseControlConfig`](https://github.com/ThirdKeyAI/Symbiont/blob/main/crates/runtime/src/http_input/config.rs) anpassen:
 
 ```rust
 use symbiont_runtime::http_input::ResponseControlConfig;
@@ -139,24 +139,15 @@ JWT-basierte Authentifizierung mit Ed25519-Public-Keys konfigurieren:
 ```rust
 let config = HttpInputConfig {
     jwt_public_key_path: Some("/path/to/jwt/ed25519-public.pem".to_string()),
+    jwt_issuer: Some("https://identity.example.com".to_string()),
+    jwt_audience: Some("symbiont-http-input".to_string()),
     ..Default::default()
 };
 ```
 
-Der Key-Loader akzeptiert fuer die EdDSA-Verifizierung Ed25519 im PEM-Format oder
-rohe Public-Key-Bytes. JWTs muessen ein gueltiges `exp` und ein nicht leeres `sub`
-(hoechstens 512 Bytes) besitzen. Die Ablaufpruefung erlaubt fuenf Sekunden
-Zeitabweichung. Falls angegeben, muss `iss` nicht leer und hoechstens 2.048 Bytes
-gross sein. Die Erneuerung eines Tokens mit demselben signierten Subject, demselben
-Issuer und demselben konfigurierten Key erhaelt seine Aufrufer-Identitaet.
+JWTs müssen `exp`, `sub`, `iss` und `aud` enthalten. Der Aussteller muss `jwt_issuer` entsprechen; die Zielgruppe muss `jwt_audience` enthalten. Beide Konfigurationswerte sind bei JWT-Authentifizierung erforderlich. Der Betreff muss nicht leer und höchstens 512 Byte lang sein. Für die Ablaufzeit gelten fünf Sekunden Toleranz. Eine Erneuerung mit demselben Betreff, Aussteller und Schlüssel behält die Aufruferidentität bei.
 
-Dieser HTTP-Eingabe-Verifizierer erzwingt **keine** Audience- oder
-Issuer-Allowlist. Der konfigurierte Key ist seine Vertrauensinstanz; verwenden Sie
-einen Key, der dieser Instanz vorbehalten ist. Ein signierter Issuer traegt zur
-Wiederholungs-Identitaet bei, begruendet aber keine Issuer-Allowlist.
-Bearer-Authentifizierung ist auch dann erforderlich, wenn die Verifizierung der
-Webhook-Signatur konfiguriert ist; die Webhook-Signatur ist eine zusaetzliche
-Pruefung.
+Migration: Konfigurieren Sie den erwarteten Aussteller und die Zielgruppe und stellen Sie Tokens für diesen Dienst aus. Tokens für andere Dienste werden auch bei gleicher Signatur abgelehnt. Webhook-Signaturen bleiben eine zusätzliche Prüfung.
 
 #### Health-Endpunkt
 
@@ -209,7 +200,7 @@ start_http_input(config, Some(runtime), Some(secrets_config)).await?;
 
 ### Beispiel-Agenten-Definition
 
-Webhook-Handler-Agent in [`webhook_handler.symbi`](../agents/webhook_handler.symbi) erstellen:
+Webhook-Handler-Agent in [`webhook_handler.symbi`](https://github.com/ThirdKeyAI/Symbiont/blob/main/agents/webhook_handler.symbi) erstellen:
 
 ```dsl
 agent webhook_handler(body: JSON) -> Maybe<Alert> {
@@ -514,8 +505,8 @@ Das Modul integriert sich in das Metriken-System der Symbiont-Laufzeitumgebung u
 - [DSL-Leitfaden](dsl-guide.md)
 - [API-Referenz](api-reference.md)
 - [Reasoning-Schleife (ORGA)](reasoning-loop.md)
-- [ToolClad-Tool-Contracts](toolclad.md)
-- [Agenten-Laufzeitumgebung-Dokumentation](../crates/runtime/README.md)
+- [ToolClad-Tool-Contracts](/toolclad)
+- [Agenten-Laufzeitumgebung-Dokumentation](https://github.com/ThirdKeyAI/Symbiont/blob/main/crates/runtime/README.md)
 
 Ein beibehaltener Aufruf mit einer Betreiber-Aufloesung gibt HTTP 409 und
 `status: "reconciled"`, seine urspruengliche Audit-Referenz sowie eine separate

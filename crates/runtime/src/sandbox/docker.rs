@@ -66,6 +66,10 @@ pub struct DockerConfig {
     /// Runtime-owned snapshot references; project configuration cannot supply them.
     #[serde(skip)]
     pub staging: Vec<uuid::Uuid>,
+    /// Runtime-owned open-file ceiling from a tool's `[tool.limits] nofile`;
+    /// it can only lower the fixed 1024 default.
+    #[serde(skip)]
+    pub open_files_limit: Option<u64>,
 }
 
 fn default_pids_limit() -> u32 {
@@ -93,6 +97,7 @@ impl Default for DockerConfig {
             extra_flags: Vec::new(),
             supervisor: SupervisorConfig::default(),
             staging: Vec::new(),
+            open_files_limit: None,
             pids_limit: default_pids_limit(),
             user: default_user(),
         }
@@ -402,7 +407,9 @@ impl DockerRunner {
         cmd.arg("--user").arg(&self.config.user);
         cmd.arg("--pids-limit")
             .arg(self.config.pids_limit.to_string());
-        cmd.args(["--ulimit", "nofile=1024:1024", "--ulimit", "core=0:0"]);
+        let nofile = self.config.open_files_limit.unwrap_or(1024).min(1024);
+        cmd.arg("--ulimit").arg(format!("nofile={nofile}:{nofile}"));
+        cmd.args(["--ulimit", "core=0:0"]);
         cmd.arg("--ulimit")
             .arg(format!("fsize={0}:{0}", self.config.max_file_bytes));
         if let Some(runtime) = &self.runtime {

@@ -5,6 +5,168 @@ All notable changes to the Symbiont project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - Unreleased
+
+Brings the in-tree ToolClad implementation in line with the hardened ToolClad
+reference (`security/audit-fixes`) and closes thirteen findings from a
+comparison review (SY-TC-1..13). Several changes are **breaking by design**: a
+control that silently degraded to "off" is worse than one that refuses to load.
+
+### Breaking changes
+
+- **Unknown manifest keys are refused**, in every section, and a manifest that
+  fails to load fails the whole `tools/` directory: `symbi up` and
+  `symbi tools` exit, and a reasoning run fails `validate_configuration`
+  instead of running without the tool. `load_manifests_from_dir` and
+  `load_custom_types` now return `Result`. `toolclad.toml` is strict too.
+- **String hygiene** for every string-derived type: control characters,
+  quotes, backslashes, whitespace and a leading `-`/`+` are refused, values are
+  no longer trimmed, and `pattern` is anchored. Opt in per argument with
+  `allow_leading_dash` and (with the `exec` form) `allow_whitespace`.
+- **`url`** defaults to `http`/`https`, always refuses `file`, `gopher`, `data`,
+  `javascript` and similar schemes, refuses userinfo, backslashes and
+  non-canonical forms, and passes the canonical URL to argv.
+- **Egress policy**: link-local/metadata targets and internal names are always
+  refused for `scope_target`, `url`, `ip_address` and `cidr`;
+  `block_internal = true` adds the full non-public range table, embedded IP
+  literals, CIDR overlap and fail-closed DNS resolution. Egress tools (curl,
+  nmap, dig, whois, ... or `network_egress = true`) must set `block_internal`
+  on every network-target argument.
+- **Command construction**: `exec = [...]` is the canonical form; `template`
+  is tokenized at load and refuses a placeholder inside quotes; `{{`/`}}` are
+  literal braces; unresolved placeholders are load errors; mappings are only
+  `{_<arg>_flags}` (the `{_scan_flags}` alias is gone); `end_of_options = "--"`;
+  an interpreter as `argv[0]` needs `allow_interpreter = true`; `argv[0]` must
+  match `tool.binary`. `{_output_file}`/`{_evidence_dir}` are refused.
+- **HTTP backend**: a placeholder in the URL scheme or host is a load error;
+  values are percent-encoded (URL) and JSON-escaped (body); CR/LF in headers
+  is refused; the resolved URL is scope-checked when a project scope exists.
+- **Ungoverned dispatch removed from the public surface**:
+  `ToolCladExecutor::execute_actions` refuses ToolClad calls without an
+  authorization grant; `execute_tool`, `execute_mcp_backend_async_with_registry`,
+  `SessionExecutor::execute_session_command(_async)` and
+  `BrowserExecutor::execute_browser_command` require the new test-fixture
+  feature `toolclad-direct` and refuse in production.
+- **Risk tier enforced**: `high`/`critical` calls require an exact-call
+  approval; generated Cedar policies match `resource.base_tool` (covering
+  session and browser sub-commands) and forbid high/critical calls without
+  `context.has_human_approval`. Prepared resources carry `risk_tier` and
+  `base_tool`.
+- **Scope**: a wildcard allow rule matches strict subdomains only (not the
+  apex); exclusions still cover the apex. ToolClad's `allowed_*`/`blocked_*`
+  scope keys are accepted.
+- **Output schema validation is fail-closed** (`status: "schema_error"`);
+  `schema_warnings` is gone. `[output] max_bytes` caps capture (default 8 MiB).
+- **Landlock `require_network = false` is refused in production**, like Docker
+  bridge networking.
+- **MCP registry** is read from the project directory; the
+  `~/.symbiont/mcp-config.toml` fallback is refused in production.
+
+### Security fixes
+
+- Require HTTP Input JWT issuer/audience configuration, reissue unprefixed API
+  keys, and exchange chat credentials for single-use 60-second WebSocket tickets.
+- Bind Enterprise runtimes, instruction reviews, audit logs and ORGA traces to
+  explicit tenant/workspace owners. Missing Cloud verification records fail closed;
+  trusted platform administrators provision verified tenants atomically, while
+  self-service signup still requires email verification.
+- Derive authentication rate-limit identity from the peer or configured trusted
+  proxies. Runtime HTTP connections enforce DNS/IP policy, explicit internal CIDRs
+  and no redirects. Remote-bus construction is fallible and honors TLS refusal.
+- Skill signatures use `symbi-skill-v2`, binding the trusted domain, name, timestamp
+  and complete manifest without ambiguous path/content boundaries. Existing skill
+  bundles require re-signing; tool-schema signatures are unchanged.
+- Reject oversized RAG documents before side effects: 2 MiB input, 1,024 chunks,
+  8 MiB combined chunk text. Audit and ORGA sources are limited to 32 MiB,
+  256 KiB per line and 50,000 records; over-limit files must be rotated.
+
+- Keep release tags out of shell source, validate version names before packaging, scope signing and publication permissions to the publishing job, and avoid persisting checkout credentials. Homebrew pushes use credentials only for the push operation.
+- Confine skill reads to retained directory handles and reject incomplete scans, linked files, special files, and resource-limit overruns. Scan the instruction bytes returned by the loader, verify signatures against bounded private copies, preserve optional content scanning, and document the loader's status-reporting contract.
+- Update affected compatible Rust and UI dependencies across the runtime, fuzz, and Enterprise lockfiles.
+
+- Updated the MCP SDK to the patched 2.x line and refreshed TLS, hashing,
+  HTML sanitization and source-map dependencies in the runtime, UI, fuzz and
+  Enterprise lockfiles.
+- SY-TC-1: URL parser differential (`http://example.com\@169.254.169.254/`
+  scoped as example.com, fetched from the metadata address).
+- SY-TC-2: raw interpolation in the HTTP backend.
+- SY-TC-3: non-governed public dispatch APIs bypassed Cedar.
+- SY-TC-4: unknown manifest keys silently dropped; load failures skipped with a
+  warning; `input_sanitize` ignored.
+- SY-TC-5: no leading-dash rule, no `end_of_options`, no default URL schemes,
+  unanchored patterns.
+- SY-TC-6: command destinations checked lexically only; Landlock network in
+  production.
+- SY-TC-7: `risk_tier` unenforced; generated policies missed sub-commands.
+- SY-TC-8: session safety rested on author regex (psql `\gexec`/`\c`/`\copy`,
+  msfconsole `irb`/`load`/`resource`); the global shell blocklist refused
+  legitimate SQL. Sessions now use sink-specific policies, require
+  `extract_target` or approval in network-capable sessions, and get no sandbox
+  network unless the manifest declares egress.
+- SY-TC-9: `ready_pattern` spoofing (now sentinel-anchored) and CSI-only ANSI
+  stripping (now all C0/C1 escapes, OSC and DCS included).
+- SY-TC-10: MCP registry read from the working directory and home directory.
+- SY-TC-11: LLM-authored manifests were not linted; `validate_toolclad` now
+  runs the runtime loader plus lints (interpreter, operand without `--`, url
+  without `scope_check`).
+- SY-TC-12: evidence claims were unimplemented; `[tool.evidence]` now writes a
+  0700 per-call directory with `O_EXCL | O_NOFOLLOW` files.
+- SY-TC-13: `symbi tools test` printed a substitute-then-split command; it now
+  prints the real argv.
+
+### Added
+
+- Optional prefix and rolling prompt caching for supported inference providers,
+  with explicit TTL selection and cache-usage observations. Existing defaults
+  remain unchanged, and admission and recovery still charge raw token usage.
+  See [prompt caching](docs/prompt-caching.md) for integration and limits.
+
+- Optional approved instruction selection for registered HTTP and scheduled ORGA
+  agents through `improvement_workflow` metadata. Versions are pinned before queue
+  admission, attributed in signed journals and results, and retained for retries.
+- Administrative improvement APIs for evidence inspection, explicit activation,
+  rollback and enablement. Signed review receipts bind authenticated Console
+  reviewers to exact candidates and evaluations under operator-pinned keys;
+  receipt import remains available through the OSS CLI.
+- An optional Enterprise Console Instruction releases page with evidence review,
+  the existing approval inbox, separate import/promotion controls and version
+  history. Workspace bindings, role checks, CSRF and egress policy apply.
+- New manifest keys: `[tool] network_egress`, `allow_interpreter`, `dispatch`,
+  `[tool.limits]`, `[tool.evidence] screenshots`, `[args.*] block_internal`,
+  `allow_leading_dash`, `allow_whitespace`, `min_float`, `max_float`,
+  `[command] exec`, `end_of_options`, `[output] max_bytes`,
+  `[browser.defaults]`, and the Symbiont-only `[session] sentinel_command`;
+  the `number` argument type.
+- `crates/runtime/tests/toolclad_vectors/`: ToolClad's shared injection and
+  scope vector suites, run against Symbiont's validator, loader and scope
+  engine.
+- `toolclad::manifest::lint` for authoring checks.
+
+### Changed
+
+- Publication requires successful Test and Linux Landlock release qualification
+  workflows for the exact source commit on main. A newer failed or unfinished
+  check cannot be replaced by an older success. Container builds on main require
+  the Test workflow before publishing.
+- A repeatable Linux release driver exercises onboarding, file and source grants,
+  Git snapshots, managed CLI containment, approved/denied actions, crash recovery
+  and reconciliation with synthetic providers and real kernel isolation.
+- Shipped manifests use the `exec` form, `block_internal`, `max_bytes` and
+  (curl) `allow_whitespace` with `{{http_code}}`; nmap writes its XML report to
+  stdout instead of a host path; `grep_files` takes `literal_text`.
+
+### Fixed
+
+- Invocation and reconciliation guards explicitly release their advisory locks
+  before returning, including when a duplicated descriptor remains open. A forked
+  child cannot release a live parent's guard. Async completion waits for release.
+- Minimal-feature builds no longer depend on Cedar-only test fixtures or retain
+  helpers whose execution features are disabled.
+
+See [the 2.0 migration guide](docs/migration-2.0.md) for required manifest and Rust
+API changes, and [release validation](docs/release-2.0-validation.md) for evidence
+and limits.
+
 ## [1.21.1] - 2026-10-07
 
 Fixes the cross-platform release build. 1.21.0 produced no downloadable
@@ -1537,7 +1699,7 @@ Both SDKs ship at v0.6.0 with full feature parity:
 - **Enterprise Channel Governance**: Policy enforcement for channel operations
 
 #### Infrastructure
-- **`.claude/` Release Documentation**: Added CLAUDE.md development guidelines and RELEASE_RUNBOOK.md
+- **Release Documentation**: Added development guidelines and a release runbook.
 - **ROADMAP.md**: v1.1.0+ release planning document
 
 ### Fixed

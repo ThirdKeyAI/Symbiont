@@ -1,8 +1,7 @@
 //! WebSocket handler for the Coordinator Chat.
 //!
 //! Provides the Axum WebSocket upgrade endpoint at `GET /ws/chat`.
-//! Authentication uses a `?token=` query parameter since the browser
-//! WebSocket API cannot set custom headers.
+//! Authentication exchanges a bearer header for a short-lived, single-use ticket.
 
 #[cfg(feature = "http-api")]
 use std::sync::Arc;
@@ -35,7 +34,7 @@ use super::ws_types::{ClientMessage, ServerMessage};
 #[cfg(feature = "http-api")]
 #[derive(Debug, Deserialize)]
 pub struct WsChatParams {
-    token: Option<String>,
+    session: Option<String>,
 }
 
 /// Validate a bearer token against the API key store or legacy env var.
@@ -62,6 +61,9 @@ fn validate_token(
         }
     }
 
+    if super::middleware::refuse_legacy_api_token() {
+        return None;
+    }
     // Fallback: legacy env var
     match std::env::var("SYMBIONT_API_TOKEN") {
         Ok(expected) => bool::from(token.as_bytes().ct_eq(expected.as_bytes()))
@@ -70,44 +72,137 @@ fn validate_token(
     }
 }
 
-/// Axum handler for `GET /ws/chat`.
-///
-/// Validates the bearer token from query params, then upgrades to WebSocket.
-//
-// SECURITY: the WebSocket upgrade carries the auth token as a query
-// parameter rather than an `Authorization` header. This is the
-// browser-WebSocket-API limitation — `new WebSocket(url)` does not
-// allow custom headers, so query-param auth is the only practical
-// path. The tradeoff:
-//
-//   - Pro: works from every browser, no two-step handshake required.
-//   - Con: the URL (including the token) appears in access logs,
-//     proxy logs, and browser history. Mitigations in place:
-//       * the token is matched against the Argon2-hashed
-//         `ApiKeyStore` (`validate_token` → `store.validate_key`)
-//         using constant-time comparison (`subtle::ConstantTimeEq`
-//         on the legacy fallback path);
-//       * the WebSocket upgrade itself replaces the HTTP request,
-//         so the token-bearing URL is not re-sent on every frame.
-//
-// TODO: implement two-step handshake — `POST /api/v1/auth/ws-session`
-// returns a short-lived (single-use, <60s) session ID; the client
-// then opens `/ws/chat?session=<id>`. That keeps the long-lived API
-// token out of every log line while preserving browser
-// compatibility. See SECURITY_AUDIT.md L2.
+/// Short-lived tickets are consumed atomically and never authorize another caller.
 #[cfg(feature = "http-api")]
-pub async fn ws_chat_handler(
+#[derive(Default)]
+pub(super) struct WsTickets(
+    std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, String)>>,
+);
+
+#[cfg(all(test, feature = "http-api"))]
+mod ticket_tests {
+    use super::*;
+
+    #[test]
+    fn tickets_expire_are_single_use_and_bind_the_credential() {
+        let tickets = Arc::new(WsTickets::default());
+        let first = tickets.issue("first-credential").unwrap();
+        let second = tickets.issue("second-credential").unwrap();
+        assert_ne!(first, second);
+        assert_eq!(
+            tickets.consume(&second).as_deref(),
+            Some("second-credential")
+        );
+        let workers: Vec<_> = (0..8)
+            .map(|_| {
+                let tickets = tickets.clone();
+                let first = first.clone();
+                std::thread::spawn(move || tickets.consume(&first))
+            })
+            .collect();
+        assert_eq!(
+            workers
+                .into_iter()
+                .filter_map(|w| w.join().unwrap())
+                .count(),
+            1
+        );
+        let expired = tickets.issue("third-credential").unwrap();
+        tickets.0.lock().unwrap().get_mut(&expired).unwrap().0 = std::time::Instant::now();
+        assert!(tickets.consume(&expired).is_none());
+        let stale = tickets.issue("replacement").unwrap();
+        let fresh = tickets.issue("replacement").unwrap();
+        assert!(tickets.consume(&stale).is_none());
+        assert!(tickets.consume(&fresh).is_some());
+    }
+
+    #[test]
+    #[serial_test::serial(api_auth_env)]
+    fn legacy_refusal_applies_to_ticket_authentication() {
+        let previous = std::env::var("SYMBIONT_API_TOKEN").ok();
+        let refusal = std::env::var("SYMBIONT_REFUSE_LEGACY_API_TOKEN").ok();
+        std::env::set_var("SYMBIONT_API_TOKEN", "synthetic-ticket-test");
+        std::env::set_var("SYMBIONT_REFUSE_LEGACY_API_TOKEN", "true");
+        let rejected = validate_token("synthetic-ticket-test", None).is_none();
+        match previous {
+            Some(v) => std::env::set_var("SYMBIONT_API_TOKEN", v),
+            None => std::env::remove_var("SYMBIONT_API_TOKEN"),
+        }
+        match refusal {
+            Some(v) => std::env::set_var("SYMBIONT_REFUSE_LEGACY_API_TOKEN", v),
+            None => std::env::remove_var("SYMBIONT_REFUSE_LEGACY_API_TOKEN"),
+        }
+        assert!(rejected);
+    }
+}
+
+#[cfg(feature = "http-api")]
+impl WsTickets {
+    fn issue(&self, credential: &str) -> Result<String, StatusCode> {
+        use rand::RngCore;
+        let now = std::time::Instant::now();
+        let mut tickets = self.0.lock().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        tickets.retain(|_, (expires, _)| *expires > now);
+        // One outstanding ticket per credential prevents one caller filling the store.
+        tickets.retain(|_, (_, existing)| existing != credential);
+        if tickets.len() >= 1024 {
+            return Err(StatusCode::TOO_MANY_REQUESTS);
+        }
+        let mut random = [0u8; 32];
+        rand::rngs::OsRng.fill_bytes(&mut random);
+        let ticket = hex::encode(random);
+        tickets.insert(
+            ticket.clone(),
+            (
+                now + std::time::Duration::from_secs(60),
+                credential.to_owned(),
+            ),
+        );
+        Ok(ticket)
+    }
+
+    fn consume(&self, ticket: &str) -> Option<String> {
+        if ticket.len() != 64 {
+            return None;
+        }
+        let (expires, credential) = self.0.lock().ok()?.remove(ticket)?;
+        (expires > std::time::Instant::now()).then_some(credential)
+    }
+}
+
+/// Authenticate over an HTTP header, then mint a ticket. Response must not be cached.
+#[cfg(feature = "http-api")]
+pub(super) async fn ws_session_handler(
+    axum::Extension(tickets): axum::Extension<Arc<WsTickets>>,
+    key_store: Option<axum::Extension<Arc<super::api_keys::ApiKeyStore>>>,
+    headers: axum::http::HeaderMap,
+) -> Result<impl IntoResponse, StatusCode> {
+    let token = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|h| h.to_str().ok())
+        .and_then(|h| h.strip_prefix("Bearer "))
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    validate_token(token, key_store.as_ref().map(|s| &s.0)).ok_or(StatusCode::UNAUTHORIZED)?;
+    let ticket = tickets.issue(token)?;
+    Ok((
+        [(axum::http::header::CACHE_CONTROL, "no-store")],
+        axum::Json(serde_json::json!({"session": ticket, "expires_in": 60})),
+    ))
+}
+
+/// Upgrade only with a fresh ticket and a credential that remains authorized.
+#[cfg(feature = "http-api")]
+pub(super) async fn ws_chat_handler(
     ws: WebSocketUpgrade,
     State(coordinator_state): State<Arc<CoordinatorState>>,
     Query(params): Query<WsChatParams>,
+    axum::Extension(tickets): axum::Extension<Arc<WsTickets>>,
     key_store: Option<axum::Extension<Arc<super::api_keys::ApiKeyStore>>>,
 ) -> Result<impl IntoResponse, StatusCode> {
-    // Validate token from query params
-    let token = params.token.as_deref().ok_or(StatusCode::UNAUTHORIZED)?;
-    let store_ref = key_store.as_ref().map(|ext| &ext.0);
-
-    let caller = validate_token(token, store_ref).ok_or(StatusCode::UNAUTHORIZED)?;
-
+    let ticket = params.session.as_deref().ok_or(StatusCode::UNAUTHORIZED)?;
+    let token = tickets.consume(ticket).ok_or(StatusCode::UNAUTHORIZED)?;
+    let caller =
+        validate_token(&token, key_store.as_ref().map(|s| &s.0)).ok_or(StatusCode::UNAUTHORIZED)?;
     Ok(ws
         .max_message_size(128 * 1024)
         .max_frame_size(128 * 1024)

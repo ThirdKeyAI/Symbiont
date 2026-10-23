@@ -615,6 +615,8 @@ Veja [symbi-gemini-cli](https://github.com/thirdkeyai/symbi-gemini-cli) para det
 
 ---
 
+<a id="configuration"></a>
+
 ## Configuração
 
 ### Variáveis de Ambiente

@@ -128,20 +128,9 @@ impl BrowserScopeChecker {
 /// Parse the same URL representation used by the browser and HTTP broker.
 /// This is a lexical check; the network broker must also enforce DNS/IP scope.
 pub(super) fn parse_browser_url(value: &str) -> Result<url::Url, String> {
-    if value.len() > 8192
-        || value
-            .bytes()
-            .any(|byte| byte.is_ascii_control() || byte == b'\\')
-        || value.trim() != value
-    {
-        return Err("browser URL contains ambiguous characters or exceeds its limit".into());
-    }
-    let parsed = url::Url::parse(value).map_err(|_| "invalid browser URL")?;
-    if !matches!(parsed.scheme(), "http" | "https")
-        || parsed.host().is_none()
-        || !parsed.username().is_empty()
-        || parsed.password().is_some()
-    {
+    let parsed = super::validator::strict_url_parse(value)
+        .map_err(|_| "browser URL contains ambiguous characters, credentials or no host")?;
+    if !matches!(parsed.scheme(), "http" | "https") {
         return Err("browser URL requires HTTP(S), a host and no credentials".into());
     }
     canonical_domain(parsed.host_str().unwrap())?;

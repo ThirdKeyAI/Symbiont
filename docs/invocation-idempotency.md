@@ -26,6 +26,13 @@ with code 2 and report that the invocation is already in progress. The signed
 run start binds the invocation ID, scope and request hash; the claimed journal
 refuses a second run start.
 
+Normal owner drop and completion explicitly unlock the claim before returning;
+they do not rely on every duplicated or fork-inherited descriptor closing.
+Store and inspection guards use the same rule. An inherited guard dropped in a
+different process cannot unlock the parent's live claim. A process crash still
+requires workers and external effects to settle before operator reconciliation;
+loss of the lock alone is not cleanup evidence.
+
 A finished invocation persists its small CLI result only after verifying its
 protected run journal. Retrying returns that saved result and the original audit
 reference without contacting a provider or starting a worker. The normal exit

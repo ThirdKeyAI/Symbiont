@@ -85,13 +85,13 @@ def main():
         code = ('import json,os,pathlib,time; time.sleep(2); '
                 'print(json.dumps(dict(source_visible=pathlib.Path("alpha.txt").exists(),'
                 'host_visible=pathlib.Path(' + repr(str(root / 'observer/canary')) + ').exists(), uid=os.getuid())))')
-        (root / 'tools/scratch.clad.toml').write_text('[tool]\nname="scratch"\nversion="1"\nbinary="python3"\ndescription="Scratch isolation control"\ntimeout_seconds=10\n[command]\ntemplate=' +
-            json.dumps('python3 -c ' + shlex.quote(code)) + '\n[output]\nformat="json"\n')
+        (root / 'tools/scratch.clad.toml').write_text('[tool]\nname="scratch"\nversion="1"\nbinary="python3"\nallow_interpreter=true\ndescription="Scratch isolation control"\ntimeout_seconds=10\n[command]\nexec=' +
+            json.dumps(['python3', '-c', code.replace('{', '{{').replace('}', '}}')]) + '\n[output]\nformat="json"\n')
         if vm:
             script = 'sleep 2; test ! -e alpha.txt || exit 9; test ! -e ' + shlex.quote(str(root / 'observer/canary')) + ' || exit 9; '
             script += '''printf '{"source_visible":false,"host_visible":false,"uid":%s}\\n' "$(id -u)"'''
-            (root / 'tools/scratch.clad.toml').write_text('[tool]\nname="scratch"\nversion="1"\nbinary="sh"\ndescription="VM scratch isolation control"\ntimeout_seconds=10\n[command]\ntemplate=' +
-                json.dumps('sh -c ' + shlex.quote(script)) + '\n[output]\nformat="json"\n')
+            (root / 'tools/scratch.clad.toml').write_text('[tool]\nname="scratch"\nversion="1"\nbinary="sh"\nallow_interpreter=true\ndescription="VM scratch isolation control"\ntimeout_seconds=10\n[command]\nexec=' +
+                json.dumps(['sh', '-c', script.replace('{', '{{').replace('}', '}}')]) + '\n[output]\nformat="json"\n')
         seed = os.urandom(32)
         key = root / '.symbiont/governed/audit-signing.key'
         key.write_bytes(seed)

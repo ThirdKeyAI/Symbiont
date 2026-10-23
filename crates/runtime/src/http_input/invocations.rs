@@ -171,7 +171,9 @@ pub(super) async fn invoke_agent(
     circuit_breakers: Arc<CircuitBreakerRegistry>,
     request: HttpInvocation,
 ) -> Result<HttpInvocationReply, RuntimeError> {
-    use crate::reasoning::invocation::{open_invocation, OpenInvocation};
+    use crate::reasoning::invocation::{
+        lookup_invocation, open_invocation_with_admission, OpenInvocation,
+    };
     // Read the trusted registry before looking up an old result. Runtime IDs
     // change on restart; registered source identity remains stable.
     let registered =
@@ -181,23 +183,52 @@ pub(super) async fn invoke_agent(
             )?),
             None => None,
         };
-    let target = match &registered {
+    let mut target = match &registered {
         Some(agent) => {
             json!({"name":agent.name, "source":agent.dsl_source, "mode":agent.execution_mode,
             "tier":agent.security_tier, "resources":agent.resource_limits})
         }
         None => json!({"sdk_agent_id":agent_id}),
     };
+    if let Some(config) = &registered {
+        if let Some(workflow) =
+            crate::improvement::operational::workflow(config).map_err(RuntimeError::Internal)?
+        {
+            target["improvement_workflow"] = json!(workflow);
+            if input_data.get("system_prompt").is_some() {
+                return Err(RuntimeError::Internal(
+                    "approved instruction runs do not accept a caller system_prompt".into(),
+                ));
+            }
+        }
+    }
     let identity = json!({"version":1, "caller":request.caller.0, "route":request.route, "target":target, "input":input_data});
-    let invocation = match open_invocation(
-        project_root,
-        "http:input:v1",
-        request.id,
-        &identity,
-        agent_id,
-    )
-    .await
-    {
+    let mut improvement = None;
+    let admitted = async {
+        if let Some(existing) =
+            lookup_invocation(project_root, "http:input:v1", request.id, &identity).await?
+        {
+            return Ok(OpenInvocation::Existing(existing));
+        }
+        if let Some(config) = &registered {
+            improvement =
+                crate::improvement::operational::pin_registered(project_root, config).await?;
+        }
+        let admission = improvement
+            .as_ref()
+            .map(|pin| json!({"improvement": pin.identity()}));
+        open_invocation_with_admission(
+            project_root,
+            "http:input:v1",
+            request.id,
+            &identity,
+            agent_id,
+            admission,
+        )
+        .await
+    }
+    .await;
+    let invocation = match admitted {
         Ok(OpenInvocation::Existing(existing)) => {
             return HttpInvocationReply::existing(existing, true)
         }
@@ -226,7 +257,7 @@ pub(super) async fn invoke_agent(
     // cleanup and result persistence, including when the HTTP caller disconnects.
     tokio::spawn(async move {
         match super::execute_http_run(registered, agent_id, input_data, inference_provider, &project,
-            executor, executor_is_override, policy_gate, circuit_breakers, invocation, cancellation).await {
+            executor, executor_is_override, policy_gate, circuit_breakers, invocation, improvement, cancellation).await {
             Ok(existing) => HttpInvocationReply::existing(existing, false),
             Err(error) => {
                 tracing::error!(%error, run_id = %audit.run_id, "HTTP invocation remains unresolved");

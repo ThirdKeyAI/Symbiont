@@ -43,6 +43,8 @@ enum Record {
         request_hash: String,
         agent_id: AgentId,
         run_id: Uuid,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        admission: Option<Value>,
     },
     Audit {
         reference: RunAuditReference,
@@ -84,7 +86,7 @@ pub struct Invocation {
     audit: RunAuditReference,
     agent_id: AgentId,
     store: PathBuf,
-    file: File,
+    file: LockedFile,
     bytes: u64,
 }
 
@@ -152,6 +154,21 @@ pub async fn open_invocation(
     request: &Value,
     agent_id: AgentId,
 ) -> Result<OpenInvocation, String> {
+    open_invocation_with_admission(project, scope, id, request, agent_id, None).await
+}
+
+/// Bind runtime-selected admission metadata to a fresh claim and its signed
+/// journal. This is evidence, not authority to execute. Retried requests retain
+/// their original claim even when the runtime's current selection has changed.
+pub async fn open_invocation_with_admission(
+    project: &Path,
+    scope: &str,
+    id: Uuid,
+    request: &Value,
+    agent_id: AgentId,
+    admission: Option<Value>,
+) -> Result<OpenInvocation, String> {
+    validate_admission(if admission.is_some() { 2 } else { 1 }, admission.as_ref())?;
     if scope.is_empty() || scope.len() > 256 {
         return Err("invalid invocation scope".into());
     }
@@ -165,9 +182,32 @@ pub async fn open_invocation(
     let request_hash = digest_json(request)?;
     let project = project.to_owned();
     let scope = scope.to_owned();
-    tokio::task::spawn_blocking(move || open(&project, &scope, id, &request_hash, agent_id))
-        .await
-        .map_err(|e| e.to_string())?
+    tokio::task::spawn_blocking(move || {
+        open(&project, &scope, id, &request_hash, agent_id, admission)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn validate_admission(version: u32, admission: Option<&Value>) -> Result<(), String> {
+    match (version, admission) {
+        (1, None) => Ok(()),
+        (2, Some(value))
+            if value.is_object()
+                && serde_json::to_vec(value).map_err(|e| e.to_string())?.len() <= 65536 =>
+        {
+            Ok(())
+        }
+        _ => Err("invalid invocation admission binding".into()),
+    }
+}
+
+fn claim_context(id: Uuid, scope: &str, request_hash: &str, admission: Option<&Value>) -> Value {
+    let mut context = serde_json::json!({"id": id, "scope": scope, "request_hash": request_hash});
+    if let Some(admission) = admission {
+        context["admission"] = admission.clone();
+    }
+    context
 }
 
 /// Inspect an existing claim without creating a claim or granting execution.
@@ -201,15 +241,15 @@ pub async fn lookup_invocation(
         let store_guard = store_lock(&store)?;
         let digest = digest_json(&serde_json::json!([scope, id]))?;
         let path = store.join(format!("{}.jsonl", digest.trim_start_matches("sha256:")));
-        let mut file = match options().open(&path) {
+        let file = match options().open(&path) {
             Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error.to_string()),
         };
         validate_file(&file)?;
-        if !try_lock(&file)? {
+        let Some(mut file) = LockedFile::acquire(file)? else {
             return Ok(Some(ExistingInvocation::InProgress));
-        }
+        };
         drop(store_guard);
         read_existing(&project, &mut file, &scope, id, &request_hash).map(Some)
     })
@@ -223,6 +263,7 @@ fn open(
     id: Uuid,
     request_hash: &str,
     agent_id: AgentId,
+    admission: Option<Value>,
 ) -> Result<OpenInvocation, String> {
     let store = project.join(".symbiont/invocations");
     private_directory(&store)?;
@@ -231,12 +272,13 @@ fn open(
     let path = store.join(format!("{}.jsonl", digest.trim_start_matches("sha256:")));
     let run_id = Uuid::new_v4();
     let claim = Record::Claim {
-        version: 1,
+        version: if admission.is_some() { 2 } else { 1 },
         scope: scope.into(),
         id,
         request_hash: request_hash.into(),
         agent_id,
         run_id,
+        admission: admission.clone(),
     };
     let claim_bytes = serde_json::to_vec(&claim).map_err(|e| e.to_string())?.len() as u64 + 1;
     match std::fs::symlink_metadata(&path) {
@@ -256,23 +298,22 @@ fn open(
         Ok(_) => {}
     }
     let created = options().create_new(true).open(&path);
-    let mut file = match created {
+    let file = match created {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            let mut file = options().open(&path).map_err(|e| e.to_string())?;
+            let file = options().open(&path).map_err(|e| e.to_string())?;
             validate_file(&file)?;
-            if !try_lock(&file)? {
+            let Some(mut file) = LockedFile::acquire(file)? else {
                 return Ok(OpenInvocation::Existing(ExistingInvocation::InProgress));
-            }
+            };
             drop(_store_lock);
             return read_existing(project, &mut file, scope, id, request_hash)
                 .map(OpenInvocation::Existing);
         }
         Err(error) => return Err(error.to_string()),
     };
-    if !try_lock(&file)? {
-        return Err("new invocation claim is unexpectedly locked".into());
-    }
+    let mut file =
+        LockedFile::acquire(file)?.ok_or("new invocation claim is unexpectedly locked")?;
     // The empty claim is deliberately retained on any subsequent failure.
     // An uncertain creation cannot authorize a second execution.
     let mut bytes = 0;
@@ -299,7 +340,7 @@ fn open(
     Ok(OpenInvocation::Fresh(Box::new(Invocation {
         journal: Arc::new(InvocationJournal {
             writer: journal,
-            context: serde_json::json!({"id": id, "scope": scope, "request_hash": request_hash}),
+            context: claim_context(id, scope, request_hash, admission.as_ref()),
             phase: tokio::sync::Mutex::new(InvocationPhase::Ready),
         }),
         audit,
@@ -323,7 +364,7 @@ impl Invocation {
 
     /// Persist the result only after verifying the run. Unknown effects keep the
     /// invocation unresolved, even if the reasoning loop reported completion.
-    pub async fn finish(mut self, result: Value) -> Result<ExistingInvocation, String> {
+    pub async fn finish(self, result: Value) -> Result<ExistingInvocation, String> {
         if serde_json::to_vec(&result)
             .map_err(|e| e.to_string())?
             .len()
@@ -333,28 +374,32 @@ impl Invocation {
                 "invocation result exceeds 1 MiB; original claim remains unresolved".into(),
             );
         }
-        tokio::task::spawn_blocking(move || {
-            if requires_reconciliation(&self.audit)? {
-                return Ok(ExistingInvocation::Unresolved {
-                    audit: Some(self.audit),
-                });
-            }
-            let _store_lock = store_lock(&self.store)?;
-            append(
-                &self.store,
-                &mut self.file,
-                &mut self.bytes,
-                &Record::Result {
-                    payload: result.clone(),
-                },
-            )?;
-            Ok(ExistingInvocation::Recorded {
-                audit: self.audit,
-                result,
-            })
+        // Consume the entire owner inside the blocking call. Its locks must
+        // release before the task publishes completion to an awaiting caller.
+        tokio::task::spawn_blocking(move || self.finish_blocking(result))
+            .await
+            .map_err(|e| e.to_string())?
+    }
+
+    fn finish_blocking(mut self, result: Value) -> Result<ExistingInvocation, String> {
+        if requires_reconciliation(&self.audit)? {
+            return Ok(ExistingInvocation::Unresolved {
+                audit: Some(self.audit),
+            });
+        }
+        let _store_lock = store_lock(&self.store)?;
+        append(
+            &self.store,
+            &mut self.file,
+            &mut self.bytes,
+            &Record::Result {
+                payload: result.clone(),
+            },
+        )?;
+        Ok(ExistingInvocation::Recorded {
+            audit: self.audit,
+            result,
         })
-        .await
-        .map_err(|e| e.to_string())?
     }
 }
 
@@ -402,16 +447,18 @@ fn read_claim(
         .collect::<Result<_, _>>()
         .map_err(|e| format!("invalid invocation claim; no retry permitted: {e}"))?;
     let Some(Record::Claim {
-        version: 1,
+        version,
         scope: saved_scope,
         id: saved_id,
         request_hash: saved_hash,
         agent_id,
         run_id,
+        admission,
     }) = records.first()
     else {
         return Err("invalid invocation claim identity".into());
     };
+    validate_admission(*version, admission.as_ref())?;
     if saved_scope != scope || *saved_id != id || saved_hash != request_hash {
         return Err("invocation ID conflicts with a different request".into());
     }
@@ -428,6 +475,11 @@ fn read_claim(
         None => None,
         _ => return Err("invalid invocation audit reference".into()),
     };
+    if *version == 2 && audit.is_some() {
+        // The selected version is independent of the caller's request hash.
+        // Verify its signed binding before returning a cached or unresolved run.
+        reconciliation::capture(project, file, scope, id)?;
+    }
     match (records.get(2), audit) {
         (Some(Record::Result { payload }), Some(audit)) if records.len() == 3 => {
             if requires_reconciliation(&audit)? {
@@ -480,9 +532,63 @@ fn validate_file(file: &File) -> Result<(), String> {
     Ok(())
 }
 
+/// A lock belongs to this scope, not to the lifetime of a shared open file
+/// description. A concurrent fork can retain a CLOEXEC descriptor until exec.
+/// Explicit unlock prevents that child from extending an exited owner's claim.
+struct LockedFile {
+    file: File,
+    owner_pid: u32,
+}
+
+impl LockedFile {
+    fn acquire(file: File) -> Result<Option<Self>, String> {
+        if try_lock(&file)? {
+            Ok(Some(Self {
+                file,
+                owner_pid: std::process::id(),
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+impl std::ops::Deref for LockedFile {
+    type Target = File;
+    fn deref(&self) -> &File {
+        &self.file
+    }
+}
+
+impl std::ops::DerefMut for LockedFile {
+    fn deref_mut(&mut self) -> &mut File {
+        &mut self.file
+    }
+}
+
+impl Drop for LockedFile {
+    fn drop(&mut self) {
+        // A forked child must not release its parent's still-live authority.
+        if std::process::id() != self.owner_pid {
+            return;
+        }
+        loop {
+            // SAFETY: this guard owns the live descriptor and acquired its lock.
+            if unsafe { libc::flock(self.file.as_raw_fd(), libc::LOCK_UN) } == 0 {
+                break;
+            }
+            let error = std::io::Error::last_os_error();
+            if error.kind() != std::io::ErrorKind::Interrupted {
+                tracing::error!(%error, "invocation lock release failed; closing descriptor");
+                break;
+            }
+        }
+    }
+}
+
 fn try_lock(file: &File) -> Result<bool, String> {
     loop {
-        // SAFETY: flock acts only on the live file descriptor. Closing it releases the lock.
+        // SAFETY: flock acts only on the live file descriptor.
         if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
             return Ok(true);
         }
@@ -497,7 +603,7 @@ fn try_lock(file: &File) -> Result<bool, String> {
     }
 }
 
-fn store_lock(store: &Path) -> Result<File, String> {
+fn store_lock(store: &Path) -> Result<LockedFile, String> {
     let lock = options()
         .create(true)
         .truncate(false)
@@ -511,7 +617,10 @@ fn store_lock(store: &Path) -> Result<File, String> {
         }
         std::thread::sleep(Duration::from_millis(10));
     }
-    Ok(lock)
+    Ok(LockedFile {
+        file: lock,
+        owner_pid: std::process::id(),
+    })
 }
 
 /// Called only under the store lock. The retained claims and their total bytes
@@ -611,6 +720,172 @@ mod tests {
             },
         )
         .await;
+    }
+
+    #[tokio::test]
+    async fn admission_is_signed_and_retries_retain_the_original_selection() {
+        let root = tempfile::tempdir().unwrap();
+        let id = Uuid::new_v4();
+        let request = serde_json::json!({"task": "operational work"});
+        let selection = serde_json::json!({"improvement": {"candidate": "first"}});
+        let OpenInvocation::Fresh(owner) = open_invocation_with_admission(
+            root.path(),
+            "fixture",
+            id,
+            &request,
+            AgentId::new(),
+            Some(selection.clone()),
+        )
+        .await
+        .unwrap() else {
+            panic!("expected owner")
+        };
+        terminate(&owner, false).await;
+        owner
+            .finish(serde_json::json!({"done": true}))
+            .await
+            .unwrap();
+
+        let inspection = reconciliation::inspect_invocation(root.path(), "fixture", id).unwrap();
+        let audit = &inspection.snapshot.audit;
+        let key: [u8; 32] = hex::decode(&audit.public_key).unwrap().try_into().unwrap();
+        let entries = ProtectedJournal::verify_run(&audit.path, &key, audit.run_id).unwrap();
+        let LoopEvent::Started {
+            execution_context, ..
+        } = &entries[0].event
+        else {
+            panic!()
+        };
+        assert_eq!(execution_context["invocation"]["admission"], selection);
+
+        for next_selection in [
+            None,
+            Some(serde_json::json!({"improvement": {"candidate": "second"}})),
+        ] {
+            assert!(matches!(
+                open_invocation_with_admission(
+                    root.path(),
+                    "fixture",
+                    id,
+                    &request,
+                    AgentId::new(),
+                    next_selection,
+                )
+                .await
+                .unwrap(),
+                OpenInvocation::Existing(ExistingInvocation::Recorded { .. })
+            ));
+        }
+        assert!(matches!(
+            lookup_invocation(root.path(), "fixture", id, &request)
+                .await
+                .unwrap(),
+            Some(ExistingInvocation::Recorded { .. })
+        ));
+
+        let digest = digest_json(&serde_json::json!(["fixture", id])).unwrap();
+        let path = root
+            .path()
+            .join(".symbiont/invocations")
+            .join(format!("{}.jsonl", digest.trim_start_matches("sha256:")));
+        let original = std::fs::read_to_string(&path).unwrap();
+        std::fs::write(&path, original.replace("first", "altered")).unwrap();
+        assert!(reconciliation::inspect_invocation(root.path(), "fixture", id).is_err());
+        assert!(lookup_invocation(root.path(), "fixture", id, &request)
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn admission_rejects_invalid_shapes_before_creating_a_claim() {
+        let root = tempfile::tempdir().unwrap();
+        for admission in [
+            Value::Null,
+            serde_json::json!([]),
+            serde_json::json!({"large": "x".repeat(65536)}),
+        ] {
+            assert!(open_invocation_with_admission(
+                root.path(),
+                "fixture",
+                Uuid::new_v4(),
+                &Value::Null,
+                AgentId::new(),
+                Some(admission)
+            )
+            .await
+            .is_err());
+        }
+        assert!(!root.path().join(".symbiont").exists());
+        assert!(validate_admission(1, Some(&serde_json::json!({}))).is_err());
+        assert!(validate_admission(2, None).is_err());
+        assert!(validate_admission(3, None).is_err());
+    }
+
+    #[tokio::test]
+    async fn owner_release_does_not_wait_for_an_inherited_descriptor() {
+        // dup shares the open file description exactly as fork does. CLOEXEC
+        // does not close a forked child's descriptor until that child execs.
+        // Keep the alias alive to make the close-only failure deterministic.
+        for outcome in ["drop", "recorded", "unresolved"] {
+            let root = tempfile::tempdir().unwrap();
+            let id = Uuid::new_v4();
+            let request = serde_json::json!({"task": outcome});
+            let OpenInvocation::Fresh(run) =
+                open_invocation(root.path(), "fixture", id, &request, AgentId::new())
+                    .await
+                    .unwrap()
+            else {
+                panic!("expected owner");
+            };
+            let inherited = run.file.try_clone().unwrap();
+            assert!(reconciliation::inspect_invocation(root.path(), "fixture", id).is_err());
+            if outcome == "drop" {
+                drop(run);
+            } else {
+                terminate(&run, outcome == "unresolved").await;
+                run.finish(serde_json::json!({"done": true})).await.unwrap();
+            }
+            reconciliation::inspect_invocation(root.path(), "fixture", id)
+                .unwrap_or_else(|error| panic!("{outcome}: {error}"));
+            assert!(matches!(
+                open_invocation(root.path(), "fixture", id, &request, AgentId::new())
+                    .await
+                    .unwrap(),
+                OpenInvocation::Existing(
+                    ExistingInvocation::Recorded { .. } | ExistingInvocation::Unresolved { .. }
+                )
+            ));
+            drop(inherited);
+        }
+    }
+
+    #[tokio::test]
+    async fn inspection_and_store_guards_release_before_returning() {
+        let root = tempfile::tempdir().unwrap();
+        let id = Uuid::new_v4();
+        let OpenInvocation::Fresh(owner) =
+            open_invocation(root.path(), "fixture", id, &Value::Null, AgentId::new())
+                .await
+                .unwrap()
+        else {
+            panic!("expected owner")
+        };
+        drop(owner);
+        let guard = reconciliation::locked_claim(root.path(), "fixture", id).unwrap();
+        let inherited = guard.try_clone().unwrap();
+        assert!(reconciliation::locked_claim(root.path(), "fixture", id).is_err());
+        drop(guard);
+        reconciliation::inspect_invocation(root.path(), "fixture", id).unwrap();
+        drop(inherited);
+
+        let store = root.path().join(".symbiont/invocations");
+        let guard = store_lock(&store).unwrap();
+        let inherited = guard.try_clone().unwrap();
+        let contender = options().open(store.join("store.lock")).unwrap();
+        assert!(!try_lock(&contender).unwrap());
+        drop(guard);
+        assert!(LockedFile::acquire(contender).unwrap().is_some());
+        drop(inherited);
     }
 
     #[tokio::test]

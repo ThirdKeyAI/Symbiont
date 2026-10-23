@@ -23,6 +23,29 @@ use tokio::sync::RwLock;
 /// Build a Cedar `Context` from the loop's trusted context map. Empty map
 /// preserves the previous `Context::empty()` behavior. Trusted context is
 /// runtime-populated only (see `LoopState::trusted_context`).
+/// Attributes of the prepared resource entity. A ToolClad contract also
+/// exposes its effective `risk_tier` and the manifest `base_tool` (shared by
+/// every session and browser sub-command), so generated policies can match
+/// sub-commands and require approval by tier.
+fn resource_attrs(
+    contract: &crate::reasoning::prepared::ToolContract,
+    prepared: &crate::reasoning::prepared::PreparedAction,
+) -> serde_json::Value {
+    let mut attrs = serde_json::json!({
+        "tool_name": contract.name,
+        "version": contract.version,
+        "contract_hash": contract.digest,
+        "call_fingerprint": prepared.fingerprint(),
+    });
+    let context = prepared.policy_context();
+    for key in ["risk_tier", "base_tool"] {
+        if let Some(value) = context["resolved"].get(key).filter(|v| v.is_string()) {
+            attrs[key] = value.clone();
+        }
+    }
+    attrs
+}
+
 fn build_context(
     trusted: &std::collections::HashMap<String, serde_json::Value>,
 ) -> Result<Context, String> {
@@ -287,7 +310,7 @@ impl CedarPolicyGate {
         if let (Some(prepared), Some(contract)) = (prepared, contract) {
             let value = serde_json::json!([{
                 "uid": {"type": contract.resource_type, "id": contract.resource_id},
-                "attrs": {"tool_name": contract.name, "version": contract.version, "contract_hash": contract.digest, "call_fingerprint": prepared.fingerprint()},
+                "attrs": resource_attrs(contract, prepared),
                 "parents": [],
             }]);
             entities = match Entities::from_json_value(value, None) {

@@ -2,6 +2,9 @@
 
 ToolClad provides declarative tool contracts for the Symbiont runtime. Define what a tool does, what arguments it accepts, and how it executes — in a single `.clad.toml` manifest. The runtime handles argument validation, scope enforcement, secret injection, Cedar policy generation, and evidence capture.
 
+Upgrading from 1.x? Read the [2.0 migration guide](migration-2.0.md) before
+replacing manifests or Rust integrations.
+
 ## Why ToolClad
 
 External tools (nmap, curl, whois, custom scripts) are useful but dangerous. Passing raw arguments to shell commands creates injection risk. Trusting tool output without validation creates integrity risk. ToolClad solves this by putting a contract between the agent and the tool.
@@ -50,7 +53,17 @@ Tools in the `tools/` directory are automatically discovered and exposed to the 
 
 ## Manifest format
 
-A `.clad.toml` file has up to 9 sections:
+A `.clad.toml` file has up to 9 sections. The format follows the ToolClad
+reference specification, plus Symbiont extensions (`[source]`, `[filesystem]`,
+`feeds_decision`, `finalize`, `[browser.network]`, `[session] sentinel_command`,
+and the `literal_text` / `agent_summary` types).
+
+**Loading is strict.** A manifest is a security contract, so an unknown key
+anywhere (`tiemout_seconds`, `block_internal_typo`) is a load error, as is any
+control Symbiont cannot enforce. When one manifest in `tools/` fails to load,
+the whole tool set fails: `symbi up` and `symbi tools list` exit with the
+error, and a reasoning run refuses to start, instead of silently running
+without that tool. `toolclad.toml` custom types are strict in the same way.
 
 ### [tool] — Metadata
 
@@ -58,22 +71,43 @@ A `.clad.toml` file has up to 9 sections:
 [tool]
 name = "nmap_scan"
 version = "1.0.0"
-binary = "nmap"
+binary = "nmap"           # argv[0]'s basename must match
 description = "Network port scanner"
 mode = "oneshot"          # oneshot | session | browser
-timeout_seconds = 60
-risk_tier = "medium"      # low | medium | high
+timeout_seconds = 60      # must be greater than zero (default 30)
+risk_tier = "medium"      # info | low | medium | high | critical
 human_approval = false    # require operator approval before execution
+network_egress = true     # the tool dials destinations from its arguments
+allow_interpreter = false # permit sh/python/env/... as argv[0]
 
 [tool.cedar]
 resource = "Tool::NmapScan"
 action = "execute_tool"
 
 [tool.evidence]
-output_dir = "evidence/{_scan_id}"
+output_dir = "{evidence_dir}/{scan_id}-nmap"
 capture = true
 hash = "sha256"
+
+[tool.limits]             # applied to the selected sandbox boundary
+nproc = 64
+nofile = 256
+fsize_bytes = 10485760
+address_space_bytes = 536870912
+cpu_seconds = 120
 ```
+
+- `risk_tier = "high"` or `"critical"` (on the manifest or on a session or
+  browser command) requires an exact-call human approval, like
+  `human_approval = true`.
+- An interpreter as `argv[0]` (`sh`, `bash`, `python`, `node`, `env`, `xargs`,
+  ...) turns an argument into code and is refused unless
+  `allow_interpreter = true`.
+- `[tool.limits]` tightens the selected tier (Docker/gVisor: PIDs, open
+  files, file size, memory, lifetime; Landlock: PIDs, memory, lifetime;
+  Firecracker: memory, lifetime). A limit the tier cannot express refuses the
+  call rather than running without it.
+- `dispatch` is accepted only as `"exec"`.
 
 ### [args.*] — Argument definitions
 
@@ -107,31 +141,67 @@ description = "Maximum packets per second"
 
 | Type | Validation |
 |------|-----------|
-| `string` | Non-empty, no shell metacharacters, optional regex pattern |
-| `integer` | i64 with optional min/max/clamp |
+| `string` | Non-empty, string hygiene (below), shell-metacharacter blocklist, optional anchored `pattern` |
+| `integer` | Plain decimal i64 with optional `min`/`max`/`clamp`; a negative result needs `allow_leading_dash` |
+| `number` | Decimal float with optional `min_float`/`max_float`/`clamp`; NaN and infinity refused |
 | `port` | 1–65535 |
 | `boolean` | "true" or "false" |
 | `enum` | Must match one of the `allowed` values |
-| `scope_target` | IP, CIDR, or hostname — validated against project scope |
-| `url` | Must contain "://", optional scheme whitelist |
+| `scope_target` | Canonical IP, CIDR, or ASCII hostname (no wildcards, punycode, traversal, non-canonical IP encodings such as `2130706433` or `127.1`); egress policy applies; always checked against the project scope |
+| `url` | Scheme allowlist (default `http`/`https`; `file`, `gopher`, `data`, `javascript`, ... are always refused), no userinfo, no backslash or whitespace, host through the egress policy, and the WHATWG parse must agree with the lexical host and re-serialize to the same string. The canonical URL is what reaches argv |
 | `path` | Relative path; rejects absolute/rooted paths and `..` components; preserves the validated spelling |
-| `ip_address` | Valid IPv4 or IPv6 |
-| `cidr` | Valid CIDR notation with prefix validation |
+| `ip_address` | Canonical IPv4 or IPv6; egress policy applies |
+| `cidr` | Canonical CIDR; the whole range is tested against the egress policy |
 | `credential_file` | Relative path that must name an existing regular file on the controller |
-| `duration` | Integer with suffix (s/m/h), converted to seconds |
-| `literal_text` | Explicit bounded UTF-8 content (32 KiB), preserving whitespace and metacharacters; rejects NUL. Use with a pre-tokenized argv contract. An interpreter such as `sh -c` deliberately treats it as code and requires the appropriate policy, sandbox and approval. |
-| `regex_match` | Custom regex from the `pattern` field |
+| `msf_options` | One `set KEY VALUE` (Symbiont refuses `;` chaining) |
+| `duration` | Seconds, or `h`/`m`/`s`/`ms` components (`1h30m`), normalized to whole seconds |
+| `literal_text` | Explicit bounded UTF-8 content (32 KiB), preserving whitespace and metacharacters; rejects NUL. Use with a pre-tokenized argv contract. An interpreter such as `sh -c` deliberately treats it as code and requires `allow_interpreter`, the appropriate policy, sandbox and approval. |
+| `regex_match` | Must match the anchored `pattern` |
 | `agent_summary` | Free text bound for a downstream agent's prompt — strips invisible Unicode and renderer-hidden markup, rejects known injection markers. Best-effort defense-in-depth, **not** a load-bearing control (see [Typed + grounded decisions](#typed-grounded-decisions)) |
 
-`string` rejects shell metacharacters; the explicit `literal_text` type preserves them as data: `;` `|` `&` `$` `` ` `` `(` `)` `{` `}` `[` `]` `<` `>` `!` `\n` `\r` `\0`
+**String hygiene.** "Valid according to the type" means "safe as exactly one
+argv entry". Every string-derived type (`string`, `path`, `credential_file`,
+`regex_match`, `url`, `scope_target`, `duration`, `msf_options`) refuses,
+before any type-specific parsing and with nothing trimmed away:
 
-Path validation is lexical and portable across `/` and `\` separators. It does
-not canonicalize against the controller filesystem: a relative path remains
-relative to the selected worker's working directory. Ordinary dotted filenames
-such as `report..csv` remain valid. Absolute paths previously accepted by this
-embedded validator are now rejected, matching ToolClad's relative-path contract.
-For intentional absolute argv data, declare `literal_text` explicitly and apply
-the appropriate policy and sandbox restrictions.
+| Rule | Refused | Opt-out |
+|---|---|---|
+| NUL | `\0`, for every type | none |
+| Control characters | U+0000–U+001F, U+007F–U+009F | none |
+| Quotes and backslash | `'` `"` `\` | none |
+| Whitespace | any whitespace | `allow_whitespace = true` admits U+0020 only, and only with the `exec` command form (never for `url`) |
+| Leading dash | a value starting with `-` or `+` | `allow_leading_dash = true` |
+
+The shell-metacharacter blocklist (`;` `|` `&` `$` `` ` `` `(` `)` `{` `}`
+`[` `]` `<` `>` `!`) stays on top as defense in depth. `pattern` is anchored:
+`[a-z]+` is compiled as `^(?:[a-z]+)$`, a whole-value match. The explicit
+`literal_text` type is exempt and preserves its content as data.
+
+**Egress policy.** For `scope_target`, `url`, `ip_address` and `cidr`:
+
+- *always refused*: link-local and cloud metadata (`169.254.0.0/16`,
+  `fe80::/10`, their IPv4-mapped forms) and the internal-name set
+  (`localhost`, `*.localhost`, `*.local`, `*.internal`, `*.home.arpa`,
+  `*.lan`, `*.intranet`, `*.corp`, `*.private`, `metadata.google.internal`);
+- *refused with `block_internal = true`*: loopback, RFC 1918, CGNAT,
+  unspecified, broadcast, documentation, benchmarking and reserved ranges,
+  IPv6 equivalents, any address Symbiont's HTTP guard treats as non-public,
+  IP literals embedded in a hostname (`127.0.0.1.nip.io`, `10-0-0-1.nip.io`),
+  any CIDR that *overlaps* a blocked range (`8.0.0.0/5` contains `10.0.0.0/8`),
+  and a hostname unless every A/AAAA answer is public (resolution failure is
+  a refusal).
+
+A tool is an *egress tool* when it sets `network_egress = true`, uses `[http]`
+or `[browser]`, or runs a known network binary (`curl`, `wget`, `nmap`, `nc`,
+`masscan`, `ssh`, `nikto`, `hydra`, `ffuf`, ..., plus `dig` and `whois`). In an
+egress tool every network-target argument must set `block_internal = true`,
+and a custom type cannot stand in for one; otherwise the manifest does not load.
+
+Path validation is lexical and portable. It does not canonicalize against the
+controller filesystem: a relative path remains relative to the selected
+worker's working directory. Ordinary dotted filenames such as `report..csv`
+remain valid. For intentional absolute argv data, declare `literal_text`
+explicitly and apply the appropriate policy and sandbox restrictions.
 
 `credential_file` adds a controller-side regular-file preflight and preserves the
 relative argument. It follows filesystem links and does not prove that a file
@@ -143,10 +213,20 @@ prevent a tool from following symlinks within that authority.
 
 | Flag | Meaning |
 |------|---------|
-| `scope_check = true` | Validate the value against the project scope (IP/CIDR/hostname args) |
+| `scope_check = true` | Validate the value against the project scope (`scope_target`, `url`, `ip_address`, `cidr` only; `scope_target` is always scope-checked) |
+| `block_internal = true` | Refuse non-public targets (see the egress policy) |
+| `allow_leading_dash = true` | Permit a value starting with `-` or `+` |
+| `allow_whitespace = true` | Permit U+0020 inside the value (`exec` form only) |
+| `schemes = [...]` | `url` scheme allowlist |
+| `sanitize = ["injection"]` | Accepted for compatibility; the blocklist always applies to string-derived types |
 | `feeds_decision = true` | This argument's value feeds a privileged downstream decision (routing, escalation, authorization). Free-text types (`string`, `literal_text`, `agent_summary`, `regex_match`) marked this way are flagged as an anti-pattern by ToolClad manifest validation — use an `enum` plus Cedar grounding instead (see [Typed + grounded decisions](#typed-grounded-decisions)) |
 
-**Custom types** can be defined in a project-level `toolclad.toml`:
+`allowed` is honored only on `enum`; on any other type it is a load error.
+
+**Custom types** can be defined in a project-level `toolclad.toml`. Accepted
+keys are `base`, `allowed`, `pattern`, `min`, `max`, `min_float`, `max_float`,
+`clamp`, `schemes`, `scope_check` and `description`; a custom type may not
+shadow a built-in type:
 
 ```toml
 [types.service_protocol]
@@ -157,11 +237,18 @@ description = "Network service protocol"
 
 ### [command] — Command construction
 
-The command section defines how to build the shell command from validated arguments:
+The argv array is the only form that reaches a process. Declare it with `exec`:
 
 ```toml
 [command]
-template = "nmap {_scan_flags} --max-rate {max_rate} -oX - {target}"
+exec = [
+    "nmap",
+    "{_scan_type_flags}",
+    "--max-rate", "{max_rate}",
+    "-oX", "-",
+    "{target}",
+]
+end_of_options = "--"     # optional; inserted before the first agent value
 
 [command.defaults]
 max_rate = 1000
@@ -174,25 +261,59 @@ ping = "-sn -PE"
 
 [command.conditionals.verbose_flags]
 when = "verbose != ''"
-template = "-v{verbose}"
+template = "-v {verbose}"
 ```
 
-Templates use `{arg_name}` placeholders. The runtime interpolates validated arguments and executes via direct argv (no shell invocation) to prevent injection.
+- Each `exec` element is one argv entry. An argument placeholder
+  (`{target}`) resolves to exactly one entry and is never re-split, so a
+  value with spaces or quotes cannot add arguments.
+- `{_<arg>_flags}` (from `[command.mappings.<arg>]`) and `{_<cond>}` (from
+  `[command.conditionals.<cond>]`) are manifest text and may expand to zero or
+  more entries; they must stand alone as a whole element. No other spelling
+  (such as `{_scan_flags}`) is recognized. A mapping over an `enum` must cover
+  every allowed value (map a value to `""` for no flags).
+- `{{` and `}}` are literal braces (`"-w", "%{{http_code}}"`). Any other brace,
+  and any placeholder that names nothing the manifest declares, is a load
+  error.
+- `{_scan_id}` is injected (128 bits of entropy). ToolClad's host-path
+  variables `{_output_file}` and `{_evidence_dir}` are refused: tools run inside
+  an isolated boundary, so write results to stdout, which is captured.
+- `end_of_options = "--"` is the only accepted value.
+- `template = "..."` is deprecated. It is tokenized at load, before any value
+  exists; a placeholder inside quotes (`-H '{headers}'`) is refused, and
+  `allow_whitespace` is not honored for it.
+- Divergence from the reference, kept because it is stricter: an empty
+  optional argument keeps its (empty) argv slot instead of being dropped, so
+  `-H {headers} {url}` can never turn into `-H <url>`. Omit optional syntax
+  with a conditional instead.
+
+`symbi tools test <name> --arg k=v` validates exactly as the executor does and
+prints the argv that will run, element by element.
 
 ### [output] — Output configuration
 
 ```toml
 [output]
 format = "xml"            # json | xml | csv | jsonl | text
-parser = "builtin:xml"    # or path to custom parser binary
+parser = "builtin:xml"    # builtin:* or custom:<absolute path> (operator allowlist)
 envelope = true           # wrap in evidence envelope
+max_bytes = 8388608       # per-stream capture cap (default 8 MiB, at most 1 GiB)
 
 [output.schema]
 type = "object"
 properties.hosts.type = "array"
 ```
 
-Schema validation produces warnings (non-blocking) when output doesn't match the expected structure.
+Schema validation is **fail-closed**: a violation replaces `results` with
+`{"schema_error": "<pointer>: <message>", "raw_output": ...}` and sets the
+envelope status to `schema_error`. The bundled validator supports `type`,
+`properties`, `required`, `items`, `additionalProperties` (boolean), `enum`,
+`minimum`, `maximum`, `minLength`, `maxLength` and `pattern` (anchored).
+Output beyond `max_bytes` is truncated and flagged with
+`"output_truncated": true`. XML containing `<!DOCTYPE` or `<!ENTITY` is
+refused. A parser that is neither `builtin:*` nor `custom:<absolute path>` is
+a load error; custom parsers run only when listed in
+`SYMBIONT_TOOLCLAD_ALLOWED_PARSERS` and inside the command boundary.
 
 ---
 
@@ -209,7 +330,7 @@ mode = "oneshot"
 binary = "nmap"
 
 [command]
-template = "nmap {target}"
+exec = ["nmap", "{target}"]
 ```
 
 **HTTP backend** — make an HTTP request:
@@ -224,7 +345,12 @@ headers = { Authorization = "Bearer {_secret:api_key}" }
 success_status = [200]
 ```
 
-HTTP requests include SSRF protection — private IP ranges, localhost, and cloud metadata endpoints are blocked.
+The scheme and host of `http.url` are literal manifest text; a placeholder in
+either is a load error. Argument values are percent-encoded into the path and
+query, JSON-escaped into `body_template`, and a header value containing CR, LF
+or NUL after interpolation is refused. With a project scope, the resolved URL
+must be in scope. HTTP requests also include SSRF protection — private IP
+ranges, localhost, and cloud metadata endpoints are blocked.
 
 **MCP proxy backend** — governed passthrough to an upstream MCP tool:
 ```toml
@@ -264,6 +390,36 @@ human_approval = false
 ```
 
 Each declared command becomes a separate MCP tool definition (e.g., `msfconsole.run`).
+
+Session input rules (ToolClad S1–S3), applied identically on every path:
+
+- The input is one line: C0 controls (tab, CR and LF included), DEL, C1
+  controls and U+2028/U+2029 are refused; the executor appends the only line
+  terminator. The command `pattern` must match the whole input.
+- Sink policies, inferred from the startup binary and extendable with
+  `[session.interaction] input_sanitize`: `psql_meta` (psql sessions; no
+  backslash, so `\gexec`, `\c`, `\copy`, `\lo_import`, `\o` and `\!` cannot be
+  expressed), `msf_meta` (msfconsole sessions; no `;` chaining and no `irb`,
+  `pry`, `load`, `resource`, `makerc`, `edit`, `spool`, `save`, `cd`, shell
+  verbs or `!`), and `injection` (the shell-metacharacter blocklist, opt-in
+  only, so SQL such as `count(*)` or `a != b` is not refused by default).
+  msfconsole passes unknown verbs to the system shell, so pin the verb in each
+  command's `pattern`.
+- In a session whose binary can name a network destination (`msfconsole` and
+  the egress binaries), every command must set `extract_target = true` with a
+  `(?P<target>...)` group, which is checked against the project scope, or
+  require human approval.
+- The session sandbox has no network unless `[tool] network_egress = true`.
+- The prompt is detected with a fresh 128-bit sentinel per interaction: the
+  executor sends `sentinel_command` (psql defaults to `\echo {sentinel}`) after
+  the input, and accepts `ready_pattern` only at the start of the final line
+  after the sentinel line, so prompt-shaped tool output cannot frame a
+  response. Without a sentinel command the prompt must be the final,
+  unterminated line (`prompt_anchor: "end_of_output"`).
+- Terminal output is stripped of CSI, OSC, DCS/SOS/PM/APC strings and every
+  other C0/C1 control except newline and tab.
+- `[session.child_detection]` is refused: a child session is never registered
+  from tool output (S7).
 
 ### Browser (CDP)
 
@@ -319,7 +475,24 @@ domains = ["example.com", "*.test.example.com"]
 exclude = ["10.0.1.1"]
 ```
 
-Arguments with `scope_check = true` are validated against this scope. IPs are checked against CIDR ranges, hostnames against domain patterns (with wildcard suffix matching).
+Every `scope_target` argument, and every argument with `scope_check = true`,
+is validated against this scope; with no scope file the call is refused. The
+whole requested range must fit an allowed rule and avoid every exclusion. An
+allow rule `*.example.com` matches strict subdomains only — not the apex
+`example.com` and not `evil-example.com`; an exclusion `*.example.com` also
+covers the apex. URLs are scope-checked with the same strict parser the `url`
+type uses, so a backslash or userinfo cannot give the scope check one host and
+the tool another.
+
+The ToolClad reference keys are accepted too and merge into the rules above:
+
+```toml
+[scope]
+allowed_domains = ["example.com", "*.example.com"]
+allowed_cidrs = ["10.0.1.0/24"]
+blocked_domains = ["admin.example.com"]
+blocked_cidrs = ["10.0.1.1/32"]
+```
 
 ### URL scope (browser mode)
 
@@ -358,7 +531,7 @@ These request-construction helpers do not issue execution authority. A trusted
 driver must retain the worker, mediate every target and use the call-bound journal
 before sending each unchanged request. The public browser route stays unavailable
 while that production driver and browser lifetime ownership are integrated.
-The [contained Chromium transport fixtures](../crates/runtime/tests/fixtures/browser/README.md)
+The [contained Chromium transport fixtures](https://github.com/ThirdKeyAI/Symbiont/blob/main/crates/runtime/tests/fixtures/browser/README.md)
 include a real local HTTP case with pre-connection signed audit, an exact POST
 effect, denied method/subresource/redirect destinations and worker removal.
 This is component integration evidence, not a shipping browser-command E2E.
@@ -405,19 +578,25 @@ ToolClad auto-generates Cedar policies from manifest metadata:
 symbi tools schema my_tool  # includes Cedar policy suggestion
 ```
 
-Generated policies vary by risk tier:
+Each generated policy permits the manifest's action when
+`resource.base_tool` names the manifest, which every session and browser
+sub-command shares (their per-call `tool_name` is `<manifest>.<command>`). The
+prepared resource also carries the call's effective `risk_tier` (the manifest
+tier raised to a sub-command's own tier). Forbids carry the approval rules:
 
-**Low-risk tool:**
-```cedar
-permit (principal, action == Tool::WhoisLookup::Action::"execute_tool", resource)
-when { resource.tool_name == "whois_lookup" };
-```
-
-**High-risk tool with human approval:**
 ```cedar
 permit (principal, action == Tool::Exploit::Action::"execute_tool", resource)
-when { resource.tool_name == "exploit" && context.has_human_approval == true };
+when { resource has base_tool && resource.base_tool == "exploit" };
+
+forbid (principal, action == Tool::Exploit::Action::"execute_tool", resource)
+when { resource has base_tool && resource.base_tool == "exploit" &&
+       resource has risk_tier && (resource.risk_tier == "high" || resource.risk_tier == "critical") }
+unless { context has has_human_approval && context.has_human_approval == true };
 ```
+
+A manifest with `human_approval = true` gets an additional forbid without the
+tier condition. Independently of Cedar, a `high` or `critical` call requires an
+exact-call approval before dispatch.
 
 ---
 
@@ -428,20 +607,30 @@ All tool executions are wrapped in a structured evidence envelope:
 ```json
 {
   "status": "success",
-  "scan_id": "1712073600-a1b2c3d4",
+  "scan_id": "1712073600-9f1c2e7a4b6d8e0f1a2b3c4d5e6f7a8b",
   "tool": "nmap_scan",
   "command": "nmap -sV --top-ports 100 --max-rate 1000 -oX - 10.0.1.5",
   "duration_ms": 4523,
   "timestamp": "2026-04-02T18:00:00Z",
   "output_hash": "sha256:a1b2c3...",
+  "output_truncated": false,
   "exit_code": 0,
   "stderr": "",
-  "results": { "hosts": [...] },
-  "schema_warnings": []
+  "output_file": "/var/lib/symbiont/evidence/1712073600-9f1c...-nmap/output",
+  "results": { "hosts": [...] }
 }
 ```
 
-HTTP backend envelopes include `http_method`, `http_url`, `http_status`. MCP proxy envelopes include `mcp_server`, `mcp_tool`, `status: "delegated"`. Session and browser envelopes include `session_id`, `interaction_count`, and a transcript with timestamps.
+`status` is `success`, `error`, or `schema_error`. With `[tool.evidence]
+capture = true`, the captured output is also written to `output_file` under the
+evidence root (`TOOLCLAD_EVIDENCE_DIR`, or `symbiont-evidence-<uid>` in the
+system temp directory). The root and each per-call directory are created mode
+0700 and the root is refused if it is a symlink, foreign-owned, or group/other
+accessible; the file is created with `O_CREAT | O_EXCL | O_NOFOLLOW`, mode 0600.
+`output_dir` may use only `{evidence_dir}` and `{scan_id}` and must stay below
+the root.
+
+HTTP backend envelopes include `http_method`, `http_url`, `http_status`. MCP proxy envelopes include `mcp_server`, `mcp_tool`. Session envelopes include `session_id`, `interaction_count`, `prompt_anchor`, and a transcript with timestamps.
 
 ---
 
@@ -452,7 +641,8 @@ In development mode, ToolClad watches the `tools/` directory for changes:
 - New `.clad.toml` files are discovered automatically
 - Modified manifests are reloaded on save
 - Deleted manifests are removed from the registry
-- Parse errors produce warnings without crashing the runtime
+- Parse errors produce warnings without crashing the runtime; the previous
+  version of the manifest stays in effect
 
 The executor also checks manifest version at execution time — if a manifest was reloaded between planning and execution, the call is rejected to prevent plan drift.
 
@@ -460,15 +650,16 @@ The executor also checks manifest version at execution time — if a manifest wa
 
 ## Built-in manifests
 
-Symbiont ships with four example manifests in `tools/`:
+Symbiont ships these manifests in `tools/`:
 
-| Manifest | Description | Mode |
-|----------|-------------|------|
-| `whois_lookup.clad.toml` | WHOIS domain/IP lookup | Oneshot (shell) |
-| `dig_lookup.clad.toml` | DNS record lookup | Oneshot (shell) |
-| `curl_fetch.clad.toml` | HTTP request with scope enforcement | Oneshot (shell) |
-| `nmap_scan.clad.toml` | Network port scanner with evidence capture | Oneshot (shell) |
-| `submit_triage.clad.toml` | Typed + grounded triage decision (reference) | Reference (typed decision) |
+| Manifest | Description | Mode | Loads in ToolClad's reference CLI |
+|----------|-------------|------|------|
+| `whois_lookup.clad.toml` | WHOIS domain/IP lookup | Oneshot (shell) | Yes |
+| `dig_lookup.clad.toml` | DNS record lookup | Oneshot (shell) | Yes |
+| `curl_fetch.clad.toml` | HTTP request with scope and egress policy | Oneshot (shell) | Yes |
+| `nmap_scan.clad.toml` | Network port scanner with evidence capture | Oneshot (shell) | Yes |
+| `submit_triage.clad.toml` | Typed + grounded triage decision (reference) | Reference (typed decision) | No (`feeds_decision`) |
+| `read_file`, `list_files`, `grep_files`, `git_*` | Fixed source-broker queries | Oneshot (source) | No (`[source]`) |
 
 These serve as reference implementations for writing your own manifests.
 
@@ -504,7 +695,7 @@ ToolClad tools are exposed to the [reasoning loop](/reasoning-loop) as MCP-compa
 4. **Proposal** — the LLM proposes a tool call with arguments
 5. **Policy gate** — [Cedar policy](/security-model) evaluates whether the call is allowed
 6. **Validation** — ToolClad validates arguments against the manifest (types, ranges, scope, injection checks)
-7. **Execution** — the runtime executes via the appropriate backend (shell argv, HTTP, MCP proxy, session, browser)
+7. **Execution** — the runtime executes via the appropriate backend (shell argv, HTTP, MCP proxy, session, browser). Only a call carrying an authorization grant from the governed dispatcher executes; a raw proposal handed to `ToolCladExecutor::execute_actions` is refused
 8. **Evidence** — output is parsed, schema-validated, and wrapped in an evidence envelope
 9. **Observation** — the result is returned to the reasoning loop as an Observation
 
@@ -518,7 +709,7 @@ Not every entry point runs ToolClad tools. Knowing which do is the difference be
 |---|---|---|
 | `symbi run <agent>` | Yes | Loads `tools/` at startup |
 | DSL reasoning builtins | Yes | Same loader, invoked from `.symbi` programs |
-| `symbi tools test` | Yes | Single manifest, for validating one tool |
+| `symbi tools test` | No | Dry run: validates arguments and prints the argv |
 | HTTP input server | Yes, when `tools/` exists and holds at least one manifest | Otherwise starts with no executor and every tool call is refused |
 | `symbi up` chat coordinator | **No** | Has no ToolClad executor at all |
 | `symbi shell` (ORCH) | No | Ships its own fixed tool set — `read_file`, `search`, `edit_file`, `save_artifact` — which are not ToolClad manifests |

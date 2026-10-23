@@ -275,7 +275,7 @@ print('doctor-fixture 1.0' + chr(27) + '[2J')
                 config.write_text(original + '\n[sandbox.roots]\nsource_roots=' + json.dumps([str(code)+':/workspace:ro']) + '\noutput_roots=' + json.dumps([str(code)+':/workspace:rw']) + '\n')
                 (project/'agents/coding.symbi').write_text('agent coding() {}\n')
                 (project/'policies/coding.cedar').write_text('permit(principal,action,resource);\n')
-                (project/'tools/verify_module.clad.toml').write_text('[tool]\nname="verify_module"\nversion="1"\nbinary="python3"\ndescription="Test the declared calculator source"\n[args.input]\nposition=1\nrequired=true\ntype="path"\n[args.output]\nposition=2\nrequired=true\ntype="path"\n[command]\ntemplate="python3 -I {input} {output}"\n[filesystem]\nread=["{input}"]\ncreate=["{output}"]\nmax_file_bytes=4096\n[output]\nformat="json"\n')
+                (project/'tools/verify_module.clad.toml').write_text('[tool]\nname="verify_module"\nversion="1"\nbinary="python3"\nallow_interpreter=true\ndescription="Test the declared calculator source"\n[args.input]\nposition=1\nrequired=true\ntype="path"\n[args.output]\nposition=2\nrequired=true\ntype="path"\n[command]\nexec=["python3", "-I", "{input}", "{output}"]\n[filesystem]\nread=["{input}"]\ncreate=["{output}"]\nmax_file_bytes=4096\n[output]\nformat="json"\n')
                 development['active'] = True
                 previous = set(journals)
                 response = run('run','coding','--input','Verify the calculator source and publish its test result.','--max-iterations','3')

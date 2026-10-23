@@ -607,11 +607,12 @@ cd crates/runtime && cargo run --example context_example
 | `mcp-client` | MCP-backed ToolClad tool execution over stdio (SchemaPin-verified) | No — always on in `symbi` |
 | `toolclad-session` | Persistent ToolClad tool sessions (PTY-backed) | No |
 | `toolclad-browser` | Browser (CDP) ToolClad backend — seam only; returns an honest error until the CDP backend lands | No |
+| `toolclad-direct` | Ungoverned direct ToolClad dispatch for test fixtures only; refused in production. Never enable in a deployed build | No |
 | `interactive` | Interactive prompts for `symbi init` (dialoguer) | Default |
 | `minimal` | Minimal build for faster CI (no optional backends) | No |
 | `fips` | FIPS-oriented crypto configuration | No |
 | `vendored-openssl` | Statically link a vendored OpenSSL | No |
-| `full` | Aggregate of the vector, HTTP, policy and LLM features (see `full` in `crates/runtime/Cargo.toml`; it does not include `mcp-client`, `toolclad-browser`, `cli-executor`, `native-sandbox`, `orga-adaptive`, `session`, `bedrock`, `fips`, or the enterprise features) | No |
+| `full` | Aggregate of the vector, HTTP, policy and LLM features (see `full` in `crates/runtime/Cargo.toml`; it does not include `mcp-client`, `toolclad-browser`, `toolclad-direct`, `cli-executor`, `native-sandbox`, `orga-adaptive`, `session`, `bedrock`, `fips`, or the enterprise features) | No |
 
 The **Default** column is `crates/runtime`'s own default feature set. The rows
 marked "always on in `symbi`" are requested unconditionally by the published

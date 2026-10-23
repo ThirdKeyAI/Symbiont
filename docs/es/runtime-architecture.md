@@ -184,9 +184,11 @@ pub struct ResourceLimits {
 
 ## Seguridad Multi-Nivel
 
+<a id="sandbox-architecture"></a>
+
 ### Arquitectura de Sandbox
 
-El runtime ofrece tres niveles de aislamiento del host — todos OSS — mas un backend separado de nube alojada (E2B). Los operadores eligen el nivel por agente mediante el bloque DSL `with { sandbox = ... }`, o establecen un valor predeterminado del proyecto en `[sandbox] tier = "..."`.
+El runtime ofrece cuatro backends de aislamiento del host — todos OSS — más un backend separado de nube alojada (E2B). Tres llevan número (Docker, gVisor, Firecracker); `landlock` lleva nombre en lugar de número, porque aísla comandos de un solo uso, parsers y el proceso hijo de CLI administrada sin un demonio y no es un par en la escalera numerada. Los operadores eligen el backend por agente mediante el bloque DSL `with { sandbox = ... }`, o establecen un valor predeterminado del proyecto en `[sandbox] tier = "..."`.
 
 #### Nivel 1: Aislamiento Docker
 **Caso de Uso**: Operaciones de bajo riesgo, tareas de desarrollo
@@ -722,9 +724,9 @@ cargo test --features security-tests
 
 ## Próximos Pasos
 
-- **[Modelo de Seguridad](security-model.es.md)** - Profundización en la implementación de seguridad
-- **[Contribuyendo](contributing.es.md)** - Pautas de desarrollo y contribución
-- **[Referencia de API](api-reference.es.md)** - Documentación completa de API
+- **[Modelo de Seguridad](security-model.md)** - Profundización en la implementación de seguridad
+- **[Contribuyendo](contributing.md)** - Pautas de desarrollo y contribución
+- **[Referencia de API](api-reference.md)** - Documentación completa de API
 - **[Ejemplos](https://github.com/thirdkeyai/symbiont/tree/main/runtime/examples)** - Ejemplos y tutoriales del runtime
 
 La arquitectura del runtime proporciona una base robusta para construir agentes de IA seguros y escalables. Su diseño modular y modelo de seguridad integral lo hacen adecuado tanto para entornos de desarrollo como de producción.

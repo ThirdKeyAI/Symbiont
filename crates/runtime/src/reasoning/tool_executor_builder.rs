@@ -14,7 +14,7 @@
 
 use crate::reasoning::executor::{ActionExecutor, UnavailableToolExecutor};
 use crate::toolclad::executor::ToolCladExecutor;
-use crate::toolclad::manifest::{load_custom_types, load_manifests_from_dir};
+use crate::toolclad::manifest::{load_custom_types, load_manifests_from_dir_with_types};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -25,16 +25,34 @@ use std::sync::Arc;
 /// tool-call success.
 pub fn build_tool_executor(tools_dir: &Path) -> Arc<dyn ActionExecutor> {
     let project = project_for_tools(tools_dir);
-    let manifests = load_manifests_from_dir(tools_dir);
-    if manifests.is_empty() {
-        Arc::new(UnavailableToolExecutor)
-    } else {
-        Arc::new(
-            ToolCladExecutor::with_custom_types(manifests, load_custom_types(project))
+    match load_project_manifests(tools_dir, project) {
+        Ok((manifests, _)) if manifests.is_empty() => Arc::new(UnavailableToolExecutor),
+        Ok((manifests, custom_types)) => Arc::new(
+            ToolCladExecutor::with_custom_types(manifests, custom_types)
                 .with_project_scope(project)
                 .with_project_sandbox(project),
-        )
+        ),
+        Err(error) => Arc::new(ToolCladExecutor::failed(error)),
     }
+}
+
+/// Load the project's custom types and manifests. A manifest that fails to
+/// load is an error for the whole set: the caller gets an executor whose
+/// `validate_configuration` fails, so the run stops at startup.
+#[allow(clippy::type_complexity)]
+fn load_project_manifests(
+    tools_dir: &Path,
+    project: &Path,
+) -> Result<
+    (
+        Vec<(String, crate::toolclad::Manifest)>,
+        std::collections::HashMap<String, crate::toolclad::manifest::ArgDef>,
+    ),
+    String,
+> {
+    let custom_types = load_custom_types(project)?;
+    let manifests = load_manifests_from_dir_with_types(tools_dir, &custom_types)?;
+    Ok((manifests, custom_types))
 }
 
 /// Build a production executor using the selected agent's frozen boundary.
@@ -54,15 +72,14 @@ pub(crate) fn build_tool_executor_with_boundary(
     boundary: crate::sandbox::command::CommandBoundary,
 ) -> Arc<dyn ActionExecutor> {
     let project = project_for_tools(tools_dir);
-    let manifests = load_manifests_from_dir(tools_dir);
-    if manifests.is_empty() {
-        Arc::new(UnavailableToolExecutor)
-    } else {
-        Arc::new(
-            ToolCladExecutor::with_custom_types(manifests, load_custom_types(project))
+    match load_project_manifests(tools_dir, project) {
+        Ok((manifests, _)) if manifests.is_empty() => Arc::new(UnavailableToolExecutor),
+        Ok((manifests, custom_types)) => Arc::new(
+            ToolCladExecutor::with_custom_types(manifests, custom_types)
                 .with_project_scope(project)
                 .with_command_boundary(boundary),
-        )
+        ),
+        Err(error) => Arc::new(ToolCladExecutor::failed(error)),
     }
 }
 
@@ -136,5 +153,18 @@ type = "object"
 
         let exec = build_tool_executor(dir.path());
         assert!(exec.tool_definitions().iter().any(|d| d.name == "greet"));
+    }
+
+    #[test]
+    fn a_manifest_load_failure_fails_configuration_loudly() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("typo.clad.toml"),
+            "[tool]\nname = \"t\"\nversion = \"1\"\nbinary = \"echo\"\ndescription = \"d\"\ntiemout_seconds = 5\n[command]\nexec = [\"echo\"]\n[output]\nformat = \"text\"\n",
+        )
+        .unwrap();
+        let exec = build_tool_executor(dir.path());
+        let err = exec.validate_configuration().unwrap_err();
+        assert!(err.contains("typo.clad.toml"), "{err}");
     }
 }

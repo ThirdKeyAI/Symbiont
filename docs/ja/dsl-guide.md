@@ -367,6 +367,8 @@ agent privacy_preserving_agent(sensitive_data: PersonalInfo) -> Statistics {
 }
 ```
 
+<a id="security-configuration"></a>
+
 ### セキュリティ設定
 
 ```rust
@@ -750,7 +752,7 @@ agent fraud_detector(transaction: Transaction) -> FraudAssessment {
 
 ## 次のステップ
 
-- **[DSL仕様](dsl-specification.md)** - 完全な言語仕様リファレンス
+- **[DSL仕様](/dsl-specification)** - 完全な言語仕様リファレンス
 - **[ランタイムアーキテクチャ](/runtime-architecture)** - エージェントの実行方法を理解する
 - **[セキュリティモデル](/security-model)** - セキュリティ実装について学ぶ
 - **[APIリファレンス](/api-reference)** - 完全な関数と型のリファレンス

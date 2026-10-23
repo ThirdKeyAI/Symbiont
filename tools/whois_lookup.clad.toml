@@ -8,6 +8,8 @@ binary = "whois"
 description = "WHOIS domain/IP registration lookup"
 timeout_seconds = 30
 risk_tier = "low"
+# whois reaches the network on behalf of its argument.
+network_egress = true
 
 [tool.cedar]
 resource = "Tool::WhoisLookup"
@@ -17,14 +19,20 @@ action = "execute_tool"
 position = 1
 required = true
 type = "scope_target"
+# Refuse loopback, private and metadata targets; a hostname must resolve to
+# public addresses only (resolution failure is a refusal).
+block_internal = true
 description = "Domain name or IP address to query"
 
 [command]
-template = "whois {target}"
+exec = ["whois", "{target}"]
+# The target can never be read as an option.
+end_of_options = "--"
 
 [output]
 format = "text"
 envelope = true
+max_bytes = 1048576
 
 [output.schema]
 type = "object"

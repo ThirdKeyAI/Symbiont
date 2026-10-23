@@ -1,6 +1,6 @@
 //! Real PTY workers through the shipping session executor. Run explicitly with
 //! Docker and the cached fixture image; missing infrastructure is a failure.
-#![cfg(all(unix, feature = "toolclad-session"))]
+#![cfg(all(unix, feature = "toolclad-session", feature = "toolclad-direct"))]
 use std::{os::unix::fs::PermissionsExt, sync::Arc, time::Duration};
 use symbi_runtime::{
     sandbox::command::CommandBoundary,

@@ -127,7 +127,7 @@ A saida do modelo nunca e tratada como autoridade de execucao. O runtime control
 | **Verificacao de ferramentas** | Verificacao criptografica [SchemaPin](https://schemapin.org) de esquemas de ferramentas MCP antes da execucao |
 | **Identidade de agentes** | Identidade ES256 ancorada ao dominio com [AgentPin](https://agentpin.org) para agentes e tarefas agendadas |
 | **Loop de raciocinio** | Ciclo Observe-Reason-Gate-Act com aplicacao de typestate, gates de politicas e circuit breakers |
-| **Sandboxing** | Tres camadas OSS -- Docker (Tier 1), gVisor (Tier 2), microVM Firecracker (Tier 3) -- selecionaveis pelo DSL e sem restricao Enterprise |
+| **Sandboxing** | Quatro backends OSS -- Landlock (nomeado, sem daemon), Docker (Tier 1), gVisor (Tier 2), microVM Firecracker (Tier 3) -- selecionaveis pelo DSL e sem restricao Enterprise |
 | **Auditoria protegida** | Journals privados e assinados por execucao em `.symbiont/governed/`; a falha de uma gravacao obrigatoria interrompe o despacho |
 | **Melhorias governadas opcionais** | [Instrucoes de fluxo de trabalho versionadas](/governed-improvements), avaliacao de testes assinada, aprovacao exata do operador, ativacao explicita e fixacao de versao por execucao; desativadas ate serem explicitamente inicializadas e selecionadas |
 | **Gestao de segredos** | Integracao com Vault/OpenBao, armazenamento criptografado AES-256-GCM, com escopo por agente |

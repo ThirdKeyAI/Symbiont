@@ -94,17 +94,9 @@ pub async fn run(matches: &ArgMatches) {
             eprintln!("✗ Cannot resolve the project directory: {error}");
             std::process::exit(1);
         });
-    let config = LoopConfig {
-        max_iterations,
-        max_total_tokens: 100_000,
-        timeout: execution_settings
-            .timeout_seconds
-            .map(std::time::Duration::from_secs)
-            .map_or(LoopConfig::default().timeout, |timeout| {
-                timeout.min(LoopConfig::default().timeout)
-            }),
-        ..Default::default()
-    };
+    let (conv, mut config) =
+        symbi_runtime::improvement::operational::profile(&execution_settings, &input);
+    config.max_iterations = max_iterations;
     // Merely installing the feature or initializing another workflow changes
     // nothing. Only the explicit CLI selection opens the improvement store.
     let improvement = matches.get_one::<String>("improvement").map(|workflow| {
@@ -203,8 +195,6 @@ pub async fn run(matches: &ArgMatches) {
     // Build the reasoning loop runner
     use symbi_runtime::reasoning::circuit_breaker::CircuitBreakerRegistry;
     use symbi_runtime::reasoning::context_manager::DefaultContextManager;
-    use symbi_runtime::reasoning::conversation::{Conversation, ConversationMessage};
-    use symbi_runtime::reasoning::loop_types::LoopConfig;
     use symbi_runtime::reasoning::reasoning_loop::ReasoningLoopRunner;
     use symbi_runtime::types::AgentId;
 
@@ -251,15 +241,6 @@ pub async fn run(matches: &ArgMatches) {
         knowledge_bridge: None,
         delegation: None,
     };
-
-    // Build conversation from DSL system prompt + user input
-    let system_prompt = format!(
-        "You are agent '{}'. Follow the governance rules defined in your DSL.\n\n--- Agent DSL ---\n{}\n--- End DSL ---",
-        execution_settings.agent_name, execution_settings.agent_source
-    );
-
-    let mut conv = Conversation::with_system(&system_prompt);
-    conv.push(ConversationMessage::user(&input));
 
     // Run the ORGA loop
     let result = if let Some(pinned) = &improvement {

@@ -247,10 +247,7 @@ pub async fn auth_middleware(request: Request, next: Next) -> Result<Response, S
     // legacy single-token path entirely — useful once an API key store is
     // in place and the operator wants to ensure the env token isn't still
     // being accepted (e.g., leaked via a container inspect or process list).
-    if env::var("SYMBIONT_REFUSE_LEGACY_API_TOKEN")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false)
-    {
+    if refuse_legacy_api_token() {
         tracing::warn!(
             "SYMBIONT_REFUSE_LEGACY_API_TOKEN=1; refusing authentication without a \
              valid API key store entry"
@@ -569,6 +566,14 @@ pub async fn security_headers_middleware(
     );
 
     Ok(response)
+}
+
+/// Shared refusal policy for every transport accepting the legacy environment token.
+#[cfg(feature = "http-api")]
+pub(super) fn refuse_legacy_api_token() -> bool {
+    std::env::var("SYMBIONT_REFUSE_LEGACY_API_TOKEN")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
 }
 
 #[cfg(test)]

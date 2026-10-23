@@ -73,6 +73,8 @@ async fn serve(
         agent,
         auth_header: credential.map(str::to_owned),
         jwt_public_key_path: key.map(|p| p.display().to_string()),
+        jwt_issuer: Some("fixture".into()),
+        jwt_audience: Some("symbi".into()),
         ..HttpInputConfig::default()
     })
     .with_project_root(root.to_owned())
@@ -278,6 +280,9 @@ async fn verified_jwt_subject_and_authority_bind_cached_results_across_token_ren
         json!({"exp":exp}),
         json!({"exp":exp,"sub":""}),
         json!({"exp":1,"sub":"alice"}),
+        json!({"exp":exp,"sub":"alice","iss":"other","aud":"symbi"}),
+        json!({"exp":exp,"sub":"alice","iss":"fixture","aud":"other"}),
+        json!({"exp":exp,"sub":"alice","iss":"fixture"}),
     ] {
         let response = request(port, &jwt(&key, claims), id, json!({"prompt":"work"}))
             .send()
@@ -285,8 +290,14 @@ async fn verified_jwt_subject_and_authority_bind_cached_results_across_token_ren
             .unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
-    let first = jwt(&key, json!({"exp":exp, "sub":"alice", "iss":"fixture"}));
-    let renewed = jwt(&key, json!({"exp":exp+600, "sub":"alice", "iss":"fixture"}));
+    let first = jwt(
+        &key,
+        json!({"exp":exp, "sub":"alice", "iss":"fixture", "aud":"symbi"}),
+    );
+    let renewed = jwt(
+        &key,
+        json!({"exp":exp+600, "sub":"alice", "iss":"fixture", "aud":"symbi"}),
+    );
     assert_ne!(first, renewed);
     for (credential, replayed) in [(&first, false), (&renewed, true)] {
         let response = request(port, credential, id, json!({"prompt":"work"}))
@@ -299,10 +310,7 @@ async fn verified_jwt_subject_and_authority_bind_cached_results_across_token_ren
             replayed
         );
     }
-    for claims in [
-        json!({"exp":exp,"sub":"bob","iss":"fixture"}),
-        json!({"exp":exp,"sub":"alice","iss":"other"}),
-    ] {
+    for claims in [json!({"exp":exp,"sub":"bob","iss":"fixture", "aud":"symbi"})] {
         let response = request(port, &jwt(&key, claims), id, json!({"prompt":"work"}))
             .send()
             .await
@@ -316,7 +324,7 @@ async fn verified_jwt_subject_and_authority_bind_cached_results_across_token_ren
     let other_key = ed25519_dalek::SigningKey::from_bytes(&rand::random());
     let other_token = jwt(
         &other_key,
-        json!({"exp":exp, "sub":"alice", "iss":"fixture"}),
+        json!({"exp":exp, "sub":"alice", "iss":"fixture", "aud":"symbi"}),
     );
     let forged = request(port, &other_token, id, json!({"prompt":"work"}))
         .send()

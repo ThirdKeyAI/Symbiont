@@ -1,6 +1,9 @@
 //! Registry mapping MCP server names (referenced from ToolClad `[mcp]`
-//! manifests) to a stdio launch spec. Loaded from `./mcp-config.toml`
-//! (per-project) or `~/.symbiont/mcp-config.toml` (user default).
+//! manifests) to a stdio launch spec. Loaded from the project's
+//! `mcp-config.toml`. Outside production, a project without one may fall
+//! back to the user default `~/.symbiont/mcp-config.toml`; in production the
+//! home fallback is refused, so a server launch spec always comes from the
+//! deployed project.
 
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -38,11 +41,19 @@ pub struct McpServerRegistry {
 }
 
 impl McpServerRegistry {
-    /// Use the project registry, or the user registry if no project registry
-    /// exists. An invalid project registry must not fall back to a different
-    /// server configuration with potentially broader authority.
+    /// The registry of the project in the process working directory. See
+    /// [`Self::load_for_project`].
     pub fn load() -> Result<Self, String> {
-        Self::load_from_paths(&Self::candidate_paths())
+        Self::load_for_project(std::path::Path::new("."))
+    }
+
+    /// Use `<project>/mcp-config.toml`, or (outside production only) the
+    /// user registry when the project has none. An invalid project registry
+    /// never falls back to a different server configuration with potentially
+    /// broader authority.
+    pub fn load_for_project(project: &std::path::Path) -> Result<Self, String> {
+        let production = crate::env::is_production().map_err(|e| e.to_string())?;
+        Self::load_from_paths(&Self::candidate_paths(project, production))
     }
 
     fn load_from_paths(paths: &[PathBuf]) -> Result<Self, String> {
@@ -65,10 +76,12 @@ impl McpServerRegistry {
         Ok(Self::default())
     }
 
-    fn candidate_paths() -> Vec<PathBuf> {
-        let mut v = vec![PathBuf::from("mcp-config.toml")];
-        if let Some(home) = dirs::home_dir() {
-            v.push(home.join(".symbiont").join("mcp-config.toml"));
+    fn candidate_paths(project: &std::path::Path, production: bool) -> Vec<PathBuf> {
+        let mut v = vec![project.join("mcp-config.toml")];
+        if !production {
+            if let Some(home) = dirs::home_dir() {
+                v.push(home.join(".symbiont").join("mcp-config.toml"));
+            }
         }
         v
     }
@@ -149,5 +162,15 @@ mod tests {
         let path = dir.path().join("mcp-config.toml");
         std::os::unix::fs::symlink(dir.path().join("missing"), &path).unwrap();
         assert!(McpServerRegistry::load_from_paths(&[path]).is_err());
+    }
+
+    #[test]
+    fn registry_is_anchored_to_the_project_and_home_is_refused_in_production() {
+        let project = std::path::Path::new("/srv/project");
+        let paths = McpServerRegistry::candidate_paths(project, true);
+        assert_eq!(paths, vec![project.join("mcp-config.toml")]);
+        let dev = McpServerRegistry::candidate_paths(project, false);
+        assert_eq!(dev[0], project.join("mcp-config.toml"));
+        assert!(dev.iter().all(|p| p.is_absolute()));
     }
 }

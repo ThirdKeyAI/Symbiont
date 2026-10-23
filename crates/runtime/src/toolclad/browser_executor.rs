@@ -52,11 +52,15 @@ impl BrowserExecutor {
 
     /// Validate and scope-check a browser command, then return an honest error:
     /// CDP execution is not implemented. NEVER returns a fabricated success.
+    /// Ungoverned fixture entry point: compiled only for unit tests and the
+    /// `toolclad-direct` feature.
+    #[cfg(any(test, feature = "toolclad-direct"))]
     pub fn execute_browser_command(
         &self,
         tool_name: &str,
         args_json: &str,
     ) -> Result<serde_json::Value, String> {
+        super::executor::refuse_direct_dispatch_in_production()?;
         let (base, command) = parse_browser_tool_name(tool_name)?;
         if self.manifests.get(&base).is_some_and(|manifest| {
             manifest.tool.human_approval
@@ -96,6 +100,13 @@ impl BrowserExecutor {
 
         // Validate command-specific args.
         for (arg_name, arg_def) in &cmd_def.args {
+            // The navigation URL is judged by the browser network policy below.
+            if command_name == "navigate" && arg_name == "url" {
+                if arg_def.required && !args.contains_key(arg_name) {
+                    return Err(format!("Missing required arg: {}", arg_name));
+                }
+                continue;
+            }
             if let Some(value) = args.get(arg_name) {
                 let val_str = match value {
                     serde_json::Value::String(s) => s.clone(),

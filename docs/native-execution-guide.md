@@ -441,7 +441,7 @@ Before enabling native execution in any environment:
 - [Security Model](security-model.md) - Full security architecture
 - [Sandbox Architecture](runtime-architecture.md#sandbox-architecture) - Container tiers
 - [Configuration Guide](getting-started.md#configuration) - Setup options
-- [DSL Security Directives](dsl-guide.md#security) - Agent-level security
+- [DSL Security Directives](dsl-guide.md#security-configuration) - Agent-level security
 
 ---
 

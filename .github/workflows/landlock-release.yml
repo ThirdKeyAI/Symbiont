@@ -1,0 +1,51 @@
+name: Linux Landlock release qualification
+
+# Run once on the intended main commit before tagging a release. This exercises
+# actual host facilities on a disposable VM; it does not run on every PR.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    name: Linux Landlock qualification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - name: Prepare disposable Linux host
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler dbus-user-session
+          # The ephemeral CI VM explicitly permits unprivileged namespaces.
+          # This is runner setup, never an installation change on users' hosts.
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          sudo loginctl enable-linger "$(id -un)"
+          sudo systemctl start "user@$(id -u).service"
+          echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
+          echo "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # pinned
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - name: Build shipping binary
+        run: cargo build --locked --release -p symbi -j2
+      - name: Qualify Linux isolation and recovery
+        run: python3 scripts/test-landlock-release.py --binary target/release/symbi --output "$RUNNER_TEMP/landlock-qualification" --require-clean
+      - name: Preserve qualification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: landlock-qualification-${{ github.sha }}
+          if-no-files-found: error
+          # Only public reports; private action fixtures retain signing keys.
+          path: |
+            ${{ runner.temp }}/landlock-qualification/*.json
+            ${{ runner.temp }}/landlock-qualification/*.log

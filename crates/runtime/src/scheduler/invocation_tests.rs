@@ -113,6 +113,96 @@ async fn wait(handle: &TaskHandle) -> TaskCompletion {
         .await
         .unwrap()
 }
+
+#[tokio::test]
+async fn queued_improvements_keep_the_admitted_version_and_cached_retries_survive_disable() {
+    use crate::improvement::{
+        operational::tests::{release, Provider as EvaluatedProvider},
+        Store,
+    };
+    let root = tempfile::tempdir().unwrap();
+    let provider = Arc::new(EvaluatedProvider::default());
+    let mut config = config();
+    config
+        .metadata
+        .insert("improvement_workflow".into(), "claims".into());
+    let (first, _) = release(
+        root.path(),
+        &config,
+        provider.clone(),
+        "FIRST_VERSION",
+        true,
+    )
+    .await;
+    let runtime = DefaultAgentScheduler::new_with_executor(
+        SchedulerConfig {
+            max_concurrent_agents: 0,
+            ..Default::default()
+        },
+        None,
+        Arc::new(
+            GovernedAgentExecutor::new(root.path())
+                .unwrap()
+                .with_provider(provider.clone())
+                .with_policy_gate(Arc::new(DefaultPolicyGate::new())),
+        ),
+    )
+    .await
+    .unwrap();
+    let id = identity();
+    let handle = queued(
+        runtime
+            .schedule_identified_invocation(config.clone(), json!("input"), id.clone())
+            .await
+            .unwrap(),
+    );
+    let (second, _) = release(
+        root.path(),
+        &config,
+        provider.clone(),
+        "SECOND_VERSION",
+        false,
+    )
+    .await;
+    assert_ne!(first, second);
+    provider.seen.lock().unwrap().clear();
+    let task = runtime.priority_queue.write().pop().unwrap();
+    runtime.task_manager.start_task(task).await.unwrap();
+    let completion = wait(&handle).await;
+    assert_eq!(
+        completion.status,
+        TaskStatus::Completed,
+        "{:?}",
+        completion.error
+    );
+    assert_eq!(completion.improvement.as_ref().unwrap()["candidate"], first);
+    assert!(provider.seen.lock().unwrap()[0].contains("FIRST_VERSION"));
+    assert!(!provider.seen.lock().unwrap()[0].contains("SECOND_VERSION"));
+    Store::open(root.path(), "claims")
+        .unwrap()
+        .set_enabled(false)
+        .unwrap();
+    assert!(matches!(
+        runtime
+            .schedule_identified_invocation(config.clone(), json!("input"), id.clone())
+            .await
+            .unwrap(),
+        Admission::Existing(ExistingInvocation::Recorded { .. })
+    ));
+    assert!(runtime
+        .schedule_identified_invocation(config, json!("input"), identity())
+        .await
+        .is_err());
+    assert_eq!(provider.seen.lock().unwrap().len(), 1);
+    let inspected = crate::reasoning::invocation::reconciliation::inspect_invocation(
+        root.path(),
+        "scheduler:v1",
+        id.id,
+    )
+    .unwrap();
+    assert_eq!(inspected.status, "recorded");
+    runtime.shutdown().await.unwrap();
+}
 #[tokio::test]
 async fn persistent_scheduler_identity_excludes_duplicate_owners_and_survives_restart() {
     let root = tempfile::tempdir().unwrap();

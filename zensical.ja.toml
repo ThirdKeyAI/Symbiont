@@ -1,0 +1,51 @@
+# Built separately from the English site so this language gets its own search
+# index. A single build over docs/ puts every language in one index, which
+# makes search return results a reader cannot read. Assets are referenced
+# absolutely because only docs/ carries them; the translated trees are markdown
+# only, and everything deploys under one domain.
+[project]
+site_name = "Symbiont ドキュメント"
+site_url = "https://docs.symbiont.dev/ja/"
+site_description = "Policy-governed agent runtime for production."
+copyright = "Copyright &copy; 2025–2026 Tarnover, LLC / ThirdKey.ai. All rights reserved."
+docs_dir = "docs/ja"
+site_dir = "site/ja"
+repo_url = "https://github.com/ThirdKeyAI/Symbiont"
+repo_name = "ThirdKeyAI/Symbiont"
+extra_css = ["/stylesheets/extra.css"]
+extra_javascript = ["/javascripts/extra.js"]
+
+[project.theme]
+language = "ja"
+favicon = "/favicon-32x32.png"
+logo = "/symbiont-icon.png"
+
+[[project.theme.palette]]
+scheme = "slate"
+primary = "teal"
+accent = "teal"
+toggle.icon = "lucide/sun"
+toggle.name = "ライトモードに切り替え"
+
+[[project.theme.palette]]
+scheme = "default"
+primary = "teal"
+accent = "teal"
+toggle.icon = "lucide/moon"
+toggle.name = "ダークモードに切り替え"
+
+[project.theme.features]
+navigation = ["navigation.tabs", "navigation.sections", "navigation.top", "navigation.footer"]
+search = ["search.suggest", "search.highlight"]
+content = ["content.code.copy"]
+
+# Language selector, so a reader can leave this language again.
+[project.extra]
+alternate = [
+  { name = "English", link = "/", lang = "en" },
+  { name = "中文简体", link = "/zh-cn/", lang = "zh" },
+  { name = "Español", link = "/es/", lang = "es" },
+  { name = "Português", link = "/pt/", lang = "pt" },
+  { name = "日本語", link = "/ja/", lang = "ja" },
+  { name = "Deutsch", link = "/de/", lang = "de" },
+]

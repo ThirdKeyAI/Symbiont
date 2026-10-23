@@ -60,6 +60,7 @@ name = "broker_fixture"
 version = "1"
 description = "Append an independently authorized normalized count"
 binary = "python3"
+allow_interpreter = true
 timeout_seconds = 10
 [args.count]
 position = 1
@@ -69,16 +70,20 @@ min = 1
 max = 5
 clamp = true
 [command]
-template = "placeholder"
+exec = ["python3"]
 [output]
 format = "text"
 "#,
         )
         .unwrap();
         manifest.tool.human_approval = approval;
-        manifest.command.template = Some(format!(
-            "python3 -c 'from pathlib import Path; p = Path(\"{destination}\"); p.open(\"a\").write(\"{{count}}\\n\"); print(\"recorded {{count}}\")'"
-        ));
+        manifest.command.exec = Some(vec![
+            "python3".into(),
+            "-c".into(),
+            format!(
+                "from pathlib import Path; p = Path(\"{destination}\"); p.open(\"a\").write(\"{{count}}\\n\"); print(\"recorded {{count}}\")"
+            ),
+        ]);
         let boundary = if container {
             let mut profile = CommandBoundary::default();
             profile.docker.volumes = vec![format!("{}:/workspace:rw", effects.display())];

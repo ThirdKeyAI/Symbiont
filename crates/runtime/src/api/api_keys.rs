@@ -53,12 +53,12 @@ pub struct ValidatedKey {
 /// Keys use the format `keyid.secret`. On validation the key ID prefix is
 /// extracted and used for a direct HashMap lookup, so only ONE Argon2 verify
 /// is performed regardless of how many keys are stored. Keys without a `.`
-/// separator fall back to the legacy O(n) scan for backward compatibility.
+/// separator are rejected without any password hashing.
 #[cfg(feature = "http-api")]
 pub struct ApiKeyStore {
     /// Key ID -> record for O(1) lookup
     records_by_id: HashMap<String, ApiKeyRecord>,
-    /// Flat list kept for legacy (no-prefix) fallback
+    /// Flat list retained for record inventory
     records: Vec<ApiKeyRecord>,
 }
 
@@ -142,9 +142,7 @@ impl ApiKeyStore {
     /// Validate a raw API key against the store.
     ///
     /// Preferred format: `keyid.secret` — performs O(1) lookup by key ID then
-    /// a single Argon2 verify. If the key has no `.` separator, falls back to
-    /// the legacy O(n) scan for backward compatibility (with a deprecation
-    /// warning).
+    /// a single Argon2 verify. Missing or malformed prefixes are rejected.
     pub fn validate_key(&self, raw_key: &str) -> Option<ValidatedKey> {
         // Argon2::default() is correct for verification — verify_password()
         // extracts parameters from the stored PHC hash string automatically.
@@ -180,52 +178,8 @@ impl ApiKeyStore {
             }
         }
 
-        // Legacy fallback: no `.` separator — O(n) scan over all keys.
-        // This path exists for backward compatibility with keys that were
-        // issued before the keyid.secret format was introduced.
-        //
-        // M6: the path is scheduled for removal in the next minor release.
-        // Operators can opt-in to immediate rejection by exporting
-        // `SYMBI_REJECT_LEGACY_API_KEYS=1`, which short-circuits the scan
-        // and refuses any unprefixed key.
-        let reject_legacy = std::env::var("SYMBI_REJECT_LEGACY_API_KEYS")
-            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-            .unwrap_or(false);
-        if reject_legacy {
-            tracing::warn!(
-                "SYMBI_REJECT_LEGACY_API_KEYS=1: refusing API key without 'keyid.secret' \
-                 prefix without running the O(n) Argon2 scan."
-            );
-            return None;
-        }
-
-        tracing::error!(
-            "API key without 'keyid.secret' prefix accepted via deprecated O(n) scan. \
-             This path will be REMOVED in the next minor release; re-issue all keys \
-             in 'keyid.secret' format immediately."
-        );
-
-        for record in &self.records {
-            if record.revoked {
-                continue;
-            }
-
-            let parsed_hash = match PasswordHash::new(&record.key_hash) {
-                Ok(h) => h,
-                Err(_) => continue,
-            };
-
-            if argon2
-                .verify_password(raw_key.as_bytes(), &parsed_hash)
-                .is_ok()
-            {
-                return Some(ValidatedKey {
-                    key_id: record.key_id.clone(),
-                    agent_scope: record.agent_scope.clone(),
-                });
-            }
-        }
-
+        // Unprefixed and malformed credentials cannot select a bounded key lookup.
+        // Reissue legacy credentials as keyid.secret instead of scanning hashes.
         None
     }
 
@@ -257,8 +211,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_hash_and_verify_legacy() {
-        // Legacy format (no keyid prefix) — should still work via O(n) fallback
+    fn test_legacy_credentials_are_rejected() {
+        // Even a matching legacy hash cannot authorize an unprefixed credential.
         let raw_key = "sk-test-super-secret-key-12345";
         let hash = ApiKeyStore::hash_key(raw_key).unwrap();
 
@@ -272,8 +226,9 @@ mod tests {
         }]);
 
         let result = store.validate_key(raw_key);
-        assert!(result.is_some());
-        assert_eq!(result.unwrap().key_id, "test-key");
+        assert!(result.is_none());
+        assert!(store.validate_key(&format!(".{raw_key}")).is_none());
+        assert!(store.validate_key("test-key.").is_none());
     }
 
     #[test]

@@ -34,6 +34,8 @@ Symbiont 欢迎来自社区的贡献！无论您是修复 bug、添加功能、�
 - **Docker** 用于测试和开发
 - **基本知识**：Rust、安全原则和 AI 系统
 
+<a id="开发环境设置"></a>
+
 ### 开发环境设置
 
 1. **Fork 并克隆仓库**
@@ -483,7 +485,7 @@ Suggested Fix: [if applicable]
 
 ### 行为准则
 
-我们致力于为所有贡献者提供一个友好和包容的环境。请阅读并遵守我们的[行为准则](CODE_OF_CONDUCT.md)。
+我们致力于为所有贡献者提供一个友好和包容的环境。请阅读并遵守我们的[行为准则](https://github.com/ThirdKeyAI/Symbiont/blob/main/CODE_OF_CONDUCT.md)。
 
 **核心原则：**
 - **尊重**：尊重所有社区成员

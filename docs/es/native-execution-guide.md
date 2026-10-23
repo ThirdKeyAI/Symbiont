@@ -443,7 +443,7 @@ Antes de habilitar la ejecucion nativa en cualquier entorno:
 - [Modelo de Seguridad](security-model.md) - Arquitectura de seguridad completa
 - [Arquitectura de Sandbox](runtime-architecture.md#sandbox-architecture) - Niveles de contenedores
 - [Guia de Configuracion](getting-started.md#configuration) - Opciones de configuracion
-- [Directivas de Seguridad DSL](dsl-guide.md#security) - Seguridad a nivel de agente
+- [Directivas de Seguridad DSL](dsl-guide.md#configuracion-de-seguridad) - Seguridad a nivel de agente
 
 ---
 

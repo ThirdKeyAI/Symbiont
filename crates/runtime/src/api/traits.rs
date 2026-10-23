@@ -27,6 +27,14 @@ use super::types::{
 #[cfg(feature = "http-api")]
 #[async_trait]
 pub trait RuntimeApiProvider: Send + Sync {
+    async fn improvement_operation(
+        &self,
+        workflow: String,
+        operation: crate::improvement::administration::Operation,
+    ) -> Result<serde_json::Value, String> {
+        let _ = (workflow, operation);
+        Err("governed improvement administration is unavailable from this provider".into())
+    }
     /// Inspect the operator-configured pool or measure one retained worker.
     /// Unsupported providers must not invent an empty pool or zero usage.
     async fn inspect_capacity(

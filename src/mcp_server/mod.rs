@@ -175,15 +175,15 @@ impl SymbiMcpServer {
             })
             .await;
             let mut result = match outcome.result {
-                Ok(response) => CallToolResult::success(vec![Content::text(response)]),
-                Err(error) => CallToolResult::error(vec![Content::text(error)]),
+                Ok(response) => CallToolResult::success(vec![ContentBlock::text(response)]),
+                Err(error) => CallToolResult::error(vec![ContentBlock::text(error)]),
             };
             result.structured_content =
                 Some(serde_json::json!({"agent_id":outcome.agent_id,"audit":outcome.audit}));
             Ok::<_, String>(result)
         }
         .await;
-        Ok(invoke.unwrap_or_else(|error| CallToolResult::error(vec![Content::text(error)])))
+        Ok(invoke.unwrap_or_else(|error| CallToolResult::error(vec![ContentBlock::text(error)])))
     }
 
     #[tool(description = "List available Symbiont agents found in the agents/ directory.")]
@@ -208,7 +208,7 @@ impl SymbiMcpServer {
             .collect();
 
         let json = serde_json::to_string_pretty(&agents).unwrap_or_else(|_| "[]".to_string());
-        Ok(CallToolResult::success(vec![Content::text(json)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
     }
 
     #[tool(
@@ -226,19 +226,19 @@ impl SymbiMcpServer {
                     .components()
                     .any(|c| c == std::path::Component::ParentDir)
             {
-                return Ok(CallToolResult::error(vec![Content::text(
+                return Ok(CallToolResult::error(vec![ContentBlock::text(
                     "File path must be relative and cannot contain '..' components.",
                 )]));
             }
             if !dsl::is_symbi_file(path) {
-                return Ok(CallToolResult::error(vec![Content::text(
+                return Ok(CallToolResult::error(vec![ContentBlock::text(
                     "Only .symbi (or legacy .dsl) files can be parsed.",
                 )]));
             }
             match self.read_project_file(file, 1024 * 1024) {
                 Ok(content) => (content, file.clone()),
                 Err(e) => {
-                    return Ok(CallToolResult::error(vec![Content::text(format!(
+                    return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
                         "Failed to read file '{}': {}",
                         file, e
                     ))]));
@@ -246,13 +246,13 @@ impl SymbiMcpServer {
             }
         } else if let Some(ref content) = params.content {
             if content.len() > 1024 * 1024 {
-                return Ok(CallToolResult::error(vec![Content::text(
+                return Ok(CallToolResult::error(vec![ContentBlock::text(
                     "DSL content exceeds 1 MiB",
                 )]));
             }
             (content.clone(), "<inline>".to_string())
         } else {
-            return Ok(CallToolResult::error(vec![Content::text(
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
                 "Either 'file' or 'content' must be provided.",
             )]));
         };
@@ -260,7 +260,7 @@ impl SymbiMcpServer {
         let tree = match dsl::parse_dsl(&source) {
             Ok(t) => t,
             Err(e) => {
-                return Ok(CallToolResult::error(vec![Content::text(format!(
+                return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
                     "DSL parse error ({}): {}",
                     label, e
                 ))]));
@@ -327,7 +327,7 @@ impl SymbiMcpServer {
         });
 
         let json = serde_json::to_string_pretty(&result).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(json)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
     }
 
     #[tool(
@@ -341,7 +341,7 @@ impl SymbiMcpServer {
         for (filename, content) in self.agent_dsl_sources.iter() {
             let stem = dsl::strip_symbi_extension(filename).unwrap_or(filename);
             if stem == params.agent {
-                return Ok(CallToolResult::success(vec![Content::text(
+                return Ok(CallToolResult::success(vec![ContentBlock::text(
                     content.clone(),
                 )]));
             }
@@ -353,7 +353,7 @@ impl SymbiMcpServer {
             .chars()
             .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
         {
-            return Ok(CallToolResult::error(vec![Content::text(
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
                 "Agent name must contain only alphanumeric characters, hyphens, and underscores.",
             )]));
         }
@@ -362,10 +362,10 @@ impl SymbiMcpServer {
         for ext in [dsl::SYMBI_EXTENSION, dsl::LEGACY_DSL_EXTENSION] {
             let path = format!("agents/{}.{}", params.agent, ext);
             if let Ok(content) = self.read_project_file(&path, 1024 * 1024) {
-                return Ok(CallToolResult::success(vec![Content::text(content)]));
+                return Ok(CallToolResult::success(vec![ContentBlock::text(content)]));
             }
         }
-        Ok(CallToolResult::error(vec![Content::text(format!(
+        Ok(CallToolResult::error(vec![ContentBlock::text(format!(
             "Agent '{}' not found. Use list_agents to see available agents.",
             params.agent
         ))]))
@@ -376,8 +376,8 @@ impl SymbiMcpServer {
     )]
     async fn get_agents_md(&self) -> Result<CallToolResult, McpError> {
         match self.read_project_file("AGENTS.md", 64*1024) {
-            Ok(content) => Ok(CallToolResult::success(vec![Content::text(content)])),
-            Err(_) => Ok(CallToolResult::error(vec![Content::text(
+            Ok(content) => Ok(CallToolResult::success(vec![ContentBlock::text(content)])),
+            Err(_) => Ok(CallToolResult::error(vec![ContentBlock::text(
                 "No AGENTS.md found in the working directory. Run 'symbi agents-md generate' to create one.",
             )])),
         }
@@ -391,7 +391,7 @@ impl SymbiMcpServer {
         Parameters(params): Parameters<VerifySchemaParams>,
     ) -> Result<CallToolResult, McpError> {
         if params.schema.len() > 1024 * 1024 || params.public_key_url.len() > 8192 {
-            return Ok(CallToolResult::error(vec![Content::text(
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
                 "Schema or key URL exceeds its byte limit",
             )]));
         }
@@ -399,14 +399,14 @@ impl SymbiMcpServer {
         let tmp = match tempfile::NamedTempFile::new() {
             Ok(t) => t,
             Err(e) => {
-                return Ok(CallToolResult::error(vec![Content::text(format!(
+                return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
                     "Failed to create temp file: {}",
                     e
                 ))]));
             }
         };
         if let Err(e) = tokio::fs::write(tmp.path(), &params.schema).await {
-            return Ok(CallToolResult::error(vec![Content::text(format!(
+            return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
                 "Failed to write schema to temp file: {}",
                 e
             ))]));
@@ -432,9 +432,9 @@ impl SymbiMcpServer {
                     "timestamp": result.timestamp,
                 });
                 let text = serde_json::to_string_pretty(&json).unwrap_or_else(|_| json.to_string());
-                Ok(CallToolResult::success(vec![Content::text(text)]))
+                Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
             }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!(
                 "Schema verification failed: {}",
                 e
             ))])),
@@ -471,19 +471,9 @@ impl ServerHandler for SymbiMcpServer {
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ListResourcesResult, McpError>> + Send + '_ {
         let resources = if self.read_project_file("AGENTS.md", 64 * 1024).is_ok() {
-            vec![Resource {
-                raw: RawResource {
-                    uri: "file:///AGENTS.md".to_string(),
-                    name: "AGENTS.md".to_string(),
-                    title: None,
-                    description: Some("Project agent instructions and topology".to_string()),
-                    mime_type: Some("text/markdown".to_string()),
-                    size: None,
-                    icons: None,
-                    meta: None,
-                },
-                annotations: None,
-            }]
+            vec![Resource::new("file:///AGENTS.md", "AGENTS.md")
+                .with_description("Project agent instructions and topology")
+                .with_mime_type("text/markdown")]
         } else {
             vec![]
         };

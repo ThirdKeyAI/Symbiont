@@ -177,7 +177,7 @@ El comportamiento del agente vive en el bloque `with` del agente (y en las
 definiciones de `function`) — no existe un constructo `behavior` separado. Las
 reglas de politica (`allow` / `deny` / `require` / `audit`) controlan lo que el
 agente puede hacer. Consulta la [Guia del DSL](dsl-guide.md) y la
-[Especificacion del DSL](dsl-specification.md) para la gramatica completa.
+[Especificacion del DSL](/dsl-specification) para la gramatica completa.
 
 ### Funciones Integradas
 

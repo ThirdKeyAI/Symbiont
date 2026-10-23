@@ -2010,6 +2010,49 @@ mod status_tests {
         assert_eq!(status_code, StatusCode::FORBIDDEN);
     }
     #[tokio::test]
+    async fn improvement_controls_require_admin_and_never_cache() {
+        use crate::improvement::administration::{Inspection, Operation};
+        let provider: Arc<dyn RuntimeApiProvider> = Arc::new(MockStatusProvider {
+            agents: 0,
+            schedules: 0,
+            channels: 0,
+            healthy: true,
+        });
+        for scope in [Some(vec!["claims".into()]), None] {
+            let key = Some(Extension(ValidatedKey {
+                key_id: "fixture".into(),
+                agent_scope: scope.clone(),
+            }));
+            let expected = if scope.is_some() {
+                StatusCode::FORBIDDEN
+            } else {
+                StatusCode::CONFLICT // Unsupported provider must fail closed.
+            };
+            let inspected = crate::api::improvements::inspect(
+                State(provider.clone()),
+                key.clone(),
+                Path("claims".into()),
+                axum::extract::Query(Inspection::default()),
+            )
+            .await;
+            let changed = crate::api::improvements::act(
+                State(provider.clone()),
+                key,
+                Path("claims".into()),
+                Json(Operation::SetEnabled { enabled: true }),
+            )
+            .await;
+            for response in [inspected, changed] {
+                assert_eq!(response.status(), expected);
+                assert_eq!(
+                    response.headers()[axum::http::header::CACHE_CONTROL],
+                    "no-store"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn capacity_requires_admin_and_unavailable_samples_are_never_zero_or_cached() {
         let provider: Arc<dyn RuntimeApiProvider> = Arc::new(MockStatusProvider {
             agents: 0,

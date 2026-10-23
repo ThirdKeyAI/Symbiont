@@ -212,7 +212,7 @@ pub struct ResourceLimits {
 
 ### Sandbox Architecture
 
-The runtime ships three host-isolation tiers — all OSS — plus one separate hosted-cloud backend (E2B). Operators pick the tier per agent via the DSL `with { sandbox = ... }` block, or set a project default in `[sandbox] tier = "..."`.
+The runtime ships four host-isolation backends — all OSS — plus one separate hosted-cloud backend (E2B). Three are numbered (Docker, gVisor, Firecracker); `landlock` is named rather than numbered, because it isolates one-shot commands, parsers and the managed CLI child without a daemon and is not a peer on the numbered ladder. Operators pick the backend per agent via the DSL `with { sandbox = ... }` block, or set a project default in `[sandbox] tier = "..."`.
 
 #### Tier 1: Docker Isolation
 **Use Case**: Low-risk operations, development tasks

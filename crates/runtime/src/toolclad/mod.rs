@@ -8,11 +8,15 @@ pub mod browser_executor;
 pub mod browser_network;
 pub mod browser_state;
 pub mod cedar_gen;
+pub mod command;
 pub mod decision;
+pub mod evidence;
 pub mod executor;
+pub mod hostpolicy;
 mod http_transport;
 pub mod manifest;
 pub(crate) mod process;
+pub mod schema;
 pub mod scope;
 pub mod session_executor;
 pub mod session_state;
@@ -21,5 +25,7 @@ pub mod validator;
 pub mod watcher;
 
 pub use executor::ToolCladExecutor;
-pub use manifest::{load_custom_types, load_manifest, load_manifests_from_dir, Manifest};
+pub use manifest::{
+    load_custom_types, load_manifest, load_manifests_from_dir, parse_manifest, Manifest,
+};
 pub use scope::Scope;

@@ -471,6 +471,19 @@ pub struct RuntimeConfig {
 #[allow(unused_variables)] // Params used inside #[cfg(feature = "cron")] blocks
 impl RuntimeApiProvider for AgentRuntime {
     #[cfg(unix)]
+    async fn improvement_operation(
+        &self,
+        workflow: String,
+        operation: improvement::administration::Operation,
+    ) -> Result<serde_json::Value, String> {
+        improvement::administration::execute(
+            self.scheduler.invocation_project()?,
+            workflow,
+            operation,
+        )
+        .await
+    }
+    #[cfg(unix)]
     async fn inspect_capacity(
         &self,
         lease: Option<uuid::Uuid>,

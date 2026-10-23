@@ -3,6 +3,15 @@
 //! Scope restricts the entire requested IP range or canonical hostname.
 //! DNS/egress enforcement must additionally bind a hostname to its actual
 //! connection; this lexical check does not grant unrestricted network access.
+//! Address-carrying arguments are separately put through the egress policy
+//! in `hostpolicy` (link-local always refused, `block_internal` for the rest).
+//!
+//! `scope/scope.toml` accepts Symbiont's keys (`targets`, `domains`,
+//! `exclude`) and the ToolClad reference keys (`allowed_cidrs`,
+//! `allowed_domains`, `blocked_cidrs`, `blocked_domains`), which merge into
+//! them. An allow rule `*.example.com` matches strict subdomains only (not
+//! the apex, not `evil-example.com`); an exclusion `*.example.com` also
+//! covers the apex, so exclusions are never narrower than they read.
 
 use serde::Deserialize;
 use std::net::IpAddr;
@@ -25,7 +34,25 @@ impl Scope {
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
         struct Document {
-            scope: Scope,
+            scope: RawScope,
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct RawScope {
+            #[serde(default)]
+            targets: Vec<String>,
+            #[serde(default)]
+            domains: Vec<String>,
+            #[serde(default)]
+            exclude: Vec<String>,
+            #[serde(default)]
+            allowed_cidrs: Vec<String>,
+            #[serde(default)]
+            allowed_domains: Vec<String>,
+            #[serde(default)]
+            blocked_cidrs: Vec<String>,
+            #[serde(default)]
+            blocked_domains: Vec<String>,
         }
         let path = project_dir.join("scope/scope.toml");
         let text = match std::fs::read_to_string(&path) {
@@ -41,8 +68,19 @@ impl Scope {
         };
         let document: Document = toml::from_str(&text)
             .map_err(|error| format!("Invalid scope {}: {error}", path.display()))?;
-        document.scope.validate()?;
-        Ok(Some(document.scope))
+        let raw = document.scope;
+        let scope = Scope {
+            targets: raw.targets.into_iter().chain(raw.allowed_cidrs).collect(),
+            domains: raw.domains.into_iter().chain(raw.allowed_domains).collect(),
+            exclude: raw
+                .exclude
+                .into_iter()
+                .chain(raw.blocked_cidrs)
+                .chain(raw.blocked_domains)
+                .collect(),
+        };
+        scope.validate()?;
+        Ok(Some(scope))
     }
 
     pub fn validate(&self) -> Result<(), String> {
@@ -85,7 +123,11 @@ enum Rule {
 impl Rule {
     fn destination(value: &str) -> Result<Self, String> {
         if value.contains("://") {
-            let url = url::Url::parse(value).map_err(|e| format!("Invalid scope URL: {e}"))?;
+            // The same strict parse the `url` validator uses: a backslash,
+            // credentials or whitespace cannot give this check one host and
+            // the tool another.
+            let url = super::validator::strict_url_parse(value)
+                .map_err(|e| format!("Invalid scope URL: {e}"))?;
             if !matches!(url.scheme(), "http" | "https") {
                 return Err("Scope URL must use HTTP or HTTPS".into());
             }
@@ -186,11 +228,32 @@ impl Rule {
             (
                 Self::Domain { name, descendants },
                 Self::Domain {
+                    name: other_name,
+                    descendants: other_descendants,
+                },
+            ) => {
+                if *descendants {
+                    other_name.ends_with(&format!(".{name}"))
+                } else {
+                    !other_descendants && name == other_name
+                }
+            }
+            _ => false,
+        }
+    }
+
+    /// Domain overlap for exclusions: a wildcard covers its apex too.
+    fn domain_overlaps(&self, other: &Self) -> bool {
+        let covers = |rule: &Self, target: &Self| match (rule, target) {
+            (
+                Self::Domain { name, descendants },
+                Self::Domain {
                     name: other_name, ..
                 },
             ) => name == other_name || (*descendants && other_name.ends_with(&format!(".{name}"))),
             _ => false,
-        }
+        };
+        covers(self, other) || covers(other, self)
     }
 
     fn overlaps(&self, other: &Self) -> bool {
@@ -203,7 +266,7 @@ impl Rule {
                     last: other_last,
                 },
             ) => v4 == other_v4 && first <= other_last && last >= other_first,
-            _ => self.contains(other) || other.contains(self),
+            _ => self.domain_overlaps(other),
         }
     }
 }
@@ -253,15 +316,15 @@ mod tests {
             exclude: vec!["*.private.example.com".into()],
             ..Default::default()
         };
-        for target in [
-            "https://API.EXAMPLE.COM./path",
-            "example.com",
-            "a.example.com",
-        ] {
+        for target in ["https://API.EXAMPLE.COM./path", "a.example.com"] {
             assert!(scope.check(target).is_ok(), "{target}");
         }
         for target in [
+            // A wildcard allow rule does not cover its apex.
+            "example.com",
             "https://example.com@evil.com/",
+            "http://example.com\\@169.254.169.254/",
+            "https://a.example.com /",
             "PRIVATE.EXAMPLE.COM.",
             "https://a.private.example.com/",
             "badexample.com",
@@ -319,7 +382,8 @@ mod tests {
         };
         assert!(scope.check("example.com").is_ok());
         assert!(scope.check("foo.test.example.com").is_ok());
-        assert!(scope.check("test.example.com").is_ok());
+        assert!(scope.check("test.example.com").is_err());
+        assert!(scope.check("evil-example.com").is_err());
         assert!(scope.check("evil.com").is_err());
     }
 
@@ -333,5 +397,22 @@ mod tests {
         // CIDR target — check the network address
         assert!(scope.check("10.0.1.0/28").is_ok());
         assert!(scope.check("10.0.2.0/24").is_err());
+    }
+
+    #[test]
+    fn toolclad_scope_keys_merge_into_symbiont_rules() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("scope")).unwrap();
+        std::fs::write(
+            dir.path().join("scope/scope.toml"),
+            "[scope]\nallowed_domains = ['example.com', '*.example.com']\nallowed_cidrs = ['10.0.1.0/24']\nblocked_domains = ['admin.example.com']\nblocked_cidrs = ['10.0.1.5/32']\n",
+        )
+        .unwrap();
+        let scope = Scope::load(dir.path()).unwrap().unwrap();
+        assert!(scope.check("example.com").is_ok());
+        assert!(scope.check("app.example.com").is_ok());
+        assert!(scope.check("admin.example.com").is_err());
+        assert!(scope.check("10.0.1.4").is_ok());
+        assert!(scope.check("10.0.1.5").is_err());
     }
 }

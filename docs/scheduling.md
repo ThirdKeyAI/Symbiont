@@ -167,100 +167,88 @@ The heartbeat agent follows this cycle:
 
 ## CLI Commands
 
-The `symbi cron` command provides full lifecycle management:
+`symbi cron` manages the scheduled-job lifecycle. Every subcommand below is
+shown with the options it actually accepts; run `symbi cron <subcommand>
+--help` to confirm against your build.
 
 ### List Jobs
 
 ```bash
-# List all jobs
 symbi cron list
-
-# Filter by status
-symbi cron list --status active
-symbi cron list --status paused
-
-# Filter by agent
-symbi cron list --agent "reporter-agent"
-
-# JSON output
-symbi cron list --format json
 ```
+
+`list` takes no options. Use `symbi cron status <job-id>` for one job's
+detail, or `symbi cron history` to filter run records.
 
 ### Add Job
 
-```bash
-# From DSL file
-symbi cron add --file agent.symbi --schedule "daily-report"
+`--name`, `--cron` and `--agent` are required. The agent must already be
+registered; `add` does not read a DSL file.
 
-# Inline definition (JSON)
-symbi cron add --json '{
-  "name": "quick-task",
-  "agent_id": "agent-123",
-  "cron_expr": "0 0 * * * *"
-}'
+```bash
+symbi cron add --name "daily-report" --cron "0 0 9 * * * *" --agent reporter
+
+# Pin a timezone (default UTC) and a policy, and disable after one run
+symbi cron add --name "one-off" --cron "0 */5 * * * * *" --agent reporter \
+  --tz "America/New_York" --policy strict --one-shot
 ```
 
-### Remove Job
+| Option | Required | Meaning |
+|---|---|---|
+| `--name <NAME>` | yes | Job name |
+| `--cron <EXPR>` | yes | Cron expression, seven fields (seconds first) |
+| `--agent <AGENT>` | yes | Registered agent name to execute |
+| `--tz <TIMEZONE>` | no | IANA timezone, defaults to UTC |
+| `--policy <POLICY>` | no | Policy to apply to the run |
+| `--one-shot` | no | Run once, then disable the job |
+
+### Remove, Pause, Resume
+
+Each takes a single job UUID and no options.
 
 ```bash
-# By job ID
 symbi cron remove <job-id>
-
-# By name
-symbi cron remove --name "daily-report"
-
-# Force remove (skip confirmation)
-symbi cron remove <job-id> --force
-```
-
-### Pause/Resume
-
-```bash
-# Pause job (stops scheduling, preserves state)
-symbi cron pause <job-id>
-
-# Resume paused job
-symbi cron resume <job-id>
+symbi cron pause <job-id>    # stops scheduling, preserves state
+symbi cron resume <job-id>   # unresolved occurrences block a resume
 ```
 
 ### Status
 
 ```bash
-# Job details with next run time
 symbi cron status <job-id>
-
-# Include last 10 run records
-symbi cron status <job-id> --history 10
-
-# Watch mode (auto-refresh every 5s)
-symbi cron status <job-id> --watch
 ```
+
+`status` takes a job UUID and no options. It reports the job's detail and
+recent runs, including a `Reconciled` status with the original error and the
+operator's resolution when an invocation was reconciled.
 
 ### Run Now
 
 ```bash
-# Trigger immediate execution (bypasses schedule)
 symbi cron run <job-id>
-
-# With custom input
-symbi cron run <job-id> --input "Check production database"
 ```
+
+Force-triggers the job immediately. A manual trigger requires an
+administrative token and an `Idempotency-Key` UUID over the REST surface;
+reuse the same UUID to retry rather than to run twice. See
+[scheduler retry states](scheduler-idempotency.md) and
+[cron recovery](cron-recovery.md).
 
 ### History
 
 ```bash
-# View run history for a job
-symbi cron history <job-id>
+# Recent runs across every job (20 by default)
+symbi cron history
 
-# Last 20 runs
-symbi cron history <job-id> --limit 20
-
-# Filter by status
-symbi cron history <job-id> --status failed
-
-# Export to CSV
-symbi cron history <job-id> --format csv > runs.csv
+# One job, with an explicit record limit
+symbi cron history --job <job-id> --limit 50
 ```
+
+| Option | Meaning |
+|---|---|
+| `--job <JOB_ID>` | Filter to one job |
+| `--limit <N>` | Maximum records to show, default 20 |
+
 
 ## Heartbeat Pattern
 
@@ -567,15 +555,20 @@ schedule {
 **Recovery:**
 
 ```bash
-# List dead-lettered jobs
-symbi cron list --status dead_letter
+# List jobs and find the disabled one
+symbi cron list
 
-# Review failure reasons
-symbi cron history <job-id> --status failed
+# Review its run records, including the failures
+symbi cron history --job <job-id>
 
-# Reset job to active after fixing
-symbi cron reset <job-id>
+# Re-enable after fixing the cause
+symbi cron resume <job-id>
 ```
+
+`cron list` and `cron history` do not filter by status; read the status column
+from `list`, or the run records from `history`. There is no `cron reset`
+subcommand -- `resume` re-enables a job, and an unresolved occurrence blocks
+the resume until an operator reconciles it.
 
 ### AgentPin Verification
 
@@ -933,11 +926,11 @@ Or programmatically via the runtime HTTP API — see [API Reference](/api-refere
 1. Check job status: `symbi cron status <job-id>`
 2. Verify cron expression: Use [crontab.guru](https://crontab.guru/)
 3. Check scheduler health: `curl http://localhost:8080/api/v1/health/scheduler`
-4. Review logs: `symbi logs --filter scheduler --level debug`
+4. Review logs: `symbi logs --lines 200` (add `--follow` to stream)
 
 ### Job Failing Repeatedly
 
-1. View history: `symbi cron history <job-id> --status failed`
+1. View history: `symbi cron history --job <job-id>`
 2. Check error messages in run records
 3. Verify agent configuration and capabilities
 4. Test agent outside scheduler: `symbi run <agent-id> --input "test"`
@@ -945,10 +938,10 @@ Or programmatically via the runtime HTTP API — see [API Reference](/api-refere
 
 ### Dead-Lettered Job
 
-1. List dead-letter jobs: `symbi cron list --status dead_letter`
-2. Review failure pattern: `symbi cron history <job-id>`
+1. List jobs and find the disabled one: `symbi cron list`
+2. Review failure pattern: `symbi cron history --job <job-id>`
 3. Fix root cause (agent code, permissions, external dependencies)
-4. Reset job: `symbi cron reset <job-id>`
+4. Re-enable the job: `symbi cron resume <job-id>`
 
 ### High Memory Usage
 

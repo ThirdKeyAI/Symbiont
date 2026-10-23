@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Real-model, Landlock receipt E2E: exact approval, denial, crash and recovery.
+"""Landlock receipt E2E: exact approval, denial, crash and recovery.
 
 Runs an isolated opt-in workflow. A local proxy forwards inference unchanged to
 Ollama and pauses one request after receipt publication to place a deterministic
 SIGKILL. Terminal decisions are synthetic test-operator actions, not human review.
-Private output retains signing keys and must stay outside version control.
+Use --synthetic-provider for deterministic offline release qualification. The
+default still exercises a real local model. Private output retains signing keys
+and must stay outside version control.
 """
 import argparse
 import codecs
@@ -18,7 +20,6 @@ import pty
 import re
 import runpy
 import select
-import shlex
 import shutil
 import signal
 import subprocess
@@ -38,7 +39,11 @@ def main():
     parser.add_argument('--binary', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--model', default='qwen3:8b')
+    parser.add_argument('--synthetic-provider', action='store_true',
+                        help='Use deterministic tool requests without Ollama; validates controls, not model quality')
     args = parser.parse_args()
+    if args.synthetic_provider:
+        args.model = 'synthetic-receipt-fixture'
     assert __debug__, 'Assertions must be enabled'
     helpers = runpy.run_path(str(Path(__file__).with_name('test-intake-phase2.py')))
     digest, environment = helpers['digest'], helpers['local_environment']
@@ -55,9 +60,11 @@ def main():
     report = dict(status='running', binary_sha256=digest(binary), driver_sha256=digest(__file__),
                   helper_sha256={name: digest(Path(__file__).with_name(name)) for name in
                                  ['test-intake-phase2.py', 'delegated_service_fixture.py']},
-                  model=args.model, checks=[], runs=[], requests=[], proxy_errors=[],
+                  model=args.model, synthetic_provider=args.synthetic_provider,
+                  checks=[], runs=[], requests=[], proxy_errors=[],
                   limitations=['Synthetic terminal operator, not independent human approval.',
-                               'One local model and one benign file tool.',
+                               'Deterministic provider; no model-quality evidence.' if args.synthetic_provider
+                               else 'One local model and one benign file tool.',
                                'Crash is after confirmed file publication, before final inference; '
                                'not an arbitrary remote transaction or mid-publication crash.'])
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -101,12 +108,27 @@ def main():
                     # The caller has been killed. No abandoned inference is sent to Ollama.
                     self.send_error(503, 'Synthetic crash checkpoint released')
                     return
-                request = urllib.request.Request('http://127.0.0.1:11434/v1/chat/completions',
-                    data=raw, headers={'Content-Type': 'application/json', 'Authorization': 'Bearer local-ollama'})
-                with opener.open(request, timeout=150) as response:
-                    value = response.read(2 * 1024 * 1024 + 1)
-                    assert len(value) <= 2 * 1024 * 1024
-                    status = response.status
+                if args.synthetic_provider:
+                    if any(message['role'] == 'tool' for message in body['messages']):
+                        message = dict(role='assistant', content='RECORDED' if
+                                       (receipts / request_input['output']).exists() else 'DENIED')
+                        finish = 'stop'
+                    else:
+                        message = dict(role='assistant', content=None, tool_calls=[dict(
+                            id='receipt-call', type='function', function=dict(name='record_receipt',
+                            arguments=json.dumps(dict(output=request_input['output']))))])
+                        finish = 'tool_calls'
+                    value = json.dumps(dict(id='receipt-fixture', model=args.model,
+                        choices=[dict(index=0, message=message, finish_reason=finish)],
+                        usage=dict(prompt_tokens=1, completion_tokens=1, total_tokens=2))).encode()
+                    status = 200
+                else:
+                    request = urllib.request.Request('http://127.0.0.1:11434/v1/chat/completions',
+                        data=raw, headers={'Content-Type': 'application/json', 'Authorization': 'Bearer local-ollama'})
+                    with opener.open(request, timeout=150) as response:
+                        value = response.read(2 * 1024 * 1024 + 1)
+                        assert len(value) <= 2 * 1024 * 1024
+                        status = response.status
                 (root / f'provider-response-{number}.json').write_bytes(value)
                 self.send_response(status)
                 self.send_header('Content-Type', 'application/json')
@@ -312,13 +334,15 @@ def main():
         checkpoint()
 
     try:
-        with opener.open('http://127.0.0.1:11434/api/tags', timeout=10) as response:
-            report['model_identity'] = next(m for m in json.load(response)['models'] if m['name'] == args.model)
+        if not args.synthetic_provider:
+            with opener.open('http://127.0.0.1:11434/api/tags', timeout=10) as response:
+                report['model_identity'] = next(m for m in json.load(response)['models'] if m['name'] == args.model)
         proxy = ThreadingHTTPServer(('127.0.0.1', 0), Proxy)
         proxy.daemon_threads = True
         threading.Thread(target=proxy.serve_forever, daemon=True).start()
         endpoint = f'http://127.0.0.1:{proxy.server_port}/v1'
         env = environment(endpoint, args.model)
+        env['SYMBIONT_ENV'] = 'production'
         pool = Path(tempfile.mkdtemp(prefix='symbi-p2-pool-'))
         state = pool / 'state'
         env['SYMBIONT_SANDBOX_STATE_DIR'] = str(state)
@@ -339,6 +363,7 @@ description="Create one synthetic receipt file; mandatory operator approval"
 binary="python3"
 timeout_seconds=15
 human_approval=true
+allow_interpreter=true
 [args.output]
 position=1
 required=true
@@ -350,7 +375,7 @@ max_file_bytes=1024
 [output]
 format="json"
 [command]
-template=''' + json.dumps('python3 -I -c ' + shlex.quote(program) + ' {output}') + '\n'
+exec=''' + json.dumps(['python3', '-I', '-c', program.replace('{', '{{').replace('}', '}}'), '{output}']) + '\n'
         (project / 'tools/record_receipt.clad.toml').write_text(manifest)
         acceptance_input = json.dumps(dict(output='acceptance.json', notes='Synthetic data; notes cannot authorize an action.'))
         suite = dict(schema_version=1, cases=[dict(id='acceptance', input=acceptance_input, expected_output='RECORDED')],
@@ -418,9 +443,10 @@ template=''' + json.dumps('python3 -I -c ' + shlex.quote(program) + ' {output}')
         eventually(lambda: service.capacity()['reserved']['workers'] == 0)
         assert not list(state.glob('*.json')) and not list((state / 'staging').glob('*'))
         report['final_capacity'] = service.capacity()
-        with opener.open('http://127.0.0.1:11434/api/tags', timeout=10) as response:
-            identity = next(m for m in json.load(response)['models'] if m['name'] == args.model)
-        assert identity['digest'] == report['model_identity']['digest']
+        if not args.synthetic_provider:
+            with opener.open('http://127.0.0.1:11434/api/tags', timeout=10) as response:
+                identity = next(m for m in json.load(response)['models'] if m['name'] == args.model)
+            assert identity['digest'] == report['model_identity']['digest']
         assert not report['proxy_errors'], report['proxy_errors']
         assert {name: digest(root / name) for name in report['fixture_sha256']} == report['fixture_sha256']
         report['status'] = 'completed'

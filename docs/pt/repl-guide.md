@@ -174,7 +174,7 @@ agent data_analyzer(data: DataSet, options: AnalysisOptions) -> AnalysisResults 
 O comportamento do agente reside no bloco `with` do agente (e em definições de
 `function`) — não há uma construção `behavior` separada. As regras de política
 (`allow` / `deny` / `require` / `audit`) controlam o que o agente pode fazer. Veja o
-[Guia DSL](dsl-guide.md) e a [Especificação DSL](dsl-specification.md) para a
+[Guia DSL](dsl-guide.md) e a [Especificação DSL](/dsl-specification) para a
 gramática completa.
 
 ### Funções Integradas

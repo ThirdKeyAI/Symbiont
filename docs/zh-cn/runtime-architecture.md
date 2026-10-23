@@ -162,9 +162,11 @@ pub struct ResourceLimits {
 
 ## 多层安全
 
+<a id="sandbox-architecture"></a>
+
 ### 沙箱架构
 
-运行时附带三个主机隔离层 —— 全部为 OSS —— 外加一个独立的托管云后端（E2B）。运维方可在 DSL 的 `with { sandbox = ... }` 块中按智能体选择层级，或在 `[sandbox] tier = "..."` 中设置项目默认值。
+运行时附带四个主机隔离后端 —— 全部为 OSS —— 外加一个独立的托管云后端（E2B）。其中三个带编号（Docker、gVisor、Firecracker）；`landlock` 是具名的而非编号的，因为它在不需要守护进程的情况下隔离一次性命令、解析器和托管 CLI 子进程，并不是编号阶梯上的对等项。运维方可在 DSL 的 `with { sandbox = ... }` 块中按智能体选择后端，或在 `[sandbox] tier = "..."` 中设置项目默认值。
 
 #### 第 1 层：Docker 隔离
 **用例**：低风险操作、开发任务
@@ -700,9 +702,9 @@ cargo test --features security-tests
 
 ## 下一步
 
-- **[安全模型](security-model.zh-cn.md)** - 深入了解安全实现
-- **[贡献指南](contributing.zh-cn.md)** - 开发和贡献指南
-- **[API 参考](api-reference.zh-cn.md)** - 完整的 API 文档
+- **[安全模型](security-model.md)** - 深入了解安全实现
+- **[贡献指南](contributing.md)** - 开发和贡献指南
+- **[API 参考](api-reference.md)** - 完整的 API 文档
 - **[示例](https://github.com/thirdkeyai/symbiont/tree/main/runtime/examples)** - 运行时示例和教程
 
 运行时架构为构建安全、可扩展的 AI 代理提供了坚实的基础。其模块化设计和全面的安全模型使其适用于开发和生产环境。

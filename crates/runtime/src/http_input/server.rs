@@ -188,6 +188,9 @@ impl HttpInputServer {
 
         // Load JWT public key if configured (fail fast on invalid key)
         let jwt_decoding_key = if let Some(ref key_path) = config.jwt_public_key_path {
+            jwt_validation(&config).map_err(|reason| {
+                RuntimeError::Configuration(crate::types::ConfigError::Invalid(reason.into()))
+            })?;
             let key_bytes = tokio::fs::read(key_path).await.map_err(|e| {
                 RuntimeError::Configuration(crate::types::ConfigError::Invalid(format!(
                     "Failed to read JWT public key file '{}': {}",
@@ -459,12 +462,23 @@ struct JwtClaims {
 }
 
 #[cfg(feature = "http-input")]
-fn jwt_validation() -> jsonwebtoken::Validation {
+fn jwt_validation(config: &HttpInputConfig) -> Result<jsonwebtoken::Validation, &'static str> {
+    let issuer = config
+        .jwt_issuer
+        .as_deref()
+        .filter(|v| !v.trim().is_empty())
+        .ok_or("JWT authentication requires jwt_issuer")?;
+    let audience = config
+        .jwt_audience
+        .as_deref()
+        .filter(|v| !v.trim().is_empty())
+        .ok_or("JWT authentication requires jwt_audience")?;
     let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::EdDSA);
-    validation.set_required_spec_claims(&["exp", "sub"]);
-    validation.validate_aud = false;
+    validation.set_required_spec_claims(&["exp", "sub", "iss", "aud"]);
+    validation.set_issuer(&[issuer]);
+    validation.set_audience(&[audience]);
     validation.leeway = 5;
-    validation
+    Ok(validation)
 }
 
 /// Authentication middleware
@@ -536,7 +550,8 @@ async fn auth_middleware(
                     return Err(StatusCode::UNAUTHORIZED);
                 }
 
-                let validation = jwt_validation();
+                let validation = jwt_validation(&*state.config.read().await)
+                    .map_err(|_| StatusCode::UNAUTHORIZED)?;
 
                 match jsonwebtoken::decode::<JwtClaims>(token, decoding_key, &validation) {
                     Ok(token_data) => {
@@ -722,6 +737,7 @@ async fn execute_http_run(
     policy_gate: Arc<dyn ReasoningPolicyGate>,
     circuit_breakers: Arc<CircuitBreakerRegistry>,
     invocation: Box<crate::reasoning::invocation::Invocation>,
+    improvement: Option<crate::improvement::PinnedImprovement>,
     cancellation: tokio_util::sync::CancellationToken,
 ) -> Result<crate::reasoning::invocation::ExistingInvocation, RuntimeError> {
     let start = std::time::Instant::now();
@@ -819,7 +835,7 @@ async fn execute_http_run(
     );
 
     let mut conversation = Conversation::with_system(system_prompt);
-    conversation.push(ConversationMessage::user(user_message));
+    conversation.push(ConversationMessage::user(&user_message));
 
     // Preserve the previous hand-rolled loop's bounds that this handler
     // still owns: up to 15 tool-calling round trips per request, and a 120s
@@ -831,6 +847,7 @@ async fn execute_http_run(
         max_iterations: 15,
         tool_timeout: std::time::Duration::from_secs(120),
         timeout: selected_settings
+            .as_ref()
             .and_then(|s| s.timeout_seconds)
             .map(std::time::Duration::from_secs)
             .map_or(LoopConfig::default().timeout, |bound| {
@@ -858,9 +875,40 @@ async fn execute_http_run(
         delegation: None,
     };
 
-    let result = runner
-        .run_cancellable(agent_id, conversation, loop_config, cancellation)
-        .await;
+    let result = if let Some(pin) = &improvement {
+        let settings = selected_settings.as_ref().ok_or_else(|| {
+            RuntimeError::Internal("improvement selection requires a registered agent".into())
+        })?;
+        let (conversation, config) =
+            crate::improvement::operational::profile(settings, &user_message);
+        let deadline = resource_timeout
+            .unwrap_or(config.timeout)
+            .min(config.timeout)
+            .saturating_sub(start.elapsed());
+        if deadline.is_zero() {
+            cancellation.cancel();
+        }
+        let run = runner.run_with_improvement_cancellable(
+            agent_id,
+            conversation,
+            config,
+            pin,
+            cancellation.clone(),
+        );
+        tokio::pin!(run);
+        let result = tokio::select! {
+            result = &mut run => result,
+            _ = tokio::time::sleep(deadline) => {
+                cancellation.cancel();
+                run.await
+            }
+        };
+        result.map_err(RuntimeError::Internal)?
+    } else {
+        runner
+            .run_cancellable(agent_id, conversation, loop_config, cancellation)
+            .await
+    };
 
     let tool_runs = reconstruct_tool_runs(&result.conversation);
 
@@ -876,7 +924,7 @@ async fn execute_http_run(
     );
 
     let completed = matches!(result.termination_reason, TerminationReason::Completed);
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "status": if completed { "completed" } else { "failed" },
         "audit": audit,
         "agent_id": agent_id.to_string(),
@@ -891,6 +939,9 @@ async fn execute_http_run(
         "latency_ms": latency.as_millis(),
         "timestamp": chrono::Utc::now().to_rfc3339()
     });
+    if let Some(pin) = &improvement {
+        body["improvement"] = pin.identity();
+    }
     invocation
         .finish(serde_json::json!({"completed": completed, "body": body}))
         .await
@@ -1159,7 +1210,12 @@ mod tests {
     /// Attack reachability through `jsonwebtoken`'s transitive `rsa` dep.
     #[test]
     fn test_jwt_bearer_validation_matches_the_configured_key_family() {
-        let validation = jwt_validation();
+        let validation = jwt_validation(&HttpInputConfig {
+            jwt_issuer: Some("fixture".into()),
+            jwt_audience: Some("symbi".into()),
+            ..Default::default()
+        })
+        .unwrap();
         assert_eq!(validation.algorithms, vec![jsonwebtoken::Algorithm::EdDSA]);
 
         for forbidden in [
@@ -1342,6 +1398,8 @@ type = "object"
             agent: AgentId::new(),
             auth_header: Some("Bearer test-token".to_string()),
             jwt_public_key_path: None,
+            jwt_issuer: None,
+            jwt_audience: None,
             max_body_bytes: 65_536,
             concurrency: 5,
             routing_rules: None,
@@ -1365,7 +1423,7 @@ type = "object"
 
         let executor: Arc<dyn crate::reasoning::executor::ActionExecutor> = Arc::new(
             crate::toolclad::ToolCladExecutor::new(
-                crate::toolclad::manifest::load_manifests_from_dir(tools_dir.path()),
+                crate::toolclad::manifest::load_manifests_from_dir(tools_dir.path()).unwrap(),
             )
             .with_development_host_execution(),
         );
@@ -1444,7 +1502,7 @@ type = "object"
 
         let executor: Arc<dyn crate::reasoning::executor::ActionExecutor> = Arc::new(
             crate::toolclad::ToolCladExecutor::new(
-                crate::toolclad::manifest::load_manifests_from_dir(tools_dir.path()),
+                crate::toolclad::manifest::load_manifests_from_dir(tools_dir.path()).unwrap(),
             )
             .with_development_host_execution(),
         );
@@ -1557,15 +1615,22 @@ type = "object"
         write_marker_manifest(&tools);
         let manifest_path = tools.join("write_marker.clad.toml");
         let manifest = std::fs::read_to_string(&manifest_path).unwrap();
-        let command = r#"python3 -c 'import json,sys; from pathlib import Path; value={"memory":int(Path("/sys/fs/cgroup/memory.max").read_text()),"cpu":Path("/sys/fs/cgroup/cpu.max").read_text().strip()}; Path(sys.argv[1]).write_text(json.dumps(value)); print(json.dumps(value))' {path}"#;
+        let code = r#"import json,sys; from pathlib import Path; value={"memory":int(Path("/sys/fs/cgroup/memory.max").read_text()),"cpu":Path("/sys/fs/cgroup/cpu.max").read_text().strip()}; Path(sys.argv[1]).write_text(json.dumps(value)); print(json.dumps(value))"#;
+        // Literal braces in trusted manifest text are written as `{{`/`}}`.
+        let exec = serde_json::json!([
+            "python3",
+            "-c",
+            code.replace('{', "{{").replace('}', "}}"),
+            "{path}"
+        ]);
         std::fs::write(
             &manifest_path,
             manifest
-                .replace("binary = \"touch\"", "binary = \"python3\"")
                 .replace(
-                    "template = \"touch {path}\"",
-                    &format!("template = {}", serde_json::to_string(command).unwrap()),
-                ),
+                    "binary = \"touch\"",
+                    "binary = \"python3\"\nallow_interpreter = true",
+                )
+                .replace("template = \"touch {path}\"", &format!("exec = {exec}")),
         )
         .unwrap();
         let config_path = root.path().join("symbiont.toml");

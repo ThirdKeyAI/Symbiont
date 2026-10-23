@@ -45,7 +45,10 @@ mod platform {
             command::{CommandBoundary, CommandTier},
             ExecutionResult,
         },
-        toolclad::{manifest::load_manifests_from_dir, ToolCladExecutor},
+        toolclad::{
+            manifest::{load_custom_types, load_manifests_from_dir},
+            ToolCladExecutor,
+        },
         types::AgentId,
     };
 
@@ -172,9 +175,12 @@ mod platform {
             );
         }
         let backend: Arc<dyn ActionExecutor> = Arc::new(
-            ToolCladExecutor::new(load_manifests_from_dir(&project.join("tools")))
-                .with_project_scope(&project)
-                .with_command_boundary(boundary.clone()),
+            ToolCladExecutor::with_custom_types(
+                load_manifests_from_dir(&project.join("tools"))?,
+                load_custom_types(&project)?,
+            )
+            .with_project_scope(&project)
+            .with_command_boundary(boundary.clone()),
         );
         if backend
             .tool_definitions()

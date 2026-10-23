@@ -55,8 +55,9 @@ city = "location"
 
 ### 2. Server registry — `mcp-config.toml`
 
-Loaded from `./mcp-config.toml` (per-project, takes precedence) or
-`~/.symbiont/mcp-config.toml` (user default):
+Loaded from `mcp-config.toml` in the selected project. Outside production only,
+a missing project registry can fall back to `~/.symbiont/mcp-config.toml`.
+An invalid project registry always fails and never falls back:
 
 ```toml
 [servers.weather-mcp]

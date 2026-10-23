@@ -162,33 +162,51 @@ async fn cmd_verify(matches: &ArgMatches) {
     }
 
     // Try to load the signature first
-    match schemapin::skill::load_signature(&dir) {
+    match symbi_runtime::skills::load_skill_signature(&dir) {
         Ok(sig) => {
             println!("Signature found:");
             println!("  Skill:   {}", sig.skill_name);
             println!("  Domain:  {}", sig.domain);
-            println!("  Signed:  {}", sig.signed_at);
+            println!(
+                "  Claimed signing time (pending verification): {}",
+                sig.signed_at
+            );
             println!("  Signer:  {}", sig.signer_kid);
             println!("  Hash:    {}", sig.skill_hash);
             println!("  Files:   {} in manifest", sig.file_manifest.len());
 
-            if sig.domain != domain {
-                eprintln!(
-                    "\nWarning: signature domain '{}' does not match requested domain '{}'",
-                    sig.domain, domain
-                );
+            if sig.schemapin_version != symbi_runtime::skills::signature::FORMAT {
+                eprintln!("Legacy or unsupported skill signature; re-sign with symbi skills sign");
+                std::process::exit(1);
+            }
+
+            let expected = symbi_runtime::skills::loader::verification_domain(&domain);
+            let claimed = symbi_runtime::skills::loader::verification_domain(&sig.domain);
+            if !matches!((expected, claimed), (Ok(expected), Ok(claimed)) if expected == claimed) {
+                eprintln!("Signature domain does not match requested authority");
+                std::process::exit(1);
             }
 
             // Attempt to fetch discovery document for full verification
             println!("\nAttempting online verification against {}...", domain);
             match fetch_and_verify(&dir, &domain).await {
-                Ok(status) => println!("Result: {}", status),
+                Ok(status) => {
+                    println!("Result: {}", status);
+                    if !matches!(
+                        status,
+                        symbi_runtime::skills::SignatureStatus::Verified { .. }
+                            | symbi_runtime::skills::SignatureStatus::Pinned { .. }
+                    ) {
+                        std::process::exit(1);
+                    }
+                }
                 Err(e) => {
                     println!("Online verification failed: {}", e);
                     println!(
                         "Tip: ensure {0}/.well-known/schemapin.json is reachable",
                         domain
                     );
+                    std::process::exit(1);
                 }
             }
         }
@@ -204,10 +222,29 @@ async fn fetch_and_verify(
     domain: &str,
 ) -> Result<symbi_runtime::skills::SignatureStatus, String> {
     // Try to fetch the discovery document
+    let domain =
+        symbi_runtime::skills::loader::verification_domain(domain).map_err(|e| e.to_string())?;
     let url = format!("https://{}/.well-known/schemapin.json", domain);
-    let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+    symbi_runtime::net_guard::reject_ssrf_url(&url)?;
+    let client =
+        symbi_runtime::net_guard::build_ssrf_safe_client(std::time::Duration::from_secs(15))
+            .map_err(|e| e.to_string())?;
+    let mut response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .error_for_status()
+        .map_err(|e| e.to_string())?;
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|e| e.to_string())? {
+        if body.len().saturating_add(chunk.len()) > 1024 * 1024 {
+            return Err("discovery document exceeds 1 MiB".into());
+        }
+        body.extend_from_slice(&chunk);
+    }
     let discovery: schemapin::types::discovery::WellKnownResponse =
-        response.json().await.map_err(|e| e.to_string())?;
+        serde_json::from_slice(&body).map_err(|e| e.to_string())?;
 
     let config = SkillsConfig {
         require_signed: true,
@@ -215,7 +252,7 @@ async fn fetch_and_verify(
         ..SkillsConfig::default()
     };
     let mut loader = SkillLoader::new(config);
-    Ok(loader.verify_skill_with_discovery(dir, &discovery))
+    Ok(loader.verify_skill_with_discovery(dir, &discovery, &domain))
 }
 
 async fn cmd_sign(matches: &ArgMatches) {
@@ -256,7 +293,7 @@ async fn cmd_sign(matches: &ArgMatches) {
         }
     };
 
-    match schemapin::skill::sign_skill(&dir, &private_key_pem, &domain, None, None) {
+    match symbi_runtime::skills::signature::sign_skill(&dir, &private_key_pem, &domain) {
         Ok(sig) => {
             println!("Skill signed successfully.");
             println!("  Skill:      {}", sig.skill_name);

@@ -19,8 +19,8 @@ action = "execute_tool"
 [args.mode]
 position = 1
 required = true
-# `enum` is what activates the `allowed` check — a `string` with an `allowed`
-# list is silently unconstrained.
+# `enum` is what activates the `allowed` check — `allowed` on any other type
+# is refused at load rather than ignored.
 type = "enum"
 description = "What to count"
 allowed = ["words", "lines", "chars"]
@@ -35,7 +35,10 @@ description = "File to count, a plain filename in the current directory"
 pattern = "^[A-Za-z0-9._-]+$"
 
 [command]
-template = "wc --{mode} {path}"
+exec = ["wc", "--{mode}", "{path}"]
+# `--` goes before the first agent-supplied entry, so a filename can never be
+# read as an option.
+end_of_options = "--"
 
 [output]
 format = "text"

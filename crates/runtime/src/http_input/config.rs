@@ -29,6 +29,12 @@ pub struct HttpInputConfig {
 
     /// Optional JWT public key path for JWT-based auth
     pub jwt_public_key_path: Option<String>,
+    /// Required expected issuer whenever JWT authentication is configured.
+    #[serde(default)]
+    pub jwt_issuer: Option<String>,
+    /// Required service audience whenever JWT authentication is configured.
+    #[serde(default)]
+    pub jwt_audience: Option<String>,
 
     /// Maximum size of incoming request body in bytes
     pub max_body_bytes: usize,
@@ -65,6 +71,8 @@ impl Default for HttpInputConfig {
             agent: AgentId::new(),
             auth_header: None,
             jwt_public_key_path: None,
+            jwt_issuer: None,
+            jwt_audience: None,
             max_body_bytes: 65536, // 64 KB
             concurrency: 10,
             routing_rules: None,

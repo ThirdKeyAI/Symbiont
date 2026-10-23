@@ -61,6 +61,6 @@ The unselected run after disabling remained outside the improvement workflow and
 - V2 evaluation: `2c5c8aed3b97c142fb6634875625975eb7e56ebb4c17b9d7a90cc11fb4ba6352`.
 - 42 comparison runs plus four lifecycle executions; 40,194 total reported tokens.
 
-Use [the fixed contract and fixtures](../examples/governed-improvements/document-intake/contract.md) with [the pilot driver](../scripts/test-intake-improvements.py). The driver retains exact inputs, outputs, invocation identities, signed journals, public verification keys, evaluation reports, configuration bindings and lifecycle state in its private output directory. Private runtime signing keys must remain outside version control.
+Use [the fixed contract and fixtures](https://github.com/ThirdKeyAI/Symbiont/blob/main/examples/governed-improvements/document-intake/contract.md) with [the pilot driver](https://github.com/ThirdKeyAI/Symbiont/blob/main/scripts/test-intake-improvements.py). The driver retains exact inputs, outputs, invocation identities, signed journals, public verification keys, evaluation reports, configuration bindings and lifecycle state in its private output directory. Private runtime signing keys must remain outside version control.
 
 The cases use synthetic document metadata, not extracted production documents. Results cover one model, one run per case/version, and a text-routing workflow with no registered tools. Acceptance criteria were frozen before model execution; domain-owner review, unseen cases and repeatability across runs remain necessary for deployment suitability.

@@ -439,7 +439,7 @@ Windows 上的原生执行资源限制支持有限。考虑：
 - [安全模型](security-model.md) - 完整的安全架构
 - [沙箱架构](runtime-architecture.md#sandbox-architecture) - 容器层级
 - [配置指南](getting-started.md#configuration) - 设置选项
-- [DSL 安全指令](dsl-guide.md#security) - 智能体级别的安全
+- [DSL 安全指令](dsl-guide.md#security-configuration) - 智能体级别的安全
 
 ---
 

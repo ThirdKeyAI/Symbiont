@@ -8,7 +8,8 @@ weights, permissions, tool contracts or executable agent definitions.
 Ordinary agents do not opt in automatically. Only `symbi improvement init` creates
 an enabled workflow, and only a run explicitly selecting that workflow uses it.
 Existing invocations, installations and configuration files need no migration.
-Enterprise review chains, fleet rollout and compliance reporting are separate work.
+The optional Enterprise Console integration adds authenticated review receipts.
+Quorum review chains, fleet rollout and compliance reporting remain separate work.
 
 ## First-release contract
 
@@ -33,10 +34,9 @@ Enterprise review chains, fleet rollout and compliance reporting are separate wo
   keys. Local approvals identify the OS operator, not an independently authenticated
   enterprise reviewer. External verification needs a separately pinned public key.
 
-Initial integration covers ordinary CLI ORGA runs and an explicit Rust runner API
-on Unix hosts.
-Managed CLI, HTTP, scheduler and chat surfaces do not automatically consume these
-workflows. Explicit unsupported CLI combinations are refused. This is an opt-in
+Integration covers ordinary CLI ORGA runs, explicitly registered HTTP and scheduled
+ORGA agents, and an explicit Rust runner API on Unix hosts. Managed CLI and chat
+surfaces do not consume these workflows. Explicit unsupported combinations are refused. This is an opt-in
 workflow instruction lifecycle, not a general counterfactual simulator or an
 automatically self-modifying runtime.
 
@@ -61,8 +61,8 @@ dependency drift, tampering, and an installed CLI with a local scripted provider
 No external inference service is required for the included checks.
 
 For a real local-model pilot, use
-[`scripts/test-intake-improvements.py`](../scripts/test-intake-improvements.py)
-with the [document-intake contract](../examples/governed-improvements/document-intake/contract.md).
+[`scripts/test-intake-improvements.py`](https://github.com/ThirdKeyAI/Symbiont/blob/main/scripts/test-intake-improvements.py)
+with the [document-intake contract](https://github.com/ThirdKeyAI/Symbiont/blob/main/examples/governed-improvements/document-intake/contract.md).
 It compares the original agent with two fixed instruction candidates on 14
 synthetic cases, then exercises approval, activation, rollback and disabling.
 The model receives case inputs without the expected outputs. Every outcome and
@@ -217,3 +217,103 @@ against restoration of an entire older signed store. Retain independent public-k
 and audit references for external review. The capability does not automatically
 collect experience, share data across tenants, schedule evaluation, or change
 runtime behavior in installations that have not opted in.
+
+## Operational agent selection
+
+Set the operator-owned registration metadata `improvement_workflow` to the workflow
+identifier. With `symbi up` or `symbi cron add`, declare it in the source file:
+
+```symbi
+metadata { improvement_workflow = "claims" }
+agent claims {}
+```
+
+For an administrative API registration, use `metadata: {"improvement_workflow":
+"claims"}`. Invocation input cannot select a workflow or supply a trial candidate.
+The workflow must already exist, be enabled, and have a matching approved active
+version. Ordinary CLI runs still require `--improvement claims`; metadata alone
+does not change that CLI behavior. Custom scheduler executors must explicitly
+support admitted improvement pins or the selection is refused.
+Those executors retrieve the immutable selection through `ScheduledTask::improvement`
+and pass it to `run_with_improvement_cancellable`, retaining normal cancellation
+and cleanup ownership.
+
+The CLI's default prompt and loop profile is shared with selected operational
+runs: 10 iterations, 100,000 total tokens, and the source timeout capped by the
+ordinary loop's default deadline. Collect trials with the same source, deployment,
+provider and model, using the default CLI limits. An evaluation with different
+limits cannot authorize this profile. Queue time and tighter registered resource
+limits independently cancel a run; they never broaden the evaluated profile.
+Selected HTTP runs refuse a caller `system_prompt` override.
+
+A version is pinned before queue admission. Promotion, rollback or disablement
+affects subsequent selections. HTTP and scheduler claims separately bind the
+original caller request and runtime-selected instruction version. A retry with
+the same identity returns its original saved result even after promotion or
+disablement. Unknown outcomes retain the original claim and never grant replay.
+The CLI's existing invocation identity contract continues to refuse reuse after
+its selected active version changes. HTTP responses and scheduled completions
+include `improvement` attribution; signed journals include both the claim binding
+and the evaluated execution binding.
+
+## Operator HTTP controls
+
+Authenticated administrative keys can read
+`GET /api/v1/improvements/:workflow`, optionally with `candidate`, `evaluation`
+and `approval` digest query parameters. It returns the current version, enablement,
+activation history and requested evidence. Agent-scoped keys cannot read or mutate
+this control plane. An absent workflow is never created by a read.
+
+`POST /api/v1/improvements/:workflow/actions` accepts:
+
+- `{"action":"approve","receipt":{...}}`: import a signed Console decision.
+- `{"action":"activate","candidate":"DIGEST","approval":"DIGEST","expected_active":null,"rollback":false}`:
+  promote, using `null` only before the first activation. Later transitions require
+  the exact currently active digest. Set `rollback:true` for a previously activated
+  approved version.
+- `{"action":"set_enabled","enabled":false}`: stop new selections.
+
+The API cannot replace authenticated reviewer identity with a caller-supplied name.
+Local OS-operator approval remains available through `symbi improvement approve`.
+There is no requirement to operate Enterprise services for the OSS lifecycle.
+
+## Trusting Console review receipts
+
+Provision a private, operator-owned `.symbiont/console-review-trust.json` with mode
+`0600`. Keep it outside all worker grants, alongside the existing protected state:
+
+```json
+{"workspace":"acme/prod","runtime":"intake","public_keys":["64_HEX_DIGITS_OF_THE_CONSOLE_PUBLIC_KEY"]}
+```
+
+Obtain and verify the Console's Ed25519 public key through your deployment's trusted
+configuration channel. A key supplied in an API request or receipt is not trusted.
+The runtime matches workspace, runtime, workflow, candidate and evaluation and
+rechecks that the exact candidate passed the workflow's frozen acceptance suite.
+Receipts also bind the actual authenticated reviewer, approval record, decision
+time and rationale. Import is allowed for at most 15 minutes after receipt issue;
+that transport expiry does not expire an already imported instruction approval.
+An accepted receipt is retained inside the runtime's signed approval document.
+
+For an offline transfer, use:
+
+```sh
+symbi improvement approve-receipt --workflow claims --file console-receipt.json
+```
+
+Import does not activate the candidate. Promotion still requires a separate
+operator action and the expected current version. Removing a trusted key prevents
+new imports from that key; disable the workflow to stop new runs using approvals
+already accepted. Local administrators remain trusted and can still make local
+approvals. This integration does not impose reviewer quorum or separation of duties.
+
+Run the installed CLI and operational route check with:
+
+```sh
+python3 scripts/test-governed-improvements.py --binary /path/to/symbi --report /tmp/improvements.json --operational
+```
+
+The operational fixture requires OpenSSL 3+ to sign independent receipt fixtures.
+It uses local synthetic inference and no effectful tools, checking CLI/API receipt
+imports, version selection, attribution, transitions and retry behavior; it does not qualify
+model reliability or expand the existing HTTP/scheduler sandbox support matrix.

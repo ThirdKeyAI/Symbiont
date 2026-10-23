@@ -151,7 +151,7 @@ agent data_analyzer(data: DataSet, options: AnalysisOptions) -> AnalysisResults 
 記述します — 独立した `behavior` 構文は存在しません。ポリシールール
 （`allow` / `deny` / `require` / `audit`）がエージェントに許可される操作を制御します。
 完全な文法については [DSLガイド](dsl-guide.md) と
-[DSL仕様](dsl-specification.md) を参照してください。
+[DSL仕様](/dsl-specification) を参照してください。
 
 ### 組み込み関数
 

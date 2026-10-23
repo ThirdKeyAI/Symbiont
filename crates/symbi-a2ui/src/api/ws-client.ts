@@ -5,7 +5,7 @@
  * typed CustomEvents for each ServerMessage variant.
  */
 
-import { getToken } from './client.js';
+import { getToken, post } from './client.js';
 import type { ClientMessage, ServerMessage } from './ws-types.js';
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'error';
@@ -16,6 +16,8 @@ export class WsClient extends EventTarget {
   private _reconnectDelay = 1000;
   private _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private _shouldReconnect = false;
+  private _generation = 0;
+  private _connecting = false;
 
   private static _instance: WsClient | null = null;
 
@@ -31,7 +33,7 @@ export class WsClient extends EventTarget {
   }
 
   connect(): void {
-    if (this._ws && (this._ws.readyState === WebSocket.OPEN || this._ws.readyState === WebSocket.CONNECTING)) {
+    if (this._connecting || (this._ws && (this._ws.readyState === WebSocket.OPEN || this._ws.readyState === WebSocket.CONNECTING))) {
       return;
     }
 
@@ -40,6 +42,8 @@ export class WsClient extends EventTarget {
   }
 
   disconnect(): void {
+    this._generation++;
+    this._connecting = false;
     this._shouldReconnect = false;
     if (this._reconnectTimer) {
       clearTimeout(this._reconnectTimer);
@@ -60,25 +64,42 @@ export class WsClient extends EventTarget {
     return false;
   }
 
-  private _doConnect(): void {
+  private async _doConnect(): Promise<void> {
+    if (this._connecting || !this._shouldReconnect) return;
+    const generation = ++this._generation;
     const token = getToken();
     if (!token) {
       this._setState('error');
       return;
     }
 
-    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url = `${proto}//${window.location.host}/ws/chat?token=${encodeURIComponent(token)}`;
-
+    this._connecting = true;
     this._setState('connecting');
+    let session: string;
+    try {
+      ({ session } = await post<{ session: string }>('/api/v1/auth/ws-session'));
+    } catch {
+      if (generation === this._generation) {
+        this._connecting = false;
+        this._setState('error');
+        this._scheduleReconnect();
+      }
+      return;
+    }
+    if (generation !== this._generation || !this._shouldReconnect) return;
+    this._connecting = false;
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const url = `${proto}//${window.location.host}/ws/chat?session=${encodeURIComponent(session)}`;
     const ws = new WebSocket(url);
 
     ws.onopen = () => {
+      if (generation !== this._generation) return;
       this._setState('connected');
       this._reconnectDelay = 1000; // reset backoff
     };
 
     ws.onmessage = (event: MessageEvent) => {
+      if (generation !== this._generation) return;
       try {
         const msg: ServerMessage = JSON.parse(event.data);
         this.dispatchEvent(new CustomEvent('server-message', { detail: msg }));
@@ -88,10 +109,12 @@ export class WsClient extends EventTarget {
     };
 
     ws.onerror = () => {
+      if (generation !== this._generation) return;
       this._setState('error');
     };
 
     ws.onclose = () => {
+      if (generation !== this._generation) return;
       this._ws = null;
       this._setState('disconnected');
       this._scheduleReconnect();

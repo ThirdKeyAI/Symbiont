@@ -41,13 +41,16 @@ description = "Claimed severity (typed; capped by trusted ticket severity)"
 position = 3
 required = false
 type = "string"
+# Prose: spaces are allowed (exec form only); quotes, control characters and
+# a leading dash are still refused.
+allow_whitespace = true
 description = "Free-text rationale — advisory only, NOT used in the decision"
 
 # The command template models how the typed args would be passed to the
 # submit handler. Execution itself is a no-op for routing tools — the
 # decision is made by the grounded Cedar gate, not by this command.
 [command]
-template = "submit_triage {category} {severity}"
+exec = ["submit_triage", "{category}", "{severity}"]
 
 [output]
 format = "json"
@@ -57,6 +60,9 @@ type = "object"
 
 [output.schema.properties.routing_queue]
 type = "string"
+# Prose: spaces are allowed (exec form only); quotes, control characters and
+# a leading dash are still refused.
+allow_whitespace = true
 description = "Resolved queue: frontend | billing | infra | exec_escalation"
 
 [output.schema.properties.escalated]

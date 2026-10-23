@@ -442,7 +442,7 @@ Windowsでのネイティブ実行はリソース制限のサポートが限定�
 - [セキュリティモデル](security-model.md) - 完全なセキュリティアーキテクチャ
 - [サンドボックスアーキテクチャ](runtime-architecture.md#sandbox-architecture) - コンテナティア
 - [設定ガイド](getting-started.md#configuration) - セットアップオプション
-- [DSLセキュリティディレクティブ](dsl-guide.md#security) - エージェントレベルのセキュリティ
+- [DSLセキュリティディレクティブ](dsl-guide.md#security-configuration) - エージェントレベルのセキュリティ
 
 ---
 

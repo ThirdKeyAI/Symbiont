@@ -183,9 +183,11 @@ pub struct ResourceLimits {
 
 ## Segurança Multi-Camadas
 
+<a id="sandbox-architecture"></a>
+
 ### Arquitetura de Sandbox
 
-O runtime entrega três camadas de isolamento no host (Tier 1 → Tier 3) mais um backend de execução hospedada (E2B). As camadas formam uma escada de isolamento monotonicamente crescente; o E2B **não** é um par nessa escada — executa em infraestrutura de terceiros e é documentado separadamente.
+O runtime entrega quatro backends de isolamento no host — todos OSS — mais um backend separado de nuvem hospedada (E2B). Três são numerados (Docker, gVisor, Firecracker); o `landlock` é nomeado em vez de numerado, porque isola comandos de execução única, parsers e o processo filho da CLI gerenciada sem um daemon e não é um par na escada numerada. Operadores escolhem o backend por agente via o bloco DSL `with { sandbox = ... }`, ou definem um padrão de projeto em `[sandbox] tier = "..."`.
 
 #### Camada 1: Isolamento Docker
 **Caso de Uso**: Operações de baixo risco, tarefas de desenvolvimento
@@ -725,9 +727,9 @@ cargo test --features security-tests
 
 ## Próximos Passos
 
-- **[Modelo de Segurança](security-model.pt.md)** - Mergulho profundo na implementação de segurança
-- **[Contribuindo](contributing.pt.md)** - Diretrizes de desenvolvimento e contribuição
-- **[Referência da API](api-reference.pt.md)** - Documentação completa da API
+- **[Modelo de Segurança](security-model.md)** - Mergulho profundo na implementação de segurança
+- **[Contribuindo](contributing.md)** - Diretrizes de desenvolvimento e contribuição
+- **[Referência da API](api-reference.md)** - Documentação completa da API
 - **[Exemplos](https://github.com/thirdkeyai/symbiont/tree/main/runtime/examples)** - Exemplos e tutoriais do runtime
 
 A arquitetura do runtime fornece uma base robusta para construir agentes de IA seguros e escaláveis. Seu design modular e modelo de segurança abrangente o tornam adequado tanto para ambientes de desenvolvimento quanto de produção.

@@ -169,9 +169,11 @@ pub struct ResourceLimits {
 
 ## Mehrstufige Sicherheit
 
+<a id="sandbox-architecture"></a>
+
 ### Sandbox-Architektur
 
-Die Laufzeit liefert drei Host-Isolationsstufen — alle OSS — plus ein separates Hosted-Cloud-Backend (E2B). Betreiber waehlen die Stufe pro Agent ueber den DSL-Block `with { sandbox = ... }` oder setzen einen Projekt-Standard in `[sandbox] tier = "..."`.
+Die Laufzeit liefert vier Host-Isolations-Backends — alle OSS — plus ein separates Hosted-Cloud-Backend (E2B). Drei davon sind nummeriert (Docker, gVisor, Firecracker); `landlock` ist benannt statt nummeriert, weil es einmalige Befehle, Parser und den verwalteten CLI-Kindprozess ohne Daemon isoliert und damit kein Peer auf der nummerierten Leiter ist. Betreiber wählen das Backend pro Agent über den DSL-Block `with { sandbox = ... }` oder setzen einen Projekt-Standard in `[sandbox] tier = "..."`.
 
 #### Stufe 1: Docker-Isolation
 **Anwendungsfall**: Risikoarme Operationen, Entwicklungsaufgaben
@@ -707,9 +709,9 @@ cargo test --features security-tests
 
 ## Nächste Schritte
 
-- **[Sicherheitsmodell](security-model.de.md)** - Tieferer Einblick in die Sicherheitsimplementierung
-- **[Beitragen](contributing.de.md)** - Entwicklungs- und Beitragsrichtlinien
-- **[API-Referenz](api-reference.de.md)** - Vollständige API-Dokumentation
+- **[Sicherheitsmodell](security-model.md)** - Tieferer Einblick in die Sicherheitsimplementierung
+- **[Beitragen](contributing.md)** - Entwicklungs- und Beitragsrichtlinien
+- **[API-Referenz](api-reference.md)** - Vollständige API-Dokumentation
 - **[Beispiele](https://github.com/thirdkeyai/symbiont/tree/main/runtime/examples)** - Laufzeit-Beispiele und Tutorials
 
 Die Laufzeit-Architektur bietet eine robuste Grundlage für den Aufbau sicherer, skalierbarer KI-Agenten. Ihr modulares Design und das umfassende Sicherheitsmodell machen sie sowohl für Entwicklungs- als auch für Produktionsumgebungen geeignet.

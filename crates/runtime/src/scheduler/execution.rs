@@ -29,6 +29,10 @@ use tokio_util::sync::CancellationToken;
 /// explicitly failed. A queue admission is never a completed execution.
 #[async_trait]
 pub trait ScheduledAgentExecutor: Send + Sync {
+    /// Custom executors must deliberately retain and enforce admitted pins.
+    fn supports_improvements(&self) -> bool {
+        false
+    }
     /// Trusted storage root for durable admission. Custom services opt in explicitly.
     #[cfg(unix)]
     fn invocation_project(&self) -> Result<&Path, String> {
@@ -241,9 +245,31 @@ impl GovernedAgentExecutor {
             knowledge_bridge: None,
             delegation: None,
         };
-        let result = runner
-            .run_cancellable(task.agent_id, conversation, config, cancellation.clone())
-            .await;
+        let result = if let Some(pin) = &task.improvement {
+            let input = task
+                .input
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| task.input.to_string());
+            let (conversation, config) =
+                crate::improvement::operational::profile(&settings, &input);
+            runner
+                .run_with_improvement_cancellable(
+                    task.agent_id,
+                    conversation,
+                    config,
+                    pin,
+                    cancellation.clone(),
+                )
+                .await?
+        } else {
+            if crate::improvement::operational::workflow(&task.config)?.is_some() {
+                return Err("selected improvement was not pinned at admission".into());
+            }
+            runner
+                .run_cancellable(task.agent_id, conversation, config, cancellation.clone())
+                .await
+        };
         let (status, error) = match result.termination_reason {
             TerminationReason::Completed if !cancellation.is_cancelled() => {
                 (TaskStatus::Completed, None)
@@ -278,6 +304,9 @@ impl GovernedAgentExecutor {
 
 #[async_trait]
 impl ScheduledAgentExecutor for GovernedAgentExecutor {
+    fn supports_improvements(&self) -> bool {
+        true
+    }
     #[cfg(unix)]
     fn invocation_project(&self) -> Result<&Path, String> {
         self.project.as_deref().map_err(Clone::clone)

@@ -483,7 +483,7 @@ Suggested Fix: [se aplicável]
 
 ### Código de Conduta
 
-Estamos comprometidos em fornecer um ambiente acolhedor e inclusivo para todos os contribuidores. Por favor, leia e siga nosso [Código de Conduta](CODE_OF_CONDUCT.md).
+Estamos comprometidos em fornecer um ambiente acolhedor e inclusivo para todos os contribuidores. Por favor, leia e siga nosso [Código de Conduta](https://github.com/ThirdKeyAI/Symbiont/blob/main/CODE_OF_CONDUCT.md).
 
 **Princípios Fundamentais:**
 - **Respeito**: Trate todos os membros da comunidade com respeito
@@ -611,7 +611,7 @@ O Symbiont segue o [Versionamento Semântico](https://semver.org/):
 
 Pronto para contribuir? Veja como começar:
 
-1. **[Configure seu ambiente de desenvolvimento](#configuração-do-ambiente-de-desenvolvimento)**
+1. **[Configure seu ambiente de desenvolvimento](#configuracao-do-ambiente-de-desenvolvimento)**
 2. **[Encontre uma boa primeira issue](https://github.com/thirdkeyai/symbiont/labels/good%20first%20issue)**
 3. **[Participe da discussão](https://github.com/thirdkeyai/symbiont/discussions)**
 4. **[Leia a documentação técnica](/runtime-architecture)**
