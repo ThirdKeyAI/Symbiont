@@ -44,6 +44,7 @@ def main():
         parser.error('Release qualification requires a clean source tree')
     report = dict(sha=revision, dirty=dirty, binary=str(binary), binary_sha256=digest(binary),
                   kernel=platform.release(), machine=platform.machine(), uid=os.geteuid(),
+                  caller_cgroup=Path('/proc/self/cgroup').read_text().strip(),
                   systemd=subprocess.check_output(['systemctl', '--version'], text=True).splitlines()[0],
                   driver_sha256=digest(Path(__file__)), cases=[], passed=False,
                   limitations=['Synthetic providers and terminal operator; no model-quality or human-review claim.',

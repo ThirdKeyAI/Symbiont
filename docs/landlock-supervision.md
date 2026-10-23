@@ -43,6 +43,16 @@ controllers, `cgroup.kill`, and `DelegateSubgroup` support. The service and runt
 must run as the same non-root user. The runtime also requires Landlock ABI 6 and
 native little-endian x86_64 or aarch64 seccomp support.
 
+The runtime must also start within that user's delegated cgroup tree, as it
+normally does in a desktop session. CI jobs and system services can run outside
+this tree even when they use the same UID. Starting a user manager alone does
+not move the caller. In that case, launch the command in a user scope, for example
+`systemd-run --user --scope --collect symbi doctor` from the project directory.
+Linux requires migration permission at the common ancestor of the caller and
+worker cgroups; crossing the delegation boundary fails with permission denied.
+The release qualification workflow uses a user scope and records its caller
+cgroup in the public report. It does not broaden host cgroup permissions.
+
 Automatic setup requires `/usr/bin/systemd-run` with `--expand-environment`
 support as well as the delegation features above. Unsupported systems fail
 closed with the unit name and diagnostic commands; there is no host fallback.

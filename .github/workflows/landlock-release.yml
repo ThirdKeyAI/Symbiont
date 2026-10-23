@@ -38,7 +38,14 @@ jobs:
       - name: Build shipping binary
         run: cargo build --locked --release -p symbi -j2
       - name: Qualify Linux isolation and recovery
-        run: python3 scripts/test-landlock-release.py --binary target/release/symbi --output "$RUNNER_TEMP/landlock-qualification" --require-clean
+        # Hosted jobs start outside the user's delegated cgroup tree. Enter it
+        # before launching workers, so cgroup migration remains within that tree.
+        run: |
+          systemd-run --user --scope --collect --quiet \
+            --unit=symbi-release-qualification \
+            python3 scripts/test-landlock-release.py \
+              --binary target/release/symbi \
+              --output "$RUNNER_TEMP/landlock-qualification" --require-clean
       - name: Preserve qualification evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
