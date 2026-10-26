@@ -257,6 +257,14 @@ update_path() {
 
     # Add to current PATH
     export PATH="$PATH:$BIN_DIR"
+
+    # BIN_DIR is appended, so an older symbi earlier on PATH still wins.
+    local resolved
+    resolved=$(command -v symbi 2>/dev/null || true)
+    if [ -n "$resolved" ] && [ "$resolved" != "$BIN_DIR/symbi" ]; then
+        echo -e "${YELLOW}⚠️  Another symbi shadows this install: ${resolved} ($("$resolved" --version 2>/dev/null || echo unknown version))${NC}"
+        echo -e "${YELLOW}  Remove it or put ${BIN_DIR} earlier in PATH.${NC}"
+    fi
 }
 
 # Run post-install checks
