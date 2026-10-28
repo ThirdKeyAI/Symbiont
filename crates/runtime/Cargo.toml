@@ -1,6 +1,6 @@
 [package]
 name = "symbi-runtime"
-version = "2.0.1"
+version = "3.0.0"
 edition = "2021"
 authors = ["Jascha Wanger / ThirdKey.ai"]
 description = "Agent Runtime System for the Symbi platform"
@@ -72,7 +72,7 @@ required-features = ["mcp-client"]
 [dependencies]
 symbi-sandbox-guest = { path = "../sandbox-guest", version = "2.0.1" }
 symbi-sandbox-supervisor = { path = "../sandbox-supervisor", version = "2.0.1" }
-symbi-dsl = { path = "../dsl", version = "2.0.1" }
+symbi-dsl = { path = "../dsl", version = "3.0.0" }
 symbi-session = { path = "../symbi-session", version = "2.0.1", optional = true }
 symbi-invis-strip = { path = "../symbi-invis-strip", version = "0.3.0" }
 symbi-channel-adapter = { path = "../channel-adapter", version = "0.1.6", default-features = false }

@@ -1030,16 +1030,7 @@ fn registered_agent_executor(
         CommandTier::GVisor => SecurityTier::Tier2,
         CommandTier::Firecracker => SecurityTier::Tier3,
         CommandTier::E2B => SecurityTier::Hosted,
-        // No registered SecurityTier names the landlock tier, so a registered
-        // agent cannot declare it. Refuse rather than mapping it onto a
-        // neighbouring tier, which would misreport the isolation in use.
-        CommandTier::Landlock => {
-            return Err(
-                "the landlock tier cannot be selected for a registered agent; \
-                        declare it in [sandbox] for direct runs"
-                    .into(),
-            )
-        }
+        CommandTier::Landlock => SecurityTier::Landlock,
     };
     if selected_tier != agent.security_tier {
         return Err("registered security tier conflicts with the selected agent sandbox".into());

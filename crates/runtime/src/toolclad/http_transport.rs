@@ -21,7 +21,19 @@ fn hash_field(hasher: &mut Sha256, value: &[u8]) {
 
 /// Hash the built request, including resolved secret values, without storing
 /// those values in the journal. Streaming bodies are not accepted.
+#[cfg(test)]
 fn request_identity(request: &reqwest::Request) -> Result<(String, u64), String> {
+    request_identity_with(request, None)
+}
+
+/// Like [`request_identity`], but the value of `redact.0` is replaced by the
+/// non-secret reference `redact.1`. The journal then binds the exact request
+/// and credential identity without becoming an offline guessing oracle for the
+/// injected credential.
+fn request_identity_with(
+    request: &reqwest::Request,
+    redact: Option<(&reqwest::header::HeaderName, &str)>,
+) -> Result<(String, u64), String> {
     let body = match request.body() {
         Some(body) => body
             .as_bytes()
@@ -36,9 +48,13 @@ fn request_identity(request: &reqwest::Request) -> Result<(String, u64), String>
     hash_field(&mut hash, request.method().as_str().as_bytes());
     hash_field(&mut hash, request.url().as_str().as_bytes());
     for (name, value) in headers {
-        bytes = bytes.saturating_add(name.as_str().len() + value.as_bytes().len());
+        let value = match redact {
+            Some((secret, reference)) if secret == name => reference.as_bytes(),
+            _ => value.as_bytes(),
+        };
+        bytes = bytes.saturating_add(name.as_str().len() + value.len());
         hash_field(&mut hash, name.as_str().as_bytes());
-        hash_field(&mut hash, value.as_bytes());
+        hash_field(&mut hash, value);
     }
     hash_field(&mut hash, body);
     if bytes > 2 * 1024 * 1024 {
@@ -47,6 +63,25 @@ fn request_identity(request: &reqwest::Request) -> Result<(String, u64), String>
     Ok((hex::encode(hash.finalize()), bytes as u64))
 }
 
+/// The journaled identity of a request. A capability credential is replaced
+/// by its non-secret reference before hashing.
+fn journal_identity(
+    request: &reqwest::Request,
+    guard: Option<&crate::outbound::DispatchGuard>,
+) -> Result<(String, u64), String> {
+    let reference = guard
+        .map(|guard| guard.credential_reference())
+        .transpose()?
+        .flatten();
+    request_identity_with(
+        request,
+        reference
+            .as_ref()
+            .map(|(name, reference)| (name, reference.as_str())),
+    )
+}
+
+#[cfg(test)]
 pub(super) async fn exchange(
     client: &reqwest::Client,
     request: reqwest::Request,
@@ -54,14 +89,26 @@ pub(super) async fn exchange(
     deadline: Instant,
     limit: usize,
 ) -> Result<Response, String> {
+    exchange_guarded(client, request, journal, deadline, limit, None).await
+}
+
+pub(super) async fn exchange_guarded(
+    client: &reqwest::Client,
+    request: reqwest::Request,
+    journal: Option<&EffectJournal>,
+    deadline: Instant,
+    limit: usize,
+    guard: Option<&crate::outbound::DispatchGuard>,
+) -> Result<Response, String> {
     if Instant::now() >= deadline || limit == 0 || limit > 10 * 1024 * 1024 {
         return Err("HTTP exchange has an expired deadline or invalid response limit".into());
     }
-    let (request_hash, request_bytes) = request_identity(&request)?;
+    let (request_hash, request_bytes) = journal_identity(&request, guard)?;
     let request_id = uuid::Uuid::new_v4().to_string();
     if let Some(journal) = journal {
         journal
             .append(ToolEffect::NetworkRequestStarted {
+                outbound: guard.map(|guard| guard.descriptor.clone()),
                 request_id: request_id.clone(),
                 method: request.method().to_string(),
                 url: request.url().to_string(),
@@ -73,9 +120,13 @@ pub(super) async fn exchange(
     let mut observed_status = None;
     let mut observed_headers = None;
     let mut received_bytes = 0u64;
-    let result = tokio::time::timeout_at(deadline.into(), async {
+    let mut received_hash = None;
+    let exchange = async {
         if let Some(journal) = journal {
             journal.check_live()?;
+        }
+        if let Some(guard) = guard {
+            guard.admit(&request)?;
         }
         let mut response = client
             .execute(request)
@@ -84,6 +135,11 @@ pub(super) async fn exchange(
         let status = response.status().as_u16();
         let headers = response.headers().clone();
         observed_status = Some(status);
+        // Only validated headers may contribute to evidence, including when a
+        // later size check, read failure or timeout prevents body validation.
+        if let Some(guard) = guard {
+            guard.response(&headers, &[])?;
+        }
         observed_headers = Some(headers.clone());
         if response
             .content_length()
@@ -103,11 +159,24 @@ pub(super) async fn exchange(
             }
             body.extend_from_slice(&chunk);
         }
+        received_hash = Some(hex::encode(Sha256::digest(&body)));
+        if let Some(guard) = guard {
+            guard.response(&headers, &body)?;
+            if !guard.delivers_body(status) {
+                body = br#"{"error":"configured outbound service rejected the request"}"#.to_vec();
+            }
+        }
         Ok(Response {
             status,
             headers,
             body,
         })
+    };
+    let result = tokio::time::timeout_at(deadline.into(), async {
+        match guard {
+            Some(guard) => guard.lease.during(exchange).await,
+            None => exchange.await,
+        }
     })
     .await
     .unwrap_or_else(|_| Err("HTTP request deadline expired".into()));
@@ -115,8 +184,8 @@ pub(super) async fn exchange(
         let (status, response_hash, response_bytes, error) = match &result {
             Ok(response) => (
                 Some(response.status),
-                Some(hex::encode(Sha256::digest(&response.body))),
-                response.body.len() as u64,
+                received_hash.clone(),
+                received_bytes,
                 None,
             ),
             // Transport errors can contain credential-bearing URL data. Keep

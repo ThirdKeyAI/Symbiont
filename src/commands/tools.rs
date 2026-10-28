@@ -140,6 +140,24 @@ fn cmd_validate(file: Option<&str>) {
             std::process::exit(1);
         }
     }
+    // Loading the optional profile also checks its named capabilities and
+    // freezes explicit credential-store configuration. No secret is fetched.
+    match symbi_runtime::outbound::Profile::load(Path::new(".")) {
+        Ok(Some(_)) => {
+            let executor = ToolCladExecutor::with_custom_types(load_tools(), custom_types())
+                .with_project_sandbox(Path::new("."))
+                .with_project_scope(Path::new("."));
+            if let Err(error) = executor.validate_configuration() {
+                eprintln!("ERROR: Project tool configuration: {error}");
+                std::process::exit(1);
+            }
+        }
+        Ok(None) => {}
+        Err(error) => {
+            eprintln!("ERROR: Outbound configuration: {error}");
+            std::process::exit(1);
+        }
+    }
 }
 
 fn cmd_test(name: &str, arg_strs: &[String]) {

@@ -134,9 +134,9 @@ full parse tree, which is for debugging, not for checking.
 | tier1 | Docker               | default                            | `docker` daemon |
 | tier2 | gVisor (`runsc`)     | `with { sandbox = "gvisor" }`      | `runsc` registered as Docker runtime |
 | tier3 | Firecracker microVM  | `with { sandbox = "firecracker" }` | `firecracker` binary + operator-supplied vmlinux + rootfs.ext4 |
-| landlock | Landlock + seccomp + user/mount namespaces, supervisor-owned workers | project only: `[sandbox] tier = "landlock"` / `symbi init --sandbox landlock` | Linux with Landlock ABI 6+, seccomp, cgroup v2 delegation, a systemd user manager; runtime and supervisor under the same non-root UID |
+| landlock | Landlock + seccomp + user/mount namespaces, supervisor-owned workers | `with { sandbox = "landlock" }`, `[sandbox] tier = "landlock"`, or `symbi init --sandbox landlock` | Linux with Landlock ABI 6+, seccomp, cgroup v2 delegation, a systemd user manager; runtime and supervisor under the same non-root UID |
 
-All isolation tiers, including Landlock, ship in the OSS runtime — no "Enterprise" gating on Landlock, gVisor or Firecracker. Per-agent tier comes from the DSL `with { sandbox = "..." }` block; project default lives in `[sandbox] tier = "..."` in `symbiont.toml`. Landlock is selected per project only: the DSL `with` block does not accept it. It runs without Docker or a VM, and missing kernel or service features fail the operation with no host fallback. See `docs/landlock-development.md` and `docs/landlock-supervision.md`.
+All isolation tiers, including Landlock, ship in the OSS runtime — no "Enterprise" gating on Landlock, gVisor or Firecracker. Per-agent tier comes from the DSL `with { sandbox = "..." }` block; project default lives in `[sandbox] tier = "..."` in `symbiont.toml`. Registered HTTP and scheduled agents must explicitly select Landlock in their DSL when they use the native branch. Landlock satisfies an explicit Landlock requirement or a no-isolation minimum; it is deliberately incomparable with hosted execution and the numbered container/VM ladder. It runs without Docker or a VM, and missing kernel or service features fail the operation with no host fallback. See `docs/landlock-development.md` and `docs/landlock-supervision.md`.
 
 For Tier 3 setup (kernel + rootfs prep, in-VM init contract, hardening checklist), see `docs/firecracker-setup.md`. Scaffold a tier3 project with:
 
@@ -150,7 +150,7 @@ symbi init --profile assistant --sandbox tier3 \
 
 ### Hosted execution: E2B (not a tier)
 
-E2B is a separate hosted-cloud backend, **not** a peer of Tier 1/2/3. Code runs on E2B's infrastructure via their HTTPS API, so it carries no on-host isolation guarantees. Maps to `SecurityTier::Hosted`, which sorts below `Tier1` — policies requiring host isolation (`tier >= Tier1`) will reject it.
+E2B is a separate hosted-cloud backend, **not** a peer of Tier 1/2/3. Code runs on E2B's infrastructure via their HTTPS API, so it carries no on-host isolation guarantees. It maps to `SecurityTier::Hosted`, below `Tier1` on the numbered ladder. Use `SecurityTier::satisfies` for minimum checks; Landlock is a separate partial-order branch.
 
 | Backend | Selection | Prerequisites | Use cases |
 |---------|-----------|---------------|-----------|
@@ -447,7 +447,7 @@ Agents defined in the Symbi DSL can:
 
 - Invoke LLMs (OpenRouter, OpenAI, Anthropic) with policy-governed prompts
 - Use skills (verified via SchemaPin cryptographic signatures)
-- Run in sandboxed environments — choose Tier 1 (Docker), Tier 2 (gVisor), or Tier 3 (Firecracker) per agent, or Landlock per project on Linux (all OSS isolation tiers); E2B is a separate hosted-cloud backend opt-in via the DSL
+- Run in sandboxed environments — choose Landlock, Tier 1 (Docker), Tier 2 (gVisor), or Tier 3 (Firecracker) per agent on Linux (all OSS isolation tiers); E2B is a separate hosted-cloud backend opt-in via the DSL
 - Operate on cron schedules with timezone support
 - Connect to chat platforms (Slack, Teams, Mattermost) as channel adapters
 - Receive webhooks (GitHub, Stripe, Slack, custom) with signature verification

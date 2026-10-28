@@ -228,7 +228,9 @@ def main():
                          if call['action'].get('ToolCall', {}).get('name') == 'probe']
             assert len(approvals) == 1
             boundary = approvals[0]['resolved']['command_boundary']['landlock']
-            assert boundary['boundary_version'] == 3 and boundary['abi_required'] == 6
+            assert boundary['boundary_version'] == 5 and boundary['abi_required'] == 6
+            assert boundary['namespace_mutation'] == 'denied_after_setup'
+            assert boundary['process_metadata'] == [] and boundary['network_restricted'] is True
             assert boundary['supervision'] == 'delegated_cgroup_v1'
             assert service.capacity()['reserved']['workers'] == 0
             assert boundary['scopes'] == ['signal', 'abstract_unix_socket']

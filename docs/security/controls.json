@@ -1,0 +1,238 @@
+{
+  "schema_version": 1,
+  "scope": "OSS runtime; guarantees apply only to listed routes and configured backends",
+  "controls": [
+    {
+      "id": "OUT-001",
+      "title": "Named outbound operations",
+      "threat": "An agent redirects credential-bearing requests or expands an approved operation",
+      "invariant": "A selected capability binds tool, origin, method, path boundary, typed manifest inputs and the exact prepared request",
+      "owner": "runtime outbound and ToolClad",
+      "implementation_status": "implemented",
+      "validation_status": "partial",
+      "routes": [
+        "cli_toolclad_http",
+        "project_runtime_toolclad_http"
+      ],
+      "backends": [
+        "runtime_http"
+      ],
+      "sources": [
+        "crates/runtime/src/outbound/config.rs",
+        "crates/runtime/src/toolclad/executor.rs"
+      ],
+      "tests": [
+        "crates/runtime/src/outbound/tests.rs",
+        "crates/runtime/src/outbound/dispatch_tests.rs",
+        "scripts/test-outbound-capabilities.py"
+      ],
+      "limitations": [
+        "Opt-in through an operator-owned outbound profile",
+        "An allowed upstream can still misuse data; destination restrictions are not general data-loss prevention",
+        "Retained workflow evidence covers the installed CLI and local fixtures; other listed routes require separate qualification"
+      ],
+      "qualifications": [
+        {
+          "report": "docs/evidence/2026-10-27/release-3.0-outbound/final-workflow.json",
+          "sha256": "d3c0fc7bb3590bf4e8243f28d55199028cb489dcff378e76f17eac189a63ccd2",
+          "routes": [
+            "cli_toolclad_http"
+          ],
+          "backends": [
+            "runtime_http"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "OUT-002",
+      "title": "Runtime-held credentials with explicit source selection",
+      "threat": "Credentials leak to a worker or a failed store causes unintended fallback",
+      "invariant": "The configured source is the only source; secrets are injected in the runtime and exact reflected values are rejected before delivery",
+      "owner": "runtime outbound and managed inference",
+      "implementation_status": "implemented",
+      "validation_status": "partial",
+      "routes": [
+        "cli_toolclad_http",
+        "project_runtime_toolclad_http",
+        "managed_cli_inference"
+      ],
+      "backends": [
+        "runtime_http",
+        "inherited_inference_broker"
+      ],
+      "sources": [
+        "crates/runtime/src/outbound/mod.rs",
+        "crates/runtime/src/outbound/config.rs",
+        "crates/runtime/src/cli_executor/inference_broker.rs"
+      ],
+      "tests": [
+        "crates/runtime/src/outbound/tests.rs",
+        "crates/runtime/tests/protected_services.rs",
+        "scripts/test-outbound-capabilities.py"
+      ],
+      "limitations": [
+        "Trusted runtime and host administrators can access credentials",
+        "Encoded or transformed reflection is not comprehensively detected",
+        "The external secret store controls credential rotation and expiry",
+        "Retained workflow evidence covers the installed CLI and local fixtures; other listed routes require separate qualification"
+      ],
+      "qualifications": [
+        {
+          "report": "docs/evidence/2026-10-27/release-3.0-outbound/final-workflow.json",
+          "sha256": "d3c0fc7bb3590bf4e8243f28d55199028cb489dcff378e76f17eac189a63ccd2",
+          "routes": [
+            "cli_toolclad_http"
+          ],
+          "backends": [
+            "runtime_http"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "OUT-003",
+      "title": "Execution-scoped outbound authority",
+      "threat": "A cancelled or replaced execution reuses authority or resets request allowance",
+      "invariant": "Run identity and trusted context bind one assignment epoch; cancellation tombstones prevent recreation and uncertain attempts retain charges",
+      "owner": "runtime execution lifecycle",
+      "implementation_status": "implemented",
+      "validation_status": "partial",
+      "routes": [
+        "cli_toolclad_http",
+        "project_runtime_toolclad_http",
+        "managed_cli_inference"
+      ],
+      "backends": [
+        "runtime_http",
+        "inherited_inference_broker"
+      ],
+      "sources": [
+        "crates/runtime/src/outbound/authority.rs",
+        "crates/runtime/src/reasoning/governed_session.rs"
+      ],
+      "tests": [
+        "crates/runtime/src/outbound/tests.rs",
+        "crates/runtime/src/outbound/dispatch_tests.rs",
+        "scripts/test-outbound-capabilities.py"
+      ],
+      "limitations": [
+        "An admitted request may already have remote effects when cancellation arrives",
+        "Static upstream credentials remain valid until the upstream revokes them",
+        "This is runtime assignment authority, not a remote worker certificate system",
+        "Retained workflow evidence covers the installed CLI and local fixtures; other listed routes require separate qualification"
+      ],
+      "qualifications": [
+        {
+          "report": "docs/evidence/2026-10-27/release-3.0-outbound/final-workflow.json",
+          "sha256": "d3c0fc7bb3590bf4e8243f28d55199028cb489dcff378e76f17eac189a63ccd2",
+          "routes": [
+            "cli_toolclad_http"
+          ],
+          "backends": [
+            "runtime_http"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "AUD-001",
+      "title": "Durable effect intent and uncertain-outcome inspection",
+      "threat": "An interrupted outbound effect is reported complete or replayed without reconciliation",
+      "invariant": "Required signed intent precedes dispatch; incomplete effects remain distinguishable from confirmed completion",
+      "owner": "runtime reasoning journal",
+      "implementation_status": "implemented",
+      "validation_status": "partial",
+      "routes": [
+        "cli_toolclad_http",
+        "project_runtime_toolclad_http",
+        "managed_cli_inference"
+      ],
+      "backends": [
+        "protected_journal"
+      ],
+      "sources": [
+        "crates/runtime/src/reasoning/effect_journal.rs",
+        "crates/runtime/src/reasoning/recovery.rs",
+        "crates/runtime/src/toolclad/http_transport.rs"
+      ],
+      "tests": [
+        "crates/runtime/src/toolclad/http_transport_tests.rs",
+        "scripts/test-outbound-capabilities.py"
+      ],
+      "limitations": [
+        "A verified signed prefix is not proof of a complete run",
+        "This catalogue does not itself verify an audit journal",
+        "Retained workflow evidence covers the installed CLI and local fixtures; other listed routes require separate qualification"
+      ],
+      "qualifications": [
+        {
+          "report": "docs/evidence/2026-10-27/release-3.0-outbound/final-workflow.json",
+          "sha256": "d3c0fc7bb3590bf4e8243f28d55199028cb489dcff378e76f17eac189a63ccd2",
+          "routes": [
+            "cli_toolclad_http"
+          ],
+          "backends": [
+            "protected_journal"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ISO-001",
+      "title": "Independent denial of worker network access",
+      "threat": "Untrusted code bypasses runtime outbound mediation",
+      "invariant": "Governed workers use a network-denied boundary and retain only explicit broker channels",
+      "owner": "runtime sandbox and supervisor",
+      "implementation_status": "implemented",
+      "validation_status": "untested",
+      "routes": [
+        "managed_cli",
+        "governed_command",
+        "governed_mcp_stdio"
+      ],
+      "backends": [
+        "landlock",
+        "docker",
+        "gvisor",
+        "firecracker"
+      ],
+      "sources": [
+        "crates/runtime/src/sandbox/command.rs",
+        "crates/runtime/src/sandbox/docker.rs"
+      ],
+      "tests": [
+        "scripts/test-container-network.py",
+        "scripts/test-landlock-boundary.py"
+      ],
+      "limitations": [
+        "Landlock is Linux-only and shares the host kernel",
+        "This branch does not include separate unmerged registered-agent Landlock admission changes",
+        "Listed test drivers are not current-build qualifications until results are attached"
+      ],
+      "qualifications": []
+    },
+    {
+      "id": "REC-001",
+      "title": "Durable logical workflow resume",
+      "threat": "Restored state reuses old authority or repeats an irreversible effect",
+      "invariant": "Resume would require verified state, current authorization and reconciliation of unknown effects",
+      "owner": "runtime workflow lifecycle",
+      "implementation_status": "planned",
+      "validation_status": "untested",
+      "routes": [
+        "logical_workflow_resume"
+      ],
+      "backends": [],
+      "sources": [
+        "crates/runtime/src/reasoning/saga.rs"
+      ],
+      "tests": [],
+      "limitations": [
+        "Not delivered by the optional outbound feature",
+        "The existing saga recovery helper re-executes pending steps and is not a safe default for uncertain irreversible effects"
+      ],
+      "qualifications": []
+    }
+  ]
+}

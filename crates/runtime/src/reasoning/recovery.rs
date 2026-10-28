@@ -244,6 +244,7 @@ pub(crate) fn classify(
                     )?;
                 }
                 ToolEffect::NetworkRequestStarted {
+                    outbound,
                     request_id,
                     method,
                     url,
@@ -257,7 +258,7 @@ pub(crate) fn classify(
                             request_id: request_id.clone(),
                         },
                         entry,
-                        json!({"method": method, "url": url, "request_hash": request_hash}),
+                        json!({"method": method, "url": url, "request_hash": request_hash, "outbound": outbound}),
                     )?;
                 }
                 ToolEffect::NetworkRequestFinished {
@@ -570,6 +571,7 @@ mod tests {
             run_key: "run".into(),
             call_fingerprint: "fingerprint".into(),
             effect: ToolEffect::NetworkRequestStarted {
+                outbound: None,
                 request_id: "request".into(),
                 method: "POST".into(),
                 url: "https://example.test/effect".into(),

@@ -78,6 +78,7 @@ struct Executor {
 
 fn start(id: &str) -> ToolEffect {
     ToolEffect::NetworkRequestStarted {
+        outbound: None,
         request_id: id.into(),
         method: "POST".into(),
         url: "https://fixture.invalid/effect".into(),

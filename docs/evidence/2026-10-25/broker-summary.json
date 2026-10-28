@@ -1,0 +1,47 @@
+{
+  "runtime_version": "2.0.1",
+  "evidence_kind": "deterministic native Landlock and broker boundary probes",
+  "test_commit": "35493482dc11c408b856c800f2d7f57b259615ef",
+  "test_branch": "test/containment-evidence",
+  "runtime_source": "926f4a291b35b1a71f8f2013ba0fb8a0808139bd",
+  "upstream_source": "19f9ff11141ed28150771ee642618feedead23bd",
+  "binary_sha256": "8c4c385d83965c3af965340ae50482400337ae596bbc232f4beb9026ec915ad7",
+  "evidence_manifest_sha256": "8300026883327e550e6c509a2735180ee44a354185a4c00d587c80338de3a08c",
+  "e2e": {
+    "passed": true,
+    "cases": 19,
+    "provider_requests_with_signed_pre_effect_evidence": 61
+  },
+  "complementary_boundary_checks": [
+    "signed_mcp_call_returns_useful_result_with_filesystem_socket_and_signal_denials",
+    "required_run_journal_verifies_and_parent_environment_is_not_inherited",
+    "unsupported_kernel_is_refused_before_inference_without_host_fallback",
+    "shipping_runtime_SIGKILL_closes_lease_and_reaps_detached_MCP_descendant_without_runtime_cleanup"
+  ],
+  "scoring_tests_passed": 8,
+  "integrity_challenges_rejected": [
+    "changed_signature",
+    "forged_receiver_hash",
+    "missing_trial",
+    "false_success",
+    "incomplete_journal"
+  ],
+  "environment": {
+    "kernel": "7.0.0-38-generic",
+    "machine": "x86_64",
+    "landlock_abi": 8,
+    "guest_unprivileged_namespaces_permitted": true,
+    "host_policy_unchanged": true,
+    "outer_lab_vm_removed": true
+  },
+  "interpretation": "All fixed probes passed on the recorded guest. The permitted inference channel intentionally carried its synthetic data canary.",
+  "limitations": [
+    "Fixed known probes; no adaptive model escape rate or unknown-exploit claim.",
+    "Host/runtime and the external observer are trusted; no compromised-host containment claim.",
+    "No hardware covert-channel or cross-tenant noninterference claim.",
+    "Synthetic loopback provider; an approved inference channel can carry supplied data.",
+    "Hashes detect evidence changes, not forgery by the host operator.",
+    "Only the selected managed Landlock route, binary and recorded host are exercised."
+  ],
+  "history": "Earlier fixture failures and the original host namespace refusal are retained separately. They are not passing qualification runs."
+}

@@ -1,0 +1,11 @@
+{
+  "passed": true,
+  "original_cases": 11,
+  "rejected": [
+    "missing_case",
+    "substituted_effect",
+    "substituted_approval",
+    "incomplete_journal"
+  ],
+  "optimization_refused": true
+}

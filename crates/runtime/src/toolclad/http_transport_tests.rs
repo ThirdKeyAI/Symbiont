@@ -85,6 +85,93 @@ async fn request_identity_covers_each_effect_input() {
     }
 }
 
+fn outbound_guard(secret: &str) -> crate::outbound::DispatchGuard {
+    let capability: crate::outbound::Capability = toml::from_str(
+        "tool = 'case_read'\norigin = 'https://fixture.invalid'\nmethod = 'POST'\npath_prefix = '/'\ncredential = 'cases'",
+    )
+    .unwrap();
+    crate::outbound::DispatchGuard {
+        lease: crate::outbound::Lease::new(
+            "scope".into(),
+            std::time::Instant::now() + Duration::from_secs(10),
+        ),
+        capability,
+        name: "case_read".into(),
+        credential: Some(Arc::new(
+            crate::outbound::Credential::new(secret.into()).unwrap(),
+        )),
+        descriptor: json!({"credential": {"source": "environment", "variable": "FIXTURE_KEY", "version": "v1"}}),
+        success_status: Vec::new(),
+    }
+}
+
+#[tokio::test]
+async fn journal_identity_excludes_the_capability_credential_value() {
+    let client = client();
+    let build = |guard: &crate::outbound::DispatchGuard, method, url, header, body| {
+        let mut request = client
+            .request(method, url)
+            .header("x-fixture", header)
+            .body(body)
+            .build()
+            .unwrap();
+        guard
+            .credential
+            .as_ref()
+            .unwrap()
+            .inject(request.headers_mut(), "authorization", "Bearer ")
+            .unwrap();
+        request
+    };
+    let first = outbound_guard("synthetic-credential-one");
+    let second = outbound_guard("synthetic-credential-two");
+    let url = "https://fixture.invalid/first";
+    let expected = journal_identity(
+        &build(&first, reqwest::Method::POST, url, "value", " body "),
+        Some(&first),
+    )
+    .unwrap();
+    // Same request and credential identity, different secret: same hash.
+    assert_eq!(
+        journal_identity(
+            &build(&second, reqwest::Method::POST, url, "value", " body "),
+            Some(&second),
+        )
+        .unwrap(),
+        expected
+    );
+    // Guessing the credential and hashing it does not reproduce the record.
+    assert_ne!(
+        request_identity(&build(
+            &first,
+            reqwest::Method::POST,
+            url,
+            "value",
+            " body "
+        ))
+        .unwrap()
+        .0,
+        expected.0
+    );
+    for changed in [
+        build(&first, reqwest::Method::PUT, url, "value", " body "),
+        build(
+            &first,
+            reqwest::Method::POST,
+            "https://fixture.invalid/second",
+            "value",
+            " body ",
+        ),
+        build(&first, reqwest::Method::POST, url, "changed", " body "),
+        build(&first, reqwest::Method::POST, url, "value", "body"),
+    ] {
+        assert_ne!(
+            journal_identity(&changed, Some(&first)).unwrap().0,
+            expected.0
+        );
+    }
+}
+
 #[tokio::test]
 async fn request_bodies_must_be_finite_and_within_the_byte_budget() {
     let client = client();
@@ -130,6 +217,7 @@ async fn read_request(stream: &mut TcpStream) -> Vec<u8> {
 struct EffectExecutor {
     url: String,
     retained: Arc<Mutex<Option<EffectJournal>>>,
+    guard: Option<crate::outbound::DispatchGuard>,
 }
 impl EffectExecutor {
     fn request(&self, client: &reqwest::Client) -> reqwest::Request {
@@ -175,12 +263,13 @@ impl ActionExecutor for EffectExecutor {
                 .expect("dispatcher attaches a call journal");
             *self.retained.lock().unwrap() = Some(audit.clone());
             let client = client();
-            let response = exchange(
+            let response = exchange_guarded(
                 &client,
                 self.request(&client),
                 Some(&audit),
                 grant.deadline(),
                 1024,
+                self.guard.as_ref(),
             )
             .await;
             output.push(match response {
@@ -233,6 +322,7 @@ async fn signed_request_record_precedes_the_socket_and_matches_the_call() {
     let executor = EffectExecutor {
         url: format!("http://{}/effect", sink.local_addr().unwrap()),
         retained: Arc::default(),
+        guard: None,
     };
     let expected_hash = request_identity(&executor.request(&client())).unwrap();
     let observer = journal.clone();
@@ -332,6 +422,7 @@ async fn signed_request_record_precedes_the_socket_and_matches_the_call() {
     assert!(retained.check_live().is_err());
     assert!(retained
         .append(ToolEffect::NetworkRequestStarted {
+            outbound: None,
             request_id: "late".into(),
             method: "POST".into(),
             url: executor.url.clone(),
@@ -386,6 +477,7 @@ async fn failed_or_cancelled_effect_checkpoint_prevents_the_connection() {
         let executor = Arc::new(EffectExecutor {
             url: format!("http://{}/effect", sink.local_addr().unwrap()),
             retained: Arc::default(),
+            guard: None,
         });
         let journal = Arc::new(InterruptedJournal {
             writes: AtomicUsize::new(0),
@@ -463,6 +555,7 @@ async fn incomplete_response_records_the_received_status_and_bytes() {
     let executor = EffectExecutor {
         url: format!("http://{}/effect", sink.local_addr().unwrap()),
         retained: Arc::default(),
+        guard: None,
     };
     let server = tokio::spawn(async move {
         let (mut stream, _) = sink.accept().await.unwrap();
@@ -537,4 +630,137 @@ async fn deadline_closes_a_stalled_response_connection() {
     .await;
     assert!(result.err().unwrap().contains("deadline expired"));
     server.await.unwrap();
+}
+
+async fn guarded_status_body(success_status: Vec<u16>) -> (u16, Vec<u8>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        read_request(&mut socket).await;
+        socket
+            .write_all(b"HTTP/1.1 404 Not Found\r\ncontent-length: 17\r\nconnection: close\r\n\r\n{\"missing\":true}\n")
+            .await
+            .unwrap();
+    });
+    let capability: crate::outbound::Capability = toml::from_str(&format!(
+        "tool = 'case_read'\norigin = 'http://127.0.0.1:{port}'\nmethod = 'GET'\npath_prefix = '/'\nprivate_origin = true"
+    ))
+    .unwrap();
+    let guard = crate::outbound::DispatchGuard {
+        lease: crate::outbound::Lease::new(
+            "scope".into(),
+            std::time::Instant::now() + Duration::from_secs(10),
+        ),
+        capability,
+        name: "case_read".into(),
+        credential: None,
+        descriptor: json!({}),
+        success_status,
+    };
+    let request = client()
+        .get(format!("http://127.0.0.1:{port}/records/1"))
+        .build()
+        .unwrap();
+    let response = exchange_guarded(
+        &client(),
+        request,
+        None,
+        std::time::Instant::now() + Duration::from_secs(5),
+        1024,
+        Some(&guard),
+    )
+    .await
+    .unwrap();
+    server.await.unwrap();
+    (response.status, response.body)
+}
+
+#[tokio::test]
+async fn guarded_bodies_are_kept_for_declared_success_statuses() {
+    let (status, body) = guarded_status_body(Vec::new()).await;
+    assert_eq!(status, 404);
+    assert!(String::from_utf8(body)
+        .unwrap()
+        .contains("rejected the request"));
+    let (status, body) = guarded_status_body(vec![404]).await;
+    assert_eq!(status, 404);
+    assert_eq!(body, b"{\"missing\":true}\n");
+}
+
+#[tokio::test]
+async fn reflected_headers_never_enter_signed_response_hashes() {
+    // Exercise complete, oversized, truncated and header-name reflections,
+    // then retain evidence for an ordinary response and a body-only refusal.
+    for case in 0..7 {
+        let mut secret = format!("Synthetic-{}", uuid::Uuid::new_v4().simple());
+        if case == 6 {
+            secret = format!(" {secret} ");
+        }
+        let sink = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", sink.local_addr().unwrap());
+        let mut guard = outbound_guard(&secret);
+        guard.capability.origin = origin.clone();
+        guard.capability.private_origin = true;
+        let executor = EffectExecutor {
+            url: format!("{origin}/effect"),
+            retained: Arc::default(),
+            guard: Some(guard),
+        };
+        let header = match case {
+            3 => format!("{secret}: reflected"),
+            4 | 5 => "X-Fixture: ordinary".into(),
+            _ => format!("X-Reflected: {secret}"),
+        };
+        let body = if case == 5 {
+            secret.clone()
+        } else {
+            "allowed".into()
+        };
+        let length = match case {
+            1 => 2048,
+            2 => 99,
+            _ => body.len(),
+        };
+        let wire = format!("HTTP/1.1 200 OK\r\n{header}\r\nContent-Length: {length}\r\nConnection: close\r\n\r\n{body}");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = sink.accept().await.unwrap();
+            read_request(&mut stream).await;
+            let _ = stream.write_all(wire.as_bytes()).await;
+        });
+        let state = LoopState::new(crate::types::AgentId::new(), Conversation::new());
+        let root = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let journal = ProtectedJournal::create(root.path(), state.agent_id).unwrap();
+        let results = dispatch(&executor, &journal, &state).await.unwrap();
+        server.await.unwrap();
+        assert_eq!(results[0].is_error, case != 4, "case {case}");
+        let entries = ProtectedJournal::verify(journal.path(), &journal.public_key()).unwrap();
+        let event = entries
+            .iter()
+            .find_map(|entry| match &entry.event {
+                LoopEvent::ToolEffect {
+                    effect:
+                        ToolEffect::NetworkRequestFinished {
+                            status,
+                            response_hash,
+                            response_headers_hash,
+                            ..
+                        },
+                    ..
+                } => Some((status, response_hash, response_headers_hash)),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(*event.0, Some(200));
+        assert_eq!(event.1.is_some(), case == 4, "body hash, case {case}");
+        assert_eq!(
+            event.2.is_some(),
+            matches!(case, 4 | 5),
+            "header hash, case {case}"
+        );
+        assert!(!std::fs::read_to_string(journal.path())
+            .unwrap()
+            .contains(&secret));
+    }
 }

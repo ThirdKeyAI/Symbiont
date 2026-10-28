@@ -1,0 +1,25 @@
+{
+  "passed": true,
+  "archives": [
+    {
+      "suite": "broker",
+      "archive": "symbiont-2.0.1-containment-evidence.tar.gz",
+      "sha256": "062e3ef0aceb2a3915a6d92a48f4d9ef4e00a3565d30cdb73b9cc6db2141ab27",
+      "bytes": 562153,
+      "files": 297,
+      "archive_inventory_verified": true,
+      "offline_verification_passed": true,
+      "tamper_checks_passed": true
+    },
+    {
+      "suite": "lifecycle",
+      "archive": "symbiont-2.0.1-lifecycle-evidence.tar.gz",
+      "sha256": "d2422790e07cbe027bcc45fb2bec03dd1a231789a703bae8c4e2a0bd08ad773f",
+      "bytes": 887623,
+      "files": 857,
+      "archive_inventory_verified": true,
+      "offline_verification_passed": true,
+      "tamper_checks_passed": true
+    }
+  ]
+}

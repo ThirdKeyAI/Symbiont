@@ -1,5 +1,7 @@
 <img src="logo-hz.png" alt="Symbi">
 
+> **Migração da API Rust para 3.0:** Consulte os novos campos e a ordem parcial dos ambientes de isolamento em [acesso de saída](docs/pt/outbound-capabilities.md). Verifique os downloads com o [guia da versão](docs/pt/release-verification.md).
+
 [English](README.md) | [中文简体](README.zh-cn.md) | [Español](README.es.md) | **Português** | [日本語](README.ja.md) | [Deutsch](README.de.md)
 
 [![Build](https://img.shields.io/github/actions/workflow/status/thirdkeyai/symbiont/docker-build.yml?branch=main)](https://github.com/thirdkeyai/symbiont/actions)

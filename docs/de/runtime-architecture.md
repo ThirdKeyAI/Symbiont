@@ -173,7 +173,11 @@ pub struct ResourceLimits {
 
 ### Sandbox-Architektur
 
-Die Laufzeit liefert vier Host-Isolations-Backends — alle OSS — plus ein separates Hosted-Cloud-Backend (E2B). Drei davon sind nummeriert (Docker, gVisor, Firecracker); `landlock` ist benannt statt nummeriert, weil es einmalige Befehle, Parser und den verwalteten CLI-Kindprozess ohne Daemon isoliert und damit kein Peer auf der nummerierten Leiter ist. Betreiber wählen das Backend pro Agent über den DSL-Block `with { sandbox = ... }` oder setzen einen Projekt-Standard in `[sandbox] tier = "..."`.
+Die Laufzeit liefert vier Host-Isolations-Backends — alle OSS — plus ein separates Hosted-Cloud-Backend (E2B). Drei davon sind nummeriert (Docker, gVisor, Firecracker); `landlock` ist benannt statt nummeriert und bildet einen separaten Zulassungszweig. Es isoliert native beaufsichtigte Worker ohne Container-Daemon. Betreiber wählen das Backend pro Agent über den DSL-Block `with { sandbox = ... }` oder setzen einen Projekt-Standard in `[sandbox] tier = "..."`. Registrierte HTTP- und geplante Agenten koennen Landlock explizit wählen; ohne Sandbox-Angabe bleibt Docker/Tier1 ihr Standard.
+
+Die Zulassung verwendet `SecurityTier::satisfies`. `Hosted < Tier1 < Tier2 < Tier3`
+ist die nummerierte Leiter. Landlock erfuellt nur eine explizite Landlock-Anforderung
+oder das Minimum ohne Isolation und kann keine Container- oder VM-Anforderung ersetzen.
 
 #### Stufe 1: Docker-Isolation
 **Anwendungsfall**: Risikoarme Operationen, Entwicklungsaufgaben
@@ -197,7 +201,7 @@ Die Laufzeit liefert vier Host-Isolations-Backends — alle OSS — plus ein sep
 - Erfordert das `firecracker`-Binary plus den passenden `symbi-sandbox-guest` PID-1-Dienst und Supervisor — siehe [`docs/firecracker-setup.md`](/firecracker-setup).
 
 #### Hosted-Ausfuehrung: E2B (keine Stufe)
-E2B ist ein separates Hosted-Cloud-Backend, **kein** Peer von Stufe 1/2/3. Es wird auf `SecurityTier::Hosted` abgebildet, das beim Sortieren **unterhalb** von `Tier1` einsortiert wird — Richtlinien, die Host-Isolation verlangen (`tier >= Tier1`), lehnen Hosted-Ausfuehrung ab. Opt-in ausschliesslich ueber DSL (`with { sandbox = "e2b" }`).
+E2B ist ein separates Hosted-Cloud-Backend, **kein** Peer von Stufe 1/2/3. Es wird auf `SecurityTier::Hosted` unterhalb von `Tier1` in der nummerierten Leiter abgebildet. Richtlinien verwenden `SecurityTier::satisfies`; Anforderungen des separaten Landlock-Zweigs lehnen Hosted-Ausfuehrung ebenfalls ab. Opt-in ausschliesslich ueber DSL (`with { sandbox = "e2b" }`).
 
 ---
 

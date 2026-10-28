@@ -8550,7 +8550,7 @@ checksum = "ba39f3699c378cd8970968dcbff9c43159ea4cfbd88d43c00b22f2ef10a435d2"
 
 [[package]]
 name = "repl-cli"
-version = "2.0.1"
+version = "3.0.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -8565,7 +8565,7 @@ dependencies = [
 
 [[package]]
 name = "repl-core"
-version = "2.0.1"
+version = "3.0.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -8586,7 +8586,7 @@ dependencies = [
 
 [[package]]
 name = "repl-lsp"
-version = "2.0.1"
+version = "3.0.0"
 dependencies = [
  "repl-core",
  "tokio",
@@ -9886,7 +9886,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "symbi"
-version = "2.0.1"
+version = "3.0.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -9970,7 +9970,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-dsl"
-version = "2.0.1"
+version = "3.0.0"
 dependencies = [
  "anyhow",
  "cc",
@@ -10013,7 +10013,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-runtime"
-version = "2.0.1"
+version = "3.0.0"
 dependencies = [
  "aes-gcm",
  "agentpin",
@@ -10148,7 +10148,7 @@ dependencies = [
 
 [[package]]
 name = "symbi-shell"
-version = "2.0.1"
+version = "3.0.0"
 dependencies = [
  "aes-gcm",
  "anyhow",

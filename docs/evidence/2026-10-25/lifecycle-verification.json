@@ -1,0 +1,9 @@
+{
+  "passed": true,
+  "cases": 11,
+  "runs": 16,
+  "provider_requests": 28,
+  "complete_suite": true,
+  "manifest_sha256": "9f4b2092c03bc2f6af7d3a570e0999d5d2c89ed1afa943e3462dcc581e42d56b",
+  "binary_sha256": "8c4c385d83965c3af965340ae50482400337ae596bbc232f4beb9026ec915ad7"
+}

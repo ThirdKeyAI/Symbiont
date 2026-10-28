@@ -41,8 +41,11 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - name: Validate release graph and offline release tooling
         run: |
+          python3 scripts/check-security-controls.py
+          python3 scripts/test-security-controls.py
           python3 scripts/test-release-tools.py
           python3 scripts/test-release-checks.py
+          python3 scripts/test-landlock-release-checks.py
           python3 scripts/publish-crates.py
       - run: cargo fmt --check
       # --all-targets so test and bench code is linted too. Without it a
@@ -50,6 +53,19 @@ jobs:
       # when someone runs clippy locally.
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      - name: Build and test outbound CLI capabilities
+        run: |
+          cargo build --locked -p symbi
+          python3 scripts/test-outbound-capabilities.py \
+            --binary "$PWD/target/debug/symbi" \
+            --report "$RUNNER_TEMP/outbound-capabilities.json"
+      - name: Preserve outbound CLI evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: outbound-capabilities-${{ github.sha }}
+          if-no-files-found: warn
+          path: ${{ runner.temp }}/outbound-capabilities.json
       - name: Test Docker containment against the daemon
         env:
           SYMBI_DOCKER_AMBIENT_CANARY: synthetic-ambient-value

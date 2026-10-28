@@ -225,6 +225,7 @@ pub struct AuthorizedAction {
     run_key: String,
     session_binding: String,
     run_deadline: Instant,
+    outbound_assignment: Option<uuid::Uuid>,
     expires_at: Instant,
     approval: Option<ApprovalReceipt>,
     iteration: u32,
@@ -280,6 +281,14 @@ impl AuthorizedAction {
             run_deadline: Instant::now()
                 .checked_add(remaining)
                 .ok_or("run deadline overflow")?,
+            outbound_assignment: state
+                .trusted_context
+                .get("outbound_assignment")
+                .map(|epoch| {
+                    serde_json::from_value(epoch.clone())
+                        .map_err(|_| "invalid outbound assignment in trusted context")
+                })
+                .transpose()?,
             expires_at: approval
                 .as_ref()
                 .map_or(expires_at, |receipt| expires_at.min(receipt.expires_at)),
@@ -365,6 +374,10 @@ impl AuthorizedAction {
     }
     pub(crate) fn run_deadline(&self) -> Instant {
         self.run_deadline
+    }
+    /// The governed session's outbound assignment epoch, when one was issued.
+    pub(crate) fn outbound_assignment(&self) -> Option<uuid::Uuid> {
+        self.outbound_assignment
     }
 
     pub fn deadline(&self) -> Instant {

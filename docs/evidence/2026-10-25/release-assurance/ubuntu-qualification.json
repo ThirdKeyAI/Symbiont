@@ -1,0 +1,61 @@
+{
+  "sha": "495d2b77a83ae6781d4e698ba476c82a5846cc96",
+  "dirty": false,
+  "binary": "/home/evidence/symbi",
+  "binary_sha256": "feddcf2f752882f0c037d33a4097ded24a8937831dc6b664e0339fec6619299b",
+  "kernel": "7.0.0-38-generic",
+  "machine": "x86_64",
+  "uid": 1000,
+  "caller_cgroup": "0::/user.slice/user-1000.slice/user@1000.service/app.slice/symbi-current-release-gate.service",
+  "systemd": "systemd 259 (259.5-0ubuntu3.4)",
+  "driver_sha256": "cdf1156d20f0f6c1b540e3789ec9f3411fa05487b827a11d3662fd48eac19aba",
+  "cases": [
+    {
+      "name": "broker",
+      "driver": "test-containment-evidence.py",
+      "driver_sha256": "d8966ea51f0ad9a8392f5ec68cc60b916d09d755b77593b92af299ff5913880e",
+      "verifier_sha256": "87b730797af20c6d0f8e3f6d8fd37b9212793aa22931943ea24a9f35e598120d",
+      "integrity_sha256": "d5cf8f62866c12b43561d446074b5862fd25dd3be40095b9f65e28f157a5f460",
+      "passed": true,
+      "exit_code": 0,
+      "verification_exit_code": 0,
+      "integrity_exit_code": 0,
+      "manifest_sha256": "a1c029e046cf66772c75bc8f1bd3c0ad3286075f40cd8d257024e4fe0aaaf578",
+      "seconds": 80.576
+    },
+    {
+      "name": "lifecycle",
+      "driver": "test-containment-lifecycle.py",
+      "driver_sha256": "51dba8e3d0618938cbf999641ffa4594e535a596d02be33deda7b392c71905f6",
+      "verifier_sha256": "19821e13acf33126e626c855e2da3e7f9c7b1b8f72ffcb41e820f4c048aeb7d0",
+      "integrity_sha256": "d256737c622776f47e1d476b35cb3a4426597b8a20c71749a95e36ccb2979807",
+      "passed": true,
+      "exit_code": 0,
+      "verification_exit_code": 0,
+      "integrity_exit_code": 0,
+      "manifest_sha256": "fca70545c9f944f63184a4e86da4302735daab0da779aa36ea37036fcdd4600e",
+      "seconds": 89.94
+    },
+    {
+      "name": "external-effects",
+      "driver": "test-external-effect-recovery.py",
+      "driver_sha256": "99a65342d36296d3752471bd8e8f4772c0a5593a3f1c6d33a2ac78a547591fac",
+      "verifier_sha256": "6146cc747b693b9cc3df6b9d7227e183aa1f34ab1e2b6d7ff4a6f1638df43ab9",
+      "integrity_sha256": "9c14036c435111c3055d2c096f715eeb13b5669fae7cadd480f432f6960ac079",
+      "passed": true,
+      "exit_code": 0,
+      "verification_exit_code": 0,
+      "integrity_exit_code": 0,
+      "manifest_sha256": "681467d4d094b6d8dfb44d17dacd020a47a1c2260d55c67f012615a95bfd25c1",
+      "seconds": 33.053
+    }
+  ],
+  "passed": true,
+  "upstream_source": "495d2b77a83ae6781d4e698ba476c82a5846cc96",
+  "profile": "containment-evidence",
+  "limitations": [
+    "Synthetic providers and terminal operator; no model-quality or human-review claim.",
+    "This host and binary only; not macOS, Windows or arbitrary third-party CLIs."
+  ],
+  "binary_unchanged": true
+}

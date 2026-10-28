@@ -1,0 +1,316 @@
+{
+  "schema_version": 1,
+  "passed": true,
+  "timestamp": "2026-10-26T22:42:31.007327+00:00",
+  "source_revision": "19f9ff11141ed28150771ee642618feedead23bd",
+  "source_digest": "6c2b6674b73e4747fa0fc6602496b46cea6a33f6a4cc4b153b659915c968629a",
+  "binary_sha256": "0a6bde32159fe5c40783238200545c68ac0ff137ebc833b830881bddefd26e0b",
+  "driver_sha256": "539161cae902a87b23facf1075b8d8db07ab9857ec25010644abc578426babf9",
+  "verifier_sha256": "9e975bf4d8c55c8925dfd730adbd20bee77e81f05170715f23085a9acb135374",
+  "platform": {
+    "os": "Linux",
+    "release": "7.0.0-38-generic",
+    "architecture": "x86_64"
+  },
+  "scope": "governed ToolClad HTTP through installed CLI; no worker isolation qualification",
+  "routes": [
+    "cli_toolclad_http"
+  ],
+  "backends": [
+    "runtime_http",
+    "protected_journal"
+  ],
+  "control_ids": [
+    "OUT-001",
+    "OUT-002",
+    "OUT-003",
+    "AUD-001"
+  ],
+  "checks": [
+    {
+      "name": "read",
+      "passed": true,
+      "requests": 1,
+      "cli_exit": 0
+    },
+    {
+      "name": "read_again",
+      "passed": true,
+      "requests": 1,
+      "cli_exit": 0
+    },
+    {
+      "name": "write",
+      "passed": true,
+      "requests": 1,
+      "cli_exit": 0
+    },
+    {
+      "name": "denied_write",
+      "passed": true,
+      "requests": 0,
+      "cli_exit": 0
+    },
+    {
+      "name": "bad_input",
+      "passed": true,
+      "requests": 0,
+      "cli_exit": 0
+    },
+    {
+      "name": "budget",
+      "passed": true,
+      "requests": 1,
+      "cli_exit": 2
+    },
+    {
+      "name": "redirect",
+      "passed": true,
+      "requests": 1,
+      "cli_exit": 2
+    },
+    {
+      "name": "reflection",
+      "passed": true,
+      "requests": 1,
+      "cli_exit": 2
+    },
+    {
+      "name": "store_read",
+      "passed": true,
+      "requests": 1,
+      "cli_exit": 0
+    },
+    {
+      "name": "store_missing",
+      "passed": true,
+      "requests": 0,
+      "cli_exit": 2
+    },
+    {
+      "name": "preflight_version",
+      "passed": true,
+      "requests": 0
+    },
+    {
+      "name": "preflight_path",
+      "passed": true,
+      "requests": 0
+    },
+    {
+      "name": "interrupted_effect_refuses_replay",
+      "passed": true,
+      "requests": 1
+    }
+  ],
+  "errors": [],
+  "configurations": {
+    "normal": {
+      "symbiont.toml": "308c7a2eb9d70609feb6c40ee287a229d4c78a7c02c7ce30f01be79c08064cd6",
+      "agents/case_review.symbi": "c833ad59c9ce6338e97d693f5ff18f3c1424978456dbd4202275f3f44c321e45",
+      "policies/cases.cedar": "ae6f3bbc10d4275226be91b066f1cc3f381fdfef0924005ad6d9c410c2f9d5df",
+      "tools/case_read.clad.toml": "01a49e37d922ccd1641e5ebc519e3b5a887954b814a9fc989755676c60ca0689",
+      "tools/case_write.clad.toml": "b66c95aa7ee8b41734ec5687642b56646f55a8e5c93e92474f7ad1956382a234"
+    },
+    "store_read": {
+      "symbiont.toml": "74c95c0a8bfbebef0c21394b5167bb5d65b6e6b64882ce1070bdbfa245683679",
+      "agents/case_review.symbi": "c833ad59c9ce6338e97d693f5ff18f3c1424978456dbd4202275f3f44c321e45",
+      "policies/cases.cedar": "ae6f3bbc10d4275226be91b066f1cc3f381fdfef0924005ad6d9c410c2f9d5df",
+      "tools/case_read.clad.toml": "01a49e37d922ccd1641e5ebc519e3b5a887954b814a9fc989755676c60ca0689",
+      "tools/case_write.clad.toml": "b66c95aa7ee8b41734ec5687642b56646f55a8e5c93e92474f7ad1956382a234",
+      "store.toml": "ddd9f52419d00f2bc6d183afc0b3472144e5e6704b22de7c5851a6a677a299df"
+    },
+    "store_missing": {
+      "symbiont.toml": "74c95c0a8bfbebef0c21394b5167bb5d65b6e6b64882ce1070bdbfa245683679",
+      "agents/case_review.symbi": "c833ad59c9ce6338e97d693f5ff18f3c1424978456dbd4202275f3f44c321e45",
+      "policies/cases.cedar": "ae6f3bbc10d4275226be91b066f1cc3f381fdfef0924005ad6d9c410c2f9d5df",
+      "tools/case_read.clad.toml": "01a49e37d922ccd1641e5ebc519e3b5a887954b814a9fc989755676c60ca0689",
+      "tools/case_write.clad.toml": "b66c95aa7ee8b41734ec5687642b56646f55a8e5c93e92474f7ad1956382a234",
+      "store.toml": "ddd9f52419d00f2bc6d183afc0b3472144e5e6704b22de7c5851a6a677a299df"
+    },
+    "version": {
+      "symbiont.toml": "311cb0e001ab7e13f6c3eff3aa7075ca6ae1722d36b249cb8353830c9d8123bf",
+      "agents/case_review.symbi": "c833ad59c9ce6338e97d693f5ff18f3c1424978456dbd4202275f3f44c321e45",
+      "policies/cases.cedar": "ae6f3bbc10d4275226be91b066f1cc3f381fdfef0924005ad6d9c410c2f9d5df",
+      "tools/case_read.clad.toml": "01a49e37d922ccd1641e5ebc519e3b5a887954b814a9fc989755676c60ca0689",
+      "tools/case_write.clad.toml": "b66c95aa7ee8b41734ec5687642b56646f55a8e5c93e92474f7ad1956382a234"
+    },
+    "path": {
+      "symbiont.toml": "308c7a2eb9d70609feb6c40ee287a229d4c78a7c02c7ce30f01be79c08064cd6",
+      "agents/case_review.symbi": "c833ad59c9ce6338e97d693f5ff18f3c1424978456dbd4202275f3f44c321e45",
+      "policies/cases.cedar": "ae6f3bbc10d4275226be91b066f1cc3f381fdfef0924005ad6d9c410c2f9d5df",
+      "tools/case_read.clad.toml": "515b8c0a6c3e27572a604325416c4d36bfe3d4cb1756ca7fd7632714ac1ff138",
+      "tools/case_write.clad.toml": "1836c3d32cfaef4bd9ccee0a7dedc2946d474952e7c4691f48aa839ffac3ae6f"
+    }
+  },
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/records/7",
+      "body": "",
+      "credential_matched": true
+    },
+    {
+      "method": "GET",
+      "path": "/records/7",
+      "body": "",
+      "credential_matched": true
+    },
+    {
+      "method": "POST",
+      "path": "/records/7",
+      "body": "{\"status\":\"reviewed\"}",
+      "credential_matched": true
+    },
+    {
+      "method": "GET",
+      "path": "/records/7",
+      "body": "",
+      "credential_matched": true
+    },
+    {
+      "method": "GET",
+      "path": "/records/7",
+      "body": "",
+      "credential_matched": true
+    },
+    {
+      "method": "GET",
+      "path": "/records/7",
+      "body": "",
+      "credential_matched": true
+    },
+    {
+      "method": "GET",
+      "path": "/records/7",
+      "body": "",
+      "credential_matched": true
+    },
+    {
+      "method": "GET",
+      "path": "/records/7",
+      "body": "",
+      "credential_matched": true
+    }
+  ],
+  "journals": [
+    {
+      "mode": "read",
+      "sha256": "8845b1095792554326deee842216a17d72ae06c8b0234866f283c214f86493e7",
+      "records": 22,
+      "independent_verification": true,
+      "inspection_exit": 0,
+      "outbound_capabilities": [
+        "case_read"
+      ]
+    },
+    {
+      "mode": "read_again",
+      "sha256": "1124c14946a615db3c719b1169c33f562a94ed5df72ed611880ba862686f7cf4",
+      "records": 22,
+      "independent_verification": true,
+      "inspection_exit": 0,
+      "outbound_capabilities": [
+        "case_read"
+      ]
+    },
+    {
+      "mode": "write",
+      "sha256": "ce6b8fcf59fa31a0e4e693fe2f174df5e92e9393a21f587ec90b16fae2c486e8",
+      "records": 22,
+      "independent_verification": true,
+      "inspection_exit": 0,
+      "outbound_capabilities": [
+        "case_write"
+      ]
+    },
+    {
+      "mode": "denied_write",
+      "sha256": "9c69118025c4d1a423d7048cd23afa6b23f5b1e4d4c8e73679624333967cd084",
+      "records": 18,
+      "independent_verification": true,
+      "inspection_exit": 0,
+      "outbound_capabilities": []
+    },
+    {
+      "mode": "bad_input",
+      "sha256": "6c2b4ba7749d4b56c6ae8b0a073fd70f19b656605362b86883df3f70cb63fa52",
+      "records": 18,
+      "independent_verification": true,
+      "inspection_exit": 0,
+      "outbound_capabilities": []
+    },
+    {
+      "mode": "budget",
+      "sha256": "3fff0e230882312369118f9a60764690c4d7855af1111577df05b7d5ae82713a",
+      "records": 19,
+      "independent_verification": true,
+      "inspection_exit": 2,
+      "outbound_capabilities": [
+        "case_read",
+        "case_read"
+      ]
+    },
+    {
+      "mode": "redirect",
+      "sha256": "8258836e6a82c3490b6d59c9a9d36b8b65928d4bc5fa11d5ee4b24f62b940174",
+      "records": 15,
+      "independent_verification": true,
+      "inspection_exit": 2,
+      "outbound_capabilities": [
+        "case_read"
+      ]
+    },
+    {
+      "mode": "reflection",
+      "sha256": "512d1198f72f30b86e0d10e2e11ef1e71c64a79957d25a3c2fda63081b51a70e",
+      "records": 15,
+      "independent_verification": true,
+      "inspection_exit": 2,
+      "outbound_capabilities": [
+        "case_read"
+      ]
+    },
+    {
+      "mode": "store_read",
+      "sha256": "4c0566ca2e74dcd623b6a80cf750e6af15057ca132ddb832461d0308a8690fc7",
+      "records": 22,
+      "independent_verification": true,
+      "inspection_exit": 0,
+      "outbound_capabilities": [
+        "case_read"
+      ]
+    },
+    {
+      "mode": "store_missing",
+      "sha256": "99c09bc941fcd36d95b93742f9c9f0b199b9564e91bb89777165aff05710c221",
+      "records": 13,
+      "independent_verification": true,
+      "inspection_exit": 2,
+      "outbound_capabilities": []
+    },
+    {
+      "mode": "interrupt",
+      "sha256": "afb1129bba4b0d8791c66fc9aa35067070142cc877c28632a76e3ad31a224c1c",
+      "records": 8,
+      "independent_verification": true,
+      "inspection_exit": 2,
+      "outbound_capabilities": [
+        "case_read"
+      ]
+    }
+  ],
+  "timings_seconds": {
+    "read": 0.242,
+    "read_again": 0.24,
+    "write": 0.246,
+    "denied_write": 0.201,
+    "bad_input": 0.199,
+    "budget": 0.222,
+    "redirect": 0.183,
+    "reflection": 0.18,
+    "store_read": 0.239,
+    "store_missing": 0.167
+  },
+  "configuration_digest": "0f8f9dd0db405a7d24e98a2ac8a2524d95f3709dfdf7601be74587ae1e69ae87"
+}

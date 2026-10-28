@@ -69,6 +69,10 @@ POST /api/v1/workflows/execute
 
 Administratoren uebermitteln rohen DSL-Quelltext in `workflow_id`; `parameters` wird als Eingabe des Aufrufs verwendet. Lassen Sie `agent_id` weg, um eine Registrierung zu vergeben, oder geben Sie eine ID an, um sie zu erstellen oder zu ersetzen. Auf Agenten beschraenkte Schluessel erhalten hier `403 ADMIN_REQUIRED` und koennen ihren registrierten Quelltext ueber `/agents/{id}/execute` aufrufen. Eine `queued`-Antwort bestaetigt die Aufnahme; ordnen Sie `execution_id` in `/agents/{id}/history` zu, um das endgueltige Ergebnis zu erhalten. Siehe den [Workflow-Vertrag](https://github.com/ThirdKeyAI/Symbiont/blob/main/crates/runtime/API_REFERENCE.md#execute-workflow) fuer Details zu Quellenauswahl, Validierung und Migration.
 
+Ohne Sandbox-Angabe bleibt Docker/Tier1 der Registrierungsstandard. Mit
+`with sandbox = "landlock"` wird das native beaufsichtigte Backend explizit
+ausgewaehlt; Landlock erfuellt keine Container- oder VM-Stufenanforderung.
+
 **Request Body:**
 ```json
 {

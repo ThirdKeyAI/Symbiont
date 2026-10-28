@@ -380,6 +380,10 @@ agent high_security_agent(classified_data: ClassifiedInfo) -> Report {
 }
 ```
 
+可选的 Linux 原生后端使用 `sandbox = "landlock"`。通过 HTTP 注册的智能体和
+计划智能体必须明确指定它。Landlock 是独立的准入分支，不满足 Docker、gVisor、
+Firecracker 或托管执行要求。
+
 ---
 
 ## 内置函数

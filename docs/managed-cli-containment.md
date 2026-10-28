@@ -1,5 +1,9 @@
 # Managed CLI containment
 
+For reproducible broker, audit and network checks against a pinned shipping
+binary, see [containment evidence](containment-evidence.md), including the
+recorded 2.0.1 results and their limits.
+
 Agents with `metadata { executor = "claude_code" }` run Claude Code in the
 project-selected Landlock, Docker, gVisor or Firecracker worker. Landlock uses a private tmpfs, private loopback network namespace and two inherited connected broker capabilities; see [Linux development](landlock-development.md). Containers receive scratch
 `/workspace` and a private channel mount. Firecracker receives scratch `/tmp` and
@@ -16,6 +20,11 @@ guest service, kernel and VMM; see [Firecracker setup](firecracker-setup.md).
 The worker image and host deployment remain trusted components.
 
 ## Project configuration
+
+An optional explicit file/Vault credential source now shares the outbound
+credential and execution-lifetime contract. Existing environment selection stays
+supported. See [outbound capabilities](outbound-capabilities.md#managed-inference)
+for configuration and migration; do not configure both sources.
 
 Keep the control project separate from the source repository being reviewed.
 Its `tools/`, `agents/`, `policies/`, `.symbiont/` and other control paths cannot

@@ -50,8 +50,12 @@ fn load_project_manifests(
     ),
     String,
 > {
+    let outbound = crate::outbound::Profile::load(project)?;
     let custom_types = load_custom_types(project)?;
     let manifests = load_manifests_from_dir_with_types(tools_dir, &custom_types)?;
+    if outbound.is_some() && manifests.is_empty() {
+        return Err("outbound profile requires a registered HTTP capability manifest".into());
+    }
     Ok((manifests, custom_types))
 }
 

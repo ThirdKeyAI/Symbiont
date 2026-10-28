@@ -91,6 +91,9 @@ shutil.copyfile(Path(os.environ['FIXTURES']) / url.rsplit('/', 1)[1], args[args.
         self.assertEqual(workflow.count('contents: write'), 1)
         self.assertEqual(workflow.count('id-token: write'), 1)
         self.assertIn('artifacts/release-source.json', workflow)
+        self.assertIn("target: x86_64-unknown-linux-gnu\n            # Pin the oldest supported glibc build environment.", workflow)
+        self.assertIn('os: ubuntu-22.04', workflow)
+        self.assertIn('dpkg --compare-versions "${MAX_GLIBC#GLIBC_}" le 2.35', workflow)
         run_indent = None
         for line in workflow.splitlines():
             indent = len(line) - len(line.lstrip())

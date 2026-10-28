@@ -61,6 +61,8 @@ use async_trait::async_trait;
 #[cfg(feature = "http-input")]
 pub mod http_input;
 
+pub mod outbound;
+
 // Re-export commonly used types
 pub use communication::{CommunicationBus, CommunicationConfig, DefaultCommunicationBus};
 pub use config::SecurityConfig;

@@ -28,6 +28,17 @@ SCRIPTS = {
     'test-landlock-boundary.py', 'file_grant_backend.py', 'git_snapshot_observer.py',
     'worker_origin_observer.py', 'test-cron-occurrences.py',
     'test-direct-inference.py', 'test-workflow-execution.py', 'test-shell-governance.py',
+    'containment_probe.py', 'test-containment-evidence.py',
+    'verify-containment-evidence.py', 'test-containment-evidence-scoring.py',
+    'test-containment-evidence-integrity.py',
+    'test-containment-lifecycle.py', 'verify-containment-lifecycle.py',
+    'test-containment-lifecycle-integrity.py',
+    'test-landlock-release-checks.py',
+    'package-containment-evidence.py',
+    'test-landlock-platform.py', 'test-external-effect-recovery.py',
+    'verify-external-effect-recovery.py', 'test-external-effect-integrity.py',
+    'adaptive-containment-plan.json', 'test-adaptive-containment-pilot.py',
+    'verify-adaptive-containment-pilot.py',
 }
 SOURCE_EXTENSIONS = {'.rs', '.py', '.ts', '.tsx', '.js', '.jsx', '.go', '.md', '.toml', '.yaml', '.yml'}
 

@@ -12,6 +12,10 @@ use vaultrs::error::ClientError;
 use vaultrs::kv2;
 use vaultrs::token;
 
+#[cfg(test)]
+#[path = "vault_protocol_tests.rs"]
+mod protocol_tests;
+
 /// Vault-based secrets store implementation
 pub struct VaultSecretStore {
     client: VaultClient,
@@ -40,7 +44,60 @@ impl VaultSecretStore {
     /// Create and configure a Vault client
     async fn create_vault_client(config: &VaultConfig) -> Result<VaultClient, SecretError> {
         let mut settings_builder = VaultClientSettingsBuilder::default();
+        url::Url::parse(&config.url).map_err(|_| SecretError::ConfigurationError {
+            message: "Invalid Vault URL".into(),
+        })?;
         settings_builder.address(&config.url);
+        // The configured backend owns authentication and TLS. Library defaults
+        // otherwise select ambient VAULT_TOKEN and certificate settings.
+        settings_builder.token(match &config.auth {
+            VaultAuthConfig::Token { token } => token.as_str(),
+            _ => "",
+        });
+        settings_builder.verify(true);
+        settings_builder.ca_certs(
+            config
+                .tls
+                .ca_cert
+                .iter()
+                .map(|path| {
+                    path.to_str().map(str::to_owned).ok_or_else(|| {
+                        SecretError::ConfigurationError {
+                            message: "Vault CA path is not valid UTF-8".into(),
+                        }
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        );
+        let identity = match (&config.tls.client_cert, &config.tls.client_key) {
+            (None, None) => None,
+            (Some(cert), Some(key)) => {
+                let mut pem =
+                    zeroize::Zeroizing::new(tokio::fs::read(cert).await.map_err(|_| {
+                        SecretError::ConfigurationError {
+                            message: "Cannot read configured Vault client certificate".into(),
+                        }
+                    })?);
+                let key = zeroize::Zeroizing::new(tokio::fs::read(key).await.map_err(|_| {
+                    SecretError::ConfigurationError {
+                        message: "Cannot read configured Vault client key".into(),
+                    }
+                })?);
+                pem.push(b'\n');
+                pem.extend_from_slice(&key);
+                Some(reqwest::Identity::from_pem(&pem).map_err(|_| {
+                    SecretError::ConfigurationError {
+                        message: "Invalid configured Vault client identity".into(),
+                    }
+                })?)
+            }
+            _ => {
+                return Err(SecretError::ConfigurationError {
+                    message: "Vault client certificate and key must be configured together".into(),
+                })
+            }
+        };
+        settings_builder.identity(identity);
 
         // Configure namespace if specified
         if let Some(namespace) = &config.namespace {
@@ -195,6 +252,23 @@ impl VaultSecretStore {
         format!("agents/{}/secrets", self.agent_id)
     }
 
+    /// Retain the KVv2 envelope: `kv2::read` returns only the inner secret data.
+    async fn read_secret(
+        &self,
+        path: &str,
+    ) -> Result<vaultrs::api::kv2::responses::ReadSecretResponse, SecretError> {
+        let request = vaultrs::api::kv2::requests::ReadSecretRequest::builder()
+            .mount(&self.config.mount_path)
+            .path(path)
+            .build()
+            .map_err(|_| SecretError::ConfigurationError {
+                message: "Invalid Vault secret request".into(),
+            })?;
+        vaultrs::api::exec_with_result(&self.client, request)
+            .await
+            .map_err(|error| self.map_vault_error(error))
+    }
+
     /// Map Vault client errors to SecretError
     fn map_vault_error(&self, error: ClientError) -> SecretError {
         match error {
@@ -257,16 +331,10 @@ impl SecretStore for VaultSecretStore {
         let path = self.get_secret_path(key);
 
         let result: Result<Secret, SecretError> = async {
-            match kv2::read::<serde_json::Value>(&self.client, &self.config.mount_path, &path).await
-            {
+            match self.read_secret(&path).await {
                 Ok(secret_response) => {
                     // Extract the secret data from the Vault KVv2 response structure
-                    let data = secret_response
-                        .get("data")
-                        .and_then(|d| d.get("data"))
-                        .ok_or_else(|| SecretError::BackendError {
-                            message: "Invalid Vault response structure".to_string(),
-                        })?;
+                    let data = &secret_response.data;
 
                     // Extract the secret value from a well-known key.
                     // We require secrets to use "value" or "content" — no
@@ -296,31 +364,20 @@ impl SecretStore for VaultSecretStore {
 
                     // Extract metadata from the Vault response
                     let mut metadata = std::collections::HashMap::new();
-                    if let Some(metadata_obj) =
-                        secret_response.get("data").and_then(|d| d.get("metadata"))
-                    {
-                        if let Some(created_time) =
-                            metadata_obj.get("created_time").and_then(|v| v.as_str())
-                        {
-                            metadata.insert("created_time".to_string(), created_time.to_string());
-                        }
-                        if let Some(version) = metadata_obj.get("version").and_then(|v| v.as_u64())
-                        {
-                            metadata.insert("version".to_string(), version.to_string());
-                        }
-                        if let Some(destroyed) =
-                            metadata_obj.get("destroyed").and_then(|v| v.as_bool())
-                        {
-                            metadata.insert("destroyed".to_string(), destroyed.to_string());
-                        }
-                        if let Some(deletion_time) =
-                            metadata_obj.get("deletion_time").and_then(|v| v.as_str())
-                        {
-                            if !deletion_time.is_empty() && deletion_time != "null" {
-                                metadata
-                                    .insert("deletion_time".to_string(), deletion_time.to_string());
-                            }
-                        }
+                    metadata.insert("created_time".into(), secret_response.metadata.created_time);
+                    metadata.insert(
+                        "version".into(),
+                        secret_response.metadata.version.to_string(),
+                    );
+                    metadata.insert(
+                        "destroyed".into(),
+                        secret_response.metadata.destroyed.to_string(),
+                    );
+                    if !secret_response.metadata.deletion_time.is_empty() {
+                        metadata.insert(
+                            "deletion_time".into(),
+                            secret_response.metadata.deletion_time,
+                        );
                     }
 
                     // Parse created_at timestamp if available - convert to string
@@ -338,7 +395,7 @@ impl SecretStore for VaultSecretStore {
                     })
                 }
                 Err(e) => {
-                    let mapped_error = self.map_vault_error(e);
+                    let mapped_error = e;
                     // Update the key context if it's a NotFound error
                     match mapped_error {
                         SecretError::NotFound { .. } => Err(SecretError::NotFound {
@@ -393,9 +450,8 @@ impl SecretStore for VaultSecretStore {
                     Ok(list_response)
                 }
                 Err(e) => {
-                    let mapped_error = self.map_vault_error(e);
                     // If the path doesn't exist (404), return empty list instead of error
-                    match mapped_error {
+                    match self.map_vault_error(e) {
                         SecretError::NotFound { .. } => Ok(vec![]),
                         other => Err(other),
                     }
@@ -445,15 +501,9 @@ impl VaultSecretStore {
         let path = self.get_secret_path(key);
 
         let result: Result<Secret, SecretError> = async {
-            match kv2::read::<serde_json::Value>(&self.client, &self.config.mount_path, &path).await
-            {
+            match self.read_secret(&path).await {
                 Ok(secret_response) => {
-                    let data = secret_response
-                        .get("data")
-                        .and_then(|d| d.get("data"))
-                        .ok_or_else(|| SecretError::BackendError {
-                            message: "Invalid Vault response structure".to_string(),
-                        })?;
+                    let data = &secret_response.data;
 
                     let secret_value = data
                         .get(field)
@@ -477,7 +527,7 @@ impl VaultSecretStore {
                     Ok(Secret::new(key.to_string(), secret_value))
                 }
                 Err(e) => {
-                    let mapped = self.map_vault_error(e);
+                    let mapped = e;
                     match mapped {
                         SecretError::NotFound { .. } => Err(SecretError::NotFound {
                             key: key.to_string(),

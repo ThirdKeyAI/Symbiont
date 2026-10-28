@@ -1,5 +1,7 @@
 <img src="logo-hz.png" alt="Symbi">
 
+> **Rust-API-Migration auf 3.0:** Neue Struct-Felder und die partielle Ordnung der Isolations-Backends sind unter [ausgehende Zugriffe](docs/de/outbound-capabilities.md) beschrieben. Prüfen Sie Downloads mit der [Release-Anleitung](docs/de/release-verification.md).
+
 [English](README.md) | [中文简体](README.zh-cn.md) | [Español](README.es.md) | [Português](README.pt.md) | [日本語](README.ja.md) | **Deutsch**
 
 [![Build](https://img.shields.io/github/actions/workflow/status/thirdkeyai/symbiont/docker-build.yml?branch=main)](https://github.com/thirdkeyai/symbiont/actions)

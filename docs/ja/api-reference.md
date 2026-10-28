@@ -69,6 +69,10 @@ POST /api/v1/workflows/execute
 
 管理者は `workflow_id` に DSL ソースを送信し、`parameters` は実行入力になります。`agent_id` を指定すると登録を作成または置換し、省略すると新しい ID を割り当てます。エージェントに限定されたキーは `403 ADMIN_REQUIRED` となり、登録済みソースを `/agents/{id}/execute` から実行できます。`queued` は受付を示します。`/agents/{id}/history` の `execution_id` で実際の結果を確認してください。[詳細な仕様](https://github.com/ThirdKeyAI/Symbiont/blob/main/crates/runtime/API_REFERENCE.md#execute-workflow)を参照してください。
 
+DSL でサンドボックスを省略した場合、登録の既定値は Docker/Tier1 のままです。
+`with sandbox = "landlock"` はネイティブの監視付きバックエンドを明示的に選択します。
+Landlock はコンテナまたは VM ティアの要件を満たしません。
+
 **リクエストボディ：**
 ```json
 {

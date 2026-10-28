@@ -1,6 +1,6 @@
 # Symbiont Release Runbook
 
-Last updated: 2026-10-23
+Last updated: 2026-10-27
 
 ## Pre-Release Checklist
 
@@ -13,11 +13,13 @@ workspace crates in dependency order. It includes optional dependencies and both
 sandbox crates. `tests/e2e` remains unpublished. All local version references must
 match the corresponding package version.
 
-The 2.0.1 patch release keeps the eleven main workspace crates aligned at 2.0.1.
-Unchanged independent helpers retain their published versions: `symbi-channel-adapter`
-0.1.6, `symbi-approval-relay` 0.1.1 and `symbi-invis-strip` 0.3.0. The 2.0.0 tag
-and published packages remain immutable; 2.0.1 repairs its Windows build and
-installer without replacing those artifacts.
+The 3.0.0 release updates `symbi`, `symbi-dsl`, `symbi-runtime`, `repl-core`,
+`repl-cli`, `repl-lsp` and `symbi-shell`. The major version accounts for public
+Rust API changes described in [migration guidance](outbound-capabilities.md#coverage-and-migration).
+Unchanged helpers retain their published versions: `repl-proto`, `symbi-session`,
+`symbi-sandbox-guest` and `symbi-sandbox-supervisor` at 2.0.1,
+`symbi-channel-adapter` at 0.1.6, `symbi-approval-relay` at 0.1.1 and
+`symbi-invis-strip` at 0.3.0. Previous tags and published packages remain immutable.
 
 ### 2. Check Published Versions vs Source
 
@@ -113,6 +115,12 @@ and wait for success before tagging. If `main` moves, do not reuse evidence for 
 different commit. The Linux job exercises the shipping binary on a disposable
 host and retains public reports; missing host prerequisites fail the job.
 
+Qualification includes the 19 broker cases, 11 lifecycle cases and five external
+HTTP-effect cases, their independent evidence verifiers, and artifact-tampering
+checks. Missing cases, an incorrect binary hash, or a failed verifier block the
+release. The synthetic order receiver uses `198.18.0.1` on the disposable runner's
+loopback interface; it never contacts a real business service.
+
 ```bash
 gh workflow run landlock-release.yml --repo ThirdKeyAI/Symbiont --ref main
 # Check the run's head SHA and final result, then validate both workflow results:
@@ -139,6 +147,30 @@ planned tag only for archive names; it builds qualified main and skips signing,
 release upload and Homebrew publication. Normal release publication still requires
 an existing reviewed tag. A successful Linux build cannot substitute for the
 Windows or macOS build result.
+
+The Linux x86-64 publication job reruns these three evidence suites against the
+exact binary it packages. Its evidence archive is named
+`symbi-v<VERSION>-x86_64-unknown-linux-gnu-containment.tar.gz`; checksums and signing
+cover it alongside the binaries. Packaging independently re-verifies the suite
+inventories, signed journals and reconciliation receipts. A missing or failing
+evidence artifact prevents the combined release upload. Other architectures are
+built but are not qualified by this Linux x86-64 execution result.
+
+That x86-64 binary is built on the pinned Ubuntu 22.04 runner and the workflow
+rejects any artifact whose highest required glibc version exceeds 2.35. Keep the
+runner pin and ABI ceiling aligned. A separate Ubuntu 24.04 job downloads the
+publication archive and qualifies the extracted binary without rebuilding it.
+This provides the required Landlock ABI and Python version; the Ubuntu 22.04
+builder cannot run that qualification. A moving builder alias can create a binary
+that passes containment on the build host but fails in the loader on a qualified
+distribution before Symbiont starts.
+
+The evidence-only publication directory contains public test artifacts. The full
+qualification directory also contains private signing fixtures under
+`private-actions/`; never publish that directory. Use
+`scripts/package-containment-evidence.py` on an evidence-only result to select
+the public archive. Do not substitute a previous binary's qualification or treat
+a local lab run as proof that the hosted release workflow has passed.
 
 ### 8. Create GitHub Release
 

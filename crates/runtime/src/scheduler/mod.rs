@@ -277,6 +277,9 @@ impl ScheduledTask {
             // the routing engine's perspective it lives in the same risk
             // bucket as native execution.
             SecurityTier::Hosted => SecurityLevel::Low,
+            // Routing levels describe the numbered container/VM ladder.
+            // Keep the incomparable native branch conservative here.
+            SecurityTier::Landlock => SecurityLevel::Low,
             SecurityTier::Tier1 => SecurityLevel::Medium,
             SecurityTier::Tier2 => SecurityLevel::High,
             SecurityTier::Tier3 => SecurityLevel::Critical,

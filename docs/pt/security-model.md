@@ -10,6 +10,8 @@ Arquitetura de segurança abrangente garantindo proteção de confiança zero e 
 
 ## Visão Geral
 
+**Em desenvolvimento — acesso de saída opcional:** um perfil do operador vincula cada ferramenta HTTP a uma operação, destino, fonte de credenciais e execução. Projetos existentes permanecem inalterados até a ativação. A [visão geral](outbound-capabilities.md) explica os limites; o [catálogo de controles](/security/README) distingue implementação de evidências de teste preservadas.
+
 **Cobertura de contenção:** a 1.21.0 acrescenta limites de efeito Docker/gVisor
 selecionados, aprovações exatas de chamadas preparadas, journals protegidos nos
 pontos de entrada cobertos e propriedade independente dos workers. Veja o
@@ -100,7 +102,9 @@ nativos e um supervisor delegado gerenciado externamente. Ele não precisa de
 imagem nem de daemon de contêiner. O Docker continua sendo o padrão. Veja
 [configuração e migração do serviço](/landlock-supervision).
 
-**Configuração:** `[sandbox] tier = "landlock"` em `symbiont.toml`. Os tetos de
+**Configuração:** selecione `with { sandbox = "landlock" }` por agente ou defina
+`[sandbox] tier = "landlock"` em `symbiont.toml`. Agentes registrados por HTTP e
+agendados devem selecioná-lo explicitamente; o padrão continua Docker/Tier1. Os tetos de
 somente leitura e de escrita vêm de `[sandbox.roots]`, compartilhado com os demais
 backends. `[sandbox.landlock]` carrega `abi_floor`, `require_network`, os limites
 de memória, CPU, PIDs, tempo de vida e saída, além da configuração de
@@ -155,11 +159,10 @@ incluem a versão 3 do limite, a admissão compartilhada e a supervisão por cgr
 o requisito efetivo de ABI, os escopos de sinal/socket, a política de sockets, a
 recusa de rings e a política de descritores herdados.
 
-**Cobertura atual.** O MCP stdio sem arquivos declarados e o caminho de baixo
-nível de lançamento do `CliExecutor` do SDK usam este backend. Comandos públicos
-de execução única, parsers de saída personalizados, PTYs interativas, a preparação
-de arquivos declarados e a configuração entregue de CLI gerenciada ainda não o
-suportam. Selecionar o Landlock nesses caminhos falha, em vez de passar para a
+**Cobertura atual.** Agentes registrados por HTTP e agendados, MCP stdio, comandos
+governados de execução única, snapshots Git, preparação de arquivos declarados e
+workers de CLI gerenciada usam este backend. PTYs interativas continuam sem suporte.
+Selecionar o Landlock em um caminho sem suporte falha, em vez de passar para a
 execução irrestrita.
 
 **Tempo de vida da concessão.** Um domínio não pode ser relaxado depois de
@@ -182,11 +185,10 @@ a indisponibilidade da filtragem seccomp, abortam o spawn antes de o executável
 worker iniciar. Não há aplicação parcial nem fallback para execução irrestrita no
 host.
 
-**Indisponível para agentes registrados.** Nenhum `SecurityTier` nomeia o
-landlock, então um agente agendado ou registrado via HTTP não pode declará-lo;
-esses caminhos o recusam em vez de mapeá-lo para uma camada vizinha e reportar
-incorretamente o isolamento em uso. Selecione-o em `[sandbox]` para execuções
-diretas.
+**Semântica de admissão.** `SecurityTier` tem ordem parcial. Landlock satisfaz um
+requisito explícito de Landlock ou um mínimo sem isolamento, mas é incomparável com
+execução hospedada e com a escada numerada Docker/gVisor/Firecracker. Isso impede
+que um worker nativo satisfaça silenciosamente um requisito de contêiner ou VM.
 
 **Validação.** `crates/runtime/tests/landlock_sandbox.rs` exercita filhos
 restritos reais, incluindo raízes de leitura/escrita substituídas e o acesso

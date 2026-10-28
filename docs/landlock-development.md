@@ -11,6 +11,10 @@ systemd user manager. The runtime and supervisor must have the same non-root UID
 See [supervision](landlock-supervision.md) for requirements and recovery. Namespace
 creation must be permitted by the distribution's security policy. Missing
 capabilities fail the operation; no unrestricted host fallback is attempted.
+The [Linux qualification matrix](linux-containment-qualification.md) records
+tested kernels and distribution policies, including a successful ABI 6 run and
+Ubuntu's default namespace refusal. A newer Landlock ABI alone does not establish
+that the complete native route is usable.
 
 ## Create the control project
 
@@ -209,10 +213,18 @@ python3 scripts/test-landlock-release.py --binary /absolute/path/symbi --output 
 ```
 
 It requires the actual kernel and service facilities and refuses missing support.
+The broker, lifecycle and external-effect evidence suites run after the six
+functional groups. External-effect tests additionally require `198.18.0.1/32`
+assigned to loopback in an isolated disposable lab. They exercise a synthetic
+order service. See [external-effect recovery](external-effect-evidence.md).
 The output includes private fixtures containing signing keys: share only the
 top-level JSON reports and logs, never `private-actions/`. The dedicated GitHub
 workflow uses a disposable Ubuntu 24.04 runner and records the kernel, systemd,
 source SHA and binary hash; unsupported runner images fail rather than skip tests.
+Use `--evidence-only` to run just the three retained-evidence suites. By default
+the source identity comes from the driver's checkout; `--source-directory` can
+identify the separate clean checkout used to build an already verified binary.
+This records provenance and does not independently establish reproducible builds.
 
 The shipping drivers use synthetic sources, local providers and disposable user
 services. They require the actual kernel/service features and fail if absent:

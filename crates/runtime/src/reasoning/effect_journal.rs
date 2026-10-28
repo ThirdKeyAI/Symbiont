@@ -29,6 +29,8 @@ pub enum ToolEffect {
         error: Option<String>,
     },
     NetworkRequestStarted {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        outbound: Option<serde_json::Value>,
         request_id: String,
         method: String,
         url: String,

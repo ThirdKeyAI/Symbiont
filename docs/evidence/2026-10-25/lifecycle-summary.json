@@ -1,0 +1,27 @@
+{
+  "date": "2026-10-25",
+  "test_commit": "274949dc1cb7d8ef3c04276a65da126a761b1b7b",
+  "branch": "test/containment-evidence",
+  "upstream": "ssh://git@git.jascha.madhacker.biz:2222/jascha/symbiont.git",
+  "published_runtime_source": "926f4a291b35b1a71f8f2013ba0fb8a0808139bd",
+  "upstream_runtime_and_focused_test_source": "19f9ff11141ed28150771ee642618feedead23bd",
+  "runtime_version": "2.0.1",
+  "binary_sha256": "8c4c385d83965c3af965340ae50482400337ae596bbc232f4beb9026ec915ad7",
+  "manifest_sha256": "9f4b2092c03bc2f6af7d3a570e0999d5d2c89ed1afa943e3462dcc581e42d56b",
+  "e2e_cases": 11,
+  "distinct_invocations": 16,
+  "retry_checks": 5,
+  "synthetic_provider_requests": 28,
+  "focused_rust_tests": 13,
+  "artifact_tamper_rejections": 4,
+  "python_optimization_refused": true,
+  "product_code_changes": false,
+  "lab_removed": true,
+  "limitations": [
+    "Fixed probes and synthetic local terminal approver; no adaptive attacker escape rate.",
+    "Native CLI worker and file-effect cases; parent/child accounting is separately tested with an in-process synthetic provider.",
+    "RLIMIT_FSIZE also affects other extending writes and does not simulate all storage failures.",
+    "Audit prefixes without terminal records remain incomplete; provider errors with terminal records are cached outcomes.",
+    "Host collector and originally pinned public signing keys remain trusted."
+  ]
+}

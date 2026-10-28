@@ -1,0 +1,12 @@
+{
+  "passed": true,
+  "original_cases": 5,
+  "rejected": [
+    "missing_case",
+    "receiver_substitution",
+    "approval_substitution",
+    "resolution_substitution",
+    "resolution_signature"
+  ],
+  "optimization_refused": true
+}

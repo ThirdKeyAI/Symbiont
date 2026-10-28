@@ -1,6 +1,7 @@
 //! Security-related types and data structures
 
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 use std::time::{Duration, SystemTime};
 
 use super::{AgentId, PolicyId};
@@ -12,10 +13,12 @@ use super::{AgentId, PolicyId};
 /// ladder — it represents execution on third-party infrastructure (e.g.
 /// E2B) where the operator does not run their own sandbox host. It carries
 /// no on-host isolation guarantees but is not outright `None`, so it sits
-/// between `None` and `Tier1` for ordering purposes.
+/// between `None` and `Tier1` on that ladder. `Landlock` is a separate native
+/// Linux boundary: it is stronger than `None`, but deliberately incomparable
+/// with hosted execution and the container/VM ladder.
 ///
-/// Use `tier >= SecurityTier::Tier1` when policies require host isolation.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default)]
+/// Use [`SecurityTier::satisfies`] for minimum-requirement decisions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum SecurityTier {
     /// No isolation — native execution (⚠️ DEVELOPMENT ONLY)
     None,
@@ -23,6 +26,8 @@ pub enum SecurityTier {
     /// infrastructure. No on-host isolation guarantees; trust assumption
     /// is "you trust the hosting provider."
     Hosted,
+    /// Native Linux Landlock, seccomp and namespace isolation
+    Landlock,
     /// Docker-based isolation
     #[default]
     Tier1,
@@ -32,11 +37,36 @@ pub enum SecurityTier {
     Tier3,
 }
 
+impl PartialOrd for SecurityTier {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        use SecurityTier::*;
+        if self == other {
+            return Some(Ordering::Equal);
+        }
+        match (self, other) {
+            (None, _) => Some(Ordering::Less),
+            (_, None) => Some(Ordering::Greater),
+            (Landlock, _) | (_, Landlock) => Option::None,
+            _ => {
+                let rank = |tier: &SecurityTier| match tier {
+                    Hosted => 1,
+                    Tier1 => 2,
+                    Tier2 => 3,
+                    Tier3 => 4,
+                    None | Landlock => unreachable!(),
+                };
+                rank(self).partial_cmp(&rank(other))
+            }
+        }
+    }
+}
+
 impl std::fmt::Display for SecurityTier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SecurityTier::None => write!(f, "None (Native - No Isolation ⚠️)"),
             SecurityTier::Hosted => write!(f, "Hosted (third-party cloud sandbox)"),
+            SecurityTier::Landlock => write!(f, "Landlock (native Linux isolation)"),
             SecurityTier::Tier1 => write!(f, "Tier1 (Docker)"),
             SecurityTier::Tier2 => write!(f, "Tier2 (gVisor)"),
             SecurityTier::Tier3 => write!(f, "Tier3 (Firecracker)"),
@@ -54,10 +84,23 @@ impl SecurityTier {
     pub fn from_dsl_sandbox(tier: &dsl::SandboxTier) -> Self {
         match tier {
             dsl::SandboxTier::Docker => SecurityTier::Tier1,
+            dsl::SandboxTier::Landlock => SecurityTier::Landlock,
             dsl::SandboxTier::GVisor => SecurityTier::Tier2,
             dsl::SandboxTier::Firecracker => SecurityTier::Tier3,
             dsl::SandboxTier::E2B => SecurityTier::Hosted,
         }
+    }
+
+    /// Whether this selected boundary satisfies an explicit minimum.
+    ///
+    /// Every non-`None` backend satisfies `None`. Landlock satisfies only
+    /// `Landlock` (and `None`); it never silently substitutes for a container,
+    /// VM or hosted-execution requirement.
+    pub fn satisfies(&self, required: &Self) -> bool {
+        matches!(
+            self.partial_cmp(required),
+            Some(Ordering::Equal | Ordering::Greater)
+        )
     }
 }
 
@@ -358,6 +401,10 @@ mod from_dsl_sandbox_tests {
     #[test]
     fn dsl_sandbox_maps_to_runtime_tier() {
         assert_eq!(
+            SecurityTier::from_dsl_sandbox(&dsl::SandboxTier::Landlock),
+            SecurityTier::Landlock
+        );
+        assert_eq!(
             SecurityTier::from_dsl_sandbox(&dsl::SandboxTier::Docker),
             SecurityTier::Tier1
         );
@@ -384,5 +431,23 @@ mod from_dsl_sandbox_tests {
         assert!(SecurityTier::Hosted < SecurityTier::Tier2);
         assert!(SecurityTier::Hosted < SecurityTier::Tier3);
         assert!(SecurityTier::None < SecurityTier::Hosted);
+    }
+
+    #[test]
+    fn landlock_is_an_explicit_partial_order_branch() {
+        assert!(SecurityTier::Landlock > SecurityTier::None);
+        assert_eq!(
+            SecurityTier::Landlock.partial_cmp(&SecurityTier::Hosted),
+            None
+        );
+        assert_eq!(
+            SecurityTier::Landlock.partial_cmp(&SecurityTier::Tier1),
+            None
+        );
+        assert!(SecurityTier::Landlock.satisfies(&SecurityTier::Landlock));
+        assert!(SecurityTier::Landlock.satisfies(&SecurityTier::None));
+        assert!(!SecurityTier::Landlock.satisfies(&SecurityTier::Tier1));
+        assert!(!SecurityTier::Tier3.satisfies(&SecurityTier::Landlock));
+        assert!(SecurityTier::Tier3.satisfies(&SecurityTier::Tier1));
     }
 }

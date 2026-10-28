@@ -3,7 +3,12 @@ name: Linux Landlock release qualification
 # Run once on the intended main commit before tagging a release. This exercises
 # actual host facilities on a disposable VM; it does not run on every PR.
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      upstream_source:
+        description: 'Known Gitea source commit (optional; unknown is recorded explicitly)'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -12,7 +17,7 @@ jobs:
   qualify:
     name: Linux Landlock qualification
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -29,6 +34,8 @@ jobs:
           fi
           sudo loginctl enable-linger "$(id -un)"
           sudo systemctl start "user@$(id -u).service"
+          # The synthetic external-effect receiver owns this guest-only address.
+          sudo ip address add 198.18.0.1/32 dev lo
           echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
           echo "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus" >> "$GITHUB_ENV"
       - name: Check delegated user launch
@@ -43,10 +50,16 @@ jobs:
       - name: Build shipping binary
         run: cargo build --locked --release -p symbi -j2
       - name: Qualify Linux isolation and recovery
+        env:
+          UPSTREAM_SOURCE: ${{ inputs.upstream_source }}
         # The user manager must spawn the driver inside its delegated tree.
         # A scope would retain the hosted caller as parent and require migration
         # across the very delegation boundary being tested.
         run: |
+          source_args=()
+          if [[ -n "$UPSTREAM_SOURCE" ]]; then
+            source_args+=(--upstream-source "$UPSTREAM_SOURCE")
+          fi
           systemd-run --user --wait --pipe --collect --quiet \
             --service-type=exec --working-directory="$PWD" \
             --unit=symbi-release-qualification \
@@ -54,7 +67,7 @@ jobs:
             --setenv=DBUS_SESSION_BUS_ADDRESS --setenv=PATH=/usr/bin:/bin \
             /usr/bin/python3 scripts/test-landlock-release.py \
               --binary target/release/symbi \
-              --output "$RUNNER_TEMP/landlock-qualification" --require-clean
+              --output "$RUNNER_TEMP/landlock-qualification" --require-clean "${source_args[@]}"
       - name: Preserve qualification evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -65,3 +78,6 @@ jobs:
           path: |
             ${{ runner.temp }}/landlock-qualification/*.json
             ${{ runner.temp }}/landlock-qualification/*.log
+            ${{ runner.temp }}/landlock-qualification/broker/
+            ${{ runner.temp }}/landlock-qualification/lifecycle/
+            ${{ runner.temp }}/landlock-qualification/external-effects/

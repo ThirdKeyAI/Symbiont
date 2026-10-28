@@ -1,0 +1,384 @@
+{
+  "schema_version": 1,
+  "passed": true,
+  "timestamp": "2026-10-27T18:22:16.917370+00:00",
+  "source_revision": "89f5e2dc7c22be38997c31febb0dbda19c97a89c",
+  "source_digest": "38265e122821d5d75e73bef4cf7bf8bc920f36a16254cbacdff6c5fbd27a2265",
+  "binary_sha256": "a19b5eb14da72eb8d498e6602cac8372e2f4366723cf13c576a8d9625d5fc625",
+  "driver_sha256": "6c65fdde6ddfbfc09ed190e817fa4bb4122b5aed26c97267672aa9550e4db52c",
+  "verifier_sha256": "9e975bf4d8c55c8925dfd730adbd20bee77e81f05170715f23085a9acb135374",
+  "platform": {
+    "os": "Linux",
+    "release": "7.0.0-38-generic",
+    "architecture": "x86_64"
+  },
+  "scope": "governed ToolClad HTTP through installed CLI; no worker isolation qualification",
+  "routes": [
+    "cli_toolclad_http"
+  ],
+  "backends": [
+    "runtime_http",
+    "protected_journal"
+  ],
+  "control_ids": [
+    "OUT-001",
+    "OUT-002",
+    "OUT-003",
+    "AUD-001"
+  ],
+  "checks": [
+    {
+      "name": "read",
+      "passed": true,
+      "requests": 1,
+      "cli_exit": 0
+    },
+    {
+      "name": "read_again",
+      "passed": true,
+      "requests": 1,
+      "cli_exit": 0
+    },
+    {
+      "name": "write",
+      "passed": true,
+      "requests": 1,
+      "cli_exit": 0
+    },
+    {
+      "name": "denied_write",
+      "passed": true,
+      "requests": 0,
+      "cli_exit": 0
+    },
+    {
+      "name": "bad_input",
+      "passed": true,
+      "requests": 0,
+      "cli_exit": 0
+    },
+    {
+      "name": "budget",
+      "passed": true,
+      "requests": 1,
+      "cli_exit": 2
+    },
+    {
+      "name": "redirect",
+      "passed": true,
+      "requests": 1,
+      "cli_exit": 2
+    },
+    {
+      "name": "reflection",
+      "passed": true,
+      "requests": 1,
+      "cli_exit": 2
+    },
+    {
+      "name": "header_reflection",
+      "passed": true,
+      "requests": 1,
+      "cli_exit": 2
+    },
+    {
+      "name": "path_parameter_read",
+      "passed": true,
+      "requests": 1,
+      "cli_exit": 0
+    },
+    {
+      "name": "path_parameter_traversal",
+      "passed": true,
+      "requests": 0,
+      "cli_exit": 0
+    },
+    {
+      "name": "store_read",
+      "passed": true,
+      "requests": 1,
+      "cli_exit": 0
+    },
+    {
+      "name": "store_missing",
+      "passed": true,
+      "requests": 0,
+      "cli_exit": 2
+    },
+    {
+      "name": "preflight_version",
+      "passed": true,
+      "requests": 0
+    },
+    {
+      "name": "preflight_path",
+      "passed": true,
+      "requests": 0
+    },
+    {
+      "name": "interrupted_effect_refuses_replay",
+      "passed": true,
+      "requests": 1
+    }
+  ],
+  "errors": [],
+  "configurations": {
+    "normal": {
+      "symbiont.toml": "5d49bebe11100d8fbbb3d2869dfdfd8d176fb6bd92387a58356d8c8dfaa247f1",
+      "agents/case_review.symbi": "c833ad59c9ce6338e97d693f5ff18f3c1424978456dbd4202275f3f44c321e45",
+      "policies/cases.cedar": "ae6f3bbc10d4275226be91b066f1cc3f381fdfef0924005ad6d9c410c2f9d5df",
+      "tools/case_read.clad.toml": "4980cee388997dbe7e2a93f99a9ffb5f58a8e36e7c87c8345dd737b2fa52cfad",
+      "tools/case_write.clad.toml": "3ab13c1e7adeafd8d10e87a67cc6fcd0adabdeb27d1c97d77c4ab33c019cf8a2"
+    },
+    "path_parameters": {
+      "symbiont.toml": "4beb1aa3081dd5ff309a4b7137949b0006420bb535ceda379155a5c234941d76",
+      "agents/case_review.symbi": "c833ad59c9ce6338e97d693f5ff18f3c1424978456dbd4202275f3f44c321e45",
+      "policies/cases.cedar": "ae6f3bbc10d4275226be91b066f1cc3f381fdfef0924005ad6d9c410c2f9d5df",
+      "tools/case_read.clad.toml": "a45ce534d478f564a3528906510203590f37017f0cf0ca83a4ba59ed43d5ae4f",
+      "tools/case_write.clad.toml": "806573a4403ff47a85ca4d8eb0a5ad0dbee9dae8cf5070fc998dfe5b9e95c8a8"
+    },
+    "store_read": {
+      "symbiont.toml": "1c122c390f9bb4712a20cf0f02d1024771ab03096291c48c3ae58c6a111979a6",
+      "agents/case_review.symbi": "c833ad59c9ce6338e97d693f5ff18f3c1424978456dbd4202275f3f44c321e45",
+      "policies/cases.cedar": "ae6f3bbc10d4275226be91b066f1cc3f381fdfef0924005ad6d9c410c2f9d5df",
+      "tools/case_read.clad.toml": "4980cee388997dbe7e2a93f99a9ffb5f58a8e36e7c87c8345dd737b2fa52cfad",
+      "tools/case_write.clad.toml": "3ab13c1e7adeafd8d10e87a67cc6fcd0adabdeb27d1c97d77c4ab33c019cf8a2",
+      "store.toml": "4bc08d3df4b311b5b8a614c2ea7b77590c60bdf8ce5ea2f8545464608f28dc7f"
+    },
+    "store_missing": {
+      "symbiont.toml": "1c122c390f9bb4712a20cf0f02d1024771ab03096291c48c3ae58c6a111979a6",
+      "agents/case_review.symbi": "c833ad59c9ce6338e97d693f5ff18f3c1424978456dbd4202275f3f44c321e45",
+      "policies/cases.cedar": "ae6f3bbc10d4275226be91b066f1cc3f381fdfef0924005ad6d9c410c2f9d5df",
+      "tools/case_read.clad.toml": "4980cee388997dbe7e2a93f99a9ffb5f58a8e36e7c87c8345dd737b2fa52cfad",
+      "tools/case_write.clad.toml": "3ab13c1e7adeafd8d10e87a67cc6fcd0adabdeb27d1c97d77c4ab33c019cf8a2",
+      "store.toml": "4bc08d3df4b311b5b8a614c2ea7b77590c60bdf8ce5ea2f8545464608f28dc7f"
+    },
+    "version": {
+      "symbiont.toml": "14912ae0794f3c164cbff6bbe14c5bfb31e005132a3048a54467d154cc398e48",
+      "agents/case_review.symbi": "c833ad59c9ce6338e97d693f5ff18f3c1424978456dbd4202275f3f44c321e45",
+      "policies/cases.cedar": "ae6f3bbc10d4275226be91b066f1cc3f381fdfef0924005ad6d9c410c2f9d5df",
+      "tools/case_read.clad.toml": "4980cee388997dbe7e2a93f99a9ffb5f58a8e36e7c87c8345dd737b2fa52cfad",
+      "tools/case_write.clad.toml": "3ab13c1e7adeafd8d10e87a67cc6fcd0adabdeb27d1c97d77c4ab33c019cf8a2"
+    },
+    "path": {
+      "symbiont.toml": "5d49bebe11100d8fbbb3d2869dfdfd8d176fb6bd92387a58356d8c8dfaa247f1",
+      "agents/case_review.symbi": "c833ad59c9ce6338e97d693f5ff18f3c1424978456dbd4202275f3f44c321e45",
+      "policies/cases.cedar": "ae6f3bbc10d4275226be91b066f1cc3f381fdfef0924005ad6d9c410c2f9d5df",
+      "tools/case_read.clad.toml": "2da5690ecda9293b8c3809200e274ab39d096059da092d01683e53c9ffb21c53",
+      "tools/case_write.clad.toml": "00eeb66927bba7056e4d56b27391945b4c5a10b6448a7b9c2e12f8de776020e9"
+    }
+  },
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/records/7",
+      "body": "",
+      "credential_matched": true
+    },
+    {
+      "method": "GET",
+      "path": "/records/7",
+      "body": "",
+      "credential_matched": true
+    },
+    {
+      "method": "POST",
+      "path": "/records/7",
+      "body": "{\"status\":\"reviewed\"}",
+      "credential_matched": true
+    },
+    {
+      "method": "GET",
+      "path": "/records/7",
+      "body": "",
+      "credential_matched": true
+    },
+    {
+      "method": "GET",
+      "path": "/records/7",
+      "body": "",
+      "credential_matched": true
+    },
+    {
+      "method": "GET",
+      "path": "/records/7",
+      "body": "",
+      "credential_matched": true
+    },
+    {
+      "method": "GET",
+      "path": "/records/7",
+      "body": "",
+      "credential_matched": true
+    },
+    {
+      "method": "GET",
+      "path": "/records/7%3Bv%3D1/admin",
+      "body": "",
+      "credential_matched": true
+    },
+    {
+      "method": "GET",
+      "path": "/records/7",
+      "body": "",
+      "credential_matched": true
+    },
+    {
+      "method": "GET",
+      "path": "/records/7",
+      "body": "",
+      "credential_matched": true
+    }
+  ],
+  "journals": [
+    {
+      "mode": "read",
+      "sha256": "8445a8e0e14318c0512f88af6f0f87a9c7d3b9750a4abd28ef370a36812b2f90",
+      "records": 22,
+      "independent_verification": true,
+      "inspection_exit": 0,
+      "outbound_capabilities": [
+        "case_read"
+      ]
+    },
+    {
+      "mode": "read_again",
+      "sha256": "1ff65d3b0fcfe7fe5722ebee66a3adec423dc574972a5066151df9f882be651d",
+      "records": 22,
+      "independent_verification": true,
+      "inspection_exit": 0,
+      "outbound_capabilities": [
+        "case_read"
+      ]
+    },
+    {
+      "mode": "write",
+      "sha256": "9bf0f3dbf1e416fa01aaacd5e93e094536dfa2f1c659b8c4373c0a1261cd7b6f",
+      "records": 22,
+      "independent_verification": true,
+      "inspection_exit": 0,
+      "outbound_capabilities": [
+        "case_write"
+      ]
+    },
+    {
+      "mode": "denied_write",
+      "sha256": "6a1c2629416d1f720d407f9eeee0f48b722c3f846930327d2374e472f88fa006",
+      "records": 18,
+      "independent_verification": true,
+      "inspection_exit": 0,
+      "outbound_capabilities": []
+    },
+    {
+      "mode": "bad_input",
+      "sha256": "2eb337a85e639a1662d252e1107a7df0383f51bcf286be92640ee8cf9c532c31",
+      "records": 18,
+      "independent_verification": true,
+      "inspection_exit": 0,
+      "outbound_capabilities": []
+    },
+    {
+      "mode": "budget",
+      "sha256": "84dd3cb7e16864bd8fe83e97522b8ac2de733e27bfe62333178f62478e1cc0a2",
+      "records": 19,
+      "independent_verification": true,
+      "inspection_exit": 2,
+      "outbound_capabilities": [
+        "case_read",
+        "case_read"
+      ]
+    },
+    {
+      "mode": "redirect",
+      "sha256": "d501378c49d91b8d07aadca339dc2d0215796f914d526e3e4381a9266d71a059",
+      "records": 15,
+      "independent_verification": true,
+      "inspection_exit": 2,
+      "outbound_capabilities": [
+        "case_read"
+      ]
+    },
+    {
+      "mode": "reflection",
+      "sha256": "56eeac7b3ecfa176514cba7ab622982f10bc517fdb76975b9517b114c585ff16",
+      "records": 15,
+      "independent_verification": true,
+      "inspection_exit": 2,
+      "outbound_capabilities": [
+        "case_read"
+      ]
+    },
+    {
+      "mode": "header_reflection",
+      "sha256": "96a25e6d1bf8a2c1362380021dbefae4f36b8d18be18f5e0d9297284a3c01019",
+      "records": 15,
+      "independent_verification": true,
+      "inspection_exit": 2,
+      "outbound_capabilities": [
+        "case_read"
+      ]
+    },
+    {
+      "mode": "path_parameter_read",
+      "sha256": "d6f06f8fcffdeed4db3e48e9d04b8acd9314e0b2d696212d185c5efe4f2f4ec4",
+      "records": 22,
+      "independent_verification": true,
+      "inspection_exit": 0,
+      "outbound_capabilities": [
+        "case_read"
+      ]
+    },
+    {
+      "mode": "path_parameter_traversal",
+      "sha256": "a705b9bda3a6f1e09e6b5a489d6f75c5bf4579d272342a2920204697f990cc78",
+      "records": 18,
+      "independent_verification": true,
+      "inspection_exit": 0,
+      "outbound_capabilities": []
+    },
+    {
+      "mode": "store_read",
+      "sha256": "cc6ab6d0ec82b5bfada935a4c116c5e804b36933fc14c319eb7a7065c3af1150",
+      "records": 22,
+      "independent_verification": true,
+      "inspection_exit": 0,
+      "outbound_capabilities": [
+        "case_read"
+      ]
+    },
+    {
+      "mode": "store_missing",
+      "sha256": "885b47d424f3945b246221088f6fd94beb08598f8572930294de5ea15c4c175b",
+      "records": 13,
+      "independent_verification": true,
+      "inspection_exit": 2,
+      "outbound_capabilities": []
+    },
+    {
+      "mode": "interrupt",
+      "sha256": "faab75013fd4376a896d35557dbd90ed7aa6b152d957f9df4d04f7a8b5c0b697",
+      "records": 8,
+      "independent_verification": true,
+      "inspection_exit": 2,
+      "outbound_capabilities": [
+        "case_read"
+      ]
+    }
+  ],
+  "timings_seconds": {
+    "read": 0.24,
+    "read_again": 0.241,
+    "write": 0.241,
+    "denied_write": 0.207,
+    "bad_input": 0.202,
+    "budget": 0.224,
+    "redirect": 0.182,
+    "reflection": 0.18,
+    "header_reflection": 0.18,
+    "path_parameter_read": 0.238,
+    "path_parameter_traversal": 0.199,
+    "store_read": 0.239,
+    "store_missing": 0.168
+  },
+  "configuration_digest": "f8bf2879ab95bf73d261a252e9eafb0592e4057bda4e93c358399a1a0a7004b7"
+}

@@ -1,0 +1,872 @@
+{
+  "passed": true,
+  "fixture": "/tmp/symbi-admission-e2e-apfwgws5",
+  "binary_sha256": "feddcf2f752882f0c037d33a4097ded24a8937831dc6b664e0339fec6619299b",
+  "driver_sha256": "fa9364dcd47e11728ee75841f8aa51e0e24f4325b566fbc899a635782fe25233",
+  "checks": [
+    "conflicting_profile_pool_refused_before_inference_or_worker_creation",
+    "scheduled_worker_blocks_http_and_separate_cli_process_at_shared_capacity",
+    "http_worker_blocks_scheduled_launch_at_shared_capacity",
+    "all_three_routes_complete_useful_work_after_capacity_release",
+    "protected_journals_correlate_capacity_refusals_without_false_cleanup_failure"
+  ],
+  "requests": [
+    {
+      "model": "fixture",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are agent \"fixture\". Execute the requested task using the available governed tools.\n--- Agent DSL ---\nagent fixture() { with sandbox = \"landlock\", timeout = 25.seconds {} }\n--- End DSL ---"
+        },
+        {
+          "role": "user",
+          "content": "{\"token\":\"scheduled-first\",\"delay\":\"8\"}"
+        }
+      ],
+      "max_tokens": 16384,
+      "temperature": 0.30000001192092896,
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "record_payload",
+            "description": "Record an admission fixture payload",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "token": {
+                  "type": "string",
+                  "description": ""
+                },
+                "delay": {
+                  "type": "string",
+                  "description": ""
+                },
+                "output": {
+                  "type": "string",
+                  "description": ""
+                }
+              },
+              "required": [
+                "token",
+                "delay",
+                "output"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "model": "fixture",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are agent \"fixture\" operating within the Symbiont runtime.\n--- Agent DSL ---\nagent fixture() { with sandbox = \"landlock\", timeout = 25.seconds {} }\n--- End DSL ---\nUse the available governed tools to perform the requested task."
+        },
+        {
+          "role": "user",
+          "content": "{\"token\": \"http-while-full\", \"delay\": \"0\"}"
+        }
+      ],
+      "max_tokens": 16384,
+      "temperature": 0.30000001192092896,
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "record_payload",
+            "description": "Record an admission fixture payload",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "token": {
+                  "type": "string",
+                  "description": ""
+                },
+                "delay": {
+                  "type": "string",
+                  "description": ""
+                },
+                "output": {
+                  "type": "string",
+                  "description": ""
+                }
+              },
+              "required": [
+                "token",
+                "delay",
+                "output"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "model": "fixture",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are agent 'fixture'. Follow the governance rules defined in your DSL.\n\n--- Agent DSL ---\nagent fixture() { with sandbox = \"landlock\", timeout = 25.seconds {} }\n--- End DSL ---"
+        },
+        {
+          "role": "user",
+          "content": "{\"token\": \"cli-while-full\", \"delay\": \"0\"}"
+        }
+      ],
+      "max_tokens": 16384,
+      "temperature": 0.30000001192092896,
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "record_payload",
+            "description": "Record an admission fixture payload",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "token": {
+                  "type": "string",
+                  "description": ""
+                },
+                "delay": {
+                  "type": "string",
+                  "description": ""
+                },
+                "output": {
+                  "type": "string",
+                  "description": ""
+                }
+              },
+              "required": [
+                "token",
+                "delay",
+                "output"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "model": "fixture",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are agent \"fixture\". Execute the requested task using the available governed tools.\n--- Agent DSL ---\nagent fixture() { with sandbox = \"landlock\", timeout = 25.seconds {} }\n--- End DSL ---"
+        },
+        {
+          "role": "user",
+          "content": "{\"token\":\"scheduled-first\",\"delay\":\"8\"}"
+        },
+        {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "scheduled-first",
+              "type": "function",
+              "function": {
+                "name": "record_payload",
+                "arguments": "{\"token\": \"scheduled-first\", \"delay\": \"8\", \"output\": \"scheduled-first.json\"}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "{\"status\":\"success\",\"scan_id\":\"1792966868-dbf480b73f47478893330a46c7cdeab0\",\"tool\":\"record_payload\",\"command\":\"python3 -I -c from pathlib import Path; import os,sys,time,json; token=sys.argv[1]; time.sleep(int(sys.argv[2])); value={\\\"token\\\":token,\\\"uid\\\":os.getuid(),\\\"host_visible\\\":Path(\\\"/tmp/symbi-admission-e2e-apfwgws5/host-canary\\\").exists()}; text=json.dumps(value); Path(sys.argv[3]).write_text(text); print(text) scheduled-first 8 scheduled-first.json\",\"duration_ms\":8207,\"timestamp\":\"2026-10-25T22:21:16.391948694+00:00\",\"output_hash\":\"sha256:56d032b030394a6b2cb5737728b7fdaf0c456b97a48f6990424014fbc4519c81\",\"output_truncated\":false,\"exit_code\":0,\"stderr\":\"\",\"results\":{\"raw_output\":\"{\\\"token\\\": \\\"scheduled-first\\\", \\\"uid\\\": 1000, \\\"host_visible\\\": false}\\n\",\"exit_code\":0},\"created_files\":[{\"path\":\"scheduled-first.json\",\"bytes\":64,\"sha256\":\"1ac725c063e332c6fb3ff9d0d276e69f493e6ac337e4d2361ff9403b64ba6634\"}]}",
+          "tool_call_id": "scheduled-first"
+        }
+      ],
+      "max_tokens": 16384,
+      "temperature": 0.30000001192092896,
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "record_payload",
+            "description": "Record an admission fixture payload",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "token": {
+                  "type": "string",
+                  "description": ""
+                },
+                "delay": {
+                  "type": "string",
+                  "description": ""
+                },
+                "output": {
+                  "type": "string",
+                  "description": ""
+                }
+              },
+              "required": [
+                "token",
+                "delay",
+                "output"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "model": "fixture",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are agent \"fixture\" operating within the Symbiont runtime.\n--- Agent DSL ---\nagent fixture() { with sandbox = \"landlock\", timeout = 25.seconds {} }\n--- End DSL ---\nUse the available governed tools to perform the requested task."
+        },
+        {
+          "role": "user",
+          "content": "{\"token\": \"http-allowed\", \"delay\": \"0\"}"
+        }
+      ],
+      "max_tokens": 16384,
+      "temperature": 0.30000001192092896,
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "record_payload",
+            "description": "Record an admission fixture payload",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "token": {
+                  "type": "string",
+                  "description": ""
+                },
+                "delay": {
+                  "type": "string",
+                  "description": ""
+                },
+                "output": {
+                  "type": "string",
+                  "description": ""
+                }
+              },
+              "required": [
+                "token",
+                "delay",
+                "output"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "model": "fixture",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are agent \"fixture\" operating within the Symbiont runtime.\n--- Agent DSL ---\nagent fixture() { with sandbox = \"landlock\", timeout = 25.seconds {} }\n--- End DSL ---\nUse the available governed tools to perform the requested task."
+        },
+        {
+          "role": "user",
+          "content": "{\"token\": \"http-allowed\", \"delay\": \"0\"}"
+        },
+        {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "http-allowed",
+              "type": "function",
+              "function": {
+                "name": "record_payload",
+                "arguments": "{\"token\": \"http-allowed\", \"delay\": \"0\", \"output\": \"http-allowed.json\"}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "{\"status\":\"success\",\"scan_id\":\"1792966876-2c5bfffca1b84b40911349dcfd0045e3\",\"tool\":\"record_payload\",\"command\":\"python3 -I -c from pathlib import Path; import os,sys,time,json; token=sys.argv[1]; time.sleep(int(sys.argv[2])); value={\\\"token\\\":token,\\\"uid\\\":os.getuid(),\\\"host_visible\\\":Path(\\\"/tmp/symbi-admission-e2e-apfwgws5/host-canary\\\").exists()}; text=json.dumps(value); Path(sys.argv[3]).write_text(text); print(text) http-allowed 0 http-allowed.json\",\"duration_ms\":199,\"timestamp\":\"2026-10-25T22:21:16.949523278+00:00\",\"output_hash\":\"sha256:c33b124766353523c017743520c2ca5a56b9d6469439ad7d4f1744970470dec4\",\"output_truncated\":false,\"exit_code\":0,\"stderr\":\"\",\"results\":{\"raw_output\":\"{\\\"token\\\": \\\"http-allowed\\\", \\\"uid\\\": 1000, \\\"host_visible\\\": false}\\n\",\"exit_code\":0},\"created_files\":[{\"path\":\"http-allowed.json\",\"bytes\":61,\"sha256\":\"d45309ff2d5aae88b22167ad320177dcdc44bb7ef1b17c3edac1c2a3be3b5c03\"}]}",
+          "tool_call_id": "http-allowed"
+        }
+      ],
+      "max_tokens": 16384,
+      "temperature": 0.30000001192092896,
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "record_payload",
+            "description": "Record an admission fixture payload",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "token": {
+                  "type": "string",
+                  "description": ""
+                },
+                "delay": {
+                  "type": "string",
+                  "description": ""
+                },
+                "output": {
+                  "type": "string",
+                  "description": ""
+                }
+              },
+              "required": [
+                "token",
+                "delay",
+                "output"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "model": "fixture",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are agent \"fixture\" operating within the Symbiont runtime.\n--- Agent DSL ---\nagent fixture() { with sandbox = \"landlock\", timeout = 25.seconds {} }\n--- End DSL ---\nUse the available governed tools to perform the requested task."
+        },
+        {
+          "role": "user",
+          "content": "{\"token\": \"http-first\", \"delay\": \"8\"}"
+        }
+      ],
+      "max_tokens": 16384,
+      "temperature": 0.30000001192092896,
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "record_payload",
+            "description": "Record an admission fixture payload",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "token": {
+                  "type": "string",
+                  "description": ""
+                },
+                "delay": {
+                  "type": "string",
+                  "description": ""
+                },
+                "output": {
+                  "type": "string",
+                  "description": ""
+                }
+              },
+              "required": [
+                "token",
+                "delay",
+                "output"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "model": "fixture",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are agent \"fixture\". Execute the requested task using the available governed tools.\n--- Agent DSL ---\nagent fixture() { with sandbox = \"landlock\", timeout = 25.seconds {} }\n--- End DSL ---"
+        },
+        {
+          "role": "user",
+          "content": "{\"token\":\"scheduler-while-full\",\"delay\":\"0\"}"
+        }
+      ],
+      "max_tokens": 16384,
+      "temperature": 0.30000001192092896,
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "record_payload",
+            "description": "Record an admission fixture payload",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "token": {
+                  "type": "string",
+                  "description": ""
+                },
+                "delay": {
+                  "type": "string",
+                  "description": ""
+                },
+                "output": {
+                  "type": "string",
+                  "description": ""
+                }
+              },
+              "required": [
+                "token",
+                "delay",
+                "output"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "model": "fixture",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are agent \"fixture\" operating within the Symbiont runtime.\n--- Agent DSL ---\nagent fixture() { with sandbox = \"landlock\", timeout = 25.seconds {} }\n--- End DSL ---\nUse the available governed tools to perform the requested task."
+        },
+        {
+          "role": "user",
+          "content": "{\"token\": \"http-first\", \"delay\": \"8\"}"
+        },
+        {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "http-first",
+              "type": "function",
+              "function": {
+                "name": "record_payload",
+                "arguments": "{\"token\": \"http-first\", \"delay\": \"8\", \"output\": \"http-first.json\"}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "{\"status\":\"success\",\"scan_id\":\"1792966877-5a47721c6a3744eeb7f865bdfb206682\",\"tool\":\"record_payload\",\"command\":\"python3 -I -c from pathlib import Path; import os,sys,time,json; token=sys.argv[1]; time.sleep(int(sys.argv[2])); value={\\\"token\\\":token,\\\"uid\\\":os.getuid(),\\\"host_visible\\\":Path(\\\"/tmp/symbi-admission-e2e-apfwgws5/host-canary\\\").exists()}; text=json.dumps(value); Path(sys.argv[3]).write_text(text); print(text) http-first 8 http-first.json\",\"duration_ms\":8204,\"timestamp\":\"2026-10-25T22:21:25.478642903+00:00\",\"output_hash\":\"sha256:b458f4f00fef8b6e97fe41db01f388714a362a3ebd8ddeb8007a7a0217750df9\",\"output_truncated\":false,\"exit_code\":0,\"stderr\":\"\",\"results\":{\"raw_output\":\"{\\\"token\\\": \\\"http-first\\\", \\\"uid\\\": 1000, \\\"host_visible\\\": false}\\n\",\"exit_code\":0},\"created_files\":[{\"path\":\"http-first.json\",\"bytes\":59,\"sha256\":\"9d4eed07178dc478f06083767aa7474e1451ec11a562db8dc8996537a48e6ad9\"}]}",
+          "tool_call_id": "http-first"
+        }
+      ],
+      "max_tokens": 16384,
+      "temperature": 0.30000001192092896,
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "record_payload",
+            "description": "Record an admission fixture payload",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "token": {
+                  "type": "string",
+                  "description": ""
+                },
+                "delay": {
+                  "type": "string",
+                  "description": ""
+                },
+                "output": {
+                  "type": "string",
+                  "description": ""
+                }
+              },
+              "required": [
+                "token",
+                "delay",
+                "output"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "model": "fixture",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are agent 'fixture'. Follow the governance rules defined in your DSL.\n\n--- Agent DSL ---\nagent fixture() { with sandbox = \"landlock\", timeout = 25.seconds {} }\n--- End DSL ---"
+        },
+        {
+          "role": "user",
+          "content": "{\"token\": \"cli-allowed\", \"delay\": \"0\"}"
+        }
+      ],
+      "max_tokens": 16384,
+      "temperature": 0.30000001192092896,
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "record_payload",
+            "description": "Record an admission fixture payload",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "token": {
+                  "type": "string",
+                  "description": ""
+                },
+                "delay": {
+                  "type": "string",
+                  "description": ""
+                },
+                "output": {
+                  "type": "string",
+                  "description": ""
+                }
+              },
+              "required": [
+                "token",
+                "delay",
+                "output"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "model": "fixture",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are agent 'fixture'. Follow the governance rules defined in your DSL.\n\n--- Agent DSL ---\nagent fixture() { with sandbox = \"landlock\", timeout = 25.seconds {} }\n--- End DSL ---"
+        },
+        {
+          "role": "user",
+          "content": "{\"token\": \"cli-allowed\", \"delay\": \"0\"}"
+        },
+        {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "cli-allowed",
+              "type": "function",
+              "function": {
+                "name": "record_payload",
+                "arguments": "{\"token\": \"cli-allowed\", \"delay\": \"0\", \"output\": \"cli-allowed.json\"}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "{\"status\":\"success\",\"scan_id\":\"1792966886-f655bce72ce44a03b82455531bb74b99\",\"tool\":\"record_payload\",\"command\":\"python3 -I -c from pathlib import Path; import os,sys,time,json; token=sys.argv[1]; time.sleep(int(sys.argv[2])); value={\\\"token\\\":token,\\\"uid\\\":os.getuid(),\\\"host_visible\\\":Path(\\\"/tmp/symbi-admission-e2e-apfwgws5/host-canary\\\").exists()}; text=json.dumps(value); Path(sys.argv[3]).write_text(text); print(text) cli-allowed 0 cli-allowed.json\",\"duration_ms\":191,\"timestamp\":\"2026-10-25T22:21:26.249920960+00:00\",\"output_hash\":\"sha256:80bf2e4596876b7694e846061cd781bd077a0d4850c1c72923782236f467a20a\",\"output_truncated\":false,\"exit_code\":0,\"stderr\":\"\",\"results\":{\"raw_output\":\"{\\\"token\\\": \\\"cli-allowed\\\", \\\"uid\\\": 1000, \\\"host_visible\\\": false}\\n\",\"exit_code\":0},\"created_files\":[{\"path\":\"cli-allowed.json\",\"bytes\":60,\"sha256\":\"b5e5c268887b8deb59cdacf2bc823568e6b57a822d02e73b6a64aa85ad099050\"}]}",
+          "tool_call_id": "cli-allowed"
+        }
+      ],
+      "max_tokens": 16384,
+      "temperature": 0.30000001192092896,
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "record_payload",
+            "description": "Record an admission fixture payload",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "token": {
+                  "type": "string",
+                  "description": ""
+                },
+                "delay": {
+                  "type": "string",
+                  "description": ""
+                },
+                "output": {
+                  "type": "string",
+                  "description": ""
+                }
+              },
+              "required": [
+                "token",
+                "delay",
+                "output"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "helper_sha256": {
+    "test-workflow-execution.py": "15cf90db78147dd7c1b265a697ef4cec46f25d3f20dc5bb4c43ba72e3fd16c23",
+    "test-direct-inference.py": "9e975bf4d8c55c8925dfd730adbd20bee77e81f05170715f23085a9acb135374",
+    "delegated_service_fixture.py": "4d00b393ae19d0e231ff3ae68cfafe99c7a7d89be11cf5cbe3d756de0dd965b7"
+  },
+  "public_key": "933df28d7a3636d05387bb614528a3f822918b234f8cc5875949e7680d89eb2f",
+  "sandbox": "landlock",
+  "fixture_sha256": {
+    "agents/fixture.symbi": "b5f5a3bec1c964b888e8ea795c6fd585759030b5f1591174b562852f5ef3f6ba",
+    "tools/record_payload.clad.toml": "954e1ace805ef4368c8652008fe7462c212c3871ff12af0489debf86f4ec9749",
+    "policies/fixture.cedar": "bacfa3fab8b34a87fbe68d2b949b8fb62bc093942a84fd9a08543f15a0b63ee2",
+    "symbiont.toml": "9a9fa6e88a9a432e3375e23a2ccb508e5039ca2b905bfbae248c8baa76d0d719",
+    "state/admission.conf": "5561d9e5a49ca6262a20e7cc40474002600446079456fd27cc9367f9b864e106",
+    "host-canary": "833546c118c0d56804d70302eeb5a8dd7b6f6b34db50e48aa92e4aa769353023"
+  },
+  "cli": {
+    "conflicting-pool": {
+      "exit_code": 1,
+      "stdout": "",
+      "stderr": "Loaded environment from /tmp/symbi-admission-e2e-apfwgws5/.env\nInvocation ID: 6d7a69cc-b5b8-4617-94dc-5f92ef52de02\nAudit run: f6d4fd68-4863-4860-8022-28d765b5c521\nAudit journal: /tmp/symbi-admission-e2e-apfwgws5/.symbiont/governed/3757dc59-3ab5-46da-b099-a672ccc63a47.f6d4fd68-4863-4860-8022-28d765b5c521.jsonl\nAudit public key: 933df28d7a3636d05387bb614528a3f822918b234f8cc5875949e7680d89eb2f\n\u2717 Agent sandbox selection failed: supervisor state directory conflicts with SYMBIONT_SANDBOX_STATE_DIR; all backend profiles must use the configured shared capacity pool\n"
+    },
+    "cli-while-full": {
+      "exit_code": 2,
+      "stdout": "\u2192 Running agent: fixture (agents/fixture.symbi)\n\u2192 Input: {\"token\": \"cli-while-full\", \"delay\": \"0\"}\n\n",
+      "stderr": "Loaded environment from /tmp/symbi-admission-e2e-apfwgws5/.env\nInvocation ID: 6209f769-dc69-4f4b-9d98-f37dfe49310e\nAudit run: b2639c72-6df5-476b-b81f-e2d50af20e0e\nAudit journal: /tmp/symbi-admission-e2e-apfwgws5/.symbiont/governed/fec1ee1a-e41d-4c3a-8b1d-df940be8a6b8.b2639c72-6df5-476b-b81f-e2d50af20e0e.jsonl\nAudit public key: 933df28d7a3636d05387bb614528a3f822918b234f8cc5875949e7680d89eb2f\n\u2713 Cedar policy gate wired (1 policy file(s) loaded)\nTool error (inspect audit for effect status): \"[Error] ToolClad error: Tool 'record_payload': shared worker capacity exhausted: workers=2/1, memory_bytes=1073741824/536870912, cpu_nanos=2000000000/1000000000\"\nInvocation requires reconciliation; no work repeated. Inspect its protected run journal.\n"
+    },
+    "cli-allowed": {
+      "exit_code": 0,
+      "stdout": "\u2192 Running agent: fixture (agents/fixture.symbi)\n\u2192 Input: {\"token\": \"cli-allowed\", \"delay\": \"0\"}\n\n{\"status\":\"success\",\"scan_id\":\"1792966886-f655bce72ce44a03b82455531bb74b99\",\"tool\":\"record_payload\",\"command\":\"python3 -I -c from pathlib import Path; import os,sys,time,json; token=sys.argv[1]; time.sleep(int(sys.argv[2])); value={\\\"token\\\":token,\\\"uid\\\":os.getuid(),\\\"host_visible\\\":Path(\\\"/tmp/symbi-admission-e2e-apfwgws5/host-canary\\\").exists()}; text=json.dumps(value); Path(sys.argv[3]).write_text(text); print(text) cli-allowed 0 cli-allowed.json\",\"duration_ms\":191,\"timestamp\":\"2026-10-25T22:21:26.249920960+00:00\",\"output_hash\":\"sha256:80bf2e4596876b7694e846061cd781bd077a0d4850c1c72923782236f467a20a\",\"output_truncated\":false,\"exit_code\":0,\"stderr\":\"\",\"results\":{\"raw_output\":\"{\\\"token\\\": \\\"cli-allowed\\\", \\\"uid\\\": 1000, \\\"host_visible\\\": false}\\n\",\"exit_code\":0},\"created_files\":[{\"path\":\"cli-allowed.json\",\"bytes\":60,\"sha256\":\"b5e5c268887b8deb59cdacf2bc823568e6b57a822d02e73b6a64aa85ad099050\"}]}\n",
+      "stderr": "Loaded environment from /tmp/symbi-admission-e2e-apfwgws5/.env\nInvocation ID: c1d519f9-710b-4541-b67d-bb19ce09d12e\nAudit run: 61721ae9-9db3-4db7-b295-4fadd192295b\nAudit journal: /tmp/symbi-admission-e2e-apfwgws5/.symbiont/governed/67e08c10-f4ca-4cb9-8c32-83c5a240317c.61721ae9-9db3-4db7-b295-4fadd192295b.jsonl\nAudit public key: 933df28d7a3636d05387bb614528a3f822918b234f8cc5875949e7680d89eb2f\n\u2713 Cedar policy gate wired (1 policy file(s) loaded)\n\n--- 2 iterations, 4 tokens, terminated: Completed ---\n"
+    }
+  },
+  "startup_refusal_audit": {
+    "path": "/tmp/symbi-admission-e2e-apfwgws5/.symbiont/governed/3757dc59-3ab5-46da-b099-a672ccc63a47.f6d4fd68-4863-4860-8022-28d765b5c521.jsonl",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "lease_observations": [
+    {
+      "lease": "15750cab-57eb-46da-996b-ef97f9d8f821",
+      "name": "symbi-15750cab-57eb-46da-996b-ef97f9d8f821",
+      "docker_binary": "/home/evidence/symbi",
+      "docker_environment": {},
+      "state": {
+        "phase": "host_created",
+        "parent": {
+          "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/symbi-workers-b32a4d302bb19f45d5acf7097aedae63ba77750c895288430e98d0d98a14425b.service",
+          "boot_id": "86c9e5a7-1dbf-4ad5-acc8-8a999e29a584",
+          "device": 29,
+          "inode": 17857
+        },
+        "cgroup": {
+          "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/symbi-workers-b32a4d302bb19f45d5acf7097aedae63ba77750c895288430e98d0d98a14425b.service/worker-15750cab-57eb-46da-996b-ef97f9d8f821",
+          "boot_id": "86c9e5a7-1dbf-4ad5-acc8-8a999e29a584",
+          "device": 29,
+          "inode": 18112
+        }
+      },
+      "resources": {
+        "memory_bytes": 536870912,
+        "cpu_nanos": 1000000000
+      },
+      "jail": null,
+      "staging": [
+        "cd1f440a-840a-4522-b6cc-cb5704d7d54b"
+      ],
+      "origin": {
+        "agent_id": "413e22e9-c2b2-443a-b9ea-7d5c128722c9",
+        "run_id": "ab3e486d-9cdc-467f-9f32-68d8a8116165",
+        "public_key": "933df28d7a3636d05387bb614528a3f822918b234f8cc5875949e7680d89eb2f",
+        "dispatch_id": "662869ee-2046-4814-9434-e3ad13b7c7bb",
+        "call_fingerprint": "sha256:8eb4699c0890bf388be3b1278cdc87c8da02842807f1372bd3f13c0ba816d8c8",
+        "tool_name": "record_payload",
+        "iteration": 1
+      }
+    },
+    {
+      "lease": "15750cab-57eb-46da-996b-ef97f9d8f821",
+      "name": "symbi-15750cab-57eb-46da-996b-ef97f9d8f821",
+      "docker_binary": "/home/evidence/symbi",
+      "docker_environment": {},
+      "state": {
+        "phase": "host_created",
+        "parent": {
+          "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/symbi-workers-b32a4d302bb19f45d5acf7097aedae63ba77750c895288430e98d0d98a14425b.service",
+          "boot_id": "86c9e5a7-1dbf-4ad5-acc8-8a999e29a584",
+          "device": 29,
+          "inode": 17857
+        },
+        "cgroup": {
+          "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/symbi-workers-b32a4d302bb19f45d5acf7097aedae63ba77750c895288430e98d0d98a14425b.service/worker-15750cab-57eb-46da-996b-ef97f9d8f821",
+          "boot_id": "86c9e5a7-1dbf-4ad5-acc8-8a999e29a584",
+          "device": 29,
+          "inode": 18112
+        }
+      },
+      "resources": {
+        "memory_bytes": 536870912,
+        "cpu_nanos": 1000000000
+      },
+      "jail": null,
+      "staging": [
+        "cd1f440a-840a-4522-b6cc-cb5704d7d54b"
+      ],
+      "origin": {
+        "agent_id": "413e22e9-c2b2-443a-b9ea-7d5c128722c9",
+        "run_id": "ab3e486d-9cdc-467f-9f32-68d8a8116165",
+        "public_key": "933df28d7a3636d05387bb614528a3f822918b234f8cc5875949e7680d89eb2f",
+        "dispatch_id": "662869ee-2046-4814-9434-e3ad13b7c7bb",
+        "call_fingerprint": "sha256:8eb4699c0890bf388be3b1278cdc87c8da02842807f1372bd3f13c0ba816d8c8",
+        "tool_name": "record_payload",
+        "iteration": 1
+      }
+    },
+    {
+      "lease": "15750cab-57eb-46da-996b-ef97f9d8f821",
+      "name": "symbi-15750cab-57eb-46da-996b-ef97f9d8f821",
+      "docker_binary": "/home/evidence/symbi",
+      "docker_environment": {},
+      "state": {
+        "phase": "host_created",
+        "parent": {
+          "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/symbi-workers-b32a4d302bb19f45d5acf7097aedae63ba77750c895288430e98d0d98a14425b.service",
+          "boot_id": "86c9e5a7-1dbf-4ad5-acc8-8a999e29a584",
+          "device": 29,
+          "inode": 17857
+        },
+        "cgroup": {
+          "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/symbi-workers-b32a4d302bb19f45d5acf7097aedae63ba77750c895288430e98d0d98a14425b.service/worker-15750cab-57eb-46da-996b-ef97f9d8f821",
+          "boot_id": "86c9e5a7-1dbf-4ad5-acc8-8a999e29a584",
+          "device": 29,
+          "inode": 18112
+        }
+      },
+      "resources": {
+        "memory_bytes": 536870912,
+        "cpu_nanos": 1000000000
+      },
+      "jail": null,
+      "staging": [
+        "cd1f440a-840a-4522-b6cc-cb5704d7d54b"
+      ],
+      "origin": {
+        "agent_id": "413e22e9-c2b2-443a-b9ea-7d5c128722c9",
+        "run_id": "ab3e486d-9cdc-467f-9f32-68d8a8116165",
+        "public_key": "933df28d7a3636d05387bb614528a3f822918b234f8cc5875949e7680d89eb2f",
+        "dispatch_id": "662869ee-2046-4814-9434-e3ad13b7c7bb",
+        "call_fingerprint": "sha256:8eb4699c0890bf388be3b1278cdc87c8da02842807f1372bd3f13c0ba816d8c8",
+        "tool_name": "record_payload",
+        "iteration": 1
+      }
+    },
+    {
+      "lease": "a110330d-f47f-4d66-8106-871023a951cd",
+      "name": "symbi-a110330d-f47f-4d66-8106-871023a951cd",
+      "docker_binary": "/home/evidence/symbi",
+      "docker_environment": {},
+      "state": {
+        "phase": "host_created",
+        "parent": {
+          "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/symbi-workers-b32a4d302bb19f45d5acf7097aedae63ba77750c895288430e98d0d98a14425b.service",
+          "boot_id": "86c9e5a7-1dbf-4ad5-acc8-8a999e29a584",
+          "device": 29,
+          "inode": 17857
+        },
+        "cgroup": {
+          "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/symbi-workers-b32a4d302bb19f45d5acf7097aedae63ba77750c895288430e98d0d98a14425b.service/worker-a110330d-f47f-4d66-8106-871023a951cd",
+          "boot_id": "86c9e5a7-1dbf-4ad5-acc8-8a999e29a584",
+          "device": 29,
+          "inode": 18214
+        }
+      },
+      "resources": {
+        "memory_bytes": 536870912,
+        "cpu_nanos": 1000000000
+      },
+      "jail": null,
+      "staging": [
+        "3002072e-0754-4a9f-a59e-0c820374f36f"
+      ],
+      "origin": {
+        "agent_id": "413e22e9-c2b2-443a-b9ea-7d5c128722c9",
+        "run_id": "779b3109-7b3d-400b-9f6d-144a89b105b2",
+        "public_key": "933df28d7a3636d05387bb614528a3f822918b234f8cc5875949e7680d89eb2f",
+        "dispatch_id": "f411e188-88b2-4ccd-bb89-87f2ed5ee149",
+        "call_fingerprint": "sha256:67dc39c4b789bb39c64120f12a41445c0a2c5a562724b120690de6dded73f416",
+        "tool_name": "record_payload",
+        "iteration": 1
+      }
+    },
+    {
+      "lease": "a110330d-f47f-4d66-8106-871023a951cd",
+      "name": "symbi-a110330d-f47f-4d66-8106-871023a951cd",
+      "docker_binary": "/home/evidence/symbi",
+      "docker_environment": {},
+      "state": {
+        "phase": "host_created",
+        "parent": {
+          "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/symbi-workers-b32a4d302bb19f45d5acf7097aedae63ba77750c895288430e98d0d98a14425b.service",
+          "boot_id": "86c9e5a7-1dbf-4ad5-acc8-8a999e29a584",
+          "device": 29,
+          "inode": 17857
+        },
+        "cgroup": {
+          "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/symbi-workers-b32a4d302bb19f45d5acf7097aedae63ba77750c895288430e98d0d98a14425b.service/worker-a110330d-f47f-4d66-8106-871023a951cd",
+          "boot_id": "86c9e5a7-1dbf-4ad5-acc8-8a999e29a584",
+          "device": 29,
+          "inode": 18214
+        }
+      },
+      "resources": {
+        "memory_bytes": 536870912,
+        "cpu_nanos": 1000000000
+      },
+      "jail": null,
+      "staging": [
+        "3002072e-0754-4a9f-a59e-0c820374f36f"
+      ],
+      "origin": {
+        "agent_id": "413e22e9-c2b2-443a-b9ea-7d5c128722c9",
+        "run_id": "779b3109-7b3d-400b-9f6d-144a89b105b2",
+        "public_key": "933df28d7a3636d05387bb614528a3f822918b234f8cc5875949e7680d89eb2f",
+        "dispatch_id": "f411e188-88b2-4ccd-bb89-87f2ed5ee149",
+        "call_fingerprint": "sha256:67dc39c4b789bb39c64120f12a41445c0a2c5a562724b120690de6dded73f416",
+        "tool_name": "record_payload",
+        "iteration": 1
+      }
+    }
+  ],
+  "http_capacity_failure_response": {
+    "status": "unresolved",
+    "audit": {
+      "run_id": "49ff2649-5286-4ea0-8f8b-8a35d6d6672e",
+      "path": "/tmp/symbi-admission-e2e-apfwgws5/.symbiont/governed/413e22e9-c2b2-443a-b9ea-7d5c128722c9.49ff2649-5286-4ea0-8f8b-8a35d6d6672e.jsonl",
+      "public_key": "933df28d7a3636d05387bb614528a3f822918b234f8cc5875949e7680d89eb2f"
+    },
+    "error": "The original outcome requires reconciliation; no work repeated.",
+    "invocation_id": "5abfabd1-60a8-47a5-9700-8aba85780203",
+    "replayed": false
+  },
+  "journals": [
+    {
+      "path": "/tmp/symbi-admission-e2e-apfwgws5/.symbiont/governed/67e08c10-f4ca-4cb9-8c32-83c5a240317c.61721ae9-9db3-4db7-b295-4fadd192295b.jsonl",
+      "sha256": "43c2d76f655ce9445b1ca70e2579378c66c5e1b1bae864c5aee620af04425c64",
+      "capacity_refusal": false
+    },
+    {
+      "path": "/tmp/symbi-admission-e2e-apfwgws5/.symbiont/governed/413e22e9-c2b2-443a-b9ea-7d5c128722c9.61a17a77-1aef-4c2f-acde-318936a15ea2.jsonl",
+      "sha256": "b9edf111560c7c72ae7dbc949358435729f143e6c82091ed1c7c48bc6eb7db26",
+      "capacity_refusal": true
+    },
+    {
+      "path": "/tmp/symbi-admission-e2e-apfwgws5/.symbiont/governed/413e22e9-c2b2-443a-b9ea-7d5c128722c9.779b3109-7b3d-400b-9f6d-144a89b105b2.jsonl",
+      "sha256": "22d0208213b69c69341f94c5027beadf17e9dbd01b2ee3afc7944637b6b6e981",
+      "capacity_refusal": false
+    },
+    {
+      "path": "/tmp/symbi-admission-e2e-apfwgws5/.symbiont/governed/413e22e9-c2b2-443a-b9ea-7d5c128722c9.75aed66c-e4bd-48d8-8eaf-86aa31045e87.jsonl",
+      "sha256": "ab21dc724326ce82c30b799ae22e06901c9ef876ac50f89d923da8de0f5e1327",
+      "capacity_refusal": false
+    },
+    {
+      "path": "/tmp/symbi-admission-e2e-apfwgws5/.symbiont/governed/fec1ee1a-e41d-4c3a-8b1d-df940be8a6b8.b2639c72-6df5-476b-b81f-e2d50af20e0e.jsonl",
+      "sha256": "61cc1b6159a32c32ab3dd45e8d0d880ce45ec875fbee97f2fec9277dc87a898a",
+      "capacity_refusal": true
+    },
+    {
+      "path": "/tmp/symbi-admission-e2e-apfwgws5/.symbiont/governed/413e22e9-c2b2-443a-b9ea-7d5c128722c9.49ff2649-5286-4ea0-8f8b-8a35d6d6672e.jsonl",
+      "sha256": "5ccfb187b5e47191106ae8c1184a8fb358ab21c8ac6dfa4d4c99723d6067da21",
+      "capacity_refusal": true
+    },
+    {
+      "path": "/tmp/symbi-admission-e2e-apfwgws5/.symbiont/governed/413e22e9-c2b2-443a-b9ea-7d5c128722c9.ab3e486d-9cdc-467f-9f32-68d8a8116165.jsonl",
+      "sha256": "9e82b9c600d3521a7a2d14e1b9a9bb8ec154d43c7c3c4a104add80b3f0c3327b",
+      "capacity_refusal": false
+    }
+  ],
+  "remaining_containers": [],
+  "remaining_leases": []
+}

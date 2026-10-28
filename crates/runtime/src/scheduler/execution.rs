@@ -136,17 +136,7 @@ impl GovernedAgentExecutor {
                 CommandTier::GVisor => SecurityTier::Tier2,
                 CommandTier::Firecracker => SecurityTier::Tier3,
                 CommandTier::E2B => SecurityTier::Hosted,
-                // The landlock tier has no registered SecurityTier equivalent,
-                // so a scheduled agent cannot declare it. Selecting it for a
-                // registered run is a configuration error, not a silent
-                // downgrade to a neighbouring tier.
-                CommandTier::Landlock => {
-                    return Err(
-                        "the landlock tier cannot be selected for a registered agent; \
-                         declare it in [sandbox] for direct runs"
-                            .to_string(),
-                    )
-                }
+                CommandTier::Landlock => SecurityTier::Landlock,
             };
             if selected != tier {
                 return Err(

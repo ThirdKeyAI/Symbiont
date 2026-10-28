@@ -1,5 +1,6 @@
 //! Credential-isolated, fixed-destination inference for a contained CLI.
 
+use crate::outbound::{Credential, CredentialSource};
 use crate::reasoning::{governed_session::GovernedToolSession, loop_types::LoopEvent};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -14,7 +15,6 @@ use tokio::{
     net::UnixStream,
     sync::Mutex,
 };
-use zeroize::Zeroizing;
 
 const REQUEST_LIMIT: usize = 1024 * 1024;
 const RESPONSE_LIMIT: usize = 4 * 1024 * 1024;
@@ -26,7 +26,11 @@ pub struct InferenceBrokerConfig {
     pub base_url: String,
     pub model: String,
     /// Name of a host-side variable, read only by the trusted launcher.
+    #[serde(default)]
     pub api_key_env: String,
+    /// Optional explicit credential source; mutually exclusive with api_key_env.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential: Option<CredentialSource>,
     #[serde(default = "default_requests")]
     pub max_requests: u32,
     #[serde(default = "default_output")]
@@ -72,7 +76,12 @@ impl InferenceBrokerConfig {
 
     /// Validate before serializing configuration into policy or audit records.
     pub fn validate(&self) -> Result<(), String> {
-        if self.api_key_env.is_empty()
+        if let Some(source) = &self.credential {
+            source.validate()?;
+            if !self.api_key_env.is_empty() {
+                return Err("select one inference credential source".into());
+            }
+        } else if self.api_key_env.is_empty()
             || self.api_key_env.len() > 128
             || !self
                 .api_key_env
@@ -108,6 +117,19 @@ impl InferenceBrokerConfig {
         }
         Ok(())
     }
+
+    /// Explicit sources fail closed; legacy environment selection remains an
+    /// explicit source, never a fallback from a failed configured store.
+    pub async fn resolve_credential(&self, agent_id: &str) -> Result<Credential, String> {
+        self.validate()?;
+        match &self.credential {
+            Some(source) => source.resolve(agent_id).await,
+            None => Credential::new(
+                std::env::var(&self.api_key_env)
+                    .map_err(|_| "configured inference credential is unavailable")?,
+            ),
+        }
+    }
 }
 
 struct Budget {
@@ -121,7 +143,7 @@ struct Budget {
 pub struct ProtectedInference {
     config: InferenceBrokerConfig,
     client: reqwest::Client,
-    credential: Zeroizing<String>,
+    credential: Credential,
     messages_url: url::Url,
     count_url: url::Url,
     deadline: Instant,
@@ -140,14 +162,24 @@ impl ProtectedInference {
         deadline: Instant,
         session: Arc<GovernedToolSession>,
     ) -> Result<Self, String> {
+        Self::with_credential(
+            config,
+            Credential::new(credential)?,
+            output_budget,
+            deadline,
+            session,
+        )
+    }
+
+    pub fn with_credential(
+        config: InferenceBrokerConfig,
+        credential: Credential,
+        output_budget: u64,
+        deadline: Instant,
+        session: Arc<GovernedToolSession>,
+    ) -> Result<Self, String> {
         config.validate()?;
-        if output_budget == 0
-            || output_budget > 1_000_000
-            || credential.is_empty()
-            || credential.len() > 4096
-            || credential.bytes().any(|b| b.is_ascii_control())
-            || deadline <= Instant::now()
-        {
+        if output_budget == 0 || output_budget > 1_000_000 || deadline <= Instant::now() {
             return Err("invalid protected inference session configuration".into());
         }
         let messages_url = url::Url::parse(&format!(
@@ -168,7 +200,7 @@ impl ProtectedInference {
         Ok(Self {
             config,
             client,
-            credential: Zeroizing::new(credential),
+            credential,
             messages_url,
             count_url,
             deadline,
@@ -181,6 +213,17 @@ impl ProtectedInference {
     }
 
     async fn forward(
+        &self,
+        path: &str,
+        body: &[u8],
+    ) -> Result<(u16, &'static str, Vec<u8>), String> {
+        self.session
+            .outbound_authority()
+            .during(self.forward_active(path, body))
+            .await
+    }
+
+    async fn forward_active(
         &self,
         path: &str,
         body: &[u8],
@@ -282,15 +325,21 @@ impl ProtectedInference {
         let mut request = self
             .client
             .post(endpoint.clone())
-            .header("x-api-key", self.credential.as_str())
             .header("anthropic-version", "2023-06-01")
             .header("content-type", "application/json")
             .body(canonical_body);
         if !self.config.beta_headers.is_empty() {
             request = request.header("anthropic-beta", self.config.beta_headers.join(","));
         }
-        let response = request
-            .send()
+        let mut request = request.build().map_err(|_| "invalid inference request")?;
+        self.credential
+            .inject(request.headers_mut(), "x-api-key", "")?;
+        self.session
+            .outbound_authority()
+            .admit_send("managed_inference", self.config.max_requests)?;
+        let response = self
+            .client
+            .execute(request)
             .await
             .map_err(|_| "inference upstream request failed")?;
         let status = response.status().as_u16();
@@ -311,6 +360,7 @@ impl ProtectedInference {
         } else {
             "application/json"
         };
+        let response_headers = response.headers().clone();
         let mut stream = response.bytes_stream();
         let mut output = Vec::new();
         while let Some(chunk) = stream.next().await {
@@ -320,9 +370,10 @@ impl ProtectedInference {
             }
             output.extend_from_slice(&chunk);
         }
-        if output
-            .windows(self.credential.len())
-            .any(|part| part == self.credential.as_bytes())
+        if self
+            .credential
+            .check_response(&response_headers, &output)
+            .is_err()
         {
             self.session
                 .cancel_with_reason("inference response contains protected credentials");
@@ -449,4 +500,50 @@ pub(crate) async fn connection(
         }
     }
     Err("inference connection request budget exhausted".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config(credential: Option<CredentialSource>) -> InferenceBrokerConfig {
+        InferenceBrokerConfig {
+            base_url: "https://inference.example.test".into(),
+            model: "fixture-model".into(),
+            api_key_env: if credential.is_some() {
+                String::new()
+            } else {
+                "FIXTURE_INFERENCE_KEY".into()
+            },
+            credential,
+            max_requests: 4,
+            max_output_tokens_per_request: 128,
+            request_timeout_seconds: 30,
+            beta_headers: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn inference_config_round_trips_through_toml_with_and_without_credential() {
+        let plain = config(None);
+        let text = toml::to_string(&plain).unwrap();
+        assert!(!text.contains("credential"));
+        let parsed: InferenceBrokerConfig = toml::from_str(&text).unwrap();
+        assert!(parsed.credential.is_none());
+        assert_eq!(parsed.api_key_env, "FIXTURE_INFERENCE_KEY");
+        parsed.validate().unwrap();
+
+        let sourced = config(Some(CredentialSource::Environment {
+            variable: "FIXTURE_INFERENCE_KEY".into(),
+            version: "v1".into(),
+        }));
+        let text = toml::to_string(&sourced).unwrap();
+        let parsed: InferenceBrokerConfig = toml::from_str(&text).unwrap();
+        parsed.validate().unwrap();
+        assert!(matches!(
+            parsed.credential,
+            Some(CredentialSource::Environment { ref variable, ref version })
+                if variable == "FIXTURE_INFERENCE_KEY" && version == "v1"
+        ));
+    }
 }

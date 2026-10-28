@@ -51,6 +51,8 @@ const MAX_AST_DEPTH: usize = 256;
 /// This mirrors the SandboxTier enum in the runtime crate to avoid circular dependencies
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SandboxTier {
+    /// Native Linux Landlock, seccomp and namespace isolation
+    Landlock,
     /// Docker container sandbox
     Docker,
     /// gVisor sandbox for enhanced security
@@ -64,6 +66,7 @@ pub enum SandboxTier {
 impl std::fmt::Display for SandboxTier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            SandboxTier::Landlock => write!(f, "landlock"),
             SandboxTier::Docker => write!(f, "docker"),
             SandboxTier::GVisor => write!(f, "gvisor"),
             SandboxTier::Firecracker => write!(f, "firecracker"),
@@ -181,13 +184,14 @@ impl WithBlock {
         // Accept both backend names and the tier-number aliases used throughout
         // the docs and example agents (tier1=Docker, tier2=gVisor, tier3=Firecracker).
         match cleaned_value.to_lowercase().as_str() {
+            "landlock" => Ok(SandboxTier::Landlock),
             "docker" | "tier1" => Ok(SandboxTier::Docker),
             "gvisor" | "tier2" => Ok(SandboxTier::GVisor),
             "firecracker" | "tier3" => Ok(SandboxTier::Firecracker),
             "e2b" => Ok(SandboxTier::E2B),
             _ => Err(format!(
                 "Invalid sandbox tier: {}. Valid options are: docker (tier1), \
-                 gvisor (tier2), firecracker (tier3), e2b",
+                 landlock, gvisor (tier2), firecracker (tier3), e2b",
                 value
             )),
         }
@@ -1341,6 +1345,10 @@ mod tests {
 
     #[test]
     fn test_sandbox_tier_validation() {
+        assert_eq!(
+            WithBlock::parse_sandbox_tier("landlock"),
+            Ok(SandboxTier::Landlock)
+        );
         assert_eq!(
             WithBlock::parse_sandbox_tier("docker"),
             Ok(SandboxTier::Docker)

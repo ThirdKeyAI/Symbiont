@@ -69,6 +69,10 @@ POST /api/v1/workflows/execute
 
 Administrators submit raw DSL source in `workflow_id`; `parameters` is the invocation input. Omit `agent_id` to allocate a registration, or supply an ID to create or replace it. Agent-scoped keys receive `403 ADMIN_REQUIRED` here and can invoke their registered source through `/agents/{id}/execute`. A `queued` response acknowledges admission; match `execution_id` in `/agents/{id}/history` for the eventual outcome. See the [workflow contract](https://github.com/ThirdKeyAI/Symbiont/blob/main/crates/runtime/API_REFERENCE.md#execute-workflow) for source selection, validation and migration details.
 
+The registration default remains Docker/Tier1 when the DSL omits a sandbox.
+`with sandbox = "landlock"` explicitly selects the native supervised backend;
+Landlock does not satisfy a container or VM tier requirement.
+
 **Request Body:**
 ```json
 {

@@ -147,6 +147,7 @@ impl Settings {
             return Err("--inference-key-env must name a separate provider credential, not a generated runtime setting".into());
         }
         let inference = InferenceBrokerConfig {
+            credential: None,
             base_url,
             model,
             api_key_env,
@@ -348,6 +349,7 @@ mod tests {
             source: source.clone(),
             executable: "/usr/bin/python3".into(),
             inference: InferenceBrokerConfig {
+                credential: None,
                 base_url: "http://localhost:8000".into(),
                 model: "model\"quoted".into(),
                 api_key_env: "REVIEW_PROVIDER_KEY".into(),

@@ -330,12 +330,13 @@ pub async fn new_secret_store(
             Ok(Box::new(store))
         }
         SecretsBackend::Vault(vault_config) => {
-            let store =
+            let mut store =
                 VaultSecretStore::new(vault_config.clone(), agent_id.to_string(), audit_sink)
                     .await
                     .map_err(|e| SecretError::ConfigurationError {
                         message: format!("Failed to initialize vault backend: {}", e),
                     })?;
+            store.authenticate().await?;
             Ok(Box::new(store))
         }
     }

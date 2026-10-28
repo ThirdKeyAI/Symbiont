@@ -133,6 +133,17 @@ agent declared() { with sandbox = "Tier1" {} with sandbox = "docker" {} }"#,
     }
 
     #[test]
+    fn selects_landlock_explicitly_for_one_agent() {
+        let selected = resolve_execution_settings(
+            r#"agent native() { with sandbox = "landlock", timeout = 12.seconds {} }"#,
+            "native",
+        )
+        .unwrap();
+        assert_eq!(selected.sandbox_tier, Some(SandboxTier::Landlock));
+        assert_eq!(selected.timeout_seconds, Some(12));
+    }
+
+    #[test]
     fn malformed_unknown_duplicate_and_conflicting_settings_never_fall_back() {
         for source in [
             "agent broken() { with sandbox = }",

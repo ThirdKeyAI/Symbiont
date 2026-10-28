@@ -119,6 +119,13 @@ it does not independently prove the supplied external facts. It does not refund
 token reservations, discard worker leases, restore partial files, resume a lost
 reasoning loop, or provide exactly-once behavior for arbitrary services.
 
+The [external-effect evidence](external-effect-evidence.md) exercises an HTTP
+receiver that accepts an order before losing its acknowledgement. Same-ID
+retries and reconciliation deliver no second order in these five recorded
+cases. The receiver deliberately does not deduplicate, so that result measures
+runtime retry behavior. A new invocation ID still represents new work and needs
+the destination service's own duplicate-prevention contract where required.
+
 For broker-created files with a signed publication intent, a separate
 [file recovery command](file-publication-recovery.md) can finish the exact
 pending publication before this invocation-wide assessment. File recovery keeps

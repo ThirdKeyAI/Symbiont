@@ -7,6 +7,85 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-10-27
+
+### Fixed
+
+- Qualify the packaged Linux binary on Ubuntu 24.04 while retaining the
+  Ubuntu 22.04 builder's glibc 2.35 ceiling. The older builder's kernel and Python
+  cannot run the qualification driver; publication now depends on the separate
+  qualification job consuming the exact archive bytes.
+- The installer warns when an older `symbi` earlier on `PATH` shadows the
+  newly installed binary.
+- Outbound path checks reject encoded parameterized dot segments even when path
+  parameters are enabled; ordinary opted-in parameters remain supported.
+- Protected HTTP evidence excludes reflected credentials in header names and
+  values before hashing, including on incomplete or oversized responses. Store
+  identity digests exclude Vault tokens and AppRole secret IDs.
+- Vault stores authenticate before reads using configured credentials and TLS
+  settings, and correctly retain KVv2 values and version metadata. Ambient Vault
+  authentication and certificate settings no longer override explicit config.
+- Concurrent credential lookups in one execution share a successful resolution;
+  cancellation remains immediate and failed lookups remain retryable.
+
+### Added
+
+- **Registered Landlock execution.** Agents can explicitly select `landlock`
+  through the DSL for HTTP and scheduled execution. Landlock is incomparable
+  with hosted execution and the container/VM isolation ladder; it does not
+  satisfy a Docker, gVisor or Firecracker requirement.
+- **Containment qualification.** Release tooling independently verifies broker,
+  interrupted-action and external-effect evidence, rejects incomplete evidence,
+  and packages qualification for the exact Linux publication binary. The x86-64
+  Linux build pins Ubuntu 22.04 and enforces a maximum glibc requirement of 2.35.
+- **Optional outbound capabilities.** A new operator-owned `[outbound]` section
+  in `symbiont.toml` (`schema_version = 1`, `tenant`, `workspace`, named
+  `credentials` and `capabilities`) binds each governed ToolClad HTTP tool to a
+  named operation: exact origin, method, path-segment prefix, optional query-key
+  allowlist (`allowed_query_keys`), request allowance, byte and time limits, and
+  an explicit credential source (`environment` or `secret_store`, with an
+  operator-declared `version`). A store failure never falls back to the
+  environment. Authority is scoped to one execution, revocable, and recorded in
+  protected effect records (capability contract, credential reference/version,
+  assignment epoch, request/response hashes; never credential values). Path
+  parameters (`;`) are refused unless `allow_path_parameters = true`.
+  `symbi tools validate` and `symbi doctor` check the profile without fetching
+  credentials. See `docs/outbound-capabilities.md`.
+- **Managed inference credential source.** `[managed_cli.inference.credential]`
+  selects an explicit `environment` or `secret_store` source for the managed CLI
+  inference broker, sharing the outbound resolver, reflection filter and
+  execution authority. It is mutually exclusive with `api_key_env`, which
+  remains supported.
+
+### Changed
+
+- **Behavior when an outbound profile is active** (no change without
+  `[outbound]`):
+  - Every HTTP tool in the executor must name a capability bound to its manifest,
+    and every capability must have its registered HTTP manifest.
+  - Workers dispatched by that executor run without network access; the runtime
+    performs capability HTTP itself.
+  - Tools declaring `network_egress` without an HTTP backend, and browser-mode
+    tools, are refused at configuration validation.
+  - Direct (non-governed) `execute` of ToolClad tools is refused; capability
+    HTTP requires governed, audited dispatch.
+- **Public Rust API.** New public module `symbi_runtime::outbound`
+  (`Capability`, `CredentialSource`, `Profile`, `Credential`). New fields:
+  `toolclad::manifest::HttpDef.capability: Option<String>`,
+  `cli_executor::inference_broker::InferenceBrokerConfig.credential:
+  Option<CredentialSource>`, and
+  `reasoning::effect_journal::ToolEffect::NetworkRequestStarted.outbound:
+  Option<serde_json::Value>`. Struct literals must add `capability: None`,
+  `credential: None` or `outbound: None`; serialized configurations need no new
+  fields. New functions: `InferenceBrokerConfig::resolve_credential`,
+  `ProtectedInference::with_credential` and
+  `net_guard::is_private_origin_ip`.
+- **Isolation ordering API.** `SecurityTier` no longer implements `Ord`.
+  Use `SecurityTier::satisfies` for minimum requirements. Landlock and the
+  container/VM ladder are incomparable; neither can substitute for the other.
+  Exhaustive matches on `SecurityTier` and `dsl::SandboxTier` must handle
+  the new `Landlock` variant.
+
 ## [2.0.1] - 2026-10-23
 
 ### Fixed

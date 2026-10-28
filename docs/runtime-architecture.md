@@ -212,7 +212,11 @@ pub struct ResourceLimits {
 
 ### Sandbox Architecture
 
-The runtime ships four host-isolation backends — all OSS — plus one separate hosted-cloud backend (E2B). Three are numbered (Docker, gVisor, Firecracker); `landlock` is named rather than numbered, because it isolates one-shot commands, parsers and the managed CLI child without a daemon and is not a peer on the numbered ladder. Operators pick the backend per agent via the DSL `with { sandbox = ... }` block, or set a project default in `[sandbox] tier = "..."`.
+The runtime ships four host-isolation backends — all OSS — plus one separate hosted-cloud backend (E2B). Three are numbered (Docker, gVisor, Firecracker); `landlock` is named rather than numbered and forms a separate admission branch. It isolates native supervised workers without a container daemon. Operators pick the backend per agent via the DSL `with { sandbox = ... }` block, or set a project default in `[sandbox] tier = "..."`. Registered HTTP and scheduled agents can select Landlock explicitly; omitting a sandbox keeps their Docker/Tier1 default.
+
+Admission uses `SecurityTier::satisfies`. `Hosted < Tier1 < Tier2 < Tier3` is the
+numbered ladder. Landlock satisfies only an explicit Landlock requirement or a
+no-isolation minimum, so it cannot silently satisfy a container or VM requirement.
 
 #### Tier 1: Docker Isolation
 **Use Case**: Low-risk operations, development tasks
@@ -236,7 +240,7 @@ The runtime ships four host-isolation backends — all OSS — plus one separate
 - Requires the `firecracker` binary plus the matching `symbi-sandbox-guest` PID 1 service and supervisor — see [`docs/firecracker-setup.md`](firecracker-setup.md).
 
 #### Hosted execution: E2B (not a tier)
-E2B is a separate hosted-cloud backend, **not** a peer of Tier 1/2/3. It maps to `SecurityTier::Hosted` which sorts below `Tier1` for ordering — policies that require host isolation (`tier >= Tier1`) reject hosted execution. Opt-in only via DSL (`with { sandbox = "e2b" }`).
+E2B is a separate hosted-cloud backend, **not** a peer of Tier 1/2/3. It maps to `SecurityTier::Hosted`, below `Tier1` on the numbered ladder. Policies use `SecurityTier::satisfies`, so requirements on the separate Landlock branch also reject hosted execution. Opt-in only via DSL (`with { sandbox = "e2b" }`).
 
 ---
 

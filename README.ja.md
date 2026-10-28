@@ -1,5 +1,7 @@
 <img src="logo-hz.png" alt="Symbi">
 
+> **3.0 Rust API への移行:** 新しい構造体フィールドと隔離バックエンドの半順序については[外向きアクセス制御](docs/ja/outbound-capabilities.md)を参照してください。[リリース検証ガイド](docs/ja/release-verification.md)でダウンロードを確認してください。
+
 [English](README.md) | [中文简体](README.zh-cn.md) | [Español](README.es.md) | [Português](README.pt.md) | **日本語** | [Deutsch](README.de.md)
 
 [![Build](https://img.shields.io/github/actions/workflow/status/thirdkeyai/symbiont/docker-build.yml?branch=main)](https://github.com/thirdkeyai/symbiont/actions)

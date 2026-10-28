@@ -181,7 +181,11 @@ pub struct ResourceLimits {
 
 ### サンドボックスアーキテクチャ
 
-ランタイムは4つのホスト分離バックエンド（すべて OSS）と、独立したホスト型クラウドバックエンド（E2B）を提供します。そのうち3つは番号付きです（Docker、gVisor、Firecracker）。`landlock` は番号ではなく名前で指定します。これはワンショットコマンド、パーサー、管理 CLI の子プロセスをデーモンなしで分離するものであり、番号付きのはしご上の対等な存在ではないためです。運用者は DSL の `with { sandbox = ... }` ブロックでエージェントごとにバックエンドを選択するか、`[sandbox] tier = "..."` でプロジェクトのデフォルトを設定します。
+ランタイムは4つのホスト分離バックエンド（すべて OSS）と、独立したホスト型クラウドバックエンド（E2B）を提供します。そのうち3つは番号付きです（Docker、gVisor、Firecracker）。`landlock` は名前で指定し、独立した受付分岐を形成します。コンテナデーモンなしでネイティブの監視付きワーカーを分離します。運用者は DSL の `with { sandbox = ... }` ブロックでエージェントごとにバックエンドを選択するか、`[sandbox] tier = "..."` でプロジェクトのデフォルトを設定します。HTTP 登録エージェントとスケジュール済みエージェントは Landlock を明示的に選択できます。省略時の既定値は Docker/Tier1 のままです。
+
+受付判定には `SecurityTier::satisfies` を使用します。`Hosted < Tier1 < Tier2 < Tier3`
+が番号付きのはしごです。Landlock は明示的な Landlock 要件または分離なしの最小要件だけを満たし、
+コンテナや VM の要件を暗黙に満たすことはありません。
 
 #### 層1: Docker分離
 **使用例**: 低リスク操作、開発タスク
@@ -205,7 +209,7 @@ pub struct ResourceLimits {
 - `firecracker` バイナリと、対応する `symbi-sandbox-guest` の PID 1 サービスおよびスーパーバイザーが必要 — [`docs/firecracker-setup.md`](/firecracker-setup) を参照。
 
 #### ホスト型実行：E2B（ティアではない）
-E2B は独立したホスト型クラウドバックエンドであり、Tier 1/2/3 の **対等な存在ではありません**。`SecurityTier::Hosted` にマップされ、順序付け上 `Tier1` よりも下にソートされます — ホスト分離（`tier >= Tier1`）を要求するポリシーはホスト型実行を拒否します。DSL（`with { sandbox = "e2b" }`）経由でのみオプトイン可能です。
+E2B は独立したホスト型クラウドバックエンドであり、Tier 1/2/3 の **対等な存在ではありません**。番号付きのはしごでは `Tier1` より下の `SecurityTier::Hosted` にマップされます。ポリシーは `SecurityTier::satisfies` を使うため、独立した Landlock 分岐の要件もホスト型実行を拒否します。DSL（`with { sandbox = "e2b" }`）経由でのみオプトイン可能です。
 
 ---
 

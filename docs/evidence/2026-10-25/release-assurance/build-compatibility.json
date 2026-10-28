@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "source_commit": "495d2b77a83ae6781d4e698ba476c82a5846cc96",
+  "host_build": {
+    "sha256": "feddcf2f752882f0c037d33a4097ded24a8937831dc6b664e0339fec6619299b",
+    "size": 123367032,
+    "debian_13_started": false,
+    "loader_error": "GLIBC_2.43 not found"
+  },
+  "debian_bookworm_build": {
+    "sha256": "ffbf2e8b9246beeb7ad4d703131c09bf9d790f483c33f1f1e7d5c78cad4d4c52",
+    "size": 123264024,
+    "highest_required_glibc": "2.35",
+    "debian_13_platform_qualified": true,
+    "network_during_build": false,
+    "rust": "1.99.1",
+    "protoc": "3.21.12",
+    "build_image_id": "sha256:0f4d8a14ac96382423483c3192ddd5743ec8bfa79fef65490a5171b3a8ad7f39",
+    "build_image_digest": "rust@sha256:e12566d5abc17a0da741628782cdb504b68b8961f5bfcf677936bf3e8b32de29"
+  }
+}

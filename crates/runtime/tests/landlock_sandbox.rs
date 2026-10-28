@@ -309,26 +309,34 @@ fn signals_stay_inside_the_worker_domain() {
     }
     // Signal zero probes authority without risking the test runner if the
     // boundary regresses. The shipping E2E also observes a handled SIGUSR1.
+    //
+    // The in-domain child blocks SIGUSR1 before the fork and waits for it
+    // synchronously. A handler followed by pause() loses a signal that lands
+    // just before pause() blocks, which then reads as a delivery failure.
     let output = run_python(
         &LandlockProfile::default(),
         r#"
 import errno, os, signal, sys
 try: os.kill(int(sys.argv[1]), 0)
-except OSError as error: assert error.errno == errno.EPERM
+except OSError as error: assert error.errno == errno.EPERM, error
 else: raise AssertionError('outside process accepted signal')
+signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGUSR1})
 reader, writer = os.pipe()
 pid = os.fork()
 if pid == 0:
-    signal.alarm(3)
     os.close(reader)
-    signal.signal(signal.SIGUSR1, lambda *_: os._exit(0))
     os.write(writer, b'ready')
-    signal.pause()
-    os._exit(1)
+    received = signal.sigtimedwait({signal.SIGUSR1}, 10)
+    os._exit(0 if received is not None else 3)
 os.close(writer)
 assert os.read(reader, 5) == b'ready'
 os.kill(pid, signal.SIGUSR1)
-assert os.waitpid(pid, 0)[1] == 0
+status = os.waitpid(pid, 0)[1]
+if os.WIFSIGNALED(status):
+    raise AssertionError(f'in-domain child killed by signal {os.WTERMSIG(status)}')
+code = os.WEXITSTATUS(status)
+assert code != 3, 'in-domain child never received SIGUSR1'
+assert code == 0, f'in-domain child exited {code}'
 "#,
         &[std::process::id().to_string()],
     );

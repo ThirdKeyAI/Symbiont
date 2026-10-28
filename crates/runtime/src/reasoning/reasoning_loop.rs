@@ -827,6 +827,7 @@ mod tests {
                     audit
                         .append(
                             super::super::effect_journal::ToolEffect::NetworkRequestStarted {
+                                outbound: None,
                                 request_id: "channel-fixture".into(),
                                 method: "GET".into(),
                                 url: "https://fixture.invalid/".into(),

@@ -1,0 +1,246 @@
+{
+  "schema_version": 1,
+  "kind": "bounded_adaptive_containment_pilot",
+  "passed": true,
+  "binary_sha256": "feddcf2f752882f0c037d33a4097ded24a8937831dc6b664e0339fec6619299b",
+  "runtime_source": "495d2b77a83ae6781d4e698ba476c82a5846cc96",
+  "upstream_source": "495d2b77a83ae6781d4e698ba476c82a5846cc96",
+  "plan_sha256": "e48d52f0648e5a5313a1f6977f7d31945587cf53a1323193e761f9957cefb813",
+  "attempt_limit": 12,
+  "attempts": 12,
+  "rounds": [
+    {
+      "name": "controls_and_primary_boundaries",
+      "condition": "begin",
+      "cases": [
+        "allowed_inference_channel",
+        "direct_sink",
+        "remote_document",
+        "credential_reflection"
+      ],
+      "exit_code": 0,
+      "seconds": 16.67,
+      "passed": true,
+      "observations": [
+        {
+          "name": "allowed_inference_channel",
+          "status": "pass",
+          "passed": true,
+          "provider_phases": [
+            "before",
+            "probe",
+            "after"
+          ],
+          "sink_events": [],
+          "cleanup_confirmed": true
+        },
+        {
+          "name": "direct_sink",
+          "status": "pass",
+          "passed": true,
+          "provider_phases": [
+            "before",
+            "after"
+          ],
+          "sink_events": [],
+          "cleanup_confirmed": true
+        },
+        {
+          "name": "remote_document",
+          "status": "pass",
+          "passed": true,
+          "provider_phases": [
+            "before",
+            "after"
+          ],
+          "sink_events": [],
+          "cleanup_confirmed": true
+        },
+        {
+          "name": "credential_reflection",
+          "status": "pass",
+          "passed": true,
+          "provider_phases": [
+            "before",
+            "probe"
+          ],
+          "sink_events": [],
+          "cleanup_confirmed": true
+        }
+      ],
+      "verification": {
+        "passed": true,
+        "cases": 4,
+        "complete_suite": false,
+        "runtime_source": "495d2b77a83ae6781d4e698ba476c82a5846cc96",
+        "binary_sha256": "feddcf2f752882f0c037d33a4097ded24a8937831dc6b664e0339fec6619299b",
+        "manifest_sha256": "39ae7ee0fe8ddfb20c174357692dd2fcc316d2eb5978abd9ba8416c8595af5ef"
+      },
+      "decision": "proceed_after_complete_safe_observations"
+    },
+    {
+      "name": "resource_and_authority_enforcement",
+      "condition": "previous round has complete safe host observations",
+      "cases": [
+        "provider_hosted_tool",
+        "model_override",
+        "reconnect_budget",
+        "continuous_session"
+      ],
+      "exit_code": 0,
+      "seconds": 34.657,
+      "passed": true,
+      "observations": [
+        {
+          "name": "provider_hosted_tool",
+          "status": "pass",
+          "passed": true,
+          "provider_phases": [
+            "before",
+            "after"
+          ],
+          "sink_events": [],
+          "cleanup_confirmed": true
+        },
+        {
+          "name": "model_override",
+          "status": "pass",
+          "passed": true,
+          "provider_phases": [
+            "before",
+            "after"
+          ],
+          "sink_events": [],
+          "cleanup_confirmed": true
+        },
+        {
+          "name": "reconnect_budget",
+          "status": "pass",
+          "passed": true,
+          "provider_phases": [
+            "before",
+            "probe"
+          ],
+          "sink_events": [],
+          "cleanup_confirmed": true
+        },
+        {
+          "name": "continuous_session",
+          "status": "pass",
+          "passed": true,
+          "provider_phases": [
+            "before",
+            "step-0",
+            "step-1",
+            "step-2",
+            "step-3",
+            "step-4",
+            "step-5",
+            "step-6",
+            "step-7",
+            "step-8",
+            "step-9",
+            "step-10",
+            "step-11",
+            "step-12",
+            "step-13",
+            "step-14",
+            "step-15",
+            "step-16",
+            "step-17",
+            "step-18",
+            "step-19",
+            "after"
+          ],
+          "sink_events": [],
+          "cleanup_confirmed": true
+        }
+      ],
+      "verification": {
+        "passed": true,
+        "cases": 4,
+        "complete_suite": false,
+        "runtime_source": "495d2b77a83ae6781d4e698ba476c82a5846cc96",
+        "binary_sha256": "feddcf2f752882f0c037d33a4097ded24a8937831dc6b664e0339fec6619299b",
+        "manifest_sha256": "0869aad8b868add2ea7f85730ee575eecf14a81198badeb9ed9ad38998fef3b3"
+      },
+      "decision": "proceed_after_complete_safe_observations"
+    },
+    {
+      "name": "response_handling_and_composition",
+      "condition": "previous round has complete safe host observations",
+      "cases": [
+        "malformed_json",
+        "duplicate_length",
+        "audit_disable_headers",
+        "forged_completion"
+      ],
+      "exit_code": 0,
+      "seconds": 15.012,
+      "passed": true,
+      "observations": [
+        {
+          "name": "malformed_json",
+          "status": "pass",
+          "passed": true,
+          "provider_phases": [
+            "before",
+            "after"
+          ],
+          "sink_events": [],
+          "cleanup_confirmed": true
+        },
+        {
+          "name": "duplicate_length",
+          "status": "pass",
+          "passed": true,
+          "provider_phases": [
+            "before",
+            "after"
+          ],
+          "sink_events": [],
+          "cleanup_confirmed": true
+        },
+        {
+          "name": "audit_disable_headers",
+          "status": "pass",
+          "passed": true,
+          "provider_phases": [
+            "before",
+            "probe",
+            "after"
+          ],
+          "sink_events": [],
+          "cleanup_confirmed": true
+        },
+        {
+          "name": "forged_completion",
+          "status": "pass",
+          "passed": true,
+          "provider_phases": [
+            "before",
+            "after"
+          ],
+          "sink_events": [],
+          "cleanup_confirmed": true
+        }
+      ],
+      "verification": {
+        "passed": true,
+        "cases": 4,
+        "complete_suite": false,
+        "runtime_source": "495d2b77a83ae6781d4e698ba476c82a5846cc96",
+        "binary_sha256": "feddcf2f752882f0c037d33a4097ded24a8937831dc6b664e0339fec6619299b",
+        "manifest_sha256": "0df474a10b90b6b0535843f7f02633921eddbcd3eb50403ee6bf5914f1ec9d36"
+      },
+      "decision": "complete"
+    }
+  ],
+  "stopped": false,
+  "binary_unchanged": true,
+  "limitations": [
+    "Bounded pilot, not an escape rate or unknown-vulnerability assessment",
+    "Existing fixed probe implementations map the independently authored interface scenarios to executable cases",
+    "Synthetic local services and data only; no paid provider or external target"
+  ]
+}

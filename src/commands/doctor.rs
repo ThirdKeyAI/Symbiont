@@ -3,6 +3,40 @@ use std::process::Command;
 pub async fn run() {
     println!("🔍 Checking system health...\n");
 
+    match symbi_runtime::outbound::Profile::load(std::path::Path::new(".")) {
+        Ok(Some(profile)) => {
+            use symbi_runtime::reasoning::executor::ActionExecutor;
+            use symbi_runtime::toolclad::{executor::ToolCladExecutor, manifest};
+            let checked =
+                manifest::load_custom_types(std::path::Path::new(".")).and_then(|custom| {
+                    let tools = manifest::load_manifests_from_dir_with_types(
+                        std::path::Path::new("tools"),
+                        &custom,
+                    )?;
+                    ToolCladExecutor::with_custom_types(tools, custom)
+                        .with_project_sandbox(std::path::Path::new("."))
+                        .with_project_scope(std::path::Path::new("."))
+                        .validate_configuration()
+                });
+            if let Err(error) = checked {
+                eprintln!("✗ Outbound capability configuration: {error}");
+                std::process::exit(1);
+            }
+            println!(
+                "✓ Outbound profile: {}/{}; {} named capabilities",
+                profile.tenant,
+                profile.workspace,
+                profile.capabilities.len()
+            );
+            println!("  Credential availability and upstream access require a governed run; no credentials were fetched.");
+        }
+        Ok(None) => println!("○ Optional outbound capabilities are not configured"),
+        Err(error) => {
+            eprintln!("✗ Outbound configuration: {error}");
+            std::process::exit(1);
+        }
+    }
+
     use symbi_runtime::sandbox::command::{CommandBoundary, CommandTier};
     let boundary = std::env::current_dir()
         .map_err(|e| e.to_string())

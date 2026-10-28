@@ -1,0 +1,11 @@
+{
+  "passed": true,
+  "original_cases": 19,
+  "rejected": [
+    "changed_signature",
+    "forged_receiver_hash",
+    "missing_trial",
+    "false_success",
+    "incomplete_journal"
+  ]
+}

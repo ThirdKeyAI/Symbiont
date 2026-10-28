@@ -129,6 +129,7 @@ format = "text"
     );
     let inference = ProtectedInference::new(
         InferenceBrokerConfig {
+            credential: None,
             base_url: url.into(),
             model: "fixed-model".into(),
             api_key_env: "SYNTHETIC_PROVIDER_KEY".into(),

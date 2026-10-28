@@ -38,16 +38,7 @@ pub(super) fn resolve_security_tier(source: &str, selector: &str) -> Result<Secu
         CommandTier::GVisor => SecurityTier::Tier2,
         CommandTier::Firecracker => SecurityTier::Tier3,
         CommandTier::E2B => SecurityTier::Hosted,
-        // No SecurityTier names the landlock tier, so it cannot be reported
-        // for a registered agent. Refuse rather than mapping it onto a
-        // neighboring tier, which would misreport the isolation in use.
-        CommandTier::Landlock => {
-            return Err(
-                "the landlock tier cannot be selected for a registered agent; \
-                        declare it in [sandbox] for direct runs"
-                    .into(),
-            )
-        }
+        CommandTier::Landlock => SecurityTier::Landlock,
     })
 }
 

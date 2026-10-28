@@ -91,7 +91,12 @@ pub(crate) fn workflow_config(
         name: policy.settings().agent_name.clone(),
         dsl_source: source.clone(),
         execution_mode: ExecutionMode::Ephemeral,
-        security_tier: SecurityTier::Tier1,
+        security_tier: policy
+            .settings()
+            .sandbox_tier
+            .as_ref()
+            .map(SecurityTier::from_dsl_sandbox)
+            .unwrap_or(SecurityTier::Tier1),
         resource_limits: ResourceLimits::default(),
         capabilities: vec![Capability::Computation],
         policies: vec![],
@@ -229,4 +234,35 @@ pub(crate) async fn submit(
         .headers_mut()
         .insert("Cache-Control", "no-store".parse().expect("static header"));
     response
+}
+
+#[cfg(test)]
+mod workflow_config_tests {
+    use super::*;
+
+    #[test]
+    fn binds_explicit_landlock_without_changing_the_existing_default() {
+        let request = WorkflowExecutionRequest {
+            workflow_id: r#"agent native() { with sandbox = "landlock" {} }"#.into(),
+            parameters: serde_json::json!({}),
+            agent_id: None,
+        };
+        assert_eq!(
+            workflow_config(&request, AgentId::new())
+                .unwrap()
+                .security_tier,
+            SecurityTier::Landlock
+        );
+        let request = WorkflowExecutionRequest {
+            workflow_id: "agent defaulted() {}".into(),
+            parameters: serde_json::json!({}),
+            agent_id: None,
+        };
+        assert_eq!(
+            workflow_config(&request, AgentId::new())
+                .unwrap()
+                .security_tier,
+            SecurityTier::Tier1
+        );
+    }
 }

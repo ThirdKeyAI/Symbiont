@@ -8,6 +8,14 @@ Comprehensive security architecture ensuring zero-trust, policy-driven protectio
 
 ## Overview
 
+**In development — optional outbound capabilities:** an operator-owned profile
+binds each governed HTTP tool to a named operation, destination, credential source
+and execution lifetime. Managed inference shares the credential resolver and
+revocable authority. Existing projects remain unchanged until they opt in. See
+[configuration and limits](outbound-capabilities.md) and the
+[security control catalogue](security/README.md), which distinguishes implementation
+from retained validation evidence. This does not qualify every route or sandbox.
+
 **Containment coverage:** 1.21.0 adds selected Docker/gVisor effect
 boundaries, exact prepared-call approvals, protected journals on covered entry
 points and independent worker ownership. See the [containment guide](containment-branch-guide.md)
@@ -95,8 +103,10 @@ and an externally managed delegated supervisor. It needs no container image or
 container daemon. Docker remains the default. See
 [service setup and migration](landlock-supervision.md).
 
-**Configuration:** `[sandbox] tier = "landlock"` in `symbiont.toml`. Read-only
-and writable ceilings come from `[sandbox.roots]`, shared with the other
+**Configuration:** Select `with { sandbox = "landlock" }` per agent or set
+`[sandbox] tier = "landlock"` in `symbiont.toml`. Registered HTTP and scheduled
+agents must select it explicitly; their existing default remains Docker/Tier1.
+Read-only and writable ceilings come from `[sandbox.roots]`, shared with the other
 backends. `[sandbox.landlock]` carries `abi_floor`, `require_network`, memory, CPU,
 PID, lifetime and output limits, plus its `supervisor` configuration.
 The default and minimum supported ABI is now 6, even when an older configuration
@@ -143,11 +153,10 @@ restore the weaker boundary. Workloads requiring Unix services, datagram pairs,
 Audit descriptors include boundary version 3, shared admission and cgroup supervision, the effective ABI requirement,
 signal/socket scopes, socket policy, ring refusal and inherited-descriptor policy.
 
-**Current coverage.** MCP stdio without declared files and the SDK's low-level
-`CliExecutor` launch path use this backend. Public one-shot commands, custom
-output parsers, interactive PTYs, declared-file staging and the shipping managed
-CLI setup do not yet support it. Selecting Landlock on those paths fails rather
-than switching to unrestricted execution.
+**Current coverage.** Registered HTTP and scheduled agents, MCP stdio, governed
+one-shot commands, Git snapshots, declared-file staging and managed CLI workers
+use this backend. Interactive PTYs remain unsupported. Selecting Landlock on an
+unsupported path fails rather than switching to unrestricted execution.
 
 **Grant lifetime.** A domain cannot be relaxed once applied. The SDK CLI child
 receives its domain once at spawn, including write access to its working
@@ -165,10 +174,10 @@ before authorization. Ruleset construction or installation failures, including
 unavailable seccomp filtering, abort spawn before the worker executable starts.
 There is no partial application or fallback to unrestricted host execution.
 
-**Not available for registered agents.** No `SecurityTier` names landlock, so a
-scheduled or HTTP-registered agent cannot declare it; those paths refuse it
-rather than mapping it onto a neighboring tier and misreporting the isolation
-in use. Select it in `[sandbox]` for direct runs.
+**Admission semantics.** `SecurityTier` is a partial order. Landlock satisfies an
+explicit Landlock requirement or a no-isolation minimum, but it is incomparable
+with hosted execution and the numbered Docker/gVisor/Firecracker ladder. This
+prevents a native worker from silently satisfying a container or VM requirement.
 
 **Validation.** `crates/runtime/tests/landlock_sandbox.rs` exercises real restricted
 children, including replaced read/write roots and legitimate access through the

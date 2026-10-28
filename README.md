@@ -1,5 +1,7 @@
 <img src="https://raw.githubusercontent.com/ThirdKeyAI/Symbiont/main/logo-hz.png" alt="Symbi">
 
+> **3.0 Rust API migration:** See [outbound capabilities](docs/outbound-capabilities.md#coverage-and-migration) for new struct fields and the partial ordering of isolation backends. Verify downloads using the [release guide](docs/release-verification.md).
+
 [中文简体](README.zh-cn.md) | [Español](README.es.md) | [Português](README.pt.md) | [日本語](README.ja.md) | [Deutsch](README.de.md)
 
 [![Build](https://img.shields.io/github/actions/workflow/status/thirdkeyai/symbiont/test.yml?branch=main)](https://github.com/thirdkeyai/symbiont/actions)
@@ -23,6 +25,11 @@
 > **What you're seeing:** a real model (`claude-haiku-4.5`) asks to list the agent fleet. A Cedar `forbid` rule denies the call on **every retry** — no code change, just policy. [Reproduce it in one command ↓](#see-the-policy-gate-deny-a-tool--one-command-no-setup) · [▶ Full walkthrough](https://www.youtube.com/watch?v=RPyKpqKz5ik)
 
 Symbiont is a Rust-native runtime for executing AI agents and tools under explicit policy, identity, and audit controls.
+
+**In development:** [optional outbound capabilities](docs/outbound-capabilities.md)
+bind HTTP tools to named operations, keep credentials in the runtime and revoke
+authority with each execution. The [security control catalogue](docs/security/README.md)
+separates implemented protections from evidence qualified for a particular build.
 
 > **Upgrading to 2.0:** Read the [migration guide](docs/migration-2.0.md) for
 > authentication, ownership, skill-signature and resource-limit changes. Optional

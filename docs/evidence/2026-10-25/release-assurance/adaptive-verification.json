@@ -1,0 +1,8 @@
+{
+  "passed": true,
+  "attempts": 12,
+  "rounds": 3,
+  "binary_sha256": "feddcf2f752882f0c037d33a4097ded24a8937831dc6b664e0339fec6619299b",
+  "plan_sha256": "e48d52f0648e5a5313a1f6977f7d31945587cf53a1323193e761f9957cefb813",
+  "manifest_sha256": "5e7b272f3af2df6d1b719901005b06f928b582b2ebb3bbd8f4121bc9845abc1d"
+}

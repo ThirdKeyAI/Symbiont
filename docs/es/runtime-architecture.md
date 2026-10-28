@@ -188,7 +188,11 @@ pub struct ResourceLimits {
 
 ### Arquitectura de Sandbox
 
-El runtime ofrece cuatro backends de aislamiento del host — todos OSS — más un backend separado de nube alojada (E2B). Tres llevan número (Docker, gVisor, Firecracker); `landlock` lleva nombre en lugar de número, porque aísla comandos de un solo uso, parsers y el proceso hijo de CLI administrada sin un demonio y no es un par en la escalera numerada. Los operadores eligen el backend por agente mediante el bloque DSL `with { sandbox = ... }`, o establecen un valor predeterminado del proyecto en `[sandbox] tier = "..."`.
+El runtime ofrece cuatro backends de aislamiento del host — todos OSS — más un backend separado de nube alojada (E2B). Tres llevan número (Docker, gVisor, Firecracker); `landlock` lleva nombre y forma una rama separada de admision. Aisla workers nativos supervisados sin un demonio de contenedores. Los operadores eligen el backend por agente mediante el bloque DSL `with { sandbox = ... }`, o establecen un valor predeterminado del proyecto en `[sandbox] tier = "..."`. Los agentes registrados por HTTP y los programados pueden seleccionar Landlock explicitamente; si se omite el sandbox mantienen Docker/Tier1 como valor predeterminado.
+
+La admision usa `SecurityTier::satisfies`. `Hosted < Tier1 < Tier2 < Tier3` es la
+escalera numerada. Landlock solo satisface un requisito explicito de Landlock o el
+minimo sin aislamiento, por lo que no sustituye un requisito de contenedor o VM.
 
 #### Nivel 1: Aislamiento Docker
 **Caso de Uso**: Operaciones de bajo riesgo, tareas de desarrollo
@@ -212,7 +216,7 @@ El runtime ofrece cuatro backends de aislamiento del host — todos OSS — más
 - Requiere el binario `firecracker` más el servicio PID 1 `symbi-sandbox-guest` correspondiente y su supervisor — consulte [`docs/firecracker-setup.md`](/firecracker-setup).
 
 #### Ejecución alojada: E2B (no es un nivel)
-E2B es un backend separado de nube alojada, **no** un par de los Niveles 1/2/3. Se mapea a `SecurityTier::Hosted`, que ordena por debajo de `Tier1` — las políticas que requieran aislamiento del host (`tier >= Tier1`) rechazarán la ejecución alojada. Habilitable únicamente via DSL (`with { sandbox = "e2b" }`).
+E2B es un backend separado de nube alojada, **no** un par de los Niveles 1/2/3. Se mapea a `SecurityTier::Hosted`, por debajo de `Tier1` en la escalera numerada. Las politicas usan `SecurityTier::satisfies`, por lo que los requisitos de la rama Landlock tambien rechazan la ejecucion alojada. Habilitable únicamente via DSL (`with { sandbox = "e2b" }`).
 
 ---
 

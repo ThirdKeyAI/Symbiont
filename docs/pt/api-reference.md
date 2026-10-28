@@ -69,6 +69,10 @@ POST /api/v1/workflows/execute
 
 Um administrador envia código DSL em `workflow_id`; `parameters` é a entrada da execução. `agent_id` cria ou substitui um registro; sua omissão aloca um novo ID. Chaves limitadas a um agente recebem `403 ADMIN_REQUIRED` e podem executar o código registrado por `/agents/{id}/execute`. `queued` confirma a admissão; consulte `/agents/{id}/history` pelo `execution_id` para obter o resultado. Veja o [contrato completo](https://github.com/ThirdKeyAI/Symbiont/blob/main/crates/runtime/API_REFERENCE.md#execute-workflow).
 
+Quando a DSL omite o sandbox, Docker/Tier1 continua sendo o padrão do registro.
+`with sandbox = "landlock"` seleciona explicitamente o backend nativo
+supervisionado; Landlock não satisfaz um requisito de camada de contêiner ou VM.
+
 **Corpo da Solicitação:**
 ```json
 {

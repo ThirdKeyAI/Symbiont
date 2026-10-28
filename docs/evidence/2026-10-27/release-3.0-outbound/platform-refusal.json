@@ -1,0 +1,24 @@
+{
+  "passed": true,
+  "qualified": false,
+  "expected": "namespace-refused",
+  "kernel": "7.0.0-38-generic",
+  "machine": "x86_64",
+  "distribution": "PRETTY_NAME=\"Ubuntu 26.04.1 LTS\"\nNAME=\"Ubuntu\"\nVERSION_ID=\"26.04\"\nVERSION=\"26.04.1 LTS (Resolute Raccoon)\"\nVERSION_CODENAME=resolute\nID=ubuntu\nID_LIKE=debian\nHOME_URL=\"https://www.ubuntu.com/\"\nSUPPORT_URL=\"https://help.ubuntu.com/\"\nBUG_REPORT_URL=\"https://bugs.launchpad.net/ubuntu/\"\nPRIVACY_POLICY_URL=\"https://www.ubuntu.com/legal/terms-and-policies/privacy-policy\"\nUBUNTU_CODENAME=resolute\nLOGO=ubuntu-logo\n",
+  "landlock_abi": 8,
+  "systemd": "systemd 259 (259.9-0ubuntu0.1)",
+  "uid": 1000,
+  "caller_cgroup": "0::/user.slice/user-1000.slice/user@1000.service/app.slice/symbi-3-platform-diagnostic.service\n",
+  "policy": {
+    "kernel.apparmor_restrict_unprivileged_userns": "1",
+    "kernel.unprivileged_userns_clone": "1",
+    "user.max_user_namespaces": "112676"
+  },
+  "binary_sha256": "eaa2d5cd26c085f5c9b24c27188d6560d87dc3c673ff60f6977f828104f711e9",
+  "driver_sha256": "d7e4d67b4f6ee8450ca9d7f40a2b9ff24cf338a28fbbd132cc8b3321543b32b0",
+  "diagnostic_output": "\ud83d\udd0d Checking system health...\n\n\u25cb Optional outbound capabilities are not configured\n\u2713 Landlock ABI 8 (required 6)\n\u2022 Checking supervised launch and cleanup (may start the user service)...\n\u2713 Restricted worker executed; delegated cgroup cleanup confirmed\n  Supervisor: symbi-workers-04bb3eeeec6096ec1bcd5cec1fdb5616254478eafbe106bf7250ac840e935186.service\n  After draining work, stop with: systemctl --user stop symbi-workers-04bb3eeeec6096ec1bcd5cec1fdb5616254478eafbe106bf7250ac840e935186.service\n\u2022 Checking private native workspace...\n\u2717 Native workspace: restricted diagnostic exited 125: \"native workspace setup failed: Permission denied (os error 13)\"\n  Install Python 3 at /usr/bin/python3. Check that your distribution permits unprivileged user/mount namespaces and private tmpfs mounts for the installed symbi binary.\n  See docs/landlock-development.md. No host fallback was used.\n",
+  "refusal_confirmed": true,
+  "cleanup_confirmed": true,
+  "binary_unchanged": true,
+  "policy_unchanged": true
+}

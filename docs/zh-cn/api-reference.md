@@ -69,6 +69,9 @@ POST /api/v1/workflows/execute
 
 管理员在 `workflow_id` 中提交 DSL 源码，`parameters` 作为执行输入。指定 `agent_id` 会创建或替换注册；省略时会分配新 ID。限定代理范围的密钥会收到 `403 ADMIN_REQUIRED`，可通过 `/agents/{id}/execute` 执行已注册的源码。`queued` 仅表示已入队，请在 `/agents/{id}/history` 中按 `execution_id` 查询实际结果。参阅[完整接口约定](https://github.com/ThirdKeyAI/Symbiont/blob/main/crates/runtime/API_REFERENCE.md#execute-workflow)。
 
+DSL 省略沙箱时，注册仍默认使用 Docker/Tier1。`with sandbox = "landlock"`
+会明确选择受监督的原生后端；Landlock 不满足容器或虚拟机层级要求。
+
 **请求体：**
 ```json
 {

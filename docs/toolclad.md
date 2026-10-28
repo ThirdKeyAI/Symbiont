@@ -559,14 +559,21 @@ response or incomplete outcome through their existing protected journal. See
 
 ## Secret injection
 
-Secrets are injected into HTTP URLs, headers, and body templates using the `{_secret:NAME}` syntax:
+Legacy HTTP manifests can inject secrets into trusted headers and body templates
+using `{_secret:NAME}`. Secret placeholders in URLs are rejected:
 
 ```toml
 [http]
-url = "https://api.shodan.io/shodan/host/{target}?key={_secret:shodan_key}"
+url = "https://cases.example.com/records/{record}"
+[http.headers]
+authorization = "Bearer {_secret:case_service}"
 ```
 
-The runtime resolves `{_secret:shodan_key}` from the environment variable `TOOLCLAD_SECRET_SHODAN_KEY`. Missing secrets produce an error before execution.
+The runtime resolves `{_secret:case_service}` from `TOOLCLAD_SECRET_CASE_SERVICE`.
+Missing secrets produce an error before execution. The optional
+[outbound capability profile](outbound-capabilities.md) replaces these templates
+with an explicit credential source and a named operation bound to the current
+execution. It does not change legacy manifests until the operator opts in.
 
 ---
 

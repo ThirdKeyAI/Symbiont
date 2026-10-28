@@ -1,0 +1,8 @@
+{
+  "passed": true,
+  "cases": 5,
+  "complete_suite": true,
+  "receiver_effects": 5,
+  "manifest_sha256": "681467d4d094b6d8dfb44d17dacd020a47a1c2260d55c67f012615a95bfd25c1",
+  "binary_sha256": "feddcf2f752882f0c037d33a4097ded24a8937831dc6b664e0339fec6619299b"
+}

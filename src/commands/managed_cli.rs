@@ -237,19 +237,15 @@ mod platform {
         println!("  audit public key: {}", hex::encode(journal.public_key()));
         let mut broker = None;
         let result: Result<CodeGenResult, String> = async {
-            // Only this explicit operator-named variable is read. No subscription or
-            // ambient provider credentials enter the child or its mounted channel.
-            let credential = std::env::var(&inference_config.api_key_env).map_err(|_| {
-                format!(
-                    "missing configured inference credential variable {}",
-                    inference_config.api_key_env
-                )
-            })?;
+            // Resolve only the configured source. No ambient provider credentials
+            // enter the child or its mounted channel.
+            let credential = tokio::time::timeout_at(deadline.into(), inference_config.resolve_credential(&agent_id.to_string()))
+                .await.map_err(|_| "inference credential resolution expired")??;
             let model = inference_config.model.clone();
             let max_output = inference_config
                 .max_output_tokens_per_request
                 .min(budget_tokens);
-            let inference = ProtectedInference::new(
+            let inference = ProtectedInference::with_credential(
                 inference_config,
                 credential,
                 budget_tokens,

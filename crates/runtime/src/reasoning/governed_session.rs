@@ -59,6 +59,7 @@ pub struct GovernedToolSession {
     run: Mutex<Run>,
     run_key: String,
     deadline: Instant,
+    outbound: Arc<crate::outbound::Lease>,
     cancelled: watch::Sender<bool>,
     poisoned: Arc<AtomicBool>,
     failure_reason: std::sync::Mutex<Option<&'static str>>,
@@ -145,6 +146,16 @@ impl GovernedToolSession {
             .checked_add(remaining)
             .ok_or("broker deadline overflow")?;
         let run_key = execution_run_key(&state);
+        let outbound = crate::outbound::Lease::new(
+            digest_json(&serde_json::json!({
+                "run": run_key, "context": state.trusted_context, "registry": registry_digest,
+            }))?,
+            deadline,
+        );
+        state.trusted_context.insert(
+            "outbound_assignment".into(),
+            serde_json::json!(outbound.epoch),
+        );
         let guard = ExecutionRunGuard::new(executor.clone(), &state, &config)?;
         let started = LoopEvent::Started {
             agent_id: state.agent_id,
@@ -174,6 +185,7 @@ impl GovernedToolSession {
             }),
             run_key,
             deadline,
+            outbound,
             cancelled,
             poisoned: Arc::new(AtomicBool::new(false)),
             failure_reason: std::sync::Mutex::new(None),
@@ -185,6 +197,11 @@ impl GovernedToolSession {
 
     pub fn tool_definitions(&self) -> &[ToolDefinition] {
         &self.config.tool_definitions
+    }
+
+    #[cfg(all(unix, feature = "cli-executor"))]
+    pub(crate) fn outbound_authority(&self) -> &Arc<crate::outbound::Lease> {
+        &self.outbound
     }
 
     #[cfg(all(unix, feature = "cli-executor"))]
@@ -395,6 +412,7 @@ impl GovernedToolSession {
     }
 
     fn stop(&self) {
+        self.outbound.revoke();
         self.cancelled.send_replace(true);
         self.executor.cancel_run(&self.run_key, self.deadline);
         if let Some(executor) = self.host_executor.get() {

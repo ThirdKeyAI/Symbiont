@@ -183,6 +183,27 @@ pub fn is_non_public_ip(ip: IpAddr) -> bool {
     }
 }
 
+/// `true` iff `ip` may be named as an explicit operator-approved private
+/// origin: loopback, RFC 1918 or IPv6 unique-local. IPv4-mapped IPv6 is
+/// classified by its embedded IPv4 address. Link-local addresses (including
+/// 169.254.169.254) and the `fd00:ec2::254` metadata address are never
+/// eligible. Every eligible address is also non-public per
+/// [`is_non_public_ip`], so both checks share one classification.
+pub fn is_private_origin_ip(ip: IpAddr) -> bool {
+    let ip = match ip {
+        IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(ip, IpAddr::V4),
+        v4 => v4,
+    };
+    let eligible = match ip {
+        IpAddr::V4(v4) => (v4.is_loopback() || v4.is_private()) && !v4.is_link_local(),
+        IpAddr::V6(v6) => {
+            (v6.is_loopback() || v6.is_unique_local())
+                && v6 != std::net::Ipv6Addr::new(0xfd00, 0x0ec2, 0, 0, 0, 0, 0, 0x0254)
+        }
+    };
+    eligible && is_non_public_ip(ip)
+}
+
 // ---------------------------------------------------------------------------
 // SSRF-safe HTTP client factory
 // ---------------------------------------------------------------------------
@@ -437,6 +458,41 @@ fn extract_embedded_ipv4(host: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn private_origin_classification_is_a_subset_of_non_public() {
+        for ok in [
+            "127.0.0.1",
+            "10.1.2.3",
+            "172.16.0.1",
+            "192.168.1.1",
+            "::1",
+            "fd12:3456::1",
+            "::ffff:127.0.0.1",
+            "::ffff:10.0.0.1",
+        ] {
+            let ip: IpAddr = ok.parse().unwrap();
+            assert!(is_private_origin_ip(ip), "{ok}");
+            assert!(is_non_public_ip(ip), "{ok}");
+        }
+        for bad in [
+            "169.254.169.254",
+            "169.254.1.1",
+            "::ffff:169.254.169.254",
+            "fd00:ec2::254",
+            "fe80::1",
+            "100.100.100.200",
+            "0.0.0.0",
+            "::",
+            "8.8.8.8",
+            "::ffff:8.8.8.8",
+            "2001:4860:4860::8888",
+            "224.0.0.1",
+            "255.255.255.255",
+        ] {
+            assert!(!is_private_origin_ip(bad.parse().unwrap()), "{bad}");
+        }
+    }
 
     async fn read_fixture_request(socket: &mut tokio::net::TcpStream) {
         use tokio::io::AsyncReadExt;

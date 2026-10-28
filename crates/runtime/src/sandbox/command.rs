@@ -343,6 +343,7 @@ impl CommandBoundary {
         if let Some(settings) = settings {
             if let Some(tier) = &settings.sandbox_tier {
                 profile.tier = match tier {
+                    dsl::SandboxTier::Landlock => CommandTier::Landlock,
                     dsl::SandboxTier::Docker => CommandTier::Docker,
                     dsl::SandboxTier::GVisor => CommandTier::GVisor,
                     dsl::SandboxTier::Firecracker => CommandTier::Firecracker,

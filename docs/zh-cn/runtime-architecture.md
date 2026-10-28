@@ -166,7 +166,10 @@ pub struct ResourceLimits {
 
 ### 沙箱架构
 
-运行时附带四个主机隔离后端 —— 全部为 OSS —— 外加一个独立的托管云后端（E2B）。其中三个带编号（Docker、gVisor、Firecracker）；`landlock` 是具名的而非编号的，因为它在不需要守护进程的情况下隔离一次性命令、解析器和托管 CLI 子进程，并不是编号阶梯上的对等项。运维方可在 DSL 的 `with { sandbox = ... }` 块中按智能体选择后端，或在 `[sandbox] tier = "..."` 中设置项目默认值。
+运行时附带四个主机隔离后端 —— 全部为 OSS —— 外加一个独立的托管云后端（E2B）。其中三个带编号（Docker、gVisor、Firecracker）；`landlock` 使用名称并形成独立的准入分支。它无需容器守护进程即可隔离受监督的原生工作进程。运维方可在 DSL 的 `with { sandbox = ... }` 块中按智能体选择后端，或在 `[sandbox] tier = "..."` 中设置项目默认值。通过 HTTP 注册的智能体和计划智能体可明确选择 Landlock；省略沙箱时仍默认使用 Docker/Tier1。
+
+准入检查使用 `SecurityTier::satisfies`。`Hosted < Tier1 < Tier2 < Tier3` 是编号
+阶梯。Landlock 只满足明确的 Landlock 要求或无隔离最低要求，不会隐式满足容器或虚拟机要求。
 
 #### 第 1 层：Docker 隔离
 **用例**：低风险操作、开发任务
@@ -190,7 +193,7 @@ pub struct ResourceLimits {
 - 需要 `firecracker` 二进制，以及与之匹配的 `symbi-sandbox-guest` PID 1 服务和监督进程 —— 见 [`docs/firecracker-setup.md`](/firecracker-setup)。
 
 #### 托管执行：E2B（不是一个层级）
-E2B 是一个独立的托管云后端，**不是**第 1/2/3 层的对等项。它映射到 `SecurityTier::Hosted`，在排序上位于 `Tier1` **之下** —— 任何要求主机隔离（`tier >= Tier1`）的策略都会拒绝托管执行。仅可通过 DSL（`with { sandbox = "e2b" }`）选择启用。
+E2B 是一个独立的托管云后端，**不是**第 1/2/3 层的对等项。它映射到编号阶梯中位于 `Tier1` 之下的 `SecurityTier::Hosted`。策略使用 `SecurityTier::satisfies`，因此独立 Landlock 分支的要求也会拒绝托管执行。仅可通过 DSL（`with { sandbox = "e2b" }`）选择启用。
 
 ---
 

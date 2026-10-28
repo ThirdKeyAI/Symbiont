@@ -26,6 +26,39 @@ use crate::sandbox::command::CommandBoundary;
 use crate::sandbox::files::FileAccessPlan;
 use crate::sandbox::source::SourcePlan;
 
+struct OutboundHttpPlan {
+    name: String,
+    capability: crate::outbound::Capability,
+    credential: Option<std::sync::Arc<crate::outbound::FrozenCredential>>,
+    descriptor: serde_json::Value,
+    method: reqwest::Method,
+    url: String,
+    headers: reqwest::header::HeaderMap,
+    body: Option<String>,
+}
+
+impl OutboundHttpPlan {
+    fn request(&self) -> Result<reqwest::Request, String> {
+        let mut request = reqwest::Request::new(
+            self.method.clone(),
+            self.url
+                .parse()
+                .map_err(|_| "invalid prepared outbound URL")?,
+        );
+        *request.headers_mut() = self.headers.clone();
+        if let Some(body) = &self.body {
+            *request.body_mut() = Some(body.clone().into());
+        }
+        Ok(request)
+    }
+}
+
+struct StrictHttpCall<'a> {
+    plan: &'a OutboundHttpPlan,
+    lease: std::sync::Arc<crate::outbound::Lease>,
+    principal: String,
+}
+
 /// An executor that dispatches tool calls to ToolClad manifests.
 /// Handles command, HTTP, MCP, terminal, browser and fixed source-query backends.
 struct ToolCladSnapshot {
@@ -39,6 +72,7 @@ struct ToolCladSnapshot {
     boundary: CommandBoundary,
     files: FileAccessPlan,
     source: Option<SourcePlan>,
+    outbound: Option<OutboundHttpPlan>,
     #[cfg(feature = "mcp-client")]
     mcp_registry: Option<crate::integrations::mcp::registry::McpServerRegistry>,
 }
@@ -54,6 +88,8 @@ struct McpDispatchConfig<'a> {
 pub struct ToolCladExecutor {
     executor_id: uuid::Uuid,
     command_runs: crate::sandbox::command_cleanup::Registry,
+    outbound_runs: crate::outbound::Registry,
+    outbound: Result<Option<std::sync::Arc<crate::outbound::Profile>>, String>,
     manifests: HashMap<String, Manifest>,
     tool_defs: Vec<ToolDefinition>,
     custom_types: HashMap<String, ArgDef>,
@@ -125,6 +161,8 @@ impl ToolCladExecutor {
         Self {
             executor_id: uuid::Uuid::new_v4(),
             command_runs: Default::default(),
+            outbound_runs: Default::default(),
+            outbound: Ok(None),
             manifests: manifest_map,
             tool_defs,
             custom_types,
@@ -165,6 +203,8 @@ impl ToolCladExecutor {
     pub fn with_project_sandbox(mut self, project: &std::path::Path) -> Self {
         self.executor_id = uuid::Uuid::new_v4();
         self.project_dir = Some(project.to_path_buf());
+        self.outbound =
+            crate::outbound::Profile::load(project).map(|profile| profile.map(std::sync::Arc::new));
         self.session_executor = super::session_executor::SessionExecutor::new(
             self.manifests
                 .iter()
@@ -192,6 +232,8 @@ impl ToolCladExecutor {
     pub fn with_project_scope(mut self, project_dir: &std::path::Path) -> Self {
         self.executor_id = uuid::Uuid::new_v4();
         self.project_dir = Some(project_dir.to_path_buf());
+        self.outbound = crate::outbound::Profile::load(project_dir)
+            .map(|profile| profile.map(std::sync::Arc::new));
         self.scope = super::scope::Scope::load(project_dir);
         self
     }
@@ -200,6 +242,87 @@ impl ToolCladExecutor {
         self.executor_id = uuid::Uuid::new_v4();
         self.scope = scope.validate().map(|()| Some(scope));
         self
+    }
+
+    fn prepare_outbound_http(
+        &self,
+        manifest: &Manifest,
+        args: &HashMap<String, String>,
+    ) -> Result<Option<OutboundHttpPlan>, String> {
+        let Some(http) = &manifest.http else {
+            return Ok(None);
+        };
+        let profile = self.outbound.as_ref().map_err(Clone::clone)?.as_ref();
+        let Some(profile) = profile else {
+            if http.capability.is_some() {
+                return Err("HTTP capability requires [outbound] configuration".into());
+            }
+            return Ok(None);
+        };
+        let name = http
+            .capability
+            .as_ref()
+            .ok_or("every HTTP tool in an outbound profile must name a capability")?;
+        let capability = profile
+            .capabilities
+            .get(name)
+            .ok_or("unknown outbound capability")?
+            .clone();
+        if capability.tool != manifest.tool.name {
+            return Err("outbound capability belongs to a different tool".into());
+        }
+        let credential = profile.credential(&capability)?;
+        let (method, url) = resolve_http_destination(
+            http,
+            args,
+            self.scope.as_ref().map_err(Clone::clone)?.as_ref(),
+        )?;
+        let mut headers = reqwest::header::HeaderMap::new();
+        let mut display_headers = std::collections::BTreeMap::new();
+        for (name, value) in &http.headers {
+            let value = render_http_header(name, value, args)?;
+            let name = reqwest::header::HeaderName::from_bytes(name.as_bytes())
+                .map_err(|_| "invalid HTTP header")?;
+            if credential.is_some() && name.as_str().eq_ignore_ascii_case(&capability.header) {
+                return Err(
+                    "capability credential header cannot be supplied by the manifest".into(),
+                );
+            }
+            if headers
+                .insert(
+                    name.clone(),
+                    reqwest::header::HeaderValue::from_str(&value)
+                        .map_err(|_| "invalid HTTP header value")?,
+                )
+                .is_some()
+            {
+                return Err("case-duplicate HTTP headers are ambiguous".into());
+            }
+            display_headers.insert(name.to_string(), value);
+        }
+        let body = http
+            .body_template
+            .as_ref()
+            .map(|body| render_http_body(body, args))
+            .transpose()?;
+        let descriptor = serde_json::json!({
+            "capability": name, "tenant": profile.tenant, "workspace": profile.workspace,
+            "profile_digest": digest_json(&profile.descriptor())?, "contract": capability,
+            "credential": credential.as_ref().map(|c| &c.descriptor),
+            "request": {"method": method.as_str(), "url": url, "headers": display_headers, "body": body},
+        });
+        let plan = OutboundHttpPlan {
+            name: name.clone(),
+            capability,
+            credential,
+            descriptor,
+            method,
+            url,
+            headers,
+            body,
+        };
+        plan.capability.check_request(&plan.request()?)?;
+        Ok(Some(plan))
     }
 
     /// Check if this executor handles a given tool name.
@@ -358,6 +481,15 @@ impl ToolCladExecutor {
             );
         }
 
+        if manifest
+            .http
+            .as_ref()
+            .is_some_and(|http| http.capability.is_some())
+            || self.outbound.as_ref().map_err(Clone::clone)?.is_some()
+        {
+            return Err("outbound capabilities require governed audited dispatch".into());
+        }
+
         if tokio::runtime::Handle::try_current().is_ok() {
             return Err("tools in an async runtime must use governed dispatch".into());
         }
@@ -377,8 +509,10 @@ impl ToolCladExecutor {
                 self.execute_mcp_backend_async(name, manifest, &validated)
                     .await
             } else if manifest.http.is_some() {
-                Self::execute_http_backend(name, manifest, &validated, timeout, boundary, None)
-                    .await
+                Self::execute_http_backend(
+                    name, manifest, &validated, timeout, boundary, None, None,
+                )
+                .await
             } else {
                 let injected = super::command::Injected::fresh();
                 let argv = super::command::build_argv(manifest, &validated, &injected)?;
@@ -520,6 +654,7 @@ impl ToolCladExecutor {
         timeout: Duration,
         boundary: &CommandBoundary,
         journal: Option<&crate::reasoning::effect_journal::EffectJournal>,
+        strict: Option<StrictHttpCall<'_>>,
     ) -> Result<serde_json::Value, String> {
         boundary.validate()?;
         if manifest.filesystem.is_some() {
@@ -530,8 +665,18 @@ impl ToolCladExecutor {
         if timeout.is_zero() {
             return Err(format!("HTTP tool '{name}' timed out before execution"));
         }
-        let (method_value, url) = resolve_http_destination(http, validated, None)?;
+        let (method_value, url) = if let Some(strict) = &strict {
+            (strict.plan.method.clone(), strict.plan.url.clone())
+        } else {
+            if http.capability.is_some() {
+                return Err("outbound capability requires its prepared authority".into());
+            }
+            resolve_http_destination(http, validated, None)?
+        };
         let method = method_value.to_string();
+        let timeout = strict.as_ref().map_or(timeout, |strict| {
+            timeout.min(Duration::from_secs(strict.plan.capability.timeout_seconds))
+        });
         let client = crate::net_guard::build_ssrf_safe_client(timeout)
             .map_err(|e| format!("Failed to construct HTTP client: {e}"))?;
         let mut request = client.request(method_value, &url);
@@ -544,12 +689,72 @@ impl ToolCladExecutor {
         let request = request
             .build()
             .map_err(|e| format!("Invalid HTTP request: {e}"))?;
-        let response = super::http_transport::exchange(
+        let mut request = if let Some(strict) = &strict {
+            strict.plan.request()?
+        } else {
+            request
+        };
+        let guard = if let Some(strict) = strict {
+            if journal.is_none() {
+                return Err("outbound capability requires durable effect evidence".into());
+            }
+            let credential = match &strict.plan.credential {
+                Some(source) => Some(
+                    tokio::time::timeout_at(
+                        start
+                            .checked_add(timeout)
+                            .ok_or("HTTP deadline overflow")?
+                            .into(),
+                        strict.lease.during(
+                            strict.lease.credential(
+                                strict
+                                    .plan
+                                    .capability
+                                    .credential
+                                    .as_deref()
+                                    .unwrap_or_default(),
+                                source,
+                                &strict.principal,
+                            ),
+                        ),
+                    )
+                    .await
+                    .map_err(|_| "outbound credential resolution expired")??,
+                ),
+                None => None,
+            };
+            if let Some(credential) = &credential {
+                credential.inject(
+                    request.headers_mut(),
+                    &strict.plan.capability.header,
+                    &strict.plan.capability.prefix,
+                )?;
+            }
+            let mut descriptor = strict.plan.descriptor.clone();
+            descriptor["assignment_epoch"] = serde_json::json!(strict.lease.epoch);
+            Some(crate::outbound::DispatchGuard {
+                lease: strict.lease,
+                capability: strict.plan.capability.clone(),
+                name: strict.plan.name.clone(),
+                credential,
+                descriptor,
+                success_status: http.success_status.clone(),
+            })
+        } else {
+            None
+        };
+        let limit = guard
+            .as_ref()
+            .map_or(manifest.output.max_bytes as usize, |g| {
+                (manifest.output.max_bytes as usize).min(g.capability.max_response_bytes)
+            });
+        let response = super::http_transport::exchange_guarded(
             &client,
             request,
             journal,
             start.checked_add(timeout).ok_or("HTTP deadline overflow")?,
-            usize::try_from(manifest.output.max_bytes).unwrap_or(usize::MAX),
+            limit,
+            guard.as_ref(),
         )
         .await?;
         let status_code = response.status;
@@ -591,6 +796,9 @@ impl ToolCladExecutor {
             "stderr": "",
             "results": results
         });
+        if let Some(guard) = &guard {
+            envelope["outbound"] = serde_json::json!({"capability": guard.name, "assignment_epoch": guard.lease.epoch});
+        }
         if let Some(stored) = evidence {
             envelope["output_file"] = serde_json::json!(stored.file.to_string_lossy());
         }
@@ -794,13 +1002,67 @@ fn coerce_arg_value(type_name: &str, value: &str) -> serde_json::Value {
 
 #[async_trait]
 impl ActionExecutor for ToolCladExecutor {
+    fn execution_context(&self) -> HashMap<String, serde_json::Value> {
+        self.outbound
+            .as_ref()
+            .ok()
+            .and_then(|profile| profile.as_ref())
+            .map(|profile| HashMap::from([("outbound_profile".into(), profile.descriptor())]))
+            .unwrap_or_default()
+    }
+
     fn validate_configuration(&self) -> Result<(), String> {
         if let Some(error) = &self.manifest_error {
             return Err(error.clone());
         }
         self.scope.as_ref().map_err(Clone::clone)?;
+        let profile = self.outbound.as_ref().map_err(Clone::clone)?.as_ref();
+        if let Some(profile) = profile {
+            for (name, capability) in &profile.capabilities {
+                if !self.manifests.values().any(|manifest| {
+                    manifest.tool.name == capability.tool
+                        && manifest
+                            .http
+                            .as_ref()
+                            .and_then(|http| http.capability.as_ref())
+                            == Some(name)
+                }) {
+                    return Err("outbound capability requires its registered HTTP manifest".into());
+                }
+            }
+        }
         for manifest in self.manifests.values() {
             manifest.validate_source_backend()?;
+            if let Some(http) = &manifest.http {
+                match (profile, &http.capability) {
+                    (Some(profile), Some(name)) => {
+                        let cap = profile
+                            .capabilities
+                            .get(name)
+                            .ok_or("unknown HTTP outbound capability")?;
+                        if cap.tool != manifest.tool.name
+                            || cap.method != http.method.to_ascii_uppercase()
+                        {
+                            return Err("HTTP tool differs from its outbound capability".into());
+                        }
+                        let template = reqwest::Request::new(
+                            cap.method
+                                .parse()
+                                .map_err(|_| "invalid capability method")?,
+                            http.url.parse().map_err(|_| "invalid HTTP URL template")?,
+                        );
+                        cap.check_request(&template)?;
+                    }
+                    (None, None) => {}
+                    _ => return Err("outbound HTTP configuration is incomplete".into()),
+                }
+            }
+            if profile.is_some()
+                && ((manifest.tool.network_egress && manifest.http.is_none())
+                    || manifest.tool.mode == "browser")
+            {
+                return Err("outbound profile cannot authorize direct worker networking or the unavailable browser adapter".into());
+            }
         }
         self.boundary.as_ref().map_err(Clone::clone)?.validate()
     }
@@ -835,6 +1097,7 @@ impl ActionExecutor for ToolCladExecutor {
             .get(base)
             .ok_or_else(|| format!("No ToolClad manifest for '{name}'"))?;
         let ceiling = self.boundary.as_ref().map_err(Clone::clone)?;
+        self.validate_configuration()?;
         let boundary = if matches!(manifest.tool.mode.as_str(), "oneshot" | "session") {
             ceiling.without_host_mounts()
         } else {
@@ -951,6 +1214,9 @@ impl ActionExecutor for ToolCladExecutor {
             .as_ref()
             .map(|s| s.execution_boundary(&boundary))
             .unwrap_or(boundary);
+        if self.outbound.as_ref().map_err(Clone::clone)?.is_some() {
+            boundary = boundary.without_network();
+        }
         if manifest.tool.mode == "session" && !manifest.tool.network_egress {
             // A session gets sandbox network only when its manifest declares
             // egress.
@@ -989,6 +1255,10 @@ impl ActionExecutor for ToolCladExecutor {
         };
         let mut contract_input =
             serde_json::json!({"manifest": manifest, "custom_types": self.custom_types});
+        let outbound = self.prepare_outbound_http(manifest, &validated)?;
+        if let Some(outbound) = &outbound {
+            contract_input["outbound"] = outbound.descriptor.clone();
+        }
         #[cfg(feature = "mcp-client")]
         if let (Some(mcp), Some(registry)) = (&manifest.mcp, &mcp_registry) {
             let spec = registry
@@ -1062,6 +1332,9 @@ impl ActionExecutor for ToolCladExecutor {
             let (method, url) = resolve_http_destination(http, &validated, scope)?;
             resolved["http_method"] = serde_json::json!(method.as_str());
             resolved["http_url"] = serde_json::json!(url);
+            if let Some(outbound) = &outbound {
+                resolved["outbound"] = outbound.descriptor.clone();
+            }
         }
         #[cfg(feature = "mcp-client")]
         if let Some(mcp) = &manifest.mcp {
@@ -1102,6 +1375,7 @@ impl ActionExecutor for ToolCladExecutor {
                 boundary: boundary.clone(),
                 files,
                 source,
+                outbound,
                 #[cfg(feature = "mcp-client")]
                 mcp_registry,
             })
@@ -1109,6 +1383,13 @@ impl ActionExecutor for ToolCladExecutor {
     }
 
     fn cancel_run(&self, run: &str, deadline: std::time::Instant) {
+        if self
+            .outbound
+            .as_ref()
+            .is_ok_and(|profile| profile.is_some())
+        {
+            self.outbound_runs.cancel(run, deadline);
+        }
         self.command_runs.cancel(run);
         self.session_executor.cancel_run(run, deadline);
     }
@@ -1145,9 +1426,11 @@ impl ActionExecutor for ToolCladExecutor {
                     .await
                     .map_err(|e| e.to_string())?;
                 let deadline = grant.deadline();
+                let principal = grant.principal().to_string();
                 let run = grant.run_key().to_owned();
                 let binding = grant.session_binding().to_owned();
                 let run_deadline = grant.run_deadline();
+                let assignment = grant.outbound_assignment();
                 let effect_journal = grant.effect_journal();
                 let prepared = grant.into_prepared()?;
                 let snapshot = prepared
@@ -1242,6 +1525,22 @@ impl ActionExecutor for ToolCladExecutor {
                             return Err("MCP execution requires the 'mcp-client' feature".into());
                         }
                         if manifest.http.is_some() {
+                            let strict = snapshot
+                                .outbound
+                                .as_ref()
+                                .map(|plan| {
+                                    Ok::<_, String>(StrictHttpCall {
+                                        plan,
+                                        principal,
+                                        lease: self.outbound_runs.acquire(
+                                            &run,
+                                            &binding,
+                                            run_deadline,
+                                            assignment,
+                                        )?,
+                                    })
+                                })
+                                .transpose()?;
                             Self::execute_http_backend(
                                 &name,
                                 manifest,
@@ -1251,6 +1550,7 @@ impl ActionExecutor for ToolCladExecutor {
                                 Some(effect_journal.as_ref().ok_or(
                                     "governed HTTP effects require an active audited dispatcher",
                                 )?),
+                                strict,
                             )
                             .await
                         } else {
@@ -1659,7 +1959,9 @@ fn resolve_http_destination(
         return Err("HTTP URL must use http or https".into());
     }
     let url = parsed.to_string();
-    crate::net_guard::reject_ssrf_url(&url)?;
+    if http.capability.is_none() {
+        crate::net_guard::reject_ssrf_url(&url)?;
+    }
     if let Some(scope) = scope {
         scope
             .check(&url)
@@ -2023,6 +2325,7 @@ format = "json"
             render_http_template("https://example.com/{missing}", &args, percent_encode).is_err()
         );
         let http = super::super::manifest::HttpDef {
+            capability: None,
             method: "GET".into(),
             url: "https://example.com/s?q={q}".into(),
             headers: HashMap::new(),

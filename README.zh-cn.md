@@ -1,5 +1,7 @@
 <img src="logo-hz.png" alt="Symbi">
 
+> **3.0 Rust API 迁移：** 新增结构体字段及隔离后端的偏序关系见[出站访问控制](docs/zh-cn/outbound-capabilities.md)。请按[发布验证指南](docs/zh-cn/release-verification.md)验证下载文件。
+
 [English](README.md) | **中文简体** | [Español](README.es.md) | [Português](README.pt.md) | [日本語](README.ja.md) | [Deutsch](README.de.md)
 
 [![Build](https://img.shields.io/github/actions/workflow/status/thirdkeyai/symbiont/docker-build.yml?branch=main)](https://github.com/thirdkeyai/symbiont/actions)

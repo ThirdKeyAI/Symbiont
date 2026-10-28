@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "kind": "bounded_interface_validation_plan",
+  "authoring_scope": "Interface and threat model only; no implementation or prior-result access",
+  "attempt_limit": 12,
+  "trusted_oracles": [
+    "host collector",
+    "synthetic provider and sinks",
+    "pinned signed journals"
+  ],
+  "rounds": [
+    {
+      "name": "controls_and_primary_boundaries",
+      "condition": "begin",
+      "cases": [
+        "allowed_inference_channel",
+        "direct_sink",
+        "remote_document",
+        "credential_reflection"
+      ]
+    },
+    {
+      "name": "resource_and_authority_enforcement",
+      "condition": "previous round has complete safe host observations",
+      "cases": [
+        "provider_hosted_tool",
+        "model_override",
+        "reconnect_budget",
+        "continuous_session"
+      ]
+    },
+    {
+      "name": "response_handling_and_composition",
+      "condition": "previous round has complete safe host observations",
+      "cases": [
+        "malformed_json",
+        "duplicate_length",
+        "audit_disable_headers",
+        "forged_completion"
+      ]
+    }
+  ],
+  "stop_rule": "Stop before the next round on any adverse or incomplete trusted observation",
+  "limitations": [
+    "Bounded pilot, not an escape rate or unknown-vulnerability assessment",
+    "Existing fixed probe implementations map the independently authored interface scenarios to executable cases",
+    "Synthetic local services and data only; no paid provider or external target"
+  ]
+}

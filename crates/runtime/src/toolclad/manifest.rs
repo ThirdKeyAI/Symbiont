@@ -19,6 +19,9 @@ use super::validator;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HttpDef {
+    /// Opt into a named operator-owned outbound capability.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capability: Option<String>,
     pub method: String,
     pub url: String,
     #[serde(default)]
@@ -757,6 +760,18 @@ impl Manifest {
             return Ok(());
         };
         let host = super::executor::http_url_literal_host(&http.url)?;
+        if let Some(capability) = &http.capability {
+            if !crate::outbound::config::identifier(capability) {
+                return Err("invalid HTTP outbound capability name".into());
+            }
+            if std::iter::once(&http.url)
+                .chain(http.headers.values())
+                .chain(http.body_template.iter())
+                .any(|template| template.contains("{_secret:"))
+            {
+                return Err("capability HTTP tools use the configured credential alias, not secret templates".into());
+            }
+        }
         for name in http.headers.keys() {
             super::executor::check_header_name(name)?;
         }
@@ -776,6 +791,11 @@ impl Manifest {
                     ));
                 }
             }
+        }
+        // A capability's exact private-IP exception is checked at preparation.
+        // The fixture-only direct executor cannot execute capability manifests.
+        if http.capability.is_some() {
+            return Ok(());
         }
         let block_internal = self.all_arg_defs().iter().any(|(_, d)| d.block_internal);
         let bare = host
@@ -1254,6 +1274,20 @@ mod tests {
 
     fn parse(text: &str) -> Result<Manifest, String> {
         parse_manifest(text, &HashMap::new())
+    }
+
+    #[test]
+    fn http_capability_is_omitted_when_unset_and_round_trips_when_set() {
+        let mut http: HttpDef =
+            toml::from_str("method = 'GET'\nurl = 'https://example.test/r'").unwrap();
+        assert!(http.capability.is_none());
+        // Manifests without a capability keep their pre-capability contract shape.
+        let value = serde_json::to_value(&http).unwrap();
+        assert!(value.get("capability").is_none());
+        http.capability = Some("read_case".into());
+        let value = serde_json::to_value(&http).unwrap();
+        let parsed: HttpDef = serde_json::from_value(value).unwrap();
+        assert_eq!(parsed.capability.as_deref(), Some("read_case"));
     }
 
     const MINIMAL: &str = r#"

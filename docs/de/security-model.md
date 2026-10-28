@@ -14,6 +14,8 @@ Umfassende Sicherheitsarchitektur, die Zero-Trust, richtliniengesteuerten Schutz
 
 ## Ueberblick
 
+**In Entwicklung — optionale ausgehende Zugriffe:** Ein Betreiberprofil bindet HTTP-Werkzeuge an benannte Operationen, Ziele, Zugangsdatenquellen und eine einzelne Ausführung. Bestehende Projekte bleiben ohne Aktivierung unverändert. Die [Übersicht](outbound-capabilities.md) beschreibt Grenzen und Einrichtung; der [Kontrollkatalog](/security/README) trennt Implementierung von aufbewahrten Prüfnachweisen.
+
 **Eindaemmungsabdeckung:** 1.21.0 ergaenzt ausgewaehlte Docker-/gVisor-Effektgrenzen,
 exakte Genehmigungen fuer vorbereitete Aufrufe, geschuetzte Journale an den
 abgedeckten Einstiegspunkten und unabhaengige Worker-Eigentuemerschaft. Siehe den
@@ -104,7 +106,10 @@ verwendet native Prozesse und einen extern verwalteten delegierten Supervisor. E
 benoetigt weder ein Container-Image noch einen Container-Daemon. Docker bleibt der
 Standard. Siehe [Diensteinrichtung und Migration](/landlock-supervision).
 
-**Konfiguration:** `[sandbox] tier = "landlock"` in `symbiont.toml`.
+**Konfiguration:** Waehlen Sie `with { sandbox = "landlock" }` pro Agent oder
+setzen Sie `[sandbox] tier = "landlock"` in `symbiont.toml`. Registrierte HTTP-
+und geplante Agenten muessen Landlock explizit waehlen; ihr bestehender Standard
+bleibt Docker/Tier1.
 Schreibgeschuetzte und beschreibbare Obergrenzen stammen aus `[sandbox.roots]` und
 werden mit den anderen Backends geteilt. `[sandbox.landlock]` enthaelt
 `abi_floor`, `require_network`, Speicher-, CPU-, PID-, Lebensdauer- und
@@ -166,12 +171,11 @@ cgroup-Beaufsichtigung, die effektive ABI-Anforderung, Signal-/Socket-Scopes, di
 Socket-Richtlinie, die Ring-Ablehnung und die Richtlinie fuer geerbte
 Deskriptoren.
 
-**Aktuelle Abdeckung.** MCP-stdio ohne deklarierte Dateien und der
-Low-Level-Startpfad `CliExecutor` des SDK verwenden dieses Backend. Oeffentliche
-Oneshot-Befehle, benutzerdefinierte Ausgabeparser, interaktive PTYs, das Staging
-deklarierter Dateien und das ausgelieferte verwaltete CLI-Setup unterstuetzen es
-noch nicht. Die Auswahl von Landlock auf diesen Pfaden schlaegt fehl, statt auf
-unbeschraenkte Ausfuehrung umzuschalten.
+**Aktuelle Abdeckung.** Registrierte HTTP- und geplante Agenten, MCP-stdio,
+kontrollierte Oneshot-Befehle, Git-Snapshots, das Staging deklarierter Dateien
+und verwaltete CLI-Worker verwenden dieses Backend. Interaktive PTYs bleiben
+nicht unterstuetzt. Die Auswahl auf einem nicht unterstuetzten Pfad schlaegt
+fehl, statt auf unbeschraenkte Ausfuehrung umzuschalten.
 
 **Lebensdauer der Berechtigung.** Eine Domaene kann nach ihrer Anwendung nicht
 gelockert werden. Das SDK-CLI-Kind erhaelt seine Domaene einmalig beim Spawn,
@@ -193,11 +197,11 @@ Rulesets, einschliesslich nicht verfuegbarer seccomp-Filterung, brechen den Spaw
 ab, bevor die Worker-Executable startet. Es gibt keine teilweise Anwendung und
 keinen Rueckfall auf unbeschraenkte Host-Ausfuehrung.
 
-**Nicht verfuegbar fuer registrierte Agenten.** Kein `SecurityTier` benennt
-landlock, sodass ein geplanter oder per HTTP registrierter Agent es nicht
-deklarieren kann; diese Pfade lehnen es ab, statt es auf eine benachbarte Stufe
-abzubilden und die verwendete Isolation falsch zu melden. Waehlen Sie es fuer
-direkte Laeufe in `[sandbox]` aus.
+**Zulassungssemantik.** `SecurityTier` ist partiell geordnet. Landlock erfuellt
+eine explizite Landlock-Anforderung oder das Minimum ohne Isolation, ist aber
+mit Hosted-Ausfuehrung und der nummerierten Docker/gVisor/Firecracker-Leiter
+nicht vergleichbar. So erfuellt ein nativer Worker keine Container- oder
+VM-Anforderung stillschweigend.
 
 **Validierung.** `crates/runtime/tests/landlock_sandbox.rs` ueberprueft echte
 beschraenkte Kindprozesse, einschliesslich ersetzter Lese-/Schreib-Roots und

@@ -119,11 +119,14 @@ pub struct ResourceAllocation {
 ### Security Types
 
 ```rust
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SecurityTier {
-    Tier1 = 1, // Docker
-    Tier2 = 2, // gVisor
-    Tier3 = 3, // Firecracker
+    None,      // Explicitly unisolated
+    Hosted,    // Third-party hosted execution
+    Landlock,  // Native Linux Landlock worker
+    Tier1,      // Docker
+    Tier2,      // gVisor
+    Tier3,      // Firecracker
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -149,6 +152,11 @@ pub struct SecurityContext {
     pub encryption_key: Option<Vec<u8>>,
 }
 ```
+
+`SecurityTier` is partially ordered. `Hosted < Tier1 < Tier2 < Tier3` is the
+numbered ladder; `Landlock` is a separate branch that compares only with itself
+and `None`. Use `SecurityTier::satisfies` for admission checks instead of numeric
+or derived ordering.
 
 ### Communication Types
 
@@ -810,9 +818,11 @@ source for subsequent invocations. The first declared agent is selected by defau
 `metadata { name = "selected" }` can select another declaration. The registered
 name is the selected declaration's actual name. Parsing, selection and supported
 inline policies are validated before registration. Unsupported policies are refused.
-This endpoint retains its Docker/Tier1 registration default; conflicting sandbox
-selection fails during governed execution. It does not interpret arbitrary executable
-DSL bodies. See [inline policies](../../docs/inline-policies.md).
+This endpoint retains its Docker/Tier1 registration default when the DSL omits a
+sandbox. An explicit `with sandbox = "landlock"` selects the native supervised
+backend; it satisfies only a Landlock or no-isolation requirement. Conflicting
+sandbox selection fails during governed execution. The endpoint does not interpret
+arbitrary executable DSL bodies. See [inline policies](../../docs/inline-policies.md).
 
 **Request Body:**
 ```json
@@ -989,7 +999,7 @@ The Inspector verifies that run separately; retained metadata is not signed proo
 On Unix, nullable `staging` reports snapshot slots/bytes, remaining capacity and
 ownership references. A staging inspection error leaves worker totals available
 and populates `staging_error` without initializing or reconciling staging state.
-Landlock host workers currently bypass this supervisor and are absent from totals.
+Supervised Landlock workers share this capacity and appear in the totals.
 `GET /api/v1/sandbox/workers/{lease_uuid}/usage` separately samples
 one retained worker. Both require an administrative bearer key and never start a
 missing helper or release capacity. Scoped keys receive 403; unavailable or busy

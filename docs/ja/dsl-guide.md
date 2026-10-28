@@ -385,6 +385,10 @@ agent high_security_agent(classified_data: ClassifiedInfo) -> Report {
 }
 ```
 
+オプションの Linux ネイティブバックエンドには `sandbox = "landlock"` を使用します。
+HTTP 登録エージェントとスケジュール済みエージェントは明示的に指定する必要があります。
+Landlock は独立した受付分岐であり、Docker、gVisor、Firecracker、ホスト型実行の要件を満たしません。
+
 ---
 
 ## 組み込み関数

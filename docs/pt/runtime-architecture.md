@@ -187,7 +187,11 @@ pub struct ResourceLimits {
 
 ### Arquitetura de Sandbox
 
-O runtime entrega quatro backends de isolamento no host — todos OSS — mais um backend separado de nuvem hospedada (E2B). Três são numerados (Docker, gVisor, Firecracker); o `landlock` é nomeado em vez de numerado, porque isola comandos de execução única, parsers e o processo filho da CLI gerenciada sem um daemon e não é um par na escada numerada. Operadores escolhem o backend por agente via o bloco DSL `with { sandbox = ... }`, ou definem um padrão de projeto em `[sandbox] tier = "..."`.
+O runtime entrega quatro backends de isolamento no host — todos OSS — mais um backend separado de nuvem hospedada (E2B). Três são numerados (Docker, gVisor, Firecracker); o `landlock` é nomeado e forma um ramo separado de admissão. Ele isola workers nativos supervisionados sem daemon de contêiner. Operadores escolhem o backend por agente via o bloco DSL `with { sandbox = ... }`, ou definem um padrão de projeto em `[sandbox] tier = "..."`. Agentes registrados por HTTP e agendados podem selecionar Landlock explicitamente; quando o sandbox é omitido, Docker/Tier1 continua sendo o padrão.
+
+A admissão usa `SecurityTier::satisfies`. `Hosted < Tier1 < Tier2 < Tier3` é a
+escada numerada. Landlock satisfaz apenas um requisito explícito de Landlock ou o
+mínimo sem isolamento e não substitui um requisito de contêiner ou VM.
 
 #### Camada 1: Isolamento Docker
 **Caso de Uso**: Operações de baixo risco, tarefas de desenvolvimento
@@ -213,7 +217,7 @@ O runtime entrega quatro backends de isolamento no host — todos OSS — mais u
 Configuração via `[sandbox.firecracker]` em `symbiont.toml`. O operador deve fornecer (a) uma imagem de kernel compatível com Firecracker e (b) uma imagem de sistema de arquivos raiz com o serviço PID 1 `symbi-sandbox-guest` correspondente e seu supervisor. Veja [`docs/firecracker-setup.md`](firecracker-setup.md) para um guia rápido passo a passo.
 
 #### Execução hospedada: E2B
-**O E2B é um backend de sandbox em nuvem hospedado, não uma camada de isolamento no host.** Fica fora da escada Tier 1 → Tier 3. O código roda na infraestrutura do E2B via API HTTPS; o runtime envia apenas um cliente HTTP. Defina `E2B_API_KEY` e selecione-o por agente com `with { sandbox = "e2b" }`. Não há flag `--sandbox e2b` no `symbi init` — o E2B é intencionalmente opt-in apenas via DSL, pois representa um modelo de confiança diferente das camadas no host. O runtime mapeia `E2B → SecurityTier::Hosted`, que ordena **abaixo** de `Tier1` — políticas que exigem isolamento no host (`tier >= Tier1`) rejeitarão a execução hospedada.
+**O E2B é um backend de sandbox em nuvem hospedado, não uma camada de isolamento no host.** Fica fora da escada Tier 1 → Tier 3. O código roda na infraestrutura do E2B via API HTTPS; o runtime envia apenas um cliente HTTP. Defina `E2B_API_KEY` e selecione-o por agente com `with { sandbox = "e2b" }`. Não há flag `--sandbox e2b` no `symbi init` — o E2B é intencionalmente opt-in apenas via DSL, pois representa um modelo de confiança diferente das camadas no host. O runtime mapeia `E2B → SecurityTier::Hosted`, abaixo de `Tier1` na escada numerada. As políticas usam `SecurityTier::satisfies`, então requisitos do ramo separado de Landlock também rejeitam a execução hospedada.
 
 > **As três camadas de isolamento no host — Docker, gVisor e Firecracker — são todas entregues no runtime OSS.** Operadores escolhem a camada por agente via o bloco DSL `with { sandbox = ... }`, ou definem um padrão de projeto via `[sandbox] tier = "..."` em `symbiont.toml`.
 

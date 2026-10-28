@@ -76,7 +76,9 @@ jobs:
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
+            # Pin the oldest supported glibc build environment. Moving aliases
+            # can silently produce binaries that do not start on qualified hosts.
+            os: ubuntu-22.04
             use_cross: false
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
@@ -154,6 +156,18 @@ jobs:
             cargo build --release --target ${{ matrix.target }} ${FEATURES:+--features $FEATURES} -j2
           fi
 
+      - name: Enforce Linux glibc baseline
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        shell: bash
+        run: |
+          BINARY="target/${{ matrix.target }}/release/symbi"
+          MAX_GLIBC="$(readelf --version-info "$BINARY" | grep -oE 'GLIBC_[0-9]+\.[0-9]+' | sort -V | tail -1)"
+          test -n "$MAX_GLIBC"
+          dpkg --compare-versions "${MAX_GLIBC#GLIBC_}" le 2.35 || {
+            echo "Release binary requires $MAX_GLIBC; maximum supported version is GLIBC_2.35" >&2
+            exit 1
+          }
+
       - name: Package (Unix)
         if: runner.os != 'Windows'
         shell: bash
@@ -190,9 +204,92 @@ jobs:
           name: binary-${{ matrix.target }}
           path: ${{ env.ARCHIVE }}
 
+  qualify-linux-artifact:
+    name: Qualify packaged Linux binary
+    needs: [release, build]
+    # Build on 22.04 for glibc 2.35, then exercise the same bytes on a host
+    # with Landlock ABI >= 6 and Python >= 3.11. The 22.04 runner has neither.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - name: Checkout qualified source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+          ref: ${{ needs.release.outputs.sha }}
+
+      - name: Download the publication archive
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: binary-x86_64-unknown-linux-gnu
+          path: ${{ runner.temp }}/publication-download
+
+      - name: Extract the exact publication binary
+        env:
+          VERSION: ${{ needs.release.outputs.tag }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/publication-binary"
+          tar -xzf "$RUNNER_TEMP/publication-download/symbi-${VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            -C "$RUNNER_TEMP/publication-binary" symbi
+          test -x "$RUNNER_TEMP/publication-binary/symbi"
+          echo "PUBLICATION_BINARY=$RUNNER_TEMP/publication-binary/symbi" >> "$GITHUB_ENV"
+
+      - name: Prepare Linux containment qualification
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dbus-user-session
+          # This disposable release runner explicitly enables native namespaces.
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          sudo loginctl enable-linger "$(id -un)"
+          sudo systemctl start "user@$(id -u).service"
+          # Synthetic external-effect receiver; never a real business endpoint.
+          sudo ip address add 198.18.0.1/32 dev lo
+          echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
+          echo "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus" >> "$GITHUB_ENV"
+
+      - name: Qualify the exact Linux publication binary
+        run: |
+          systemd-run --user --wait --pipe --collect --quiet \
+            --service-type=exec --working-directory="$PWD" \
+            --unit=symbi-publication-qualification \
+            --setenv=HOME --setenv=XDG_RUNTIME_DIR \
+            --setenv=DBUS_SESSION_BUS_ADDRESS --setenv=PATH=/usr/bin:/bin \
+            /usr/bin/python3 scripts/test-landlock-release.py \
+              --binary "$PUBLICATION_BINARY" \
+              --output "$RUNNER_TEMP/publication-qualification" --require-clean --evidence-only
+
+      - name: Preserve Linux qualification diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: containment-diagnostics-${{ needs.release.outputs.sha }}
+          if-no-files-found: error
+          path: ${{ runner.temp }}/publication-qualification/
+
+      - name: Package verified containment evidence
+        env:
+          VERSION: ${{ needs.release.outputs.tag }}
+          SOURCE_SHA: ${{ needs.release.outputs.sha }}
+        run: |
+          EVIDENCE_ARCHIVE="$RUNNER_TEMP/symbi-${VERSION}-x86_64-unknown-linux-gnu-containment.tar.gz"
+          python3 scripts/package-containment-evidence.py \
+            --directory "$RUNNER_TEMP/publication-qualification" \
+            --binary "$PUBLICATION_BINARY" \
+            --source "$SOURCE_SHA" --output "$EVIDENCE_ARCHIVE"
+          echo "EVIDENCE_ARCHIVE=$EVIDENCE_ARCHIVE" >> "$GITHUB_ENV"
+
+      - name: Upload verified containment evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: containment-public-x86_64-unknown-linux-gnu
+          if-no-files-found: error
+          path: ${{ env.EVIDENCE_ARCHIVE }}
+
   checksums:
     name: Create checksums and upload
-    needs: [release, build]
+    needs: [release, build, qualify-linux-artifact]
     if: github.event_name == 'release' || !inputs.verify_only
     runs-on: ubuntu-latest
     permissions:
@@ -205,6 +302,12 @@ jobs:
           path: artifacts
           pattern: binary-*
           merge-multiple: true
+
+      - name: Download verified containment evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: artifacts
+          name: containment-public-x86_64-unknown-linux-gnu
 
       - name: Install cosign
         uses: sigstore/cosign-installer@e1523de7571e31dbe865fd2e80c5c7c23ae71eb4 # v3.4.0

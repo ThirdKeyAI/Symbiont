@@ -388,6 +388,11 @@ agent high_security_agent(classified_data: ClassifiedInfo) -> Report {
 }
 ```
 
+Use `sandbox = "landlock"` para el backend nativo opcional de Linux. Los agentes
+registrados por HTTP y los programados deben nombrarlo explicitamente. Landlock
+es una rama separada de admision y no satisface requisitos de Docker, gVisor,
+Firecracker ni de ejecucion alojada.
+
 ---
 
 ## Funciones integradas

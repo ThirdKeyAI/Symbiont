@@ -38,6 +38,14 @@ impl KnowledgeAwareExecutor {
 
 #[async_trait]
 impl ActionExecutor for KnowledgeAwareExecutor {
+    fn execution_context(&self) -> std::collections::HashMap<String, serde_json::Value> {
+        self.inner.execution_context()
+    }
+
+    fn validate_configuration(&self) -> Result<(), String> {
+        self.inner.validate_configuration()
+    }
+
     fn prepare_action(
         &self,
         action: &ProposedAction,
@@ -169,6 +177,55 @@ mod tests {
     use super::*;
     use crate::reasoning::executor::DefaultActionExecutor;
     use crate::reasoning::loop_types::LoopConfig;
+
+    struct Configured;
+
+    #[async_trait]
+    impl ActionExecutor for Configured {
+        fn execution_context(&self) -> std::collections::HashMap<String, serde_json::Value> {
+            std::collections::HashMap::from([("outbound_profile".into(), serde_json::json!(1))])
+        }
+        fn validate_configuration(&self) -> Result<(), String> {
+            Err("inner configuration is invalid".into())
+        }
+        async fn execute_actions(
+            &self,
+            _: &[ProposedAction],
+            _: &LoopConfig,
+            _: &CircuitBreakerRegistry,
+        ) -> Vec<Observation> {
+            Vec::new()
+        }
+    }
+
+    #[tokio::test]
+    async fn configuration_and_context_are_forwarded_to_the_inner_executor() {
+        let root = tempfile::tempdir().unwrap();
+        let agent_id = AgentId::new();
+        let context = crate::context::manager::StandardContextManager::new(
+            crate::context::manager::ContextManagerConfig {
+                enable_auto_archiving: false,
+                enable_persistence: false,
+                secrets_config: crate::SecretsConfig::file_json(
+                    root.path().join("fixture-secrets.json"),
+                ),
+                ..Default::default()
+            },
+            &agent_id.to_string(),
+        )
+        .await
+        .unwrap();
+        let bridge = Arc::new(KnowledgeBridge::new(Arc::new(context), Default::default()));
+        let executor = KnowledgeAwareExecutor::new(Arc::new(Configured), bridge, agent_id);
+        assert_eq!(
+            executor.execution_context().get("outbound_profile"),
+            Some(&serde_json::json!(1))
+        );
+        assert_eq!(
+            executor.validate_configuration().unwrap_err(),
+            "inner configuration is invalid"
+        );
+    }
 
     #[tokio::test]
     async fn regular_actions_preserve_backend_failure_and_call_identity() {
