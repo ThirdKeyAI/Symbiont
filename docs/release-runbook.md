@@ -107,6 +107,10 @@ gh run list --repo ThirdKeyAI/Symbiont --limit 4
 gh run watch <RUN_ID> --repo ThirdKeyAI/Symbiont --exit-status
 ```
 
+If a documentation or tooling-only commit does not trigger the Docker path
+filter, dispatch `docker-build.yml` on `main`; manual container publication is
+restricted to canonical main and still requires the exact-commit Test gate.
+
 Record the intended full commit SHA on GitHub `main`. **Test** (including the
 Windows CLI check), **Build and Push Docker Image** and **Documentation** must
 pass for that commit. Then dispatch **Linux Landlock

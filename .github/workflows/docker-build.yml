@@ -1,6 +1,7 @@
 name: Build and Push Docker Image
 
 on:
+  workflow_dispatch: {}
   push:
     branches: [ main ]
     tags: [ 'v*' ]
@@ -38,7 +39,7 @@ env:
 
 # Default job-level permissions are read-only. The push/publish jobs below
 # opt into the broader `packages: write` + `id-token: write` scopes only
-# when running on `push` or `release` events. PR jobs run with read-only
+# when running on `push` or canonical-main manual dispatch events. PR jobs run with read-only
 # permissions and skip the registry login / push / cosign-sign steps.
 permissions:
   contents: read
@@ -46,7 +47,7 @@ permissions:
 
 jobs:
   qualify:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     uses: ./.github/workflows/release-gate.yml
     with:
       sha: ${{ github.sha }}
@@ -131,7 +132,7 @@ jobs:
         cache-to: type=gha,mode=max,scope=a2ui
 
   # ---------------------------------------------------------------------------
-  # Push + sign: only runs on push / release events. Requires write scopes.
+  # Push + sign: push or canonical-main dispatch, after qualification.
   # ---------------------------------------------------------------------------
   build-symbi:
     name: Build and Push Symbi Runtime
