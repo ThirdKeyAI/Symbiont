@@ -26,7 +26,7 @@ changing runtime features. It is not a release-profile binary qualification.
 | Outbound installed-CLI workflow | All 16 cases passed again after the layout fix |
 | Restricted-host platform diagnostics | Preliminary binary: expected namespace refusal, cleanup and no fallback confirmed; not a qualified native-worker platform |
 | Security catalogue validation and six regression tests | Passed; current source digest matches the refreshed report |
-| Release-tool tests | Eight passed |
+| Release-tool tests | Ten passed, including public workflow and catalogue reference export coverage |
 | Release gate, evidence selection and scoring rejection tests | Four, two and eight passed respectively |
 | Historical containment-evidence tampering checks | Five broker and four lifecycle mutations rejected |
 | English and five translated documentation builds | Passed, including each search-index language |

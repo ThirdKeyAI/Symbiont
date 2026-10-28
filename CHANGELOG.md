@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Include security-catalogue and outbound workflow scripts in the public export;
+  release tests verify that workflow script references survive filtering.
 - Qualify the packaged Linux binary on Ubuntu 24.04 while retaining the
   Ubuntu 22.04 builder's glibc 2.35 ceiling. The older builder's kernel and Python
   cannot run the qualification driver; publication now depends on the separate

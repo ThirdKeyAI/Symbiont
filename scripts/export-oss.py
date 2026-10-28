@@ -19,6 +19,8 @@ FILES = {'README.md', 'README.zh-cn.md', 'README.es.md', 'README.pt.md', 'README
 # Explicit public tooling; private sync, deployment and signing scripts stay out.
 SCRIPTS = {
     'install.sh', 'publish-crates.py', 'export-oss.py', 'test-release-tools.py',
+    'check-security-controls.py', 'test-security-controls.py', 'test-outbound-capabilities.py',
+    'test-container-network.py',
     'require-release-checks.py', 'test-release-checks.py', 'test-landlock-release.py',
     'test-governed-improvements.py', 'test-intake-improvements.py',
     'test-intake-phase2.py', 'test-intake-actions.py', 'delegated_service_fixture.py',

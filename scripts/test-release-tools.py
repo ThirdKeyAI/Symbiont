@@ -3,6 +3,7 @@
 import contextlib
 import hashlib
 import io
+import json
 import os
 from pathlib import Path
 import runpy
@@ -78,6 +79,24 @@ shutil.copyfile(Path(os.environ['FIXTURES']) / url.rsplit('/', 1)[1], args[args.
                     self.assertFalse(installed.exists())
                     if case in ['duplicate', 'unsafe-name']:
                         self.assertEqual(len(log.read_text().splitlines()), 1)
+
+    def test_security_catalogue_references_survive_export(self):
+        catalogue = json.loads((HERE.parent / 'docs/security/controls.json').read_text())
+        for control in catalogue['controls']:
+            for reference in control['sources'] + control['tests']:
+                with self.subTest(control=control['id'], reference=reference):
+                    self.assertTrue((HERE.parent / reference).is_file(), reference)
+                    self.assertTrue(export['allowed'](Path(reference)), reference)
+
+    def test_public_workflow_script_references_survive_export(self):
+        for workflow in (HERE.parent / '.github/workflows').glob('*.yml'):
+            references = set(re.findall(
+                r'(?<![\w/.-])(?:\.github/)?scripts/[\w.-]+\.(?:py|sh|json)',
+                workflow.read_text()))
+            for reference in references:
+                with self.subTest(workflow=workflow.name, script=reference):
+                    self.assertTrue((HERE.parent / reference).is_file(), reference)
+                    self.assertTrue(export['allowed'](Path(reference)), reference)
 
     def test_workflow_preserves_validated_source_and_shell_boundaries(self):
         workflow = (HERE.parent / '.github/workflows/release-binaries.yml').read_text()
