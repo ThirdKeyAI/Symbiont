@@ -2,18 +2,28 @@
 
 ## Supported Versions
 
-This document describes the **3.0** runtime contract. Security fixes and current
-runtime contracts are tracked on main. The 1.x guidance previously on
-this page describes historical releases; consult the
-[migration guide](docs/migration-2.0.md) before upgrading. This page does not
-establish a backport schedule for older release lines.
+Symbiont has two supported release lines.
 
-The outbound capabilities and registered Landlock selection described here are
-new in 3.0 and are not present in the 2.0.1 release.
+| Version | Status | Security fixes |
+|---------|--------|----------------|
+| 3.0.x | Current release line and default install | Yes |
+| 2.0.x | Supported for existing deployments | Yes, as 2.0.x patch releases |
+| < 2.0 | Not supported | No |
+
+Start new deployments on 3.0. Existing 2.0 deployments can stay on 2.0 while
+they plan the upgrade. Security fixes are made on main for 3.0 and backported
+to 2.0 when the affected code exists there. When 2.0 support is due to end,
+the date will be announced on this page in advance.
+
+This document describes the **3.0** runtime contract. The outbound
+capabilities and registered Landlock selection described here are new in 3.0
+and are not present in 2.0.x. Before upgrading from 2.0, read the
+[3.0 release notes](CHANGELOG.md); from 1.x, start with the
+[2.0 migration guide](docs/migration-2.0.md).
 Verify the installed binary and its release provenance using the
 [release verification guide](docs/release-verification.md).
 
-*Last updated: 2026-10-27*
+*Last updated: 2026-10-30*
 
 ## Reporting a Vulnerability
 
