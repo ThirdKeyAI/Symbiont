@@ -66,6 +66,7 @@ if sys.argv[1] == 'create':
     if mode in ('delayed', 'uncertain'): time.sleep(3)
     result = subprocess.run(['/usr/bin/docker', *sys.argv[1:]], capture_output=True)
     if result.returncode == 0: (root / 'created-id').write_bytes(result.stdout)
+    else: (root / 'create-error').write_bytes(result.stderr)
     sys.stdout.buffer.write(result.stdout)
     sys.stderr.buffer.write(result.stderr)
     sys.exit(result.returncode)
@@ -279,13 +280,21 @@ async fn next(stream: &mut BufReader<UnixStream>) -> Option<Reply> {
         .unwrap()
 }
 async fn wait_file(path: &Path) {
-    timeout(Duration::from_secs(8), async {
+    let waited = timeout(Duration::from_secs(8), async {
         while !path.exists() {
             sleep(Duration::from_millis(20)).await;
         }
     })
-    .await
-    .expect("expected external effect missing");
+    .await;
+    if waited.is_err() {
+        let root = path.parent().unwrap();
+        let present: Vec<_> = std::fs::read_dir(root)
+            .unwrap()
+            .filter_map(|entry| Some(entry.ok()?.file_name()))
+            .collect();
+        let error = std::fs::read_to_string(root.join("create-error")).unwrap_or_default();
+        panic!("expected external effect missing: {path:?}; present: {present:?}; create error: {error}");
+    }
 }
 async fn docker(args: &[&str]) -> String {
     let output = timeout(
