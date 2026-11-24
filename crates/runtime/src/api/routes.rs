@@ -370,7 +370,7 @@ pub async fn get_agent_status(
     get,
     path = "/api/v1/agents",
     responses(
-        (status = 200, description = "Agents listed successfully", body = Vec<AgentSummary>),
+        (status = 200, description = "Agents listed successfully", body = Vec<super::types::AgentSummary>),
         (status = 500, description = "Internal server error", body = ErrorResponse)
     ),
     tag = "agents"

@@ -11,7 +11,7 @@ repository = "https://github.com/thirdkeyai/symbiont"
 ignored = ["tokio-util", "wiremock"]
 
 [dependencies]
-axum = { version = "0.7", features = ["macros"] }
+axum = { version = "0.8", features = ["macros"] }
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 dashmap = "5"

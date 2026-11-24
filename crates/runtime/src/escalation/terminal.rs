@@ -130,9 +130,12 @@ mod unix {
                 .open("/dev/tty")?;
             foreground(&tty)?;
             let uid = unsafe { libc::geteuid() };
+            // SAFETY: the AsyncFd owns the File, so its fd stays open and
+            // unchanged until the AsyncFd is dropped.
+            let tty = unsafe { AsyncFd::register(tty)? };
             Ok(Self {
                 queue,
-                tty: Mutex::new(AsyncFd::new(tty)?),
+                tty: Mutex::new(tty),
                 approver: Approver {
                     surface: Surface::Terminal,
                     id: format!("uid:{uid}"),

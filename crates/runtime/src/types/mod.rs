@@ -18,6 +18,8 @@ pub use security::*;
 
 /// Unique identifier for agents
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "http-api", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "http-api", schema(value_type = String, format = Uuid))]
 pub struct AgentId(pub Uuid);
 
 impl AgentId {

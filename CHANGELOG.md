@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- `zip` is now 9.4.1 everywhere it is locked, which clears GHSA-m665-v7pm-7grj
+  (dual-header parser differential). It was only a build-time dependency of the
+  Swagger UI bundle and a dependency of the optional `embedding-models` feature.
+  Getting there required `utoipa-swagger-ui` 10, `utoipa` 6, `axum` 0.8 and
+  `candle` 0.11.
+- `.cargo/audit.toml` no longer ignores `RUSTSEC-2026-0097`; every locked `rand`
+  is patched (#22).
+
+### Changed
+
+- HTTP API routes use the `axum` 0.8 path syntax internally. Request URLs are
+  unchanged.
+- The OpenAPI document describes `AgentId` as a UUID string and lists
+  `AgentState` as a schema of its own.
+
 ## [3.0.0] - 2026-10-27
 
 ### Fixed

@@ -324,7 +324,7 @@ impl HttpInputServer {
         app = app.route(&path, post(webhook_handler));
 
         // Add wildcard catch-all route for PathPrefix routing on subpaths
-        let wildcard_path = format!("{}/*rest", path.trim_end_matches('/'));
+        let wildcard_path = format!("{}/{{*rest}}", path.trim_end_matches('/'));
         app = app.route(&wildcard_path, post(webhook_handler));
 
         // Add middleware

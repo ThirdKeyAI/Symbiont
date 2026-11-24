@@ -261,7 +261,7 @@ async fn handle_socket(
             let sent = tokio::select! {
                 biased;
                 _ = writer_cancel.cancelled() => break,
-                sent = tokio::time::timeout(Duration::from_secs(5), ws_writer.send(Message::Text(json))) => sent,
+                sent = tokio::time::timeout(Duration::from_secs(5), ws_writer.send(Message::Text(json.into()))) => sent,
             };
             if !matches!(sent, Ok(Ok(()))) {
                 break;

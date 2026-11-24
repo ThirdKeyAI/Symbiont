@@ -54,6 +54,7 @@ pub enum ExecutionMode {
 
 /// Agent state in the lifecycle
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
+#[cfg_attr(feature = "http-api", derive(utoipa::ToSchema))]
 pub enum AgentState {
     #[default]
     Created,

@@ -106,9 +106,9 @@ arrow-array = { version = "57", optional = true }
 arrow-schema = { version = "57", optional = true }
 qdrant-client = { version = ">=1.14.0, <1.16.0", optional = true }
 flate2 = "1.0"
-candle-core = { version = "0.9.1", optional = true }
-candle-nn = { version = "0.9.1", optional = true }
-candle-transformers = { version = "0.9.1", optional = true }
+candle-core = { version = "0.11.1", optional = true }
+candle-nn = { version = "0.11.1", optional = true }
+candle-transformers = { version = "0.11.1", optional = true }
 tokenizers = { version = "0.15", optional = true }
 tiktoken-rs = "0.6"
 hf-hub = { version = "0.3", optional = true }
@@ -160,14 +160,14 @@ rmcp = { version = "2.1", default-features = false, features = ["client", "trans
 schemars = { version = "1.0", optional = true }
 
 # HTTP API dependencies (optional)
-axum = { version = "0.7", features = ["ws"], optional = true }
+axum = { version = "0.8", features = ["ws"], optional = true }
 tower = { version = "0.4", optional = true }
 tower-http = { version = "0.5", features = ["cors", "trace"], optional = true }
 jsonwebtoken = { version = "10", features = ["rust_crypto"], optional = true }
 tokio-tungstenite = { version = "0.21", optional = true }
 governor = { version = "0.10", optional = true }
-utoipa = { version = "4.2", features = ["axum_extras", "chrono"], optional = true }
-utoipa-swagger-ui = { version = "6.0", features = ["axum"], optional = true }
+utoipa = { version = "6.0", features = ["axum_extras", "chrono", "uuid"], optional = true }
+utoipa-swagger-ui = { version = "10.0", features = ["axum"], optional = true }
 
 # AWS Bedrock dependencies (optional)
 aws-config = { version = "1.8.18", optional = true }

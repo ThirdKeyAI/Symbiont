@@ -392,21 +392,24 @@ impl HttpApiServer {
             // memory exhaustion via oversized JSON bodies.
             let messaging_router = Router::new()
                 .route(
-                    "/api/v1/agents/:id/messages",
+                    "/api/v1/agents/{id}/messages",
                     get(receive_agent_messages).post(send_agent_message),
                 )
-                .route("/api/v1/messages/:id/status", get(get_message_status))
+                .route("/api/v1/messages/{id}/status", get(get_message_status))
                 .layer(DefaultBodyLimit::max(MESSAGE_BODY_LIMIT));
 
             // Agent routes that require authentication
             let agent_router = Router::new()
                 .route("/api/v1/agents", get(list_agents).post(create_agent))
-                .route("/api/v1/agents/:id/status", get(get_agent_status))
-                .route("/api/v1/agents/:id", put(update_agent).delete(delete_agent))
-                .route("/api/v1/agents/:id/execute", post(execute_agent))
-                .route("/api/v1/agents/:id/history", get(get_agent_history))
-                .route("/api/v1/agents/:id/heartbeat", post(agent_heartbeat))
-                .route("/api/v1/agents/:id/events", post(agent_push_event))
+                .route("/api/v1/agents/{id}/status", get(get_agent_status))
+                .route(
+                    "/api/v1/agents/{id}",
+                    put(update_agent).delete(delete_agent),
+                )
+                .route("/api/v1/agents/{id}/execute", post(execute_agent))
+                .route("/api/v1/agents/{id}/history", get(get_agent_history))
+                .route("/api/v1/agents/{id}/heartbeat", post(agent_heartbeat))
+                .route("/api/v1/agents/{id}/events", post(agent_push_event))
                 .merge(messaging_router)
                 .layer(middleware::from_fn(auth_middleware))
                 .with_state(provider.clone());
@@ -418,17 +421,17 @@ impl HttpApiServer {
                     get(list_schedules).post(create_schedule),
                 )
                 .route(
-                    "/api/v1/schedules/:id",
+                    "/api/v1/schedules/{id}",
                     get(get_schedule)
                         .put(update_schedule)
                         .delete(delete_schedule),
                 )
-                .route("/api/v1/schedules/:id/pause", post(pause_schedule))
-                .route("/api/v1/schedules/:id/resume", post(resume_schedule))
-                .route("/api/v1/schedules/:id/trigger", post(trigger_schedule))
-                .route("/api/v1/schedules/:id/history", get(get_schedule_history))
+                .route("/api/v1/schedules/{id}/pause", post(pause_schedule))
+                .route("/api/v1/schedules/{id}/resume", post(resume_schedule))
+                .route("/api/v1/schedules/{id}/trigger", post(trigger_schedule))
+                .route("/api/v1/schedules/{id}/history", get(get_schedule_history))
                 .route(
-                    "/api/v1/schedules/:id/next-runs",
+                    "/api/v1/schedules/{id}/next-runs",
                     get(get_schedule_next_runs),
                 )
                 .layer(middleware::from_fn(auth_middleware))
@@ -441,21 +444,21 @@ impl HttpApiServer {
                     get(list_channels).post(register_channel),
                 )
                 .route(
-                    "/api/v1/channels/:id",
+                    "/api/v1/channels/{id}",
                     get(get_channel).put(update_channel).delete(delete_channel),
                 )
-                .route("/api/v1/channels/:id/start", post(start_channel))
-                .route("/api/v1/channels/:id/stop", post(stop_channel))
-                .route("/api/v1/channels/:id/health", get(get_channel_health))
+                .route("/api/v1/channels/{id}/start", post(start_channel))
+                .route("/api/v1/channels/{id}/stop", post(stop_channel))
+                .route("/api/v1/channels/{id}/health", get(get_channel_health))
                 .route(
-                    "/api/v1/channels/:id/mappings",
+                    "/api/v1/channels/{id}/mappings",
                     get(list_channel_mappings).post(add_channel_mapping),
                 )
                 .route(
-                    "/api/v1/channels/:id/mappings/:user_id",
+                    "/api/v1/channels/{id}/mappings/{user_id}",
                     delete(remove_channel_mapping),
                 )
-                .route("/api/v1/channels/:id/audit", get(get_channel_audit))
+                .route("/api/v1/channels/{id}/audit", get(get_channel_audit))
                 .layer(middleware::from_fn(auth_middleware))
                 .with_state(provider.clone());
 
@@ -466,11 +469,11 @@ impl HttpApiServer {
             // useful for operators and monitoring.
             let protected_router = Router::new()
                 .route(
-                    "/api/v1/improvements/:workflow",
+                    "/api/v1/improvements/{workflow}",
                     get(super::improvements::inspect),
                 )
                 .route(
-                    "/api/v1/improvements/:workflow/actions",
+                    "/api/v1/improvements/{workflow}/actions",
                     post(super::improvements::act),
                 )
                 .route("/api/v1/workflows/execute", post(execute_workflow))
@@ -482,11 +485,11 @@ impl HttpApiServer {
                     get(super::routes::inspect_capacity),
                 )
                 .route(
-                    "/api/v1/sandbox/workers/:lease/usage",
+                    "/api/v1/sandbox/workers/{lease}/usage",
                     get(super::routes::inspect_worker_usage),
                 )
                 .route(
-                    "/api/v1/audit/runs/:agent_id/:run_id",
+                    "/api/v1/audit/runs/{agent_id}/{run_id}",
                     get(super::routes::inspect_run),
                 )
                 .layer(middleware::from_fn(auth_middleware))
@@ -526,11 +529,11 @@ impl HttpApiServer {
                     get(super::escalation_routes::list_approvals),
                 )
                 .route(
-                    "/api/v1/approvals/:id/approve",
+                    "/api/v1/approvals/{id}/approve",
                     axum::routing::post(super::escalation_routes::approve),
                 )
                 .route(
-                    "/api/v1/approvals/:id/deny",
+                    "/api/v1/approvals/{id}/deny",
                     axum::routing::post(super::escalation_routes::deny),
                 )
                 .layer(axum::Extension(queue.clone()))
