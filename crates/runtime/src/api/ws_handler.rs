@@ -437,7 +437,7 @@ async fn handle_socket(
         message: "Durable chat admission is unavailable on this platform".into(),
     };
     if let Ok(json) = serde_json::to_string(&message) {
-        let _ = socket.send(Message::Text(json)).await;
+        let _ = socket.send(Message::Text(json.into())).await;
     }
-    let _ = socket.close().await;
+    let _ = socket.send(Message::Close(None)).await;
 }
