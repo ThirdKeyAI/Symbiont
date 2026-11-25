@@ -15,6 +15,7 @@ import shutil
 import shlex
 from file_grant_backend import Backend, arguments as backend_arguments
 from worker_origin_observer import verify_origin
+from container_fixture_profile import container_config, observe_runtime, selected_backend, verify_artifacts
 import signal
 import subprocess
 import tempfile
@@ -38,6 +39,7 @@ def main():
     backend_arguments(parser)
     parser.add_argument('--case', action='append', help='Run only selected case names')
     args = parser.parse_args()
+    selected_backend(args)
     vm = args.firecracker_binary is not None
     native = args.landlock
     backend = None
@@ -117,7 +119,7 @@ if sys.argv[1]=='create':
                 elif path.is_file():data=path.read_bytes()
                 else:continue
                 snapshots[prefix+'/'+str(path.relative_to(mount['Source']))]=hashlib.sha256(data).hexdigest()
-        (root/('worker-'+identity+'.json')).write_text(json.dumps(dict(id=identity,lease=lease,origin=record['origin'],mounts=value['Mounts'],network=value['HostConfig']['NetworkMode'],user=value['Config']['User'],snapshots=snapshots)))
+        (root/('worker-'+identity+'.json')).write_text(json.dumps(dict(id=identity,lease=lease,origin=record['origin'],runtime=value['HostConfig'].get('Runtime'),mounts=value['Mounts'],network=value['HostConfig']['NetworkMode'],user=value['Config']['User'],snapshots=snapshots)))
         if (root/'pause-create').exists():
             end=time.monotonic()+15
             (root/'created').touch()
@@ -170,8 +172,10 @@ os.execv(%r,[%r,*sys.argv[1:]])
             config.write_text('\n'.join('output_roots=[]' if line.startswith('output_roots=') else line for line in config.read_text().splitlines())+'\n')
             report['config_sha256']=digest(config)
         else:
-            (root / 'symbiont.toml').write_text('[sandbox]\ntier="docker"\n[sandbox.docker]\nworking_dir="/source"\nimage=' + json.dumps(image) +
-                '\ndocker_binary=' + json.dumps(str(wrapper)) + '\nvolumes=' + json.dumps([str(source) + ':/source:ro']) + '\nextra_flags=' + json.dumps(['--label=' + label]) + '\n')
+            (root / 'symbiont.toml').write_text(container_config(
+                args, image, '/source', [str(source) + ':/source:ro'],
+                ['--label=' + label], report, docker, docker_binary=wrapper))
+            report['config_sha256'] = digest(root / 'symbiont.toml')
         seed = os.urandom(32)
         key = root / '.symbiont/governed/audit-signing.key'
         key.write_bytes(seed)
@@ -324,6 +328,9 @@ os.execv(%r,[%r,*sys.argv[1:]])
             process = None
             row['workers'] = [json.loads(p.read_text()) for p in observer.glob('worker-*.json')]
             if vm or native: row['actual_workers']=actual_workers
+            else:
+                for worker in row['workers']:
+                    observe_runtime(args, worker.get('runtime'))
             assert not report['provider_errors'] and 'PRIVATE OBSERVER CANARY' not in json.dumps(requests), row
             journals = set((root / '.symbiont/governed').glob('*.jsonl')) - before - sibling_journals
             assert len(journals) == 1
@@ -417,6 +424,7 @@ os.execv(%r,[%r,*sys.argv[1:]])
             row['passed'] = True
             print(json.dumps({'case': name, 'passed': True}), flush=True)
         assert digest(binary) == report['binary_sha256']
+        verify_artifacts(report, docker)
         report['passed'] = True
     except Exception as error:
         report.update(error=f'{type(error).__name__}: {error}', traceback=traceback.format_exc())

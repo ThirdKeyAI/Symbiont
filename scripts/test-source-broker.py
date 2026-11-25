@@ -18,7 +18,8 @@ import threading
 import time
 import traceback
 import uuid
-from file_grant_backend import Backend
+from file_grant_backend import Backend, arguments as backend_arguments
+from container_fixture_profile import container_config, observe_runtime, selected_backend, verify_artifacts
 
 
 def digest(path):
@@ -31,12 +32,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=Path, required=True)
     parser.add_argument('--report', type=Path, required=True)
-    parser.add_argument('--landlock', action='store_true')
     parser.add_argument('--image', default='python:3.12-slim')
-    parser.add_argument('--firecracker-binary', type=Path)
-    parser.add_argument('--kernel', type=Path)
-    parser.add_argument('--rootfs', type=Path)
+    backend_arguments(parser)
     args = parser.parse_args()
+    selected_backend(args)
     vm = args.firecracker_binary is not None
     native = args.landlock
     assert not (vm and native)
@@ -150,8 +149,8 @@ def main():
             requests.clear()
             volumes = [] if name == 'no_ceiling' else [str(root / 'source') + ':/source:ro']
             if not vm and not native:
-                (root / 'symbiont.toml').write_text('[sandbox]\ntier="docker"\n[sandbox.docker]\nworking_dir="/source"\nimage=' + json.dumps(image) +
-                    '\nvolumes=' + json.dumps(volumes) + '\nextra_flags=' + json.dumps(['--label=' + label]) + '\n')
+                (root / 'symbiont.toml').write_text(container_config(
+                    args, image, '/source', volumes, ['--label=' + label], report, docker))
             if native:
                 roots = [] if name == "no_ceiling" else [str(root/"source") + ":/workspace:ro"]
                 (root/"symbiont.toml").write_text('[sandbox]\ntier="landlock"\n[sandbox.roots]\nsource_roots=' + json.dumps(roots) + "\n")
@@ -175,7 +174,8 @@ def main():
                 for identity in ([] if vm or native else docker('ps', '-q', '--filter', 'label=' + label).split()):
                     if identity not in [w['id'] for w in row['workers']]:
                         inspected = json.loads(docker('inspect', identity))[0]
-                        row['workers'].append({'id': identity, 'mounts': inspected['Mounts']})
+                        row['workers'].append({'id': identity, 'mounts': inspected['Mounts'],
+                                               'runtime': observe_runtime(args, inspected['HostConfig'].get('Runtime'))})
                 if native:
                     row["workers"].extend(backend.observe())
                 elif vm:
@@ -262,6 +262,7 @@ def main():
         assert len(report['cases']) == len(cases) and digest(binary) == report['binary_sha256']
         if vm:
             assert all(digest(Path(p)) == value for p, value in report['vm_artifacts'].items())
+        verify_artifacts(report, docker)
         report['passed'] = True
     except Exception as error:
         report.update(error=f'{type(error).__name__}: {error}', traceback=traceback.format_exc())
