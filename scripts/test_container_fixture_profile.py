@@ -217,6 +217,66 @@ class ContainerFixtureProfile(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'did not use runsc'):
             backend.observe()
 
+    def test_filesystem_checkpoint_rejects_changes_even_when_restored_before_completion(self):
+        from file_grant_backend import Backend
+        for change in ('runsc', 'sidecar', 'permissions', 'added', 'removed', 'registration'):
+            with self.subTest(change=change), tempfile.TemporaryDirectory(dir=self.root) as temporary:
+                root = Path(temporary)
+                (root / 'state').mkdir()
+                (root / 'source').mkdir()
+                runsc = root / 'runsc'
+                runsc.write_text('#!/bin/sh\nexit 0\n')
+                runsc.chmod(0o700)
+                sidecars = root / 'gvisor-bin'
+                sidecars.mkdir()
+                sentry = sidecars / 'sentry'
+                sentry.write_text('synthetic sentry bytes\n')
+                sentry.chmod(0o755)
+                args = self.args('--gvisor', '--runsc-binary', str(runsc))
+                args.report, args.image = root / 'report.json', self.image
+                registration = {'runsc': {'path': str(runsc)}}
+
+                def docker(*values):
+                    if values[0] == 'image':
+                        return self.image
+                    if values[0] == 'info':
+                        return json.dumps(registration)
+                    if values[0] == 'ps':
+                        return ''
+                    self.fail('unexpected Docker call: ' + repr(values))
+
+                report = {}
+                backend = Backend(args, root, root / 'source', 'fixture', docker, report)
+                backend.cleaned()  # The unchanged between-case control passes.
+                if change == 'runsc':
+                    runsc.write_text('#!/bin/sh\nexit 1\n')
+                elif change == 'sidecar':
+                    sentry.write_text('changed sentry bytes\n')
+                elif change == 'permissions':
+                    sentry.chmod(0o700)
+                elif change == 'added':
+                    (sidecars / 'extra').write_text('unexpected sidecar\n')
+                elif change == 'removed':
+                    sentry.unlink()
+                else:
+                    alias = root / 'runsc-alias'
+                    alias.symlink_to(runsc)
+                    registration['runsc']['path'] = str(alias)
+                try:
+                    # This is the shipping driver's checkpoint before marking
+                    # each filesystem case passed, not a direct helper call.
+                    error = 'gVisor sidecar directory is empty' if change == 'removed' else 'gVisor artifacts changed'
+                    with self.assertRaisesRegex(ValueError, error):
+                        backend.cleaned()
+                finally:
+                    runsc.write_text('#!/bin/sh\nexit 0\n')
+                    sentry.write_text('synthetic sentry bytes\n')
+                    sentry.chmod(0o755)
+                    (sidecars / 'extra').unlink(missing_ok=True)
+                    registration['runsc']['path'] = str(runsc)
+                # Restoration makes a completion-only check insufficient.
+                backend.finish(report)
+
     def test_completion_rechecks_the_daemon_runtime_registration(self):
         from file_grant_backend import Backend
         root = self.root / 'fixture'

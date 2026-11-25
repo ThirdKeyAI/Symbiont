@@ -47,6 +47,10 @@ between cases and before a passing result reject changed, added or removed
 sidecars, changed permissions, and changed registered paths. These snapshots
 detect changes at the checkpoints; they do not authenticate the installation
 or establish security against a compromised host operator.
+The filesystem driver verifies artifacts in each case's cleanup checkpoint,
+before marking that case passed. Its regression changes artifacts at this
+checkpoint and restores them before completion, so completion-only verification
+cannot satisfy the test.
 The completion checkpoint rereads Docker's current runsc registration as well as
 the selected files, so a removed or changed registration cannot retain a passing
 result merely because the previously selected executable is still on disk.

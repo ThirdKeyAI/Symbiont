@@ -17,6 +17,7 @@ def digest(path):
 class Backend:
     def __init__(self, args, root, data, label, docker, report, vmm_launcher=None):
         self.args, self.root, self.label, self.docker = args, root, label, docker
+        self.report = report
         selected_backend(args)
         self.landlock = args.landlock
         self.service = None
@@ -162,6 +163,7 @@ class Backend:
                     assert int(stat.rsplit(')', 1)[1].split()[19]) != worker['start_ticks'], 'VMM survived cleanup'
                 except FileNotFoundError:
                     pass
+        verify_artifacts(self.report, self.docker)
 
     def publication(self, entries, data, expected):
         effects = [e['event']['ToolEffect']['effect'] for e in entries if 'ToolEffect' in e['event']]
