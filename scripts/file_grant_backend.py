@@ -5,6 +5,8 @@ import os
 from delegated_service_fixture import AutomaticDelegatedService, eventually
 from pathlib import Path
 from worker_origin_observer import verify_origin
+from container_fixture_profile import (arguments, container_config, observe_runtime,
+                                       selected_backend, verify_artifacts)
 
 
 def digest(path):
@@ -12,16 +14,11 @@ def digest(path):
         return hashlib.file_digest(source, 'sha256').hexdigest()
 
 
-def arguments(parser):
-    parser.add_argument('--landlock', action='store_true')
-    parser.add_argument('--firecracker-binary', type=Path)
-    parser.add_argument('--kernel', type=Path)
-    parser.add_argument('--rootfs', type=Path)
-
-
 class Backend:
     def __init__(self, args, root, data, label, docker, report, vmm_launcher=None):
         self.args, self.root, self.label, self.docker = args, root, label, docker
+        self.report = report
+        selected_backend(args)
         self.landlock = args.landlock
         self.service = None
         self.vm = args.firecracker_binary is not None
@@ -56,9 +53,9 @@ class Backend:
         else:
             image = docker('image', 'inspect', args.image, '--format', '{{.Id}}')
             report['image'] = image
-            config = '[sandbox]\ntier="docker"\n[sandbox.docker]\nimage=' + json.dumps(image)
-            config += '\nvolumes=' + json.dumps([str(data) + ':/workspace:rw'])
-            config += '\nextra_flags=' + json.dumps(['--label=' + label]) + '\n'
+            config = container_config(args, image, self.workdir,
+                                      [str(data) + ':/workspace:rw'],
+                                      ['--label=' + label], report, docker)
         (root / 'symbiont.toml').write_text(config)
         report['config_sha256'] = digest(root / 'symbiont.toml')
 
@@ -128,7 +125,8 @@ class Backend:
                     lease = row['Config']['Labels']['ai.symbiont.lease']
                     record = json.loads((self.root / 'state' / (lease + '.json')).read_text())
                     assert record['state']['container_id'] == identity
-                    found.append({'id': identity, 'lease': lease, 'origin': record['origin'], 'mounts': row['Mounts'], 'ulimits': row['HostConfig']['Ulimits']})
+                    found.append({'id': identity, 'lease': lease, 'origin': record['origin'], 'mounts': row['Mounts'], 'ulimits': row['HostConfig']['Ulimits'],
+                                  'runtime': observe_runtime(self.args, row['HostConfig'].get('Runtime'))})
         self.seen.extend(found)
         return found
 
@@ -165,6 +163,7 @@ class Backend:
                     assert int(stat.rsplit(')', 1)[1].split()[19]) != worker['start_ticks'], 'VMM survived cleanup'
                 except FileNotFoundError:
                     pass
+        verify_artifacts(self.report, self.docker)
 
     def publication(self, entries, data, expected):
         effects = [e['event']['ToolEffect']['effect'] for e in entries if 'ToolEffect' in e['event']]
@@ -187,3 +186,4 @@ class Backend:
             if self.service is not None:
                 self.service.stop()
         assert all(digest(path) == expected for path, expected in self.artifacts.items()), 'VM artifact changed'
+        verify_artifacts(report, self.docker)
