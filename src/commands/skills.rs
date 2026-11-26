@@ -1,7 +1,7 @@
 use clap::ArgMatches;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use symbi_runtime::skills::{SkillLoader, SkillScanner, SkillsConfig};
+use symbi_runtime::skills::{ScanRule, SkillLoader, SkillScanner, SkillsConfig};
 
 pub async fn run(matches: &ArgMatches) {
     match matches.subcommand() {
@@ -74,15 +74,22 @@ async fn cmd_scan(matches: &ArgMatches) {
         }
     };
 
-    if !dir.exists() {
-        eprintln!("Error: directory '{}' does not exist", dir.display());
-        std::process::exit(1);
+    let json = matches.get_flag("json");
+    let mut rules = Vec::new();
+    if let Some(patterns) = matches.get_many::<String>("deny-pattern") {
+        rules.extend(patterns.cloned().map(ScanRule::DenyContentPattern));
     }
-
-    let scanner = SkillScanner::new();
+    if let Some(patterns) = matches.get_many::<String>("warn-pattern") {
+        rules.extend(patterns.cloned().map(ScanRule::WarnContentPattern));
+    }
+    // Compatibility constructor retains invalid policy identity in failed JSON results.
+    let scanner = SkillScanner::with_custom_rules(rules);
     let start = std::time::Instant::now();
 
     let result = scanner.scan_skill_with_progress(&dir, |progress| {
+        if json {
+            return;
+        }
         // Overwrite the current line with progress status
         eprint!(
             "\r\x1b[K  Scanning [{}/{}] {}",
@@ -91,15 +98,33 @@ async fn cmd_scan(matches: &ArgMatches) {
         let _ = std::io::stderr().flush();
     });
 
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string(&result).expect("serializable scan result")
+        );
+        if !result.passed {
+            std::process::exit(1);
+        }
+        return;
+    }
+
     // Clear the progress line
     eprint!("\r\x1b[K");
     let _ = std::io::stderr().flush();
 
     let elapsed = start.elapsed();
+    println!(
+        "Scanner {} / semantics {} / ruleset {} / policy SHA-256 {}",
+        result.identity.engine_version,
+        result.identity.semantics_version,
+        result.identity.ruleset_version,
+        result.identity.policy_sha256
+    );
 
     if result.findings.is_empty() {
         println!(
-            "No findings. Skill passed all security checks. ({:.1}s)",
+            "No findings under the selected scan policy. ({:.1}s)",
             elapsed.as_secs_f64()
         );
         return;

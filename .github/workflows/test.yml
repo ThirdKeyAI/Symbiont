@@ -56,6 +56,7 @@ jobs:
       - name: Build and test outbound CLI capabilities
         run: |
           cargo build --locked -p symbi
+          python3 scripts/test-skills-scanner.py --binary "$PWD/target/debug/symbi"
           python3 scripts/test-outbound-capabilities.py \
             --binary "$PWD/target/debug/symbi" \
             --report "$RUNNER_TEMP/outbound-capabilities.json"

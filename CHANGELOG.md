@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- ClawHavoc custom content/file denies now block rather than warn. Invalid rule
+  configurations fail closed, and fallible constructors expose validation errors.
+  `WarnContentPattern` provides an explicit advisory alternative. Custom finding
+  IDs now contain pattern digests rather than the patterns themselves.
+- The setuid/setgid rule distinguishes special permission bits from ordinary
+  three-digit modes; `chmod 600` and removing setuid no longer trigger it.
+- Skill scan results identify the engine, semantics, bundled ruleset and complete
+  policy digest. `symbi skills scan` supports `--json`, `--deny-pattern` and
+  `--warn-pattern`; a regression corpus covers blocking and legitimate controls.
+
 - `zip` is now 9.4.1 everywhere it is locked, which clears GHSA-m665-v7pm-7grj
   (dual-header parser differential). It was only a build-time dependency of the
   Swagger UI bundle and a dependency of the optional `embedding-models` feature.

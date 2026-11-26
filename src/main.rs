@@ -634,6 +634,12 @@ async fn app_main() {
                 .subcommand(
                     Command::new("scan")
                         .about("Scan a skill directory for policy violations")
+                        .arg(Arg::new("json").long("json").action(clap::ArgAction::SetTrue)
+                            .help("Emit a JSON scan result including policy identity"))
+                        .arg(Arg::new("deny-pattern").long("deny-pattern").value_name("REGEX")
+                            .action(clap::ArgAction::Append).help("Add a blocking content pattern (repeatable)"))
+                        .arg(Arg::new("warn-pattern").long("warn-pattern").value_name("REGEX")
+                            .action(clap::ArgAction::Append).help("Add an advisory content pattern (repeatable)"))
                         .arg(
                             Arg::new("dir")
                                 .value_name("DIR")

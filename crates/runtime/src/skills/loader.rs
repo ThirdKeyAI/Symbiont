@@ -862,4 +862,27 @@ mod tests {
         let loader = SkillLoader::new(config);
         assert!(loader.is_unsigned_allowed(&skill_dir));
     }
+
+    #[test]
+    fn configured_denies_and_invalid_rules_fail_loaded_skill_scan() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("SKILL.md"), "# Fixture\nsynthetic-secret").unwrap();
+        for pattern in ["synthetic-secret", "["] {
+            let mut loader = SkillLoader::new(SkillsConfig {
+                custom_deny_patterns: vec![pattern.into()],
+                ..SkillsConfig::default()
+            });
+            let skill = loader.load_skill(dir.path()).unwrap();
+            let result = skill.scan_result.unwrap();
+            assert!(!result.passed);
+            assert_eq!(
+                result.identity.ruleset_version,
+                super::super::scanner::BUILTIN_RULESET_VERSION
+            );
+            assert_eq!(
+                result.findings[0].severity,
+                super::super::scanner::ScanSeverity::High
+            );
+        }
+    }
 }

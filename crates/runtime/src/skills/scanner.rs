@@ -1,22 +1,26 @@
 use regex::Regex;
+use serde::Serialize;
+use sha2::{Digest, Sha256};
 use std::path::Path;
 
-/// A rule that blocks specific patterns in skill content.
-#[derive(Debug, Clone)]
+/// A custom blocking or advisory check for skill content.
+#[derive(Debug, Clone, Serialize)]
 pub enum ScanRule {
     /// Block content matching a regex pattern.
     DenyContentPattern(String),
+    /// Report a non-blocking content warning (explicit advisory alternative).
+    WarnContentPattern(String),
     /// Block references to specific files (e.g. `.env`).
     DenyFileReference(String),
     /// Block dangerous shell patterns (e.g. `curl|bash`).
     DenyShellPattern(String),
-    /// Only allow whitelisted executables.
+    /// Restrict recognized shebang interpreters to this allowlist.
     AllowedExecutablesOnly(Vec<String>),
 }
 
 /// Resource limits for skill scanning to prevent runaway resource consumption.
 /// Exceeding a limit produces a failed, incomplete scan rather than a clean pass.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ScanLimits {
     /// Maximum file size to read in bytes (default: 1 MiB).
     pub max_file_size: u64,
@@ -37,7 +41,7 @@ impl Default for ScanLimits {
 }
 
 /// Progress information emitted during a scan.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ScanProgress {
     /// File currently being scanned (relative path).
     pub file: String,
@@ -50,7 +54,7 @@ pub struct ScanProgress {
 }
 
 /// Severity of a scan finding.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum ScanSeverity {
     Critical,
     High,
@@ -72,7 +76,7 @@ impl std::fmt::Display for ScanSeverity {
 }
 
 /// A single finding from a content scan.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ScanFinding {
     pub rule: String,
     pub severity: ScanSeverity,
@@ -82,10 +86,34 @@ pub struct ScanFinding {
 }
 
 /// Result of scanning a skill.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ScanResult {
+    pub identity: ScanIdentity,
     pub passed: bool,
     pub findings: Vec<ScanFinding>,
+}
+
+/// Version of matching/verdict semantics; bump when those semantics change.
+pub const SCANNER_SEMANTICS_VERSION: &str = "2";
+/// Human-readable revision of the bundled rules.
+pub const BUILTIN_RULESET_VERSION: &str = "clawhavoc-2";
+
+/// Reproducible identity of the requested scan policy, including limits.
+/// A digest is an identifier, not a signature or a statement of trust.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ScanIdentity {
+    pub engine_version: String,
+    pub semantics_version: String,
+    pub ruleset_version: String,
+    pub policy_sha256: String,
+}
+
+/// Invalid rules reject the complete configuration; no partial ruleset is used.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
+#[error("invalid scanner rule {rule}: {reason}")]
+pub struct ScanRuleError {
+    pub rule: String,
+    pub reason: String,
 }
 
 /// Content scanner with built-in ClawHavoc defense rules plus custom rules.
@@ -93,6 +121,8 @@ pub struct SkillScanner {
     deny_patterns: Vec<(String, Regex, ScanSeverity, String)>,
     allowed_executables: Option<Vec<String>>,
     limits: ScanLimits,
+    identity: ScanIdentity,
+    configuration_error: Option<ScanRuleError>,
 }
 
 /// Default ClawHavoc defense rules.
@@ -291,7 +321,7 @@ fn default_rules() -> Vec<(String, String, ScanSeverity, String)> {
         ),
         (
             "privesc-setuid".into(),
-            r"chmod\s+[ugoa]*[+-]s|chmod\s+[0-7]*[4-7][0-7]{2}\b".into(),
+            r"chmod\s+(?:[ugoa]*\+s|0*[2-7][0-7]{3}\b)".into(),
             ScanSeverity::High,
             "setuid/setgid bit manipulation".into(),
         ),
@@ -354,72 +384,145 @@ impl SkillScanner {
         Self::with_limits(ScanLimits::default())
     }
 
-    /// Create a scanner with default rules and custom resource limits.
+    /// Compatibility constructor. Invalid configuration fails every scan.
     pub fn with_limits(limits: ScanLimits) -> Self {
-        let compiled = default_rules()
+        Self::configured(Vec::new(), limits)
+    }
+
+    /// Compatibility constructor. Prefer `try_with_custom_rules` for early errors.
+    /// All Deny variants block; use WarnContentPattern for advisory matching.
+    pub fn with_custom_rules(rules: Vec<ScanRule>) -> Self {
+        Self::configured(rules, ScanLimits::default())
+    }
+
+    pub fn try_with_custom_rules(rules: Vec<ScanRule>) -> Result<Self, ScanRuleError> {
+        Self::try_with_rules_and_limits(rules, ScanLimits::default())
+    }
+
+    pub fn try_with_rules_and_limits(
+        rules: Vec<ScanRule>,
+        limits: ScanLimits,
+    ) -> Result<Self, ScanRuleError> {
+        let scanner = Self::configured(rules, limits);
+        if let Some(error) = &scanner.configuration_error {
+            return Err(error.clone());
+        }
+        Ok(scanner)
+    }
+
+    pub fn identity(&self) -> &ScanIdentity {
+        &self.identity
+    }
+
+    pub fn configuration_error(&self) -> Option<&ScanRuleError> {
+        self.configuration_error.as_ref()
+    }
+
+    fn configured(rules: Vec<ScanRule>, limits: ScanLimits) -> Self {
+        let mut definitions = default_rules();
+        // Ordered tuples and enums avoid map-order ambiguity. Include requested
+        // rules (even invalid ones), limits and matching semantics in the digest.
+        let policy = serde_json::to_vec(&(
+            "symbi-skill-scan-policy-v1",
+            SCANNER_SEMANTICS_VERSION,
+            BUILTIN_RULESET_VERSION,
+            &definitions,
+            &rules,
+            &limits,
+        ))
+        .expect("scanner policy contains only serializable values");
+        let identity = ScanIdentity {
+            engine_version: env!("CARGO_PKG_VERSION").into(),
+            semantics_version: SCANNER_SEMANTICS_VERSION.into(),
+            ruleset_version: BUILTIN_RULESET_VERSION.into(),
+            policy_sha256: format!("{:x}", Sha256::digest(policy)),
+        };
+        let mut allowed_executables = None;
+        let mut configuration_error = None;
+        for rule in rules {
+            let (kind, pattern, severity, message) = match rule {
+                ScanRule::DenyContentPattern(p) => (
+                    "custom",
+                    p,
+                    ScanSeverity::High,
+                    "Matched custom deny pattern",
+                ),
+                ScanRule::WarnContentPattern(p) => (
+                    "custom-warning",
+                    p,
+                    ScanSeverity::Warning,
+                    "Matched custom advisory pattern",
+                ),
+                ScanRule::DenyFileReference(p) => (
+                    "deny-file",
+                    regex::escape(&p),
+                    ScanSeverity::High,
+                    "Reference to blocked file",
+                ),
+                ScanRule::DenyShellPattern(p) => (
+                    "deny-shell",
+                    p,
+                    ScanSeverity::Critical,
+                    "Matched blocked shell pattern",
+                ),
+                ScanRule::AllowedExecutablesOnly(executables) => {
+                    if allowed_executables.is_some() {
+                        configuration_error = Some(ScanRuleError {
+                            rule: "allowed-executables".into(),
+                            reason: "multiple executable allowlists are ambiguous".into(),
+                        });
+                    }
+                    allowed_executables = Some(executables);
+                    continue;
+                }
+            };
+            // Stable opaque IDs do not echo potentially sensitive custom patterns.
+            let id = format!("{}:{:x}", kind, Sha256::digest(pattern.as_bytes()));
+            definitions.push((id, pattern, severity, message.into()));
+        }
+        let compiled: Result<Vec<_>, ScanRuleError> = definitions
             .into_iter()
-            .filter_map(|(name, pattern, severity, msg)| {
+            .map(|(id, pattern, severity, message)| {
                 Regex::new(&pattern)
-                    .ok()
-                    .map(|re| (name, re, severity, msg))
+                    .map(|re| (id.clone(), re, severity, message))
+                    .map_err(|_| ScanRuleError {
+                        rule: id,
+                        reason: "invalid or oversized regular expression".into(),
+                    })
             })
             .collect();
-
+        let deny_patterns = match compiled {
+            Ok(patterns) if configuration_error.is_none() => patterns,
+            Ok(_) => Vec::new(),
+            Err(error) => {
+                configuration_error = Some(error);
+                Vec::new()
+            }
+        };
         Self {
-            deny_patterns: compiled,
-            allowed_executables: None,
+            deny_patterns,
+            allowed_executables,
             limits,
+            identity,
+            configuration_error,
         }
     }
 
-    /// Create a scanner with custom rules appended to the defaults.
-    pub fn with_custom_rules(rules: Vec<ScanRule>) -> Self {
-        let mut scanner = Self::new();
-
-        for rule in rules {
-            match rule {
-                ScanRule::DenyContentPattern(pattern) => {
-                    if let Ok(re) = Regex::new(&pattern) {
-                        scanner.deny_patterns.push((
-                            format!("custom:{}", pattern),
-                            re,
-                            ScanSeverity::Warning,
-                            format!("Matched custom deny pattern: {}", pattern),
-                        ));
-                    }
-                }
-                ScanRule::DenyFileReference(file) => {
-                    let pattern = regex::escape(&file);
-                    if let Ok(re) = Regex::new(&pattern) {
-                        scanner.deny_patterns.push((
-                            format!("deny-file:{}", file),
-                            re,
-                            ScanSeverity::Warning,
-                            format!("Reference to blocked file: {}", file),
-                        ));
-                    }
-                }
-                ScanRule::DenyShellPattern(pattern) => {
-                    if let Ok(re) = Regex::new(&pattern) {
-                        scanner.deny_patterns.push((
-                            format!("deny-shell:{}", pattern),
-                            re,
-                            ScanSeverity::Critical,
-                            format!("Matched blocked shell pattern: {}", pattern),
-                        ));
-                    }
-                }
-                ScanRule::AllowedExecutablesOnly(executables) => {
-                    scanner.allowed_executables = Some(executables);
-                }
-            }
-        }
-
-        scanner
+    fn configuration_finding(&self, file: &str) -> Option<ScanFinding> {
+        self.configuration_error.as_ref().map(|error| ScanFinding {
+            rule: "scan-configuration-invalid".into(),
+            severity: ScanSeverity::High,
+            message: error.to_string(),
+            line: None,
+            file: file.into(),
+        })
     }
 
     /// Scan content of a single file for policy violations.
     pub fn scan_content(&self, content: &str, file_name: &str) -> Vec<ScanFinding> {
+        if let Some(finding) = self.configuration_finding(file_name) {
+            return vec![finding];
+        }
         let mut findings = Vec::new();
 
         for (line_num, line) in content.lines().enumerate() {
@@ -475,9 +578,17 @@ impl SkillScanner {
     where
         F: Fn(&ScanProgress),
     {
+        if let Some(finding) = self.configuration_finding("<configuration>") {
+            return ScanResult {
+                identity: self.identity.clone(),
+                passed: false,
+                findings: vec![finding],
+            };
+        }
         match super::files::SkillDirectory::open(skill_dir) {
             Ok(directory) => self.scan_directory(&directory, skill_dir, None, on_progress),
             Err(error) => ScanResult {
+                identity: self.identity.clone(),
                 passed: false,
                 findings: vec![incomplete_scan(
                     skill_dir.display().to_string(),
@@ -497,6 +608,13 @@ impl SkillScanner {
     where
         F: Fn(&ScanProgress),
     {
+        if let Some(finding) = self.configuration_finding("<configuration>") {
+            return ScanResult {
+                identity: self.identity.clone(),
+                passed: false,
+                findings: vec![finding],
+            };
+        }
         let mut all_findings = Vec::new();
         // Always assess the exact instruction bytes returned by the loader,
         // even if that file is removed or replaced during discovery.
@@ -542,6 +660,7 @@ impl SkillScanner {
             .any(|f| f.severity == ScanSeverity::Critical || f.severity == ScanSeverity::High);
 
         ScanResult {
+            identity: self.identity.clone(),
             passed: !has_blocking,
             findings: all_findings,
         }
@@ -824,6 +943,7 @@ mod tests {
     fn high_severity_blocks_scan() {
         // Directly test the passed logic with a High finding
         let result = ScanResult {
+            identity: SkillScanner::new().identity().clone(),
             passed: false, // We'll test the logic in scan_skill
             findings: vec![ScanFinding {
                 rule: "test-high".into(),
@@ -1130,5 +1250,163 @@ mod tests {
         let result = scanner.scan_skill(dir.path());
         assert!(result.passed);
         assert!(result.findings.is_empty());
+    }
+
+    #[test]
+    fn invalid_configuration_never_becomes_a_partial_clean_scan() {
+        for rule in [
+            ScanRule::DenyContentPattern("[".into()),
+            ScanRule::DenyShellPattern("[".into()),
+            ScanRule::WarnContentPattern("[".into()),
+        ] {
+            assert!(SkillScanner::try_with_custom_rules(vec![rule.clone()]).is_err());
+            let scanner = SkillScanner::with_custom_rules(vec![
+                ScanRule::DenyContentPattern("synthetic-secret".into()),
+                rule,
+            ]);
+            let dir = tempfile::tempdir().unwrap();
+            std::fs::write(dir.path().join("SKILL.md"), "Safe prose").unwrap();
+            let result = scanner.scan_skill(dir.path());
+            assert!(!result.passed);
+            assert_eq!(result.findings[0].rule, "scan-configuration-invalid");
+            assert_eq!(result.identity, *scanner.identity());
+            let findings = scanner.scan_content("", "empty.md");
+            assert_eq!(findings.len(), 1);
+            assert_eq!(findings[0].severity, ScanSeverity::High);
+        }
+    }
+
+    #[test]
+    fn deny_rules_block_and_advisory_rules_do_not() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("SKILL.md"), "synthetic-secret").unwrap();
+        for rule in [
+            ScanRule::DenyContentPattern("synthetic-secret".into()),
+            ScanRule::DenyFileReference("synthetic-secret".into()),
+            ScanRule::DenyShellPattern("synthetic-secret".into()),
+        ] {
+            assert!(
+                !SkillScanner::try_with_custom_rules(vec![rule])
+                    .unwrap()
+                    .scan_skill(dir.path())
+                    .passed
+            );
+        }
+        let advisory = SkillScanner::try_with_custom_rules(vec![ScanRule::WarnContentPattern(
+            "synthetic-secret".into(),
+        )])
+        .unwrap();
+        let result = advisory.scan_skill(dir.path());
+        assert!(result.passed);
+        assert_eq!(result.findings[0].severity, ScanSeverity::Warning);
+        assert!(!result.findings[0].rule.contains("synthetic-secret"));
+        assert!(!result.findings[0].message.contains("synthetic-secret"));
+        let literal =
+            SkillScanner::with_custom_rules(vec![ScanRule::DenyFileReference("secret.txt".into())]);
+        assert!(literal.scan_content("secretXtxt", "test.md").is_empty());
+        assert_eq!(
+            literal.scan_content("secret.txt", "test.md")[0].severity,
+            ScanSeverity::High
+        );
+    }
+
+    #[test]
+    fn duplicate_allowlists_reject_instead_of_overriding() {
+        let scanner = SkillScanner::with_custom_rules(vec![
+            ScanRule::AllowedExecutablesOnly(vec!["sh".into()]),
+            ScanRule::AllowedExecutablesOnly(vec!["python".into()]),
+        ]);
+        assert!(scanner.configuration_error().is_some());
+        assert_eq!(
+            scanner.scan_content("", "test.md")[0].rule,
+            "scan-configuration-invalid"
+        );
+    }
+
+    #[test]
+    fn identity_binds_policy_limits_and_invalid_configuration() {
+        let baseline = SkillScanner::new();
+        assert!(baseline.configuration_error().is_none());
+        assert_eq!(baseline.identity(), SkillScanner::new().identity());
+        let policies = vec![
+            SkillScanner::with_custom_rules(vec![ScanRule::DenyContentPattern("synthetic".into())]),
+            SkillScanner::with_custom_rules(vec![ScanRule::WarnContentPattern("synthetic".into())]),
+            SkillScanner::with_custom_rules(vec![ScanRule::AllowedExecutablesOnly(vec![
+                "sh".into()
+            ])]),
+            SkillScanner::with_custom_rules(vec![ScanRule::DenyContentPattern("[".into())]),
+            SkillScanner::with_limits(ScanLimits {
+                max_files: 1,
+                ..ScanLimits::default()
+            }),
+            SkillScanner::with_limits(ScanLimits {
+                max_depth: 1,
+                ..ScanLimits::default()
+            }),
+            SkillScanner::with_limits(ScanLimits {
+                max_file_size: 1,
+                ..ScanLimits::default()
+            }),
+        ];
+        let mut hashes =
+            std::collections::HashSet::from([baseline.identity().policy_sha256.clone()]);
+        for scanner in policies {
+            assert_eq!(scanner.identity().policy_sha256.len(), 64);
+            assert!(hashes.insert(scanner.identity().policy_sha256.clone()));
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let result = baseline.scan_skill(&dir.path().join("missing"));
+        assert!(!result.passed);
+        let json = serde_json::to_value(result).unwrap();
+        assert_eq!(
+            json["identity"]["policy_sha256"],
+            baseline.identity().policy_sha256
+        );
+    }
+
+    #[test]
+    fn regression_corpus_checks_findings_and_directory_verdicts() {
+        #[derive(serde::Deserialize)]
+        struct Case {
+            id: String,
+            content: String,
+            expected_rule: Option<String>,
+            severity: Option<String>,
+            passed: bool,
+            source: String,
+        }
+        let cases: Vec<Case> =
+            serde_json::from_str(include_str!("../../tests/fixtures/clawhavoc/cases.json"))
+                .unwrap();
+        let scanner = SkillScanner::new();
+        let mut ids = std::collections::HashSet::new();
+        for case in cases {
+            assert!(ids.insert(case.id.clone()), "duplicate corpus ID");
+            assert!(!case.source.is_empty());
+            let dir = tempfile::tempdir().unwrap();
+            std::fs::write(dir.path().join("SKILL.md"), &case.content).unwrap();
+            let result = scanner.scan_skill(dir.path());
+            assert_eq!(
+                result.passed, case.passed,
+                "{}: {:?}",
+                case.id, result.findings
+            );
+            if let Some(rule) = case.expected_rule {
+                let finding = result
+                    .findings
+                    .iter()
+                    .find(|finding| finding.rule == rule)
+                    .unwrap_or_else(|| panic!("{}: missing {}", case.id, rule));
+                assert_eq!(format!("{:?}", finding.severity), case.severity.unwrap());
+                assert_eq!(finding.line, Some(1));
+            } else {
+                assert!(
+                    result.findings.is_empty(),
+                    "{}: {:?}",
+                    case.id,
+                    result.findings
+                );
+            }
+        }
     }
 }

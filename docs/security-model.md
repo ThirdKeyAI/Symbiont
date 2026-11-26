@@ -957,30 +957,54 @@ the publisher identity before replacing the published signature.
 
 ### Executable Whitelisting
 
-The `AllowedExecutablesOnly` rule type restricts which executables an agent skill can invoke:
+`AllowedExecutablesOnly` checks recognized shebang interpreters. It does not
+parse arbitrary commands or restrict what a worker can execute. Runtime sandbox
+and tool policies remain independent controls. Multiple allowlists in one scanner
+configuration are rejected rather than silently overriding one another.
+
+### Custom Rules and Scan Identity
+
+`DenyContentPattern` and `DenyFileReference` produce blocking High findings;
+`DenyShellPattern` produces Critical findings. Existing `custom_deny_patterns`
+configuration now blocks matching content. Use `WarnContentPattern` explicitly
+when only an advisory finding is intended:
 
 ```rust
-// Only allow these executables — everything else is blocked
-ScanRule::AllowedExecutablesOnly(vec![
-    "python3".into(),
-    "node".into(),
-    "cargo".into(),
-])
+use symbi_runtime::skills::{ScanRule, SkillScanner};
+
+let scanner = SkillScanner::try_with_custom_rules(vec![
+    ScanRule::DenyContentPattern(r"internal\.corp\.example\.com".into()),
+    ScanRule::WarnContentPattern(r"review-needed".into()),
+])?;
+# Ok::<(), symbi_runtime::skills::ScanRuleError>(())
 ```
 
-### Custom Rules
+Fallible constructors return `ScanRuleError` on invalid regexes. The existing
+`with_custom_rules` constructor remains available, but an invalid configuration
+makes every scan fail with `scan-configuration-invalid`; it never silently uses
+a partial ruleset. Custom rule IDs hash the pattern instead of echoing it in
+reports. This changes the previous pattern-containing custom IDs.
 
-Domain-specific patterns can be added alongside ClawHavoc defaults:
+Every `ScanResult`, including failed/incomplete scans, carries `identity`:
+`engine_version`, `semantics_version`, `ruleset_version`, and `policy_sha256`.
+The policy digest binds the ordered built-in definitions, ordered custom rules,
+matching/verdict semantics, ruleset revision and scan limits. It identifies the
+requested policy even when validation fails; it is not a signature. Engine
+version is the runtime package version and is reported separately.
 
-```rust
-let mut scanner = SkillScanner::new();
-scanner.add_custom_rule(
-    "block-internal-api",
-    r"internal\.corp\.example\.com",
-    ScanSeverity::High,
-    "References to internal API endpoints are not allowed in skills",
-);
+```sh
+symbi skills scan ./my-skill --json
+symbi skills scan ./my-skill --deny-pattern 'internal\.corp\.example\.com' --json
+symbi skills scan ./my-skill --warn-pattern 'review-needed'
 ```
+
+`--json` emits one JSON result without progress output. A blocking finding,
+invalid rule or incomplete scan exits 1; a clean or advisory-only scan exits 0.
+The SDK loader returns the scan result alongside loaded content; callers must
+honor its verdict. Content scanning remains optional via `scan_enabled`.
+
+See [ClawHavoc rule maintenance](clawhavoc-rule-maintenance.md) for the corpus,
+versioning contract, source provenance and future signed-update design.
 
 ---
 

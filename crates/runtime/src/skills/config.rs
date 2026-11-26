@@ -13,7 +13,8 @@ pub struct SkillsConfig {
     pub auto_pin: bool,
     /// Enable content scanning (ClawHavoc defense).
     pub scan_enabled: bool,
-    /// User-defined deny patterns (regex strings).
+    /// User-defined blocking deny patterns (regex strings, High severity).
+    /// Invalid patterns fail the complete scan configuration.
     pub custom_deny_patterns: Vec<String>,
 }
 
