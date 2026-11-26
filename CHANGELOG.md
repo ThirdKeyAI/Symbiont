@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Opt-in signed ClawHavoc feeds add reviewed rules using independently pinned
+  P-256 keys, bounded HTTPS downloads, whole-pack validation, monotonic versions,
+  expiry checks and atomic activation retaining the previous verified pack.
+  `skills rules init/update/status/sign` manages feeds and publisher artifacts;
+  `skills scan --rules-dir` and `SkillsConfig.rule_pack_dir` select installed rules.
+  No default feed or production signing key is shipped.
+
 - ClawHavoc custom content/file denies now block rather than warn. Invalid rule
   configurations fail closed, and fallible constructors expose validation errors.
   `WarnContentPattern` provides an explicit advisory alternative. Custom finding

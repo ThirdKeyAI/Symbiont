@@ -1004,7 +1004,10 @@ The SDK loader returns the scan result alongside loaded content; callers must
 honor its verdict. Content scanning remains optional via `scan_enabled`.
 
 See [ClawHavoc rule maintenance](clawhavoc-rule-maintenance.md) for the corpus,
-versioning contract, source provenance and future signed-update design.
+versioning contract and source provenance. The opt-in [signed rule updater](clawhavoc-updates.md)
+adds independently verified packs selected through `--rules-dir` or
+`SkillsConfig.rule_pack_dir`. Invalid or expired selected packs fail scans;
+the built-in rules always remain active.
 
 ---
 

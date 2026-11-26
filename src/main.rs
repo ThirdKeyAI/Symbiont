@@ -633,6 +633,7 @@ async fn app_main() {
                 .subcommand(Command::new("list").about("List loaded skills with verification status"))
                 .subcommand(
                     Command::new("scan")
+                        .arg(Arg::new("rules-dir").long("rules-dir").value_name("DIR").help("Use a verified signed rule store; errors fail the scan"))
                         .about("Scan a skill directory for policy violations")
                         .arg(Arg::new("json").long("json").action(clap::ArgAction::SetTrue)
                             .help("Emit a JSON scan result including policy identity"))
@@ -646,6 +647,24 @@ async fn app_main() {
                                 .help("Skill directory to scan")
                                 .required(true),
                         ),
+                )
+                .subcommand(
+                    Command::new("rules")
+                        .about("Configure, update and inspect signed ClawHavoc rule packs")
+                        .subcommand_required(true)
+                        .subcommand(Command::new("init")
+                            .arg(Arg::new("store").long("store").value_name("DIR"))
+                            .arg(Arg::new("url").long("url").required(true).value_name("HTTPS_URL"))
+                            .arg(Arg::new("public-key").long("public-key").required(true).value_name("PEM_FILE")))
+                        .subcommand(Command::new("update")
+                            .arg(Arg::new("store").long("store").value_name("DIR")))
+                        .subcommand(Command::new("status")
+                            .arg(Arg::new("store").long("store").value_name("DIR")))
+                        .subcommand(Command::new("sign")
+                            .about("Sign a reviewed rule-pack payload with a publisher P-256 key")
+                            .arg(Arg::new("input").long("input").required(true).value_name("JSON_FILE"))
+                            .arg(Arg::new("key").long("key").required(true).value_name("PRIVATE_PEM_FILE"))
+                            .arg(Arg::new("output").long("output").required(true).value_name("NEW_FILE"))),
                 )
                 .subcommand(
                     Command::new("verify")

@@ -1,6 +1,7 @@
 pub mod config;
 mod files;
 pub mod loader;
+pub mod rule_pack;
 pub mod scanner;
 pub mod signature;
 

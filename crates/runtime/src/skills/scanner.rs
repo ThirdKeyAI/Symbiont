@@ -1,5 +1,5 @@
 use regex::Regex;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::Path;
 
@@ -54,7 +54,7 @@ pub struct ScanProgress {
 }
 
 /// Severity of a scan finding.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ScanSeverity {
     Critical,
     High,
@@ -123,6 +123,7 @@ pub struct SkillScanner {
     limits: ScanLimits,
     identity: ScanIdentity,
     configuration_error: Option<ScanRuleError>,
+    pack_expires_at: Option<u64>,
 }
 
 /// Default ClawHavoc defense rules.
@@ -419,7 +420,52 @@ impl SkillScanner {
     }
 
     fn configured(rules: Vec<ScanRule>, limits: ScanLimits) -> Self {
+        Self::configured_with_pack(rules, limits, None)
+    }
+
+    /// Load an explicitly selected store. Invalid packs fail every scan, including JSON scans.
+    pub fn with_rule_store(rules: Vec<ScanRule>, limits: ScanLimits, dir: &Path) -> Self {
+        match super::rule_pack::load_rule_pack(dir) {
+            Ok(pack) => Self::configured_with_pack(rules, limits, Some(&pack)),
+            Err(_) => {
+                let mut scanner = Self::configured(rules, limits);
+                scanner.identity.ruleset_version.push_str("+unavailable");
+                scanner.identity.policy_sha256 = format!(
+                    "{:x}",
+                    Sha256::digest(
+                        serde_json::to_vec(&(
+                            "symbi-unavailable-pack-v1",
+                            &scanner.identity.policy_sha256,
+                            dir.as_os_str().as_encoded_bytes()
+                        ))
+                        .expect("serializable policy")
+                    )
+                );
+                scanner.configuration_error = Some(ScanRuleError {
+                    rule: "rule-pack-invalid".into(),
+                    reason: "selected rule pack is missing, invalid, incompatible or expired; use skills rules status".into(),
+                });
+                scanner
+            }
+        }
+    }
+
+    fn configured_with_pack(
+        rules: Vec<ScanRule>,
+        limits: ScanLimits,
+        pack: Option<&super::rule_pack::VerifiedRulePack>,
+    ) -> Self {
         let mut definitions = default_rules();
+        if let Some(pack) = pack {
+            definitions.extend(pack.rules().iter().map(|rule| {
+                (
+                    format!("pack:{}", rule.id),
+                    rule.pattern.clone(),
+                    rule.severity.clone(),
+                    rule.message.clone(),
+                )
+            }));
+        }
         // Ordered tuples and enums avoid map-order ambiguity. Include requested
         // rules (even invalid ones), limits and matching semantics in the digest.
         let policy = serde_json::to_vec(&(
@@ -431,12 +477,28 @@ impl SkillScanner {
             &limits,
         ))
         .expect("scanner policy contains only serializable values");
-        let identity = ScanIdentity {
+        let mut identity = ScanIdentity {
             engine_version: env!("CARGO_PKG_VERSION").into(),
             semantics_version: SCANNER_SEMANTICS_VERSION.into(),
             ruleset_version: BUILTIN_RULESET_VERSION.into(),
             policy_sha256: format!("{:x}", Sha256::digest(policy)),
         };
+        if let Some(pack) = pack {
+            identity
+                .ruleset_version
+                .push_str(&format!("+signed-{}", pack.version()));
+            identity.policy_sha256 = format!(
+                "{:x}",
+                Sha256::digest(
+                    serde_json::to_vec(&(
+                        "symbi-signed-pack-policy-v1",
+                        &identity.policy_sha256,
+                        pack.digest()
+                    ))
+                    .expect("serializable policy")
+                )
+            );
+        }
         let mut allowed_executables = None;
         let mut configuration_error = None;
         for rule in rules {
@@ -505,10 +567,24 @@ impl SkillScanner {
             limits,
             identity,
             configuration_error,
+            pack_expires_at: pack.map(|pack| pack.expires_at()),
         }
     }
 
     fn configuration_finding(&self, file: &str) -> Option<ScanFinding> {
+        if self.pack_expires_at.is_some_and(|expires| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(true, |now| now.as_secs() >= expires)
+        }) {
+            return Some(ScanFinding {
+                rule: "rule-pack-expired".into(),
+                severity: ScanSeverity::High,
+                message: "Selected rule pack expired; update required".into(),
+                line: None,
+                file: file.into(),
+            });
+        }
         self.configuration_error.as_ref().map(|error| ScanFinding {
             rule: "scan-configuration-invalid".into(),
             severity: ScanSeverity::High,
@@ -1408,5 +1484,16 @@ mod tests {
                 );
             }
         }
+    }
+    #[test]
+    fn retained_scanner_refuses_expired_pack() {
+        let mut scanner = SkillScanner::new();
+        scanner.pack_expires_at = Some(0);
+        let dir = tempfile::tempdir().unwrap();
+        assert!(!scanner.scan_skill(dir.path()).passed);
+        assert_eq!(
+            scanner.scan_content("", "SKILL.md")[0].rule,
+            "rule-pack-expired"
+        );
     }
 }

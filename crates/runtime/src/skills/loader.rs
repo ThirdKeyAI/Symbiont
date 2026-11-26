@@ -85,7 +85,10 @@ impl SkillLoader {
                 .iter()
                 .map(|p| super::scanner::ScanRule::DenyContentPattern(p.clone()))
                 .collect();
-            Some(SkillScanner::with_custom_rules(custom_rules))
+            Some(match &config.rule_pack_dir {
+                Some(dir) => SkillScanner::with_rule_store(custom_rules, Default::default(), dir),
+                None => SkillScanner::with_custom_rules(custom_rules),
+            })
         } else {
             None
         };
@@ -781,6 +784,7 @@ mod tests {
             auto_pin: false,
             scan_enabled: true,
             custom_deny_patterns: vec![],
+            rule_pack_dir: None,
         };
         let mut loader = SkillLoader::new(config);
         let skill = loader.load_skill(&skill_dir).unwrap();
@@ -810,6 +814,7 @@ mod tests {
             auto_pin: false,
             scan_enabled: false,
             custom_deny_patterns: vec![],
+            rule_pack_dir: None,
         };
         let mut loader = SkillLoader::new(config);
         let skills = loader.load_all();
@@ -837,6 +842,7 @@ mod tests {
             auto_pin: false,
             scan_enabled: false,
             custom_deny_patterns: vec![],
+            rule_pack_dir: None,
         };
         let mut loader = SkillLoader::new(config);
         let skills = loader.load_all();
@@ -858,6 +864,7 @@ mod tests {
             auto_pin: false,
             scan_enabled: false,
             custom_deny_patterns: vec![],
+            rule_pack_dir: None,
         };
         let loader = SkillLoader::new(config);
         assert!(loader.is_unsigned_allowed(&skill_dir));

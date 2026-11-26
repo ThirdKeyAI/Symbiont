@@ -2,8 +2,9 @@
 
 The current scanner is an offline, deterministic content scanner. Its rules ship
 with Symbiont. This foundation adds validation, explicit deny/advisory semantics,
-policy identity and regression evidence; it does not download new rules or claim
-complete coverage of current malicious skills.
+policy identity and regression evidence. The separate opt-in
+[signed updater](clawhavoc-updates.md) can download additive rule packs. Neither
+mode claims complete coverage of current malicious skills.
 
 ## Updating a rule
 
@@ -53,7 +54,7 @@ can evade these signatures. An interpreter allowlist checks recognized shebangs,
 not all command execution. A passing scan never replaces runtime authorization,
 filesystem/network restrictions or independently verified publisher identity.
 
-## AgentSniff assessment and next stage
+## AgentSniff assessment and signed updates
 
 Reviewed AgentSniff at `4d58d71d68273e241894c84db112ffc189424287` (Apache-2.0):
 
@@ -68,14 +69,13 @@ keys or datasets are copied, and no dependency is added. Its network-service,
 framework and domain fingerprints are not malicious-skill indicators; importing
 them as deny rules would confuse detection of agent software with maliciousness.
 
-For a future signed rule-pack updater, reuse those architectural principles with
-an independently pinned ClawHavoc publisher key, one signed manifest binding every
-file and version, strict schema/regex validation, bounded reads, rollback/freeze
-protection, and crash-safe activation with a last-known-good generation. Do not
-copy AgentSniff's keys or wire format without a separate compatibility review.
-Test interrupted updates, mixed generations, wrong keys, invalid rules, oversized
-packs and offline recovery before enabling downloads. Rule updates should enter
-review through tested PRs; this foundation installs no scheduled updater.
+The opt-in updater applies those principles using one signed envelope containing
+all rules, version and expiry, an independently pinned ClawHavoc publisher key,
+strict schema/regex validation, bounded reads, monotonic versions, and atomic
+activation retaining the previous generation. It uses the existing SchemaPin
+ES256 API, not AgentSniff's keys or double-hashed wire format. See
+[signed updates](clawhavoc-updates.md) for the protocol and recovery limitations.
+Rule changes should enter review through tested PRs. No scheduled updater is installed.
 
 Primary research and comparison sources for subsequent coverage work:
 

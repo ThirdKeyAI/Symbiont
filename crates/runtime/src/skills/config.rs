@@ -16,6 +16,8 @@ pub struct SkillsConfig {
     /// User-defined blocking deny patterns (regex strings, High severity).
     /// Invalid patterns fail the complete scan configuration.
     pub custom_deny_patterns: Vec<String>,
+    /// Opt-in operator-owned signed rule store. Missing/invalid packs fail scans.
+    pub rule_pack_dir: Option<PathBuf>,
 }
 
 impl Default for SkillsConfig {
@@ -39,6 +41,7 @@ impl Default for SkillsConfig {
             auto_pin: true,
             scan_enabled: true,
             custom_deny_patterns: Vec::new(),
+            rule_pack_dir: None,
         }
     }
 }

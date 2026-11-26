@@ -7,10 +7,16 @@ pub async fn run(matches: &ArgMatches) {
     match matches.subcommand() {
         Some(("list", _)) => cmd_list().await,
         Some(("scan", sub)) => cmd_scan(sub).await,
+        Some(("rules", sub)) => {
+            if let Err(error) = cmd_rules(sub).await {
+                eprintln!("Rule feed error: {error:#}");
+                std::process::exit(1);
+            }
+        }
         Some(("verify", sub)) => cmd_verify(sub).await,
         Some(("sign", sub)) => cmd_sign(sub).await,
         _ => {
-            println!("Usage: symbi skills <list|scan|verify|sign>");
+            println!("Usage: symbi skills <list|scan|rules|verify|sign>");
             println!("Run 'symbi skills --help' for details.");
         }
     }
@@ -83,7 +89,10 @@ async fn cmd_scan(matches: &ArgMatches) {
         rules.extend(patterns.cloned().map(ScanRule::WarnContentPattern));
     }
     // Compatibility constructor retains invalid policy identity in failed JSON results.
-    let scanner = SkillScanner::with_custom_rules(rules);
+    let scanner = match matches.get_one::<String>("rules-dir") {
+        Some(dir) => SkillScanner::with_rule_store(rules, Default::default(), Path::new(dir)),
+        None => SkillScanner::with_custom_rules(rules),
+    };
     let start = std::time::Instant::now();
 
     let result = scanner.scan_skill_with_progress(&dir, |progress| {
@@ -348,4 +357,77 @@ fn truncate(s: &str, max_len: usize) -> String {
     } else {
         s.to_string()
     }
+}
+
+fn rule_store(matches: &ArgMatches) -> anyhow::Result<PathBuf> {
+    matches
+        .get_one::<String>("store")
+        .map(PathBuf::from)
+        .map(Ok)
+        .unwrap_or_else(|| {
+            std::env::var_os("HOME")
+                .map(|home| PathBuf::from(home).join(".symbiont/clawhavoc"))
+                .ok_or_else(|| anyhow::anyhow!("HOME is unavailable; supply --store"))
+        })
+}
+
+async fn cmd_rules(matches: &ArgMatches) -> anyhow::Result<()> {
+    use symbi_runtime::skills::rule_pack::{self, MAX_PACK_BYTES};
+    let required = |sub: &ArgMatches, name: &str| -> anyhow::Result<String> {
+        sub.get_one::<String>(name)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("missing {name}"))
+    };
+    match matches.subcommand() {
+        Some(("init", sub)) => {
+            let dir = rule_store(sub)?;
+            let key = rule_pack::read_rule_file(Path::new(&required(sub, "public-key")?), 8192)?;
+            rule_pack::initialize_rule_feed(
+                &dir,
+                &required(sub, "url")?,
+                std::str::from_utf8(&key)?,
+            )?;
+            println!(
+                "Pinned rule feed in {}. Run skills rules update to fetch it.",
+                dir.display()
+            );
+        }
+        Some(("update", sub)) => {
+            let pack = rule_pack::update_rule_feed(&rule_store(sub)?).await?;
+            println!(
+                "Verified rule pack {} / SHA-256 {}",
+                pack.version(),
+                pack.digest()
+            );
+        }
+        Some(("status", sub)) => {
+            let pack = rule_pack::load_rule_pack(&rule_store(sub)?)?;
+            println!(
+                "Verified rule pack {} / expires {} / SHA-256 {}",
+                pack.version(),
+                pack.expires_at(),
+                pack.digest()
+            );
+        }
+        Some(("sign", sub)) => {
+            let input =
+                rule_pack::read_rule_file(Path::new(&required(sub, "input")?), MAX_PACK_BYTES)?;
+            let key = rule_pack::read_rule_file(Path::new(&required(sub, "key")?), 8192)?;
+            let signed = rule_pack::sign_rule_pack(
+                serde_json::from_slice(&input)?,
+                std::str::from_utf8(&key)?,
+            )?;
+            let output = required(sub, "output")?;
+            // Never overwrite a publisher's existing artifact or follow an output link.
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&output)?;
+            file.write_all(&signed)?;
+            file.sync_all()?;
+            println!("Signed rule pack written to {output}");
+        }
+        _ => anyhow::bail!("use skills rules <init|update|status|sign>"),
+    }
+    Ok(())
 }
