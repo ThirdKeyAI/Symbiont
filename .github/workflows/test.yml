@@ -75,7 +75,9 @@ jobs:
           cargo build -p symbi-sandbox-supervisor
           export SYMBIONT_SANDBOX_SUPERVISOR="$PWD/target/debug/symbi-sandbox-supervisor"
           export SYMBIONT_SANDBOX_STATE_DIR="$RUNNER_TEMP/sandbox-leases"
-          cargo test -p symbi-sandbox-supervisor --test lifecycle -- --ignored --test-threads=2
+          # These cases share one Docker daemon. Keep their bounded synthetic
+          # delays independent of another lifecycle case's daemon operations.
+          cargo test -p symbi-sandbox-supervisor --test lifecycle -- --ignored --test-threads=1
           cargo test -p symbi-runtime --lib sandbox::docker::tests::e2e:: -- --ignored --test-threads=2
       - name: Lint Cedar policies
         run: |

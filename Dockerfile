@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev \
     git \
     ca-certificates \
+    curl \
     clang \
     mold \
     protobuf-compiler \
